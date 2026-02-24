@@ -881,7 +881,7 @@ function renderFamilyMembers() {
             .join(', ');
 
         return `
-        <div class="member-card">
+        <div class="member-card" data-member-id="${member.id}">
             <div class="member-avatar-container">
                 ${generateAvatar(member)}
             </div>
@@ -1096,7 +1096,7 @@ function renderBills() {
         const safeWebsite = (bill.website && /^https?:\/\//i.test(bill.website)) ? escapeHtml(bill.website) : '';
 
         return `
-            <div class="bill-item">
+            <div class="bill-item" data-bill-id="${bill.id}">
                 <div class="bill-header-main">
                     <div class="bill-logo-container">
                         ${generateLogo(bill)}
@@ -1508,6 +1508,37 @@ function removePaymentLink(linkId) {
 
 // ──────────────── Review Requests (Disputes) ────────────────
 
+let _loadedDisputes = [];
+let _disputeStatusFilter = 'all';
+
+const DISPUTE_STATUS_LABELS = {
+    open: 'Open',
+    in_review: 'In Review',
+    resolved: 'Resolved',
+    rejected: 'Rejected'
+};
+
+function normalizeDisputeStatus(status) {
+    if (status === 'pending') return 'open';
+    if (status === 'reviewed') return 'in_review';
+    return status || 'open';
+}
+
+function disputeStatusClass(status) {
+    return 'dispute-' + status.replace('_', '-');
+}
+
+function setDisputeFilter(status) {
+    _disputeStatusFilter = status;
+    const filterBar = document.getElementById('disputeFilterBar');
+    if (filterBar) {
+        filterBar.querySelectorAll('.dispute-filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.status === status);
+        });
+    }
+    renderDisputes(_loadedDisputes);
+}
+
 async function loadDisputes() {
     const container = document.getElementById('disputesList');
     if (!container || !currentUser || !currentBillingYear) return;
@@ -1523,7 +1554,9 @@ async function loadDisputes() {
 
         const disputes = [];
         snapshot.docs.forEach(doc => {
-            disputes.push({ id: doc.id, ...doc.data() });
+            const data = doc.data();
+            data.status = normalizeDisputeStatus(data.status);
+            disputes.push({ id: doc.id, ...data });
         });
 
         disputes.sort((a, b) => {
@@ -1532,6 +1565,8 @@ async function loadDisputes() {
             return bTime - aTime;
         });
 
+        _loadedDisputes = disputes;
+        renderDisputeFilterBar(disputes);
         renderDisputes(disputes);
     } catch (error) {
         console.error('Error loading disputes:', error);
@@ -1539,62 +1574,375 @@ async function loadDisputes() {
     }
 }
 
+function renderDisputeFilterBar(disputes) {
+    const bar = document.getElementById('disputeFilterBar');
+    if (!bar) return;
+
+    const counts = { all: disputes.length, open: 0, in_review: 0, resolved: 0, rejected: 0 };
+    disputes.forEach(d => { if (counts[d.status] !== undefined) counts[d.status]++; });
+
+    const filters = [
+        { key: 'all', label: 'All' },
+        { key: 'open', label: 'Open' },
+        { key: 'in_review', label: 'In Review' },
+        { key: 'resolved', label: 'Resolved' },
+        { key: 'rejected', label: 'Rejected' }
+    ];
+
+    bar.innerHTML = filters.map(f =>
+        `<button class="dispute-filter-btn${_disputeStatusFilter === f.key ? ' active' : ''}" data-status="${f.key}" onclick="setDisputeFilter('${f.key}')">${escapeHtml(f.label)} <span class="dispute-filter-count">${counts[f.key]}</span></button>`
+    ).join('');
+}
+
 function renderDisputes(disputes) {
     const container = document.getElementById('disputesList');
     if (!container) return;
 
-    if (disputes.length === 0) {
-        container.innerHTML = '<p class="empty-state">No review requests yet.</p>';
+    const filtered = _disputeStatusFilter === 'all'
+        ? disputes
+        : disputes.filter(d => d.status === _disputeStatusFilter);
+
+    if (filtered.length === 0) {
+        const msg = _disputeStatusFilter === 'all'
+            ? 'No review requests yet.'
+            : 'No ' + (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase() + ' review requests.';
+        container.innerHTML = '<p class="empty-state">' + escapeHtml(msg) + '</p>';
         return;
     }
 
-    let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
-    disputes.forEach(d => {
+    let html = '<div class="disputes-list">';
+    filtered.forEach(d => {
         const created = d.createdAt
             ? (d.createdAt.toDate ? d.createdAt.toDate() : new Date(d.createdAt)).toLocaleDateString()
             : 'Unknown';
 
-        const statusClass = d.status === 'pending' ? 'dispute-pending'
-            : d.status === 'reviewed' ? 'dispute-reviewed' : 'dispute-resolved';
-        const statusLabel = d.status ? d.status.charAt(0).toUpperCase() + d.status.slice(1) : 'Pending';
+        const sClass = disputeStatusClass(d.status);
+        const statusLabel = DISPUTE_STATUS_LABELS[d.status] || d.status;
+        const evidenceCount = (d.evidence || []).length;
+        const userReviewState = d.userReview ? d.userReview.state : null;
 
-        html += `<div class="dispute-item ${statusClass}">
+        html += `<div class="dispute-item ${sClass}" onclick="showDisputeDetail('${escapeHtml(d.id)}')" style="cursor:pointer;">
             <div class="dispute-item-header">
                 <strong>${escapeHtml(d.billName)}</strong>
-                <span class="dispute-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+                <div class="dispute-item-badges">
+                    ${evidenceCount > 0 ? `<span class="dispute-evidence-badge" title="${evidenceCount} attachment${evidenceCount !== 1 ? 's' : ''}">${evidenceCount} file${evidenceCount !== 1 ? 's' : ''}</span>` : ''}
+                    ${userReviewState ? `<span class="dispute-user-review-badge dispute-ur-${escapeHtml(userReviewState)}">${escapeHtml(userReviewState === 'requested' ? 'Awaiting User' : userReviewState === 'approved_by_user' ? 'User Approved' : userReviewState === 'rejected_by_user' ? 'User Rejected' : userReviewState)}</span>` : ''}
+                    <span class="dispute-status-badge ${sClass}">${escapeHtml(statusLabel)}</span>
+                </div>
             </div>
             <div class="dispute-item-meta">
                 From <strong>${escapeHtml(d.memberName)}</strong> &middot; ${escapeHtml(created)}
             </div>
             <div class="dispute-item-message">${escapeHtml(d.message)}</div>
             ${d.proposedCorrection ? `<div class="dispute-item-correction">Suggested: ${escapeHtml(d.proposedCorrection)}</div>` : ''}
-            <div class="dispute-item-actions">
-                ${d.status === 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="updateDisputeStatus('${escapeHtml(d.id)}', 'reviewed')">Mark Reviewed</button>` : ''}
-                ${d.status !== 'resolved' ? `<button class="btn btn-sm btn-success" onclick="updateDisputeStatus('${escapeHtml(d.id)}', 'resolved')">Resolve</button>` : ''}
-            </div>
+            ${d.resolutionNote ? `<div class="dispute-item-resolution">Resolution: ${escapeHtml(d.resolutionNote)}</div>` : ''}
         </div>`;
     });
     html += '</div>';
     container.innerHTML = html;
 }
 
-async function updateDisputeStatus(disputeId, newStatus) {
+function getDisputeRef(disputeId) {
+    return db
+        .collection('users')
+        .doc(currentUser.uid)
+        .collection('billingYears')
+        .doc(currentBillingYear.id)
+        .collection('disputes')
+        .doc(disputeId);
+}
+
+async function updateDispute(disputeId, updates) {
     if (!currentUser || !currentBillingYear) return;
 
     try {
-        await db
-            .collection('users')
-            .doc(currentUser.uid)
-            .collection('billingYears')
-            .doc(currentBillingYear.id)
-            .collection('disputes')
-            .doc(disputeId)
-            .update({ status: newStatus });
-
-        loadDisputes();
+        await getDisputeRef(disputeId).update(updates);
+        await loadDisputes();
     } catch (error) {
         console.error('Error updating dispute:', error);
         alert('Error updating review request. Please try again.');
+    }
+}
+
+function showDisputeDetail(disputeId) {
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d) return;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    const created = d.createdAt
+        ? (d.createdAt.toDate ? d.createdAt.toDate() : new Date(d.createdAt)).toLocaleDateString()
+        : 'Unknown';
+    const sClass = disputeStatusClass(d.status);
+    const statusLabel = DISPUTE_STATUS_LABELS[d.status] || d.status;
+    const isTerminal = d.status === 'resolved' || d.status === 'rejected';
+
+    const member = familyMembers.find(m => m.id === d.memberId);
+    const bill = bills.find(b => b.id === d.billId);
+
+    let jumpLinks = '<div class="dispute-detail-links">';
+    if (bill) jumpLinks += `<a href="#" onclick="closePaymentDialog(); scrollToBill(${d.billId}); return false;">View Bill: ${escapeHtml(bill.name)}</a>`;
+    if (member) jumpLinks += `<a href="#" onclick="closePaymentDialog(); scrollToMember(${d.memberId}); return false;">View Member: ${escapeHtml(member.name)}</a>`;
+    jumpLinks += '</div>';
+
+    let statusActions = '';
+    if (!isTerminal) {
+        statusActions = '<div class="dispute-detail-actions">';
+        if (d.status === 'open') {
+            statusActions += `<button class="btn btn-sm btn-secondary" onclick="doDisputeAction('${escapeHtml(d.id)}', 'in_review')">Mark In Review</button>`;
+        }
+        statusActions += `<button class="btn btn-sm btn-success" onclick="doDisputeAction('${escapeHtml(d.id)}', 'resolved')">Resolve</button>`;
+        statusActions += `<button class="btn btn-sm btn-danger" onclick="doDisputeAction('${escapeHtml(d.id)}', 'rejected')">Reject</button>`;
+        statusActions += '</div>';
+    }
+
+    const userReviewState = d.userReview ? d.userReview.state : null;
+    let userReviewSection = '';
+    if (!isTerminal) {
+        userReviewSection = `<div class="form-group" style="margin-top:12px;">
+            <label class="checkbox-label">
+                <input type="checkbox" id="disputeUserReview" ${userReviewState === 'requested' ? 'checked' : ''} onchange="toggleUserReview('${escapeHtml(d.id)}', this.checked)" />
+                Request user approval
+            </label>
+            <p style="color:#888;font-size:0.8rem;margin-top:4px;">Sends approve/reject decision to the member via their share link.</p>
+        </div>`;
+    } else if (userReviewState) {
+        const urLabel = userReviewState === 'approved_by_user' ? 'Approved by user'
+            : userReviewState === 'rejected_by_user' ? 'Rejected by user'
+            : userReviewState;
+        userReviewSection = `<div class="dispute-detail-user-review"><strong>User Decision:</strong> ${escapeHtml(urLabel)}${d.userReview.rejectionNote ? ' — ' + escapeHtml(d.userReview.rejectionNote) : ''}</div>`;
+    }
+
+    const evidenceList = (d.evidence || []);
+    let evidenceHtml = '<div class="dispute-evidence-section"><h4>Evidence</h4>';
+    if (evidenceList.length > 0) {
+        evidenceHtml += '<div class="dispute-evidence-list">';
+        evidenceList.forEach((ev, idx) => {
+            const isImage = ev.contentType && ev.contentType.startsWith('image/');
+            evidenceHtml += `<div class="dispute-evidence-item">
+                <span class="dispute-evidence-icon">${isImage ? '&#128247;' : '&#128196;'}</span>
+                <span class="dispute-evidence-name">${escapeHtml(ev.name)}</span>
+                <span class="dispute-evidence-size">${formatFileSize(ev.size || 0)}</span>
+                <button class="btn-icon" onclick="viewEvidence('${escapeHtml(d.id)}', ${idx})" title="View">&#128065;</button>
+                <button class="btn-icon remove" onclick="removeEvidence('${escapeHtml(d.id)}', ${idx})" title="Remove">&times;</button>
+            </div>`;
+        });
+        evidenceHtml += '</div>';
+    } else {
+        evidenceHtml += '<p style="color:#999;font-size:0.9rem;">No evidence attached.</p>';
+    }
+    if (!isTerminal && evidenceList.length < 10) {
+        evidenceHtml += `<button class="btn btn-sm btn-secondary" onclick="uploadEvidence('${escapeHtml(d.id)}')" style="margin-top:8px;">Upload Evidence</button>`;
+    }
+    evidenceHtml += '</div>';
+
+    let resolvedInfo = '';
+    if (d.resolvedAt) {
+        const resolvedDate = (d.resolvedAt.toDate ? d.resolvedAt.toDate() : new Date(d.resolvedAt)).toLocaleDateString();
+        resolvedInfo = `<div class="dispute-detail-timestamp">Resolved: ${escapeHtml(resolvedDate)}</div>`;
+    }
+    if (d.rejectedAt) {
+        const rejectedDate = (d.rejectedAt.toDate ? d.rejectedAt.toDate() : new Date(d.rejectedAt)).toLocaleDateString();
+        resolvedInfo = `<div class="dispute-detail-timestamp">Rejected: ${escapeHtml(rejectedDate)}</div>`;
+    }
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>${escapeHtml(d.billName)} <span class="dispute-status-badge ${sClass}" style="font-size:0.7rem;vertical-align:middle;">${escapeHtml(statusLabel)}</span></h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div class="dispute-detail-meta">
+                From <strong>${escapeHtml(d.memberName)}</strong> &middot; ${escapeHtml(created)}
+                ${resolvedInfo}
+            </div>
+            ${jumpLinks}
+            <div class="dispute-detail-message">
+                <h4>Message</h4>
+                <p>${escapeHtml(d.message)}</p>
+            </div>
+            ${d.proposedCorrection ? `<div class="dispute-detail-correction"><h4>Suggested Correction</h4><p>${escapeHtml(d.proposedCorrection)}</p></div>` : ''}
+            <div class="form-group" style="margin-top:16px;">
+                <label for="disputeResolutionNote">Resolution Note</label>
+                <textarea id="disputeResolutionNote" rows="3" placeholder="Add a resolution note..." ${isTerminal ? 'disabled' : ''}>${escapeHtml(d.resolutionNote || '')}</textarea>
+            </div>
+            ${userReviewSection}
+            ${evidenceHtml}
+            ${statusActions}
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+}
+
+function doDisputeAction(disputeId, newStatus) {
+    const noteEl = document.getElementById('disputeResolutionNote');
+    const note = noteEl ? noteEl.value.trim() : '';
+
+    if ((newStatus === 'resolved' || newStatus === 'rejected') && !note) {
+        alert('Please add a resolution note before ' + (newStatus === 'resolved' ? 'resolving' : 'rejecting') + '.');
+        if (noteEl) noteEl.focus();
+        return;
+    }
+
+    const updates = { status: newStatus };
+    if (note) updates.resolutionNote = note;
+    if (newStatus === 'resolved') updates.resolvedAt = firebase.firestore.FieldValue.serverTimestamp();
+    if (newStatus === 'rejected') updates.rejectedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+    updateDispute(disputeId, updates).then(() => {
+        closePaymentDialog();
+    });
+}
+
+async function toggleUserReview(disputeId, checked) {
+    const updates = checked
+        ? { 'userReview.state': 'requested' }
+        : { userReview: firebase.firestore.FieldValue.delete() };
+    await updateDispute(disputeId, updates);
+    showDisputeDetail(disputeId);
+}
+
+function scrollToBill(billId) {
+    const el = document.querySelector(`#bill-${billId}, [data-bill-id="${billId}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #667eea'; setTimeout(() => { el.style.outline = ''; }, 2000); }
+}
+
+function scrollToMember(memberId) {
+    const el = document.querySelector(`[data-member-id="${memberId}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #667eea'; setTimeout(() => { el.style.outline = ''; }, 2000); }
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+const EVIDENCE_MAX_SIZE = 20 * 1024 * 1024;
+const EVIDENCE_MAX_COUNT = 10;
+const EVIDENCE_ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
+function uploadEvidence(disputeId) {
+    if (!storage) { alert('Storage is not available.'); return; }
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d) return;
+
+    const existing = (d.evidence || []).length;
+    if (existing >= EVIDENCE_MAX_COUNT) {
+        alert('Maximum ' + EVIDENCE_MAX_COUNT + ' attachments per dispute.');
+        return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = EVIDENCE_ALLOWED_TYPES.join(',');
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!EVIDENCE_ALLOWED_TYPES.includes(file.type)) {
+            alert('Only PDF, PNG, and JPEG files are allowed.');
+            return;
+        }
+        if (file.size > EVIDENCE_MAX_SIZE) {
+            alert('File is too large. Maximum size is 20 MB.');
+            return;
+        }
+
+        const storagePath = 'users/' + currentUser.uid + '/disputes/' + disputeId + '/' + Date.now() + '_' + file.name;
+        const ref = storage.ref(storagePath);
+        const uploadTask = ref.put(file);
+
+        const progressEl = document.createElement('div');
+        progressEl.className = 'dispute-evidence-progress';
+        progressEl.innerHTML = '<div class="dispute-evidence-progress-bar"><div class="dispute-evidence-progress-fill" style="width:0%"></div></div><p style="font-size:0.8rem;color:#666;margin-top:4px;">Uploading ' + escapeHtml(file.name) + '...</p>';
+        const section = document.querySelector('.dispute-evidence-section');
+        if (section) section.appendChild(progressEl);
+
+        uploadTask.on('state_changed',
+            (snapshot) => {
+                const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                const fill = progressEl.querySelector('.dispute-evidence-progress-fill');
+                if (fill) fill.style.width = pct + '%';
+            },
+            (error) => {
+                console.error('Evidence upload error:', error);
+                alert('Upload failed. Please try again.');
+                if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
+            },
+            async () => {
+                if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
+
+                const evidenceEntry = {
+                    name: file.name,
+                    storagePath: storagePath,
+                    contentType: file.type,
+                    size: file.size,
+                    uploadedAt: new Date().toISOString()
+                };
+
+                try {
+                    await getDisputeRef(disputeId).update({
+                        evidence: firebase.firestore.FieldValue.arrayUnion(evidenceEntry)
+                    });
+                    await loadDisputes();
+                    showDisputeDetail(disputeId);
+                } catch (err) {
+                    console.error('Error saving evidence metadata:', err);
+                    alert('File uploaded but metadata save failed. Please try again.');
+                }
+            }
+        );
+    };
+    input.click();
+}
+
+async function viewEvidence(disputeId, index) {
+    if (!storage) return;
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d || !d.evidence || !d.evidence[index]) return;
+
+    const ev = d.evidence[index];
+    try {
+        const url = await storage.ref(ev.storagePath).getDownloadURL();
+        window.open(url, '_blank');
+    } catch (error) {
+        console.error('Error getting evidence URL:', error);
+        alert('Could not load evidence. It may have been deleted.');
+    }
+}
+
+async function removeEvidence(disputeId, index) {
+    if (!storage) return;
+    if (!confirm('Remove this evidence file?')) return;
+
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d || !d.evidence || !d.evidence[index]) return;
+
+    const ev = d.evidence[index];
+
+    try {
+        await storage.ref(ev.storagePath).delete();
+    } catch (err) {
+        console.warn('Could not delete storage file (may already be gone):', err);
+    }
+
+    try {
+        await getDisputeRef(disputeId).update({
+            evidence: firebase.firestore.FieldValue.arrayRemove(ev)
+        });
+        await loadDisputes();
+        showDisputeDetail(disputeId);
+    } catch (err) {
+        console.error('Error removing evidence metadata:', err);
+        alert('Error removing evidence. Please try again.');
     }
 }
 
@@ -1653,6 +2001,15 @@ async function generateShareLink(memberId) {
                     Adds <code>disputes:create</code> scope so the member can flag bill line items for review.
                 </p>
             </div>
+            <div class="form-group" style="margin-top: 12px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="shareLinkDisputesRead" />
+                    Allow member to view review requests &amp; evidence
+                </label>
+                <p style="color:#888;font-size:0.8rem;margin-top:4px;">
+                    Adds <code>disputes:read</code> scope so the member can see their disputes, evidence, and approve/reject resolutions.
+                </p>
+            </div>
         </div>
         <div class="dialog-footer">
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
@@ -1684,9 +2041,13 @@ async function doGenerateShareLink(memberId) {
         }
 
         const disputeCheckbox = document.getElementById('shareLinkDisputes');
+        const disputeReadCheckbox = document.getElementById('shareLinkDisputesRead');
         const scopes = ['summary:read', 'paymentLinks:read'];
         if (disputeCheckbox && disputeCheckbox.checked) {
             scopes.push('disputes:create');
+        }
+        if (disputeReadCheckbox && disputeReadCheckbox.checked) {
+            scopes.push('disputes:read');
         }
 
         const tokenDoc = {

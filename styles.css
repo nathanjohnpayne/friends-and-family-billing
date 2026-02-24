@@ -971,16 +971,74 @@ textarea:focus {
 
 /* ──────────────── Review Requests (Disputes) ──────────────── */
 
+.dispute-filter-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.dispute-filter-btn {
+    padding: 6px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: white;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.2s;
+}
+
+.dispute-filter-btn:hover {
+    background: #f7fafc;
+    border-color: #cbd5e0;
+}
+
+.dispute-filter-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.dispute-filter-count {
+    display: inline-block;
+    background: rgba(0,0,0,0.08);
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    margin-left: 4px;
+    min-width: 18px;
+    text-align: center;
+}
+
+.dispute-filter-btn.active .dispute-filter-count {
+    background: rgba(255,255,255,0.3);
+}
+
+.disputes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 .dispute-item {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 14px 16px;
     border-left: 4px solid #e2e8f0;
+    transition: box-shadow 0.2s, transform 0.15s;
 }
 
-.dispute-item.dispute-pending { border-left-color: #ecc94b; }
-.dispute-item.dispute-reviewed { border-left-color: #667eea; }
+.dispute-item:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+}
+
+.dispute-item.dispute-open { border-left-color: #ecc94b; }
+.dispute-item.dispute-in-review { border-left-color: #667eea; }
 .dispute-item.dispute-resolved { border-left-color: #48bb78; }
+.dispute-item.dispute-rejected { border-left-color: #f56565; }
 
 .dispute-item-header {
     display: flex;
@@ -994,6 +1052,13 @@ textarea:focus {
     color: #333;
 }
 
+.dispute-item-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .dispute-status-badge {
     font-size: 0.75rem;
     font-weight: 600;
@@ -1003,9 +1068,28 @@ textarea:focus {
     letter-spacing: 0.03em;
 }
 
-.dispute-status-badge.dispute-pending { background: #fefcbf; color: #975a16; }
-.dispute-status-badge.dispute-reviewed { background: #ebf4ff; color: #3c5a99; }
+.dispute-status-badge.dispute-open { background: #fefcbf; color: #975a16; }
+.dispute-status-badge.dispute-in-review { background: #ebf4ff; color: #3c5a99; }
 .dispute-status-badge.dispute-resolved { background: #f0fff4; color: #276749; }
+.dispute-status-badge.dispute-rejected { background: #fff5f5; color: #c53030; }
+
+.dispute-evidence-badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #edf2f7;
+    color: #4a5568;
+}
+
+.dispute-user-review-badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.dispute-ur-requested { background: #fef3c7; color: #92400e; }
+.dispute-ur-approved_by_user { background: #d1fae5; color: #065f46; }
+.dispute-ur-rejected_by_user { background: #fee2e2; color: #991b1b; }
 
 .dispute-item-meta {
     font-size: 0.85rem;
@@ -1029,10 +1113,155 @@ textarea:focus {
     margin-bottom: 8px;
 }
 
+.dispute-item-resolution {
+    font-size: 0.9rem;
+    color: #276749;
+    background: rgba(72, 187, 120, 0.08);
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
 .dispute-item-actions {
     display: flex;
     gap: 8px;
     margin-top: 4px;
+}
+
+/* ──────────────── Dispute Detail Dialog ──────────────── */
+
+.dispute-detail-meta {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 12px;
+}
+
+.dispute-detail-timestamp {
+    font-size: 0.85rem;
+    color: #999;
+    margin-top: 4px;
+}
+
+.dispute-detail-links {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.dispute-detail-links a {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.dispute-detail-links a:hover {
+    text-decoration: underline;
+}
+
+.dispute-detail-message h4,
+.dispute-detail-correction h4 {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 4px;
+}
+
+.dispute-detail-message p,
+.dispute-detail-correction p {
+    font-size: 0.95rem;
+    color: #333;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.dispute-detail-correction p {
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.06);
+    padding: 8px 12px;
+    border-radius: 4px;
+}
+
+.dispute-detail-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.dispute-detail-user-review {
+    font-size: 0.9rem;
+    color: #555;
+    padding: 8px 12px;
+    background: #f7fafc;
+    border-radius: 6px;
+    margin-top: 12px;
+}
+
+/* ──────────────── Evidence Section ──────────────── */
+
+.dispute-evidence-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.dispute-evidence-section h4 {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 8px;
+}
+
+.dispute-evidence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dispute-evidence-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #f7fafc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.dispute-evidence-icon {
+    font-size: 1.1rem;
+}
+
+.dispute-evidence-name {
+    flex: 1;
+    color: #333;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dispute-evidence-size {
+    color: #999;
+    font-size: 0.8rem;
+}
+
+.dispute-evidence-progress {
+    margin-top: 8px;
+}
+
+.dispute-evidence-progress-bar {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.dispute-evidence-progress-fill {
+    height: 100%;
+    background: #667eea;
+    border-radius: 3px;
+    transition: width 0.3s;
 }
 
 .btn-sm {

@@ -15,6 +15,7 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
   - Cloud Firestore (NoSQL database)
   - Firebase Hosting with CDN
   - Firebase Analytics
+  - Firebase Storage (dispute evidence uploads)
 - **Image Processing:** Canvas API for client-side compression (max 200x200px PNG)
 - **Dependencies:** Firebase SDK v10.7.1 loaded via CDN (compat libraries)
 
@@ -30,6 +31,7 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
 ├── firebase-config.js         # Firebase initialization and SDK exports
 ├── styles.css                 # Application styles (~540 lines)
 ├── firestore.rules            # Firestore security rules
+├── storage.rules              # Firebase Storage security rules
 ├── firebase.json              # Firebase hosting and deployment configuration
 ├── package.json               # Test script (npm test)
 ├── tests/
@@ -88,7 +90,35 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
   │     emailMessage: string
   │   }
   └── updatedAt: Timestamp
+
+/users/{userId}/billingYears/{yearId}/disputes/{disputeId}
+  ├── memberId: number
+  ├── memberName: string
+  ├── billId: number
+  ├── billName: string
+  ├── message: string (max 2000 chars)
+  ├── proposedCorrection: string|null (max 500 chars)
+  ├── status: "open"|"in_review"|"resolved"|"rejected"
+  ├── resolutionNote: string|null
+  ├── resolvedAt: Timestamp|null
+  ├── rejectedAt: Timestamp|null
+  ├── evidence: Array<{
+  │     name: string,
+  │     storagePath: string,
+  │     contentType: string,
+  │     size: number,
+  │     uploadedAt: string (ISO 8601)
+  │   }>
+  ├── userReview: {
+  │     state: "requested"|"approved_by_user"|"rejected_by_user",
+  │     rejectionNote: string|null,
+  │     decidedAt: Timestamp|null
+  │   }|null
+  ├── createdAt: Timestamp
+  └── tokenHash: string (SHA-256 of share token)
 ```
+
+**Storage path:** `users/{userId}/disputes/{disputeId}/{timestamp}_{filename}`
 
 **Security rules** enforce that users can only read/write their own document:
 
@@ -113,8 +143,9 @@ Scripts must load in this exact order (all pages):
 1. `firebase-app-compat.js` - Core Firebase
 2. `firebase-auth-compat.js` - Authentication
 3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html only)
-4. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
-5. `firebase-config.js` - Initializes Firebase, exports `auth`, `db`, `analytics`
+4. `firebase-storage-compat.js` - Storage (index.html only)
+5. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
+5. `firebase-config.js` - Initializes Firebase, exports `auth`, `db`, `storage`, `analytics`
 6. `script.js` or `auth.js` - Application logic
 
 ## Key Functions (script.js)
@@ -162,6 +193,20 @@ Scripts must load in this exact order (all pages):
 - `repairDuplicateIds()` - Fixes duplicate member IDs (runs automatically on load)
 - `cleanupInvalidBillMembers()` - Removes invalid member references from bills (runs automatically on load)
 
+### Dispute Resolution (Admin)
+- `normalizeDisputeStatus(status)` - Maps legacy statuses (`pending`→`open`, `reviewed`→`in_review`)
+- `loadDisputes()` - Loads disputes from Firestore, normalizes statuses, renders filter bar and list
+- `renderDisputeFilterBar(disputes)` - Renders status filter buttons (All/Open/In Review/Resolved/Rejected) with counts
+- `setDisputeFilter(status)` - Applies client-side status filter and re-renders
+- `renderDisputes(disputes)` - Renders filtered dispute cards (clickable to open detail)
+- `showDisputeDetail(disputeId)` - Detail dialog with status actions, resolution note, evidence, user review toggle, quick-jump links
+- `doDisputeAction(disputeId, newStatus)` - Changes status with resolution note (required for resolve/reject)
+- `updateDispute(disputeId, updates)` - Writes arbitrary updates to a dispute doc
+- `toggleUserReview(disputeId, checked)` - Sets/clears `userReview.state = 'requested'`
+- `uploadEvidence(disputeId)` - File picker with validation (PDF/PNG/JPEG, 20MB max, 10 max), uploads to Storage, saves metadata
+- `viewEvidence(disputeId, index)` - Opens evidence file via Storage download URL
+- `removeEvidence(disputeId, index)` - Deletes evidence from Storage and removes metadata
+
 ### Rendering
 - `renderFamilyMembers()` - Renders member cards with avatars, edit/delete controls
 - `renderBills()` - Renders bill cards with logos, member checkboxes
@@ -182,6 +227,22 @@ Scripts must load in this exact order (all pages):
 - `handleSignup(event)` - Account creation with password confirmation
 - `handleGoogleSignIn()` - Google OAuth sign-in
 - `getErrorMessage(errorCode)` - Maps Firebase error codes to user-friendly messages
+
+## Cloud Functions (functions/index.js)
+
+- `resolveShareToken` - POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment links
+- `submitDispute` - POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token
+- `getEvidenceUrl` - POST endpoint: returns a 1-hour signed URL for a dispute evidence file (requires `disputes:read` scope, validates member ownership)
+- `submitDisputeDecision` - POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent)
+
+### Share Token Scopes
+
+| Scope | Purpose |
+|-------|---------|
+| `summary:read` | View billing summary and bill breakdown |
+| `paymentLinks:read` | View payment links (Venmo, Zelle, etc.) |
+| `disputes:create` | Submit new review requests |
+| `disputes:read` | View disputes, evidence, and approve/reject resolutions |
 
 ## Payment Ledger
 

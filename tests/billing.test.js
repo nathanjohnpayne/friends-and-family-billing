@@ -21,6 +21,8 @@ function _set(key, val) {
         case 'currentUser': currentUser = val; break;
         case 'currentBillingYear': currentBillingYear = val; break;
         case 'billingYears': billingYears = val; break;
+        case '_loadedDisputes': _loadedDisputes = val; break;
+        case '_disputeStatusFilter': _disputeStatusFilter = val; break;
     }
 }
 function _get(key) {
@@ -32,6 +34,12 @@ function _get(key) {
         case 'currentUser': return currentUser;
         case 'currentBillingYear': return currentBillingYear;
         case 'billingYears': return billingYears;
+        case '_loadedDisputes': return _loadedDisputes;
+        case '_disputeStatusFilter': return _disputeStatusFilter;
+        case 'EVIDENCE_MAX_SIZE': return EVIDENCE_MAX_SIZE;
+        case 'EVIDENCE_MAX_COUNT': return EVIDENCE_MAX_COUNT;
+        case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
+        case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
     }
 }
 `;
@@ -142,6 +150,13 @@ function createContext(overrides = {}) {
             }),
         },
         analytics: { logEvent: () => {} },
+        storage: {
+            ref: () => ({
+                put: () => ({ on: () => {} }),
+                getDownloadURL: () => Promise.resolve('https://example.com/file'),
+                delete: () => Promise.resolve(),
+            }),
+        },
         ...overrides,
     };
 
@@ -1451,6 +1466,131 @@ describe('DISPUTE_RATE_LIMIT', () => {
     it('is set to a reasonable value', () => {
         assert.equal(typeof DISPUTE_RATE_LIMIT, 'number');
         assert.ok(DISPUTE_RATE_LIMIT > 0 && DISPUTE_RATE_LIMIT <= 100);
+    });
+});
+
+// ──────────────── normalizeDisputeStatus ─────────────────────
+
+describe('normalizeDisputeStatus', () => {
+    it('maps pending to open', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('pending'), 'open');
+    });
+
+    it('maps reviewed to in_review', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('reviewed'), 'in_review');
+    });
+
+    it('passes through resolved', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('resolved'), 'resolved');
+    });
+
+    it('passes through rejected', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('rejected'), 'rejected');
+    });
+
+    it('passes through open', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('open'), 'open');
+    });
+
+    it('passes through in_review', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus('in_review'), 'in_review');
+    });
+
+    it('defaults to open for null/undefined', () => {
+        const ctx = createContext();
+        assert.equal(ctx.normalizeDisputeStatus(null), 'open');
+        assert.equal(ctx.normalizeDisputeStatus(undefined), 'open');
+        assert.equal(ctx.normalizeDisputeStatus(''), 'open');
+    });
+});
+
+// ──────────────── disputeStatusClass ─────────────────────
+
+describe('disputeStatusClass', () => {
+    it('returns correct class for open', () => {
+        const ctx = createContext();
+        assert.equal(ctx.disputeStatusClass('open'), 'dispute-open');
+    });
+
+    it('returns correct class for in_review', () => {
+        const ctx = createContext();
+        assert.equal(ctx.disputeStatusClass('in_review'), 'dispute-in-review');
+    });
+
+    it('returns correct class for resolved', () => {
+        const ctx = createContext();
+        assert.equal(ctx.disputeStatusClass('resolved'), 'dispute-resolved');
+    });
+
+    it('returns correct class for rejected', () => {
+        const ctx = createContext();
+        assert.equal(ctx.disputeStatusClass('rejected'), 'dispute-rejected');
+    });
+});
+
+// ──────────────── formatFileSize ─────────────────────
+
+describe('formatFileSize', () => {
+    it('formats bytes', () => {
+        const ctx = createContext();
+        assert.equal(ctx.formatFileSize(500), '500 B');
+    });
+
+    it('formats kilobytes', () => {
+        const ctx = createContext();
+        assert.equal(ctx.formatFileSize(2048), '2.0 KB');
+    });
+
+    it('formats megabytes', () => {
+        const ctx = createContext();
+        assert.equal(ctx.formatFileSize(5 * 1024 * 1024), '5.0 MB');
+    });
+
+    it('formats zero', () => {
+        const ctx = createContext();
+        assert.equal(ctx.formatFileSize(0), '0 B');
+    });
+});
+
+// ──────────────── Evidence constants ─────────────────────
+
+describe('Evidence constraints', () => {
+    it('EVIDENCE_MAX_SIZE is 20MB', () => {
+        const ctx = createContext();
+        assert.equal(ctx._get('EVIDENCE_MAX_SIZE'), 20 * 1024 * 1024);
+    });
+
+    it('EVIDENCE_MAX_COUNT is 10', () => {
+        const ctx = createContext();
+        assert.equal(ctx._get('EVIDENCE_MAX_COUNT'), 10);
+    });
+
+    it('EVIDENCE_ALLOWED_TYPES includes PDF, PNG, JPEG', () => {
+        const ctx = createContext();
+        const types = ctx._get('EVIDENCE_ALLOWED_TYPES');
+        assert.ok(types.includes('application/pdf'));
+        assert.ok(types.includes('image/png'));
+        assert.ok(types.includes('image/jpeg'));
+        assert.equal(types.length, 3);
+    });
+});
+
+// ──────────────── DISPUTE_STATUS_LABELS ─────────────────────
+
+describe('DISPUTE_STATUS_LABELS', () => {
+    it('has labels for all statuses', () => {
+        const ctx = createContext();
+        const labels = ctx._get('DISPUTE_STATUS_LABELS');
+        assert.equal(labels.open, 'Open');
+        assert.equal(labels.in_review, 'In Review');
+        assert.equal(labels.resolved, 'Resolved');
+        assert.equal(labels.rejected, 'Rejected');
     });
 });
 

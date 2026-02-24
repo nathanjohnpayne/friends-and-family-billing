@@ -292,6 +292,103 @@
             .no-print { display: none; }
         }
 
+        .share-dispute-item {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px 16px;
+            border-left: 4px solid #e2e8f0;
+            margin-bottom: 10px;
+        }
+        .share-dispute-item.sd-open { border-left-color: #ecc94b; }
+        .share-dispute-item.sd-in-review { border-left-color: #667eea; }
+        .share-dispute-item.sd-resolved { border-left-color: #48bb78; }
+        .share-dispute-item.sd-rejected { border-left-color: #f56565; }
+
+        .sd-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .sd-header strong { font-size: 1rem; color: #333; }
+        .sd-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 12px;
+            text-transform: uppercase;
+        }
+        .sd-badge.sd-open { background: #fefcbf; color: #975a16; }
+        .sd-badge.sd-in-review { background: #ebf4ff; color: #3c5a99; }
+        .sd-badge.sd-resolved { background: #f0fff4; color: #276749; }
+        .sd-badge.sd-rejected { background: #fff5f5; color: #c53030; }
+
+        .sd-meta { font-size: 0.85rem; color: #888; margin-bottom: 8px; }
+        .sd-message { font-size: 0.95rem; color: #444; line-height: 1.5; margin-bottom: 6px; }
+        .sd-correction {
+            font-size: 0.9rem;
+            color: #667eea;
+            background: rgba(102,126,234,0.06);
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .sd-resolution {
+            font-size: 0.9rem;
+            color: #276749;
+            background: rgba(72,187,120,0.08);
+            padding: 6px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .sd-evidence-list {
+            margin-top: 8px;
+        }
+        .sd-evidence-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: #f7fafc;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 0.9rem;
+        }
+        .sd-evidence-item a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .sd-evidence-item a:hover { text-decoration: underline; }
+
+        .sd-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .sd-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .sd-btn-approve { background: #48bb78; color: white; }
+        .sd-btn-approve:hover { background: #38a169; }
+        .sd-btn-reject { background: #f56565; color: white; }
+        .sd-btn-reject:hover { background: #e53e3e; }
+        .sd-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .sd-user-decision {
+            font-size: 0.85rem;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-top: 8px;
+        }
+        .sd-user-decision.approved { background: #d1fae5; color: #065f46; }
+        .sd-user-decision.rejected { background: #fee2e2; color: #991b1b; }
+
         @media (max-width: 600px) {
             .payment-summary-grid { grid-template-columns: 1fr; }
             .payment-links-grid { grid-template-columns: 1fr; }
@@ -339,6 +436,11 @@
             <div id="paymentLinksCard" class="card" style="display:none;">
                 <h2>Payment Options</h2>
                 <div class="payment-links-grid" id="paymentLinksGrid"></div>
+            </div>
+
+            <div id="disputesCard" class="card" style="display:none;">
+                <h2>Review Requests</h2>
+                <div id="shareDisputesList"></div>
             </div>
 
             <div class="no-print" style="text-align:center; margin-top: 16px;">
@@ -498,6 +600,123 @@
             }
         }
 
+        var STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
+
+        function renderShareDisputes(disputes) {
+            var card = document.getElementById('disputesCard');
+            var container = document.getElementById('shareDisputesList');
+            if (!disputes || disputes.length === 0) return;
+
+            card.style.display = 'block';
+            var html = '';
+
+            disputes.forEach(function(d) {
+                var sClass = 'sd-' + (d.status || 'open').replace('_', '-');
+                var label = STATUS_LABELS[d.status] || d.status;
+                var created = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '';
+
+                html += '<div class="share-dispute-item ' + sClass + '">';
+                html += '<div class="sd-header"><strong>' + escapeHtml(d.billName) + '</strong>';
+                html += '<span class="sd-badge ' + sClass + '">' + escapeHtml(label) + '</span></div>';
+                if (created) html += '<div class="sd-meta">' + escapeHtml(created) + '</div>';
+                html += '<div class="sd-message">' + escapeHtml(d.message) + '</div>';
+                if (d.proposedCorrection) html += '<div class="sd-correction">Suggested: ' + escapeHtml(d.proposedCorrection) + '</div>';
+                if (d.resolutionNote) html += '<div class="sd-resolution">Resolution: ' + escapeHtml(d.resolutionNote) + '</div>';
+
+                if (d.evidence && d.evidence.length > 0) {
+                    html += '<div class="sd-evidence-list">';
+                    d.evidence.forEach(function(ev) {
+                        var icon = ev.contentType && ev.contentType.startsWith('image/') ? '&#128247;' : '&#128196;';
+                        html += '<div class="sd-evidence-item">'
+                            + '<span>' + icon + '</span>'
+                            + '<a href="#" onclick="fetchEvidenceUrl(\'' + escapeHtml(d.id) + '\', ' + ev.index + '); return false;">' + escapeHtml(ev.name) + '</a>'
+                            + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                var ur = d.userReview;
+                if (ur && ur.state === 'requested') {
+                    html += '<div class="sd-actions" id="sd-actions-' + escapeHtml(d.id) + '">'
+                        + '<button class="sd-btn sd-btn-approve" onclick="submitDecision(\'' + escapeHtml(d.id) + '\', \'approve\')">Approve</button>'
+                        + '<button class="sd-btn sd-btn-reject" onclick="promptRejectDecision(\'' + escapeHtml(d.id) + '\')">Reject</button>'
+                        + '</div>';
+                } else if (ur && ur.state === 'approved_by_user') {
+                    html += '<div class="sd-user-decision approved">You approved this resolution.</div>';
+                } else if (ur && ur.state === 'rejected_by_user') {
+                    html += '<div class="sd-user-decision rejected">You rejected this resolution.' + (ur.rejectionNote ? ' — ' + escapeHtml(ur.rejectionNote) : '') + '</div>';
+                }
+
+                html += '</div>';
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function fetchEvidenceUrl(disputeId, evidenceIndex) {
+            try {
+                var resp = await fetch(FUNCTION_BASE + '/getEvidenceUrl', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: _shareToken, disputeId: disputeId, evidenceIndex: evidenceIndex })
+                });
+                var data = await resp.json();
+                if (!resp.ok) {
+                    alert(data.error || 'Could not load evidence.');
+                    return;
+                }
+                window.open(data.url, '_blank');
+            } catch (err) {
+                console.error('Evidence URL error:', err);
+                alert('Could not load evidence. Please try again.');
+            }
+        }
+
+        async function submitDecision(disputeId, decision, note) {
+            var actionsEl = document.getElementById('sd-actions-' + disputeId);
+            if (actionsEl) {
+                actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+            }
+
+            try {
+                var body = { token: _shareToken, disputeId: disputeId, decision: decision };
+                if (note) body.note = note;
+
+                var resp = await fetch(FUNCTION_BASE + '/submitDisputeDecision', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                var data = await resp.json();
+
+                if (!resp.ok) {
+                    alert(data.error || 'Could not submit decision.');
+                    if (actionsEl) actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+                    return;
+                }
+
+                if (actionsEl) {
+                    var cls = decision === 'approve' ? 'approved' : 'rejected';
+                    var msg = decision === 'approve' ? 'You approved this resolution.' : 'You rejected this resolution.';
+                    actionsEl.outerHTML = '<div class="sd-user-decision ' + cls + '">' + escapeHtml(msg) + '</div>';
+                }
+            } catch (err) {
+                console.error('Decision error:', err);
+                alert('Could not connect to the server. Please try again.');
+                if (actionsEl) actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+            }
+        }
+
+        function promptRejectDecision(disputeId) {
+            var note = prompt('Please explain why you are rejecting this resolution:');
+            if (note === null) return;
+            if (!note.trim()) {
+                alert('A note is required when rejecting.');
+                return;
+            }
+            submitDecision(disputeId, 'reject', note.trim());
+        }
+
         async function load() {
             var params = new URLSearchParams(window.location.search);
             var token = params.get('token');
@@ -612,6 +831,10 @@
                         a.textContent = pl.name;
                         linksGrid.appendChild(a);
                     });
+                }
+
+                if (data.disputes && data.disputes.length > 0) {
+                    renderShareDisputes(data.disputes);
                 }
 
             } catch (err) {

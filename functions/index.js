@@ -1,10 +1,17 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
+const { getStorage } = require("firebase-admin/storage");
 const crypto = require("crypto");
 
 initializeApp();
 const db = getFirestore();
+
+let _bucket = null;
+function getBucket() {
+  if (!_bucket) _bucket = getStorage().bucket();
+  return _bucket;
+}
 
 const DISPUTE_RATE_LIMIT = 10;
 const DISPUTE_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -147,6 +154,43 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       result.paymentLinks = yearSettings.paymentLinks || [];
     }
 
+    if (scopes.includes("disputes:read")) {
+      const disputesSnap = await db
+        .collection("users")
+        .doc(tokenData.ownerId)
+        .collection("billingYears")
+        .doc(tokenData.billingYearId)
+        .collection("disputes")
+        .where("memberId", "==", tokenData.memberId)
+        .get();
+
+      result.disputes = disputesSnap.docs.map((doc) => {
+        const data = doc.data();
+        let status = data.status || "open";
+        if (status === "pending") status = "open";
+        if (status === "reviewed") status = "in_review";
+        return {
+          id: doc.id,
+          billId: data.billId,
+          billName: data.billName,
+          message: data.message,
+          proposedCorrection: data.proposedCorrection || null,
+          status: status,
+          resolutionNote: data.resolutionNote || null,
+          createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+          resolvedAt: data.resolvedAt ? data.resolvedAt.toDate().toISOString() : null,
+          rejectedAt: data.rejectedAt ? data.rejectedAt.toDate().toISOString() : null,
+          evidence: (data.evidence || []).map((ev, idx) => ({
+            index: idx,
+            name: ev.name,
+            contentType: ev.contentType,
+            size: ev.size,
+          })),
+          userReview: data.userReview || null,
+        };
+      });
+    }
+
     res.status(200).json(result);
   } catch (err) {
     console.error("resolveShareToken error:", err);
@@ -269,7 +313,7 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
       billName: billName.trim(),
       message: message.trim(),
       proposedCorrection: proposedCorrection ? proposedCorrection.trim() : null,
-      status: "pending",
+      status: "open",
       createdAt: FieldValue.serverTimestamp(),
       tokenHash: tokenHash,
     };
@@ -279,6 +323,195 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
     res.status(201).json({ id: docRef.id, message: "Review request submitted successfully." });
   } catch (err) {
     console.error("submitDispute error:", err);
+    res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+  }
+});
+
+exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) => {
+  setCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { token, disputeId, evidenceIndex } = req.body || {};
+
+  const tokenCheck = validateToken(token);
+  if (!tokenCheck.valid) {
+    res.status(tokenCheck.status).json({ error: tokenCheck.error });
+    return;
+  }
+
+  if (!disputeId || typeof disputeId !== "string") {
+    res.status(400).json({ error: "Missing dispute ID." });
+    return;
+  }
+
+  if (typeof evidenceIndex !== "number" || evidenceIndex < 0) {
+    res.status(400).json({ error: "Invalid evidence index." });
+    return;
+  }
+
+  try {
+    const result = await resolveAndValidateToken(token, "disputes:read");
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    const { tokenData } = result;
+
+    const disputeDoc = await db
+      .collection("users")
+      .doc(tokenData.ownerId)
+      .collection("billingYears")
+      .doc(tokenData.billingYearId)
+      .collection("disputes")
+      .doc(disputeId)
+      .get();
+
+    if (!disputeDoc.exists) {
+      res.status(404).json({ error: "Dispute not found." });
+      return;
+    }
+
+    const disputeData = disputeDoc.data();
+
+    if (disputeData.memberId !== tokenData.memberId) {
+      res.status(403).json({ error: "Access denied." });
+      return;
+    }
+
+    const evidence = disputeData.evidence || [];
+    if (evidenceIndex >= evidence.length) {
+      res.status(404).json({ error: "Evidence not found." });
+      return;
+    }
+
+    const ev = evidence[evidenceIndex];
+    const file = getBucket().file(ev.storagePath);
+
+    const [url] = await file.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 3600000,
+    });
+
+    res.status(200).json({ url });
+  } catch (err) {
+    console.error("getEvidenceUrl error:", err);
+    res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+  }
+});
+
+exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req, res) => {
+  setCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { token, disputeId, decision, note } = req.body || {};
+
+  const tokenCheck = validateToken(token);
+  if (!tokenCheck.valid) {
+    res.status(tokenCheck.status).json({ error: tokenCheck.error });
+    return;
+  }
+
+  if (!disputeId || typeof disputeId !== "string") {
+    res.status(400).json({ error: "Missing dispute ID." });
+    return;
+  }
+
+  if (decision !== "approve" && decision !== "reject") {
+    res.status(400).json({ error: "Decision must be 'approve' or 'reject'." });
+    return;
+  }
+
+  if (decision === "reject" && (!note || typeof note !== "string" || note.trim().length === 0)) {
+    res.status(400).json({ error: "A note is required when rejecting." });
+    return;
+  }
+
+  if (note && typeof note === "string" && note.length > 2000) {
+    res.status(400).json({ error: "Note is too long (max 2000 characters)." });
+    return;
+  }
+
+  try {
+    const result = await resolveAndValidateToken(token, "disputes:read");
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    const { tokenData } = result;
+
+    const disputeRef = db
+      .collection("users")
+      .doc(tokenData.ownerId)
+      .collection("billingYears")
+      .doc(tokenData.billingYearId)
+      .collection("disputes")
+      .doc(disputeId);
+
+    const disputeDoc = await disputeRef.get();
+
+    if (!disputeDoc.exists) {
+      res.status(404).json({ error: "Dispute not found." });
+      return;
+    }
+
+    const disputeData = disputeDoc.data();
+
+    if (disputeData.memberId !== tokenData.memberId) {
+      res.status(403).json({ error: "Access denied." });
+      return;
+    }
+
+    const currentState = disputeData.userReview ? disputeData.userReview.state : null;
+
+    if (currentState === "approved_by_user" || currentState === "rejected_by_user") {
+      res.status(200).json({ message: "Decision already recorded.", alreadyDecided: true });
+      return;
+    }
+
+    if (currentState !== "requested") {
+      res.status(400).json({ error: "This dispute is not awaiting your decision." });
+      return;
+    }
+
+    if (decision === "approve") {
+      await disputeRef.update({
+        status: "resolved",
+        "userReview.state": "approved_by_user",
+        "userReview.decidedAt": FieldValue.serverTimestamp(),
+        resolvedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      await disputeRef.update({
+        status: "open",
+        "userReview.state": "rejected_by_user",
+        "userReview.rejectionNote": note.trim(),
+        "userReview.decidedAt": FieldValue.serverTimestamp(),
+      });
+    }
+
+    res.status(200).json({ message: "Decision recorded successfully." });
+  } catch (err) {
+    console.error("submitDisputeDecision error:", err);
     res.status(500).json({ error: "An unexpected error occurred. Please try again." });
   }
 });
