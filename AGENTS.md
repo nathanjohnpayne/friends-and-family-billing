@@ -132,8 +132,7 @@ Scripts must load in this exact order (all pages):
 ### Invoicing
 - `generateInvoice()` - Full annual invoice in a new window (printable)
 - `sendIndividualInvoice(memberId)` - Individual member invoice via mailto link
-- `generateInvoiceHTML(summary, year, forPrint)` - Renders printable HTML invoice
-- `generateIndividualInvoiceHTML(memberData, year)` - Renders individual invoice HTML
+- `generateInvoiceHTML(summary, year)` - Renders printable HTML invoice
 
 ### Data Integrity
 - `debugDataIntegrity()` - Logs data state to console for debugging
