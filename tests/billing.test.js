@@ -482,3 +482,95 @@ describe('editBillWebsite URL validation', () => {
         assert.equal(ctx._get('bills')[0].website, '');
     });
 });
+
+// ──────────────────── sanitizeImageSrc ─────────────────────────
+
+describe('sanitizeImageSrc', () => {
+    it('allows valid data:image/png URIs', () => {
+        const ctx = createContext();
+        const valid = 'data:image/png;base64,iVBORw0KGgo=';
+        assert.equal(ctx.sanitizeImageSrc(valid), valid);
+    });
+
+    it('allows valid data:image/jpeg URIs', () => {
+        const ctx = createContext();
+        const valid = 'data:image/jpeg;base64,/9j/4AAQ=';
+        assert.equal(ctx.sanitizeImageSrc(valid), valid);
+    });
+
+    it('rejects javascript: URIs', () => {
+        const ctx = createContext();
+        assert.equal(ctx.sanitizeImageSrc('javascript:alert(1)'), '');
+    });
+
+    it('rejects external https URLs', () => {
+        const ctx = createContext();
+        assert.equal(ctx.sanitizeImageSrc('https://evil.com/tracker.png'), '');
+    });
+
+    it('rejects data URIs with non-image types', () => {
+        const ctx = createContext();
+        assert.equal(ctx.sanitizeImageSrc('data:text/html;base64,PHNjcmlwdD4='), '');
+    });
+
+    it('returns empty string for falsy values', () => {
+        const ctx = createContext();
+        assert.equal(ctx.sanitizeImageSrc(''), '');
+        assert.equal(ctx.sanitizeImageSrc(null), '');
+        assert.equal(ctx.sanitizeImageSrc(undefined), '');
+    });
+});
+
+// ──────────────── analytics null guard ─────────────────────────
+
+describe('analytics null guard', () => {
+    it('does not throw when analytics is null', () => {
+        const ctx = createContext({ analytics: null });
+        ctx._set('familyMembers', []);
+        ctx._set('bills', []);
+
+        // addFamilyMember calls analytics.logEvent — should not throw
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'Test User' };
+            if (id === 'memberEmail') return { value: '' };
+            if (id === 'familyMembersList') return { innerHTML: '' };
+            if (id === 'billsList') return { innerHTML: '' };
+            if (id === 'annualSummary') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '' };
+        };
+
+        assert.doesNotThrow(() => ctx.addFamilyMember());
+    });
+});
+
+// ──────────── import replaces with empty arrays ───────────────
+
+describe('importFromLocalStorage with empty arrays', () => {
+    it('replaces existing data even when imported arrays are empty', async () => {
+        const storage = {
+            familyMembers: '[]',
+            bills: '[]',
+            settings: null,
+        };
+
+        const ctx = createContext({
+            confirm: () => true,
+            alert: () => {},
+            localStorage: {
+                getItem: (key) => storage[key] || null,
+            },
+        });
+
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Existing', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'OldBill', amount: 50, logo: '', website: '', members: [1] },
+        ]);
+
+        await ctx.importFromLocalStorage();
+
+        assert.equal(ctx._get('familyMembers').length, 0, 'familyMembers should be empty after importing []');
+        assert.equal(ctx._get('bills').length, 0, 'bills should be empty after importing []');
+    });
+});

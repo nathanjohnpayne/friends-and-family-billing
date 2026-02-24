@@ -43,7 +43,7 @@ async function handleLogin(event) {
         await auth.signInWithEmailAndPassword(email, password);
 
         // Analytics: Track login
-        if (typeof analytics !== 'undefined') {
+        if (analytics) {
             analytics.logEvent('login', { method: 'email' });
         }
 
@@ -75,7 +75,7 @@ async function handleSignup(event) {
         await auth.createUserWithEmailAndPassword(email, password);
 
         // Analytics: Track signup
-        if (typeof analytics !== 'undefined') {
+        if (analytics) {
             analytics.logEvent('sign_up', { method: 'email' });
         }
 
@@ -119,7 +119,7 @@ async function handleGoogleSignIn() {
         const result = await auth.signInWithPopup(provider);
 
         // Analytics: Track Google sign-in
-        if (typeof analytics !== 'undefined') {
+        if (analytics) {
             const isNewUser = result.additionalUserInfo?.isNewUser || false;
             analytics.logEvent(isNewUser ? 'sign_up' : 'login', { method: 'google' });
         }

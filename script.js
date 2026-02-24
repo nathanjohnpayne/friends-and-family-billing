@@ -207,24 +207,32 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+// Only allow data: image URIs (produced by the Canvas compression pipeline).
+// Rejects external URLs, javascript: schemes, and malformed values.
+function sanitizeImageSrc(src) {
+    if (!src) return '';
+    if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(src)) return src;
+    return '';
+}
+
 function getInitials(name) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
 
 function generateAvatar(member) {
-    if (member.avatar) {
-        return `<img src="${member.avatar}" alt="${escapeHtml(member.name)}" class="avatar" />`;
-    } else {
-        return `<div class="avatar avatar-initials">${escapeHtml(getInitials(member.name))}</div>`;
+    const safeSrc = sanitizeImageSrc(member.avatar);
+    if (safeSrc) {
+        return `<img src="${safeSrc}" alt="${escapeHtml(member.name)}" class="avatar" />`;
     }
+    return `<div class="avatar avatar-initials">${escapeHtml(getInitials(member.name))}</div>`;
 }
 
 function generateLogo(bill) {
-    if (bill.logo) {
-        return `<img src="${bill.logo}" alt="${escapeHtml(bill.name)}" class="logo" />`;
-    } else {
-        return `<div class="logo logo-text">${escapeHtml(bill.name)}</div>`;
+    const safeSrc = sanitizeImageSrc(bill.logo);
+    if (safeSrc) {
+        return `<img src="${safeSrc}" alt="${escapeHtml(bill.name)}" class="logo" />`;
     }
+    return `<div class="logo logo-text">${escapeHtml(bill.name)}</div>`;
 }
 
 // Helper: Upload image and convert to base64 (with compression)
@@ -352,7 +360,7 @@ function addFamilyMember() {
     updateSummary();
 
     // Analytics: Track family member added
-    if (typeof analytics !== 'undefined') {
+    if (analytics) {
         analytics.logEvent('family_member_added', {
             has_email: !!email,
             total_members: familyMembers.length
@@ -588,7 +596,7 @@ function addBill() {
     updateSummary();
 
     // Analytics: Track bill added
-    if (typeof analytics !== 'undefined') {
+    if (analytics) {
         analytics.logEvent('bill_added', {
             has_website: !!website,
             amount: amount,
@@ -1056,24 +1064,20 @@ async function importFromLocalStorage() {
         console.log('- Bills:', importedBills.length);
 
         // Replace current data with imported data
-        if (importedMembers.length > 0) {
-            familyMembers = importedMembers.map(m => {
-                if (!m.email) m.email = '';
-                if (!m.avatar) m.avatar = '';
-                if (m.paymentReceived === undefined) m.paymentReceived = 0;
-                if (!m.linkedMembers) m.linkedMembers = [];
-                return m;
-            });
-        }
+        familyMembers = importedMembers.map(m => {
+            if (!m.email) m.email = '';
+            if (!m.avatar) m.avatar = '';
+            if (m.paymentReceived === undefined) m.paymentReceived = 0;
+            if (!m.linkedMembers) m.linkedMembers = [];
+            return m;
+        });
 
-        if (importedBills.length > 0) {
-            bills = importedBills.map(b => {
-                if (!b.logo) b.logo = '';
-                if (!b.website) b.website = '';
-                if (!b.members) b.members = [];
-                return b;
-            });
-        }
+        bills = importedBills.map(b => {
+            if (!b.logo) b.logo = '';
+            if (!b.website) b.website = '';
+            if (!b.members) b.members = [];
+            return b;
+        });
 
         if (importedSettings) {
             settings = importedSettings;
@@ -1261,7 +1265,7 @@ function sendIndividualInvoice(memberId) {
     window.location.href = mailtoLink;
 
     // Analytics: Track invoice sent
-    if (typeof analytics !== 'undefined') {
+    if (analytics) {
         analytics.logEvent('invoice_sent', {
             has_linked_members: linkedMembersData.length > 0,
             num_linked_members: linkedMembersData.length,
@@ -1388,8 +1392,9 @@ function generateInvoiceHTML(summary, currentYear) {
 
     Object.values(summary).forEach(data => {
         const safeName = escapeHtml(data.member.name);
-        const avatarHTML = data.member.avatar
-            ? `<img src="${data.member.avatar}" class="avatar" alt="${safeName}" />`
+        const safeAvatarSrc = sanitizeImageSrc(data.member.avatar);
+        const avatarHTML = safeAvatarSrc
+            ? `<img src="${safeAvatarSrc}" class="avatar" alt="${safeName}" />`
             : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
 
         html += `
@@ -1415,8 +1420,9 @@ function generateInvoiceHTML(summary, currentYear) {
         if (data.total === 0) return;
 
         const safeName = escapeHtml(data.member.name);
-        const avatarHTML = data.member.avatar
-            ? `<img src="${data.member.avatar}" class="avatar" alt="${safeName}" />`
+        const safeAvatarSrc = sanitizeImageSrc(data.member.avatar);
+        const avatarHTML = safeAvatarSrc
+            ? `<img src="${safeAvatarSrc}" class="avatar" alt="${safeName}" />`
             : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
 
         html += `
@@ -1437,8 +1443,9 @@ function generateInvoiceHTML(summary, currentYear) {
 
         data.bills.forEach(billData => {
             const safeBillName = escapeHtml(billData.bill.name);
-            const logoHTML = billData.bill.logo
-                ? `<img src="${billData.bill.logo}" class="logo" alt="${safeBillName}" />`
+            const safeLogoSrc = sanitizeImageSrc(billData.bill.logo);
+            const logoHTML = safeLogoSrc
+                ? `<img src="${safeLogoSrc}" class="logo" alt="${safeBillName}" />`
                 : `<div class="logo-text">${safeBillName}</div>`;
 
             html += `
