@@ -1,16 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read/write their own data
+
+    // Users can only read/write their own top-level document
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
+      // Year-scoped billing data — owner only
       match /billingYears/{yearId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
 
+        // Disputes — owner only (Cloud Functions use Admin SDK for share-link writes)
         match /disputes/{disputeId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
         }
+      }
+
+      // Audit log — owner can read, only server (Admin SDK) can write
+      match /auditLog/{logId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
       }
     }
 
@@ -20,10 +29,19 @@ service cloud.firestore {
     match /shareTokens/{tokenId} {
       allow read, update, delete: if request.auth != null
         && resource.data.ownerId == request.auth.uid;
+
       allow create: if request.auth != null
-        && request.resource.data.ownerId == request.auth.uid;
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.keys().hasAll(['ownerId', 'memberId', 'billingYearId', 'scopes', 'revoked'])
+        && request.resource.data.revoked == false;
+
       allow list: if request.auth != null
-        && request.auth.uid == resource.data.ownerId;
+        && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Deny everything else by default (implicit, but explicit for clarity)
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

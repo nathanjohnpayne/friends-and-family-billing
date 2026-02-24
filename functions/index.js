@@ -33,6 +33,20 @@ function setCors(req, res) {
 
 const { computeMemberSummary } = require("./billing");
 
+const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+function appendAuditLog(ownerId, entry) {
+  return db
+    .collection("users")
+    .doc(ownerId)
+    .collection("auditLog")
+    .add({
+      ...entry,
+      timestamp: FieldValue.serverTimestamp(),
+    })
+    .catch((err) => console.error("Audit log write failed:", err));
+}
+
 exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res) => {
   setCors(req, res);
 
@@ -132,6 +146,14 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       })
       .catch(() => {});
 
+    appendAuditLog(tokenData.ownerId, {
+      action: "share_link_accessed",
+      tokenHash: hash,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
+      ip: req.ip || null,
+    });
+
     const scopes = tokenData.scopes || ["summary:read", "paymentLinks:read"];
     const result = {
       memberName: primarySummary.name,
@@ -221,7 +243,7 @@ function validateDisputeInput({ billId, billName, message, proposedCorrection })
   return { valid: true };
 }
 
-exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT };
+exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS };
 
 async function resolveAndValidateToken(token, requiredScope) {
   const hash = crypto.createHash("sha256").update(token).digest("hex");
@@ -320,6 +342,15 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
 
     const docRef = await disputesRef.add(dispute);
 
+    appendAuditLog(tokenData.ownerId, {
+      action: "dispute_submitted",
+      disputeId: docRef.id,
+      memberId: tokenData.memberId,
+      billId: billId,
+      billingYearId: tokenData.billingYearId,
+      ip: req.ip || null,
+    });
+
     res.status(201).json({ id: docRef.id, message: "Review request submitted successfully." });
   } catch (err) {
     console.error("submitDispute error:", err);
@@ -399,7 +430,16 @@ exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) =
 
     const [url] = await file.getSignedUrl({
       action: "read",
-      expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      expires: Date.now() + EVIDENCE_URL_EXPIRY_MS,
+    });
+
+    appendAuditLog(tokenData.ownerId, {
+      action: "evidence_accessed",
+      disputeId: disputeId,
+      evidenceIndex: evidenceIndex,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
+      ip: req.ip || null,
     });
 
     res.status(200).json({ url });
@@ -508,6 +548,15 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
         "userReview.decidedAt": FieldValue.serverTimestamp(),
       });
     }
+
+    appendAuditLog(tokenData.ownerId, {
+      action: "dispute_decision",
+      disputeId: disputeId,
+      decision: decision,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
+      ip: req.ip || null,
+    });
 
     res.status(200).json({ message: "Decision recorded successfully." });
   } catch (err) {

@@ -1368,7 +1368,7 @@ describe('computeMemberSummary', () => {
 // ──────────────── submitDispute validation helpers ─────────────
 
 const { _testHelpers } = require(path.join(__dirname, '..', 'functions', 'index'));
-const { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT } = _testHelpers;
+const { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS } = _testHelpers;
 
 describe('validateToken', () => {
     it('rejects null/undefined token', () => {
@@ -1467,6 +1467,12 @@ describe('DISPUTE_RATE_LIMIT', () => {
     it('is set to a reasonable value', () => {
         assert.equal(typeof DISPUTE_RATE_LIMIT, 'number');
         assert.ok(DISPUTE_RATE_LIMIT > 0 && DISPUTE_RATE_LIMIT <= 100);
+    });
+});
+
+describe('EVIDENCE_URL_EXPIRY_MS', () => {
+    it('is 1 hour in milliseconds', () => {
+        assert.equal(EVIDENCE_URL_EXPIRY_MS, 60 * 60 * 1000);
     });
 });
 
