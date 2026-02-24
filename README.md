@@ -49,10 +49,8 @@ A cloud-based web application for managing and splitting monthly bills among fam
 - ✅ Hierarchical display showing parent-child relationships
 
 ### 🔧 Data Management
-- ✅ Import from LocalStorage (migration tool)
-- ✅ Data repair tools for integrity issues
-- ✅ Clear all data option
 - ✅ Real-time cloud sync across devices
+- ✅ Automatic data integrity repair on load
 - ✅ Data verification tool (check_data.html)
 - ✅ Cloud Firestore persistence with per-user isolation
 
@@ -240,18 +238,9 @@ firebase deploy
 4. Check console for specific error codes
 
 ### Payment Calculations
-1. Use "Repair Data" button in Data Management
+1. Hard refresh the page (data repair runs automatically on load)
 2. Re-enter payment amounts
 3. Verify linked members are configured correctly
-
-## Migration from LocalStorage
-
-If you used the app before Firebase integration:
-
-1. Log into https://friends-and-family-billing.web.app
-2. Scroll to "Data Management" section
-3. Click "Import from LocalStorage"
-4. Your old data will be migrated to Firebase
 
 ## Cost
 
@@ -270,7 +259,7 @@ If you used the app before Firebase integration:
 - ✅ Fixed proportional payment distribution for linked members
 - ✅ Fixed logo black background issue (PNG compression)
 - ✅ Fixed data loading issue (async/await)
-- ✅ Added LocalStorage migration tool
+- ✅ Removed legacy Data Management section (LocalStorage import, manual repair, clear all)
 - ✅ Added data verification tool
 - ✅ Added cache-control headers
 
