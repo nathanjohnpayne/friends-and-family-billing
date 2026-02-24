@@ -76,6 +76,14 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
   │     website: string,
   │     members: number[] (member IDs assigned to this bill)
   │   }>
+  ├── payments: Array<{
+  │     id: string (e.g. "pay_1708000000000_12345"),
+  │     memberId: number,
+  │     amount: number,
+  │     receivedAt: string (ISO 8601),
+  │     note: string,
+  │     method: string ("cash"|"check"|"venmo"|"zelle"|"paypal"|"bank_transfer"|"other")
+  │   }>
   ├── settings: {
   │     emailMessage: string
   │   }
@@ -131,12 +139,23 @@ Scripts must load in this exact order (all pages):
 
 ### Calculations & Payments
 - `calculateAnnualSummary()` - Computes monthly/yearly totals per member across all bills
-- `updatePayment(memberId, value)` - Distributes payment proportionally among parent + linked members
+- `recordPayment(memberId, amount, method, note, distribute)` - Creates ledger entry (or distributed entries for linked members)
+- `getPaymentTotalForMember(memberId)` - Derives paid-to-date total from ledger for a member
+- `getMemberPayments(memberId)` - Returns sorted payment history for a member
+- `deletePaymentEntry(paymentId, memberId)` - Removes a payment entry from the ledger
+- `migratePaymentReceivedToLedger()` - One-time migration of legacy `paymentReceived` values into ledger entries
 
 ### Invoicing
 - `generateInvoice()` - Full annual invoice in a new window (printable)
 - `sendIndividualInvoice(memberId)` - Individual member invoice via mailto link
 - `generateInvoiceHTML(summary, year)` - Renders printable HTML invoice
+
+### Payment UI
+- `showAddPaymentDialog(memberId)` - Modal dialog to record a payment with amount, method, and note
+- `submitPayment(memberId)` - Reads dialog inputs and calls `recordPayment`
+- `showPaymentHistory(memberId)` - Modal showing all ledger entries for a member
+- `closePaymentDialog()` - Closes the payment dialog overlay
+- `ensureDialogContainer()` - Lazily creates the dialog overlay DOM
 
 ### Data Integrity
 - `debugDataIntegrity()` - Logs data state to console for debugging
@@ -164,17 +183,21 @@ Scripts must load in this exact order (all pages):
 - `handleGoogleSignIn()` - Google OAuth sign-in
 - `getErrorMessage(errorCode)` - Maps Firebase error codes to user-friendly messages
 
-## Payment Distribution Logic
+## Payment Ledger
 
-When a payment is entered for a parent with linked child members:
+Payments are stored as an append-only ledger per billing year. Each entry records `{id, memberId, amount, receivedAt, note, method}`. The per-member "paid to date" total is derived by summing all ledger entries for that member. Legacy `paymentReceived` counters are automatically migrated into a single "migration payment" entry on first load.
+
+### Distributed Payments
+
+When recording a payment for a parent with linked child members (with the "distribute" option):
 
 1. Calculate total owed by parent + all linked children
-2. Distribute payment proportionally based on individual totals
-3. Update each person's `paymentReceived` field
+2. Create individual ledger entries proportional to each person's annual total
+3. Last child receives the rounding remainder to ensure the sum equals the entered amount
 
 Example: Parent owes $1,000, Child owes $500 (total: $1,500). Payment of $900:
-- Parent receives: $900 x ($1,000 / $1,500) = $600
-- Child receives: $900 x ($500 / $1,500) = $300
+- Parent entry: $900 × ($1,000 / $1,500) = $600
+- Child entry: $900 × ($500 / $1,500) = $300
 
 ## UI/CSS Design System
 
@@ -199,7 +222,10 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 Covered areas:
 - `escapeHtml` - XSS prevention utility
 - `calculateAnnualSummary` - bill splitting math across members and multiple bills
-- `updatePayment` - proportional payment distribution for linked members, negative clamping
+- `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection
+- `getPaymentTotalForMember` - per-member ledger sum derivation
+- `migratePaymentReceivedToLedger` - legacy migration, parent/child split, idempotency, zero-out
+- `deletePaymentEntry` - ledger entry removal
 - `manageLinkMembers` - link preservation and cross-parent isolation
 - `editBillWebsite` - URL validation (rejects non-http schemes)
 - `isValidE164` - E.164 phone validation (format, length, leading zero rejection)

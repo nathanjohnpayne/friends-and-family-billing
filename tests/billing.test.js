@@ -16,6 +16,7 @@ function _set(key, val) {
     switch(key) {
         case 'familyMembers': familyMembers = val; break;
         case 'bills': bills = val; break;
+        case 'payments': payments = val; break;
         case 'settings': settings = val; break;
         case 'currentUser': currentUser = val; break;
         case 'currentBillingYear': currentBillingYear = val; break;
@@ -26,6 +27,7 @@ function _get(key) {
     switch(key) {
         case 'familyMembers': return familyMembers;
         case 'bills': return bills;
+        case 'payments': return payments;
         case 'settings': return settings;
         case 'currentUser': return currentUser;
         case 'currentBillingYear': return currentBillingYear;
@@ -50,12 +52,14 @@ function createContext(overrides = {}) {
     const ctx = {
         // Minimal DOM stubs
         document: {
+            body: { appendChild: () => {} },
             addEventListener: () => {},
             getElementById: () => ({
                 innerHTML: '',
                 textContent: '',
                 value: '',
                 style: {},
+                classList: { add: () => {}, remove: () => {}, contains: () => false },
             }),
             querySelector: () => ({ style: {} }),
             querySelectorAll: () => [],
@@ -248,11 +252,12 @@ describe('calculateAnnualSummary', () => {
     });
 });
 
-// ───────────────────────── updatePayment ──────────────────────
+// ───────────────────────── recordPayment ──────────────────────
 
-describe('updatePayment', () => {
-    it('sets paymentReceived on a simple (unlinked) member', () => {
+describe('recordPayment', () => {
+    it('appends a payment entry to the ledger', () => {
         const ctx = createContext();
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
@@ -260,25 +265,34 @@ describe('updatePayment', () => {
             { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
         ]);
 
-        ctx.updatePayment(1, '500');
-        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 500);
+        ctx.recordPayment(1, 500, 'venmo', 'Q1 payment', false);
+
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 1);
+        assert.equal(payments[0].memberId, 1);
+        assert.equal(payments[0].amount, 500);
+        assert.equal(payments[0].method, 'venmo');
+        assert.equal(payments[0].note, 'Q1 payment');
+        assert.equal(ctx.getPaymentTotalForMember(1), 500);
     });
 
-    it('clamps negative values to zero', () => {
+    it('rejects non-positive amounts', () => {
         const ctx = createContext();
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
-        ctx._set('bills', [
-            { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
-        ]);
 
-        ctx.updatePayment(1, '-50');
-        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 0);
+        ctx.recordPayment(1, -50, 'cash', '', false);
+        assert.equal(ctx._get('payments').length, 0);
+
+        ctx.recordPayment(1, 0, 'cash', '', false);
+        assert.equal(ctx._get('payments').length, 0);
     });
 
     it('distributes payment proportionally among linked members', () => {
         const ctx = createContext();
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
@@ -287,17 +301,18 @@ describe('updatePayment', () => {
             { id: 100, name: 'Phone', amount: 100, logo: '', website: '', members: [1, 2] },
         ]);
 
-        // Both owe $50/mo = $600/yr each, combined $1200
-        ctx.updatePayment(1, '600');
+        // Both owe $600/yr each, combined $1200
+        ctx.recordPayment(1, 600, 'cash', 'Annual', true);
 
-        const members = ctx._get('familyMembers');
-        assert.equal(members[0].paymentReceived, 600);
-        // Child gets proportional share: 600 * (600/1200) = 300
-        assert.equal(members[1].paymentReceived, 300);
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 2);
+        assert.equal(ctx.getPaymentTotalForMember(1), 300);
+        assert.equal(ctx.getPaymentTotalForMember(2), 300);
     });
 
     it('distributes proportionally with unequal bill assignments', () => {
         const ctx = createContext();
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
@@ -307,35 +322,152 @@ describe('updatePayment', () => {
             { id: 101, name: 'Insurance', amount: 200, logo: '', website: '', members: [1] },
         ]);
 
-        // Parent: $50/mo + $200/mo = $3000/yr
-        // Child: $50/mo = $600/yr
-        // Combined: $3600
-        const payment = 1800;
-        ctx.updatePayment(1, String(payment));
+        // Parent: $50/mo + $200/mo = $3000/yr; Child: $50/mo = $600/yr; Combined: $3600
+        ctx.recordPayment(1, 1800, 'check', '', true);
 
-        const members = ctx._get('familyMembers');
-        const expectedChild = payment * (600 / 3600);
-
-        assert.equal(members[0].paymentReceived, payment);
+        const expectedChild = 1800 * (600 / 3600);
         assert.ok(
-            Math.abs(members[1].paymentReceived - expectedChild) < 0.01,
-            `Child payment ${members[1].paymentReceived} should be ~${expectedChild}`
+            Math.abs(ctx.getPaymentTotalForMember(2) - expectedChild) < 0.01,
+            `Child payment ${ctx.getPaymentTotalForMember(2)} should be ~${expectedChild}`
+        );
+        assert.ok(
+            Math.abs(ctx.getPaymentTotalForMember(1) + ctx.getPaymentTotalForMember(2) - 1800) < 0.01,
+            'Total distributed should equal payment amount'
         );
     });
 
     it('handles zero combined total without NaN', () => {
         const ctx = createContext();
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
         ctx._set('bills', []);
 
-        ctx.updatePayment(1, '100');
-        const members = ctx._get('familyMembers');
-        assert.equal(members[0].paymentReceived, 100);
-        assert.equal(members[1].paymentReceived, 0);
-        assert.ok(!Number.isNaN(members[1].paymentReceived));
+        ctx.recordPayment(1, 100, 'cash', '', true);
+
+        const payments = ctx._get('payments');
+        payments.forEach(p => {
+            assert.ok(!Number.isNaN(p.amount), 'Amount should not be NaN');
+        });
+    });
+});
+
+// ──────────────── getPaymentTotalForMember ─────────────────────
+
+describe('getPaymentTotalForMember', () => {
+    it('returns 0 when no payments exist', () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        assert.equal(ctx.getPaymentTotalForMember(1), 0);
+    });
+
+    it('sums payments for the specified member only', () => {
+        const ctx = createContext();
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 100, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+            { id: 'p2', memberId: 1, amount: 200, receivedAt: new Date().toISOString(), note: '', method: 'venmo' },
+            { id: 'p3', memberId: 2, amount: 500, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        assert.equal(ctx.getPaymentTotalForMember(1), 300);
+        assert.equal(ctx.getPaymentTotalForMember(2), 500);
+    });
+});
+
+// ──────────────── migratePaymentReceivedToLedger ──────────────
+
+describe('migratePaymentReceivedToLedger', () => {
+    it('converts independent member paymentReceived to ledger entry', () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 500, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 1);
+        assert.equal(payments[0].memberId, 1);
+        assert.equal(payments[0].amount, 500);
+        assert.ok(payments[0].note.includes('legacy') || payments[0].note.includes('Migrated'));
+    });
+
+    it('correctly splits parent/child payments during migration', () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 600, linkedMembers: [2] },
+            { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 200, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        // Parent's own share: 600 - 200 = 400; Child keeps 200
+        assert.equal(ctx.getPaymentTotalForMember(1), 400);
+        assert.equal(ctx.getPaymentTotalForMember(2), 200);
+    });
+
+    it('is idempotent — does not re-migrate if payments exist', () => {
+        const ctx = createContext();
+        ctx._set('payments', [
+            { id: 'existing', memberId: 1, amount: 100, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 500, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 1, 'Should not add migration entries when payments exist');
+        assert.equal(payments[0].id, 'existing');
+    });
+
+    it('skips members with zero paymentReceived', () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        assert.equal(ctx._get('payments').length, 0);
+    });
+
+    it('zeroes out paymentReceived after migration', () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 500, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 0);
+    });
+});
+
+// ──────────────── deletePaymentEntry ──────────────────────────
+
+describe('deletePaymentEntry', () => {
+    it('removes a payment entry from the ledger', () => {
+        const ctx = createContext();
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 100, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+            { id: 'p2', memberId: 1, amount: 200, receivedAt: new Date().toISOString(), note: '', method: 'venmo' },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.deletePaymentEntry('p1', 1);
+
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 1);
+        assert.equal(payments[0].id, 'p2');
     });
 });
 
@@ -535,16 +667,17 @@ describe('archived year guards', () => {
         assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
     });
 
-    it('prevents updatePayment when year is archived', () => {
+    it('prevents recordPayment when year is archived', () => {
         const alerts = [];
         const ctx = createContext({ alert: (msg) => alerts.push(msg) });
         ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
-            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 100, linkedMembers: [] },
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
 
-        ctx.updatePayment(1, '500');
-        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 100, 'Payment should not change');
+        ctx.recordPayment(1, 500, 'cash', '', false);
+        assert.equal(ctx._get('payments').length, 0, 'Payment should not be recorded');
     });
 
     it('prevents addBill when year is archived', () => {
@@ -600,6 +733,7 @@ describe('archived year guards', () => {
     it('allows mutations when year is open', () => {
         const ctx = createContext();
         ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('payments', []);
         ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
@@ -607,8 +741,8 @@ describe('archived year guards', () => {
             { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
         ]);
 
-        ctx.updatePayment(1, '500');
-        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 500, 'Payment should update when open');
+        ctx.recordPayment(1, 500, 'cash', '', false);
+        assert.equal(ctx.getPaymentTotalForMember(1), 500, 'Payment should be recorded when open');
     });
 });
 
@@ -630,6 +764,9 @@ describe('startNewYear', () => {
         ctx._set('bills', [
             { id: 100, name: 'Internet', amount: 120, logo: '', website: 'https://isp.com', members: [1, 2] },
         ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 300, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
 
         await ctx.startNewYear();
 
@@ -641,6 +778,8 @@ describe('startNewYear', () => {
         assert.equal(savedMembers[1].paymentReceived, 0, 'Bob payment should be reset');
         assert.equal(savedMembers[0].name, 'Alice', 'Name should be preserved');
         assert.equal(savedMembers[0].linkedMembers.length, 1, 'Links should be preserved');
+
+        assert.equal(yearSave[0].payments.length, 0, 'Payments should start empty for new year');
 
         const savedBills = yearSave[0].bills;
         assert.equal(savedBills.length, 1, 'Bills should be cloned');

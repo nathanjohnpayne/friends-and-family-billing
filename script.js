@@ -1,6 +1,7 @@
 // Data storage
 let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, linkedMembers: [memberIds]}
 let bills = []; // Array of {id, name, amount, logo, website, members: [memberIds]}
+let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
 let settings = {
     emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.'
 };
@@ -100,6 +101,7 @@ async function loadData() {
                 archivedAt: null,
                 familyMembers: [],
                 bills: [],
+                payments: [],
                 settings: settings,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -214,6 +216,7 @@ function saveData() {
                 archivedAt: currentBillingYear.archivedAt || null,
                 familyMembers: familyMembers,
                 bills: bills,
+                payments: payments,
                 settings: settings,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -315,6 +318,8 @@ async function loadBillingYearData(yearId) {
             return b;
         });
 
+        payments = yearData.payments || [];
+
         if (yearData.settings) {
             settings = yearData.settings;
         }
@@ -322,10 +327,13 @@ async function loadBillingYearData(yearId) {
         if (!isArchivedYear() && familyMembers.length > 0) {
             repairDuplicateIds();
         }
+
+        migratePaymentReceivedToLedger();
     } else {
         currentBillingYear = { id: yearId, label: yearId, status: 'open', createdAt: null, archivedAt: null };
         familyMembers = [];
         bills = [];
+        payments = [];
     }
 }
 
@@ -431,6 +439,7 @@ async function startNewYear() {
             archivedAt: null,
             familyMembers: clonedMembers,
             bills: clonedBills,
+            payments: [],
             settings: { emailMessage: settings.emailMessage },
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -821,6 +830,8 @@ function removeFamilyMember(id) {
 
     familyMembers = familyMembers.filter(m => m.id !== id);
 
+    payments = payments.filter(p => p.memberId !== id);
+
     // Remove from all bills
     bills.forEach(bill => {
         bill.members = bill.members.filter(memberId => memberId !== id);
@@ -1190,24 +1201,9 @@ function updateSummary() {
                 }
             });
 
-            const payment = member.paymentReceived || 0;
+            const payment = getPaymentTotalForMember(member.id) +
+                member.linkedMembers.reduce((sum, id) => sum + getPaymentTotalForMember(id), 0);
 
-            // Calculate actual payments for parent and children
-            let actualParentPayment = payment;
-            let totalChildPayments = 0;
-
-            member.linkedMembers.forEach(linkedId => {
-                const linkedMember = familyMembers.find(m => m.id === linkedId);
-                if (linkedMember) {
-                    const childPayment = linkedMember.paymentReceived || 0;
-                    totalChildPayments += childPayment;
-                }
-            });
-
-            // Parent's actual payment is the total minus what was distributed to children
-            actualParentPayment = payment - totalChildPayments;
-
-            // Combined balance for display
             const balance = combinedTotal - payment;
             totalPayments += payment;
 
@@ -1222,18 +1218,10 @@ function updateSummary() {
                 </td>
                 <td>$${(combinedTotal / 12).toFixed(2)}</td>
                 <td><strong>$${combinedTotal.toFixed(2)}</strong></td>
-                <td>
-                    ${archived
-                        ? `$${payment.toFixed(2)}`
-                        : `<input
-                            type="number"
-                            class="payment-input"
-                            value="${payment}"
-                            step="0.01"
-                            min="0"
-                            onchange="updatePayment(${data.member.id}, this.value)"
-                            placeholder="0.00"
-                        />`}
+                <td class="payment-cell">
+                    $${payment.toFixed(2)}
+                    ${archived ? '' : `<button class="btn-icon payment-add-btn" onclick="showAddPaymentDialog(${data.member.id})" title="Record payment">+</button>`}
+                    <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${data.member.id})" title="View payment history">📋</button>
                 </td>
                 <td class="${balance > 0 ? 'balance-owed' : 'balance-paid'}">
                     <strong>$${balance.toFixed(2)}</strong>
@@ -1248,7 +1236,7 @@ function updateSummary() {
 
             // Add child rows
             linkedData.forEach(linkedSummary => {
-                const childPayment = linkedSummary.member.paymentReceived || 0;
+                const childPayment = getPaymentTotalForMember(linkedSummary.member.id);
                 const childBalance = linkedSummary.total - childPayment;
                 rows += `
                 <tr class="child-row">
@@ -1261,7 +1249,11 @@ function updateSummary() {
                     </td>
                     <td>$${(linkedSummary.total / 12).toFixed(2)}</td>
                     <td>$${linkedSummary.total.toFixed(2)}</td>
-                    <td>$${childPayment.toFixed(2)}</td>
+                    <td class="payment-cell">
+                        $${childPayment.toFixed(2)}
+                        ${archived ? '' : `<button class="btn-icon payment-add-btn" onclick="showAddPaymentDialog(${linkedSummary.member.id})" title="Record payment">+</button>`}
+                        <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${linkedSummary.member.id})" title="View payment history">📋</button>
+                    </td>
                     <td class="${childBalance > 0 ? 'balance-owed' : 'balance-paid'}">
                         $${childBalance.toFixed(2)}
                     </td>
@@ -1302,43 +1294,70 @@ function updateSummary() {
     `;
 }
 
-// Update payment received for a member
-function updatePayment(memberId, value) {
+// Record a payment in the ledger for a member (or distributed across linked members)
+function recordPayment(memberId, amount, method, note, distribute) {
     if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
-    const payment = Math.max(0, parseFloat(value) || 0);
-    member.paymentReceived = payment;
+    const validAmount = Math.max(0, parseFloat(amount) || 0);
+    if (validAmount <= 0) return;
 
-    // If this member has linked members, distribute the payment proportionally
-    if (member.linkedMembers && member.linkedMembers.length > 0) {
-        // Calculate total owed by parent + all linked members
+    const now = new Date().toISOString();
+
+    if (distribute && member.linkedMembers && member.linkedMembers.length > 0) {
         const summary = calculateAnnualSummary();
-        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
-
-        // Add linked members' totals
-        member.linkedMembers.forEach(linkedId => {
-            if (summary[linkedId]) {
-                combinedTotal += summary[linkedId].total;
-            }
+        let combinedTotal = summary[memberId] ? summary[memberId].total : 0;
+        member.linkedMembers.forEach(id => {
+            if (summary[id]) combinedTotal += summary[id].total;
         });
 
-        // Distribute payment proportionally based on what each person owes
-        const parentTotal = summary[member.id] ? summary[member.id].total : 0;
-        const parentPayment = combinedTotal > 0 ? (payment * parentTotal / combinedTotal) : 0;
+        const parentTotal = summary[memberId] ? summary[memberId].total : 0;
+        const parentShare = combinedTotal > 0
+            ? Math.round(validAmount * parentTotal / combinedTotal * 100) / 100
+            : validAmount;
 
-        // Parent keeps their proportional share
-        member.paymentReceived = payment; // Store full payment on parent
+        payments.push({
+            id: generateUniquePaymentId(),
+            memberId: memberId,
+            amount: parentShare,
+            receivedAt: now,
+            note: note || 'Distributed payment',
+            method: method || 'other'
+        });
 
-        // Update each linked member's payment proportionally
-        member.linkedMembers.forEach(linkedId => {
-            const linkedMember = familyMembers.find(m => m.id === linkedId);
-            if (linkedMember && summary[linkedId]) {
-                const linkedTotal = summary[linkedId].total;
-                const linkedPayment = combinedTotal > 0 ? (payment * linkedTotal / combinedTotal) : 0;
-                linkedMember.paymentReceived = linkedPayment;
+        let distributed = parentShare;
+        const linked = member.linkedMembers.slice();
+        linked.forEach((linkedId, i) => {
+            const linkedTotal = summary[linkedId] ? summary[linkedId].total : 0;
+            let childShare;
+            if (i === linked.length - 1) {
+                childShare = Math.round((validAmount - distributed) * 100) / 100;
+            } else {
+                childShare = combinedTotal > 0
+                    ? Math.round(validAmount * linkedTotal / combinedTotal * 100) / 100
+                    : 0;
+                distributed += childShare;
             }
+            if (childShare > 0) {
+                payments.push({
+                    id: generateUniquePaymentId(),
+                    memberId: linkedId,
+                    amount: childShare,
+                    receivedAt: now,
+                    note: note || 'Distributed from ' + member.name,
+                    method: method || 'other'
+                });
+            }
+        });
+    } else {
+        payments.push({
+            id: generateUniquePaymentId(),
+            memberId: memberId,
+            amount: validAmount,
+            receivedAt: now,
+            note: note || '',
+            method: method || 'other'
         });
     }
 
@@ -1419,7 +1438,10 @@ function sendIndividualInvoice(memberId) {
     const currentYear = currentBillingYear ? currentBillingYear.label : new Date().getFullYear();
     const firstName = member.name.split(' ')[0];
     const numMembers = 1 + member.linkedMembers.length;
-    const payment = member.paymentReceived || 0;
+    let payment = getPaymentTotalForMember(memberId);
+    member.linkedMembers.forEach(linkedId => {
+        payment += getPaymentTotalForMember(linkedId);
+    });
     const paymentPerPerson = payment / numMembers;
 
     // Generate plain text invoice with %total placeholder replacement
@@ -1723,5 +1745,269 @@ function generateInvoiceHTML(summary, currentYear) {
     `;
 
     return html;
+}
+
+// ──────────────── Payment Ledger Functions ─────────────────────
+
+function generateUniquePaymentId() {
+    return 'pay_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+}
+
+function getPaymentTotalForMember(memberId) {
+    return payments
+        .filter(p => p.memberId === memberId)
+        .reduce((sum, p) => sum + p.amount, 0);
+}
+
+function getMemberPayments(memberId) {
+    return payments
+        .filter(p => p.memberId === memberId)
+        .sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt));
+}
+
+function migratePaymentReceivedToLedger() {
+    if (payments.length > 0) return;
+
+    let migrated = false;
+
+    familyMembers.forEach(member => {
+        if (!member.paymentReceived || member.paymentReceived <= 0) return;
+
+        if (isLinkedToAnyone(member.id)) {
+            payments.push({
+                id: generateUniquePaymentId(),
+                memberId: member.id,
+                amount: member.paymentReceived,
+                receivedAt: new Date().toISOString(),
+                note: 'Migrated from legacy payment record',
+                method: 'other'
+            });
+            member.paymentReceived = 0;
+            migrated = true;
+        } else if (member.linkedMembers && member.linkedMembers.length > 0) {
+            let childTotal = 0;
+            member.linkedMembers.forEach(childId => {
+                const child = familyMembers.find(m => m.id === childId);
+                if (child) childTotal += (child.paymentReceived || 0);
+            });
+            const parentShare = member.paymentReceived - childTotal;
+            if (parentShare > 0) {
+                payments.push({
+                    id: generateUniquePaymentId(),
+                    memberId: member.id,
+                    amount: parentShare,
+                    receivedAt: new Date().toISOString(),
+                    note: 'Migrated from legacy payment record',
+                    method: 'other'
+                });
+            }
+            member.paymentReceived = 0;
+            migrated = true;
+        } else {
+            payments.push({
+                id: generateUniquePaymentId(),
+                memberId: member.id,
+                amount: member.paymentReceived,
+                receivedAt: new Date().toISOString(),
+                note: 'Migrated from legacy payment record',
+                method: 'other'
+            });
+            member.paymentReceived = 0;
+            migrated = true;
+        }
+    });
+
+    if (migrated) {
+        saveData();
+    }
+}
+
+// ──────────────── Payment Dialog UI ───────────────────────────
+
+function ensureDialogContainer() {
+    if (!document.getElementById('payment-dialog-overlay')) {
+        if (typeof document.body === 'undefined' || !document.body) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'payment-dialog-overlay';
+        overlay.className = 'dialog-overlay';
+        overlay.onclick = function(e) {
+            if (e.target === overlay) closePaymentDialog();
+        };
+        var dialog = document.createElement('div');
+        dialog.id = 'payment-dialog';
+        dialog.className = 'dialog';
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+    }
+}
+
+function showAddPaymentDialog(memberId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member) return;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    const hasLinked = member.linkedMembers && member.linkedMembers.length > 0;
+    const summary = hasLinked ? calculateAnnualSummary() : null;
+
+    let distributeSection = '';
+    if (hasLinked) {
+        let totalOwed = summary[member.id] ? summary[member.id].total : 0;
+        const linkedInfo = member.linkedMembers.map(id => {
+            const m = familyMembers.find(fm => fm.id === id);
+            const owed = summary[id] ? summary[id].total : 0;
+            totalOwed += owed;
+            return { name: m ? m.name : 'Unknown', owed: owed };
+        });
+        const parentOwed = summary[member.id] ? summary[member.id].total : 0;
+
+        distributeSection = `
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="distributePayment" checked onchange="toggleDistributePreview()" />
+                    Distribute proportionally to linked members
+                </label>
+                <div id="distributePreview" class="distribute-preview">
+                    <small>Based on annual totals (combined: $${totalOwed.toFixed(2)}):</small>
+                    <ul>
+                        <li>${escapeHtml(member.name)}: $${parentOwed.toFixed(2)} owed (${totalOwed > 0 ? ((parentOwed / totalOwed) * 100).toFixed(0) : 0}%)</li>
+                        ${linkedInfo.map(l => '<li>' + escapeHtml(l.name) + ': $' + l.owed.toFixed(2) + ' owed (' + (totalOwed > 0 ? ((l.owed / totalOwed) * 100).toFixed(0) : 0) + '%)</li>').join('')}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Record Payment</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <p>For: <strong>${escapeHtml(member.name)}</strong></p>
+            ${distributeSection}
+            <div class="form-group">
+                <label for="paymentAmount">Amount ($)</label>
+                <input type="number" id="paymentAmount" step="0.01" min="0.01" placeholder="0.00" />
+            </div>
+            <div class="form-group">
+                <label for="paymentMethod">Method</label>
+                <select id="paymentMethod">
+                    <option value="cash">Cash</option>
+                    <option value="check">Check</option>
+                    <option value="venmo">Venmo</option>
+                    <option value="zelle">Zelle</option>
+                    <option value="paypal">PayPal</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="paymentNote">Note (optional)</label>
+                <input type="text" id="paymentNote" placeholder="e.g., Q1 payment" />
+            </div>
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-primary" onclick="submitPayment(${member.id})">Save Payment</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+    var amountInput = document.getElementById('paymentAmount');
+    if (amountInput && amountInput.focus) amountInput.focus();
+}
+
+function toggleDistributePreview() {
+    var preview = document.getElementById('distributePreview');
+    var checkbox = document.getElementById('distributePayment');
+    if (preview) {
+        preview.style.display = checkbox && checkbox.checked ? 'block' : 'none';
+    }
+}
+
+function submitPayment(memberId) {
+    var amountEl = document.getElementById('paymentAmount');
+    var methodEl = document.getElementById('paymentMethod');
+    var noteEl = document.getElementById('paymentNote');
+    var distributeEl = document.getElementById('distributePayment');
+
+    var amount = parseFloat(amountEl ? amountEl.value : '');
+    if (!amount || amount <= 0) {
+        alert('Please enter a valid amount greater than zero.');
+        return;
+    }
+
+    var method = methodEl ? methodEl.value : 'other';
+    var note = noteEl ? noteEl.value.trim() : '';
+    var distribute = distributeEl ? distributeEl.checked : false;
+
+    recordPayment(memberId, amount, method, note, distribute);
+    closePaymentDialog();
+}
+
+function closePaymentDialog() {
+    var overlay = document.getElementById('payment-dialog-overlay');
+    if (overlay && overlay.classList) overlay.classList.remove('visible');
+}
+
+function showPaymentHistory(memberId) {
+    var member = familyMembers.find(m => m.id === memberId);
+    if (!member) return;
+
+    ensureDialogContainer();
+    var overlay = document.getElementById('payment-dialog-overlay');
+    var dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    var memberPayments = getMemberPayments(memberId);
+    var total = getPaymentTotalForMember(memberId);
+    var archived = isArchivedYear();
+
+    var paymentRows = memberPayments.length > 0
+        ? memberPayments.map(function(p) {
+            var date = new Date(p.receivedAt).toLocaleDateString();
+            var methodLabel = p.method
+                ? p.method.charAt(0).toUpperCase() + p.method.slice(1).replace(/_/g, ' ')
+                : 'Other';
+            return '<div class="payment-history-item">'
+                + '<div class="payment-history-details">'
+                + '<span class="payment-history-date">' + escapeHtml(date) + '</span>'
+                + '<span class="payment-history-amount">$' + p.amount.toFixed(2) + '</span>'
+                + '<span class="payment-history-method">' + escapeHtml(methodLabel) + '</span>'
+                + '</div>'
+                + (p.note ? '<div class="payment-history-note">' + escapeHtml(p.note) + '</div>' : '')
+                + (archived ? '' : '<button class="btn-icon remove" onclick="deletePaymentEntry(\'' + escapeHtml(p.id) + '\', ' + memberId + ')" title="Delete payment">&times;</button>')
+                + '</div>';
+        }).join('')
+        : '<p class="empty-state" style="padding:20px;">No payments recorded</p>';
+
+    dialog.innerHTML = '<div class="dialog-header">'
+        + '<h3>Payment History: ' + escapeHtml(member.name) + '</h3>'
+        + '<button class="dialog-close" onclick="closePaymentDialog()">&times;</button>'
+        + '</div>'
+        + '<div class="dialog-body">'
+        + '<div class="payment-history-total">Total Paid: <strong>$' + total.toFixed(2) + '</strong></div>'
+        + '<div class="payment-history-list">' + paymentRows + '</div>'
+        + '</div>'
+        + '<div class="dialog-footer">'
+        + '<button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>'
+        + '</div>';
+
+    overlay.classList.add('visible');
+}
+
+function deletePaymentEntry(paymentId, memberId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (!confirm('Delete this payment entry?')) return;
+
+    payments = payments.filter(p => p.id !== paymentId);
+    saveData();
+    showPaymentHistory(memberId);
+    updateSummary();
 }
 

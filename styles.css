@@ -649,3 +649,214 @@ textarea:focus {
         grid-template-columns: 1fr;
     }
 }
+
+/* ──────────────── Payment Dialog ──────────────── */
+
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s, visibility 0.25s;
+}
+
+.dialog-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.dialog {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.dialog-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    color: #333;
+}
+
+.dialog-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #999;
+    padding: 4px;
+    line-height: 1;
+}
+
+.dialog-close:hover {
+    color: #333;
+}
+
+.dialog-body {
+    padding: 20px 24px;
+}
+
+.dialog-body .form-group {
+    margin-bottom: 16px;
+}
+
+.dialog-body select {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+    background: white;
+}
+
+.dialog-body select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 24px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: #555;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+.distribute-preview {
+    margin-top: 8px;
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.distribute-preview ul {
+    margin: 8px 0 0 20px;
+    padding: 0;
+}
+
+.distribute-preview li {
+    margin-bottom: 4px;
+}
+
+/* ──────────────── Payment Cell & History ──────────────── */
+
+.payment-cell {
+    white-space: nowrap;
+}
+
+.payment-add-btn {
+    color: #48bb78;
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-left: 4px;
+}
+
+.payment-add-btn:hover {
+    background: rgba(72, 187, 120, 0.1);
+}
+
+.payment-history-btn {
+    font-size: 1rem;
+    margin-left: 2px;
+}
+
+.payment-history-btn:hover {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.payment-history-total {
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 6px;
+}
+
+.payment-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.payment-history-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: white;
+}
+
+.payment-history-details {
+    flex: 1;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.payment-history-date {
+    color: #666;
+    font-size: 0.9rem;
+    min-width: 90px;
+}
+
+.payment-history-amount {
+    font-weight: 600;
+    color: #333;
+    min-width: 70px;
+}
+
+.payment-history-method {
+    font-size: 0.85rem;
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.payment-history-note {
+    font-size: 0.85rem;
+    color: #666;
+    flex-basis: 100%;
+    padding-left: 102px;
+    margin-top: -4px;
+}
