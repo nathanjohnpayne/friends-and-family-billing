@@ -139,11 +139,8 @@ Scripts must load in this exact order (all pages):
 
 ### Data Integrity
 - `debugDataIntegrity()` - Logs data state to console for debugging
-- `repairDuplicateIds()` - Fixes duplicate member IDs
-- `cleanupInvalidBillMembers()` - Removes invalid member references from bills
-- `forceDataRepair()` - Runs all repair functions
-- `importFromLocalStorage()` - Migrates pre-Firebase LocalStorage data
-- `clearAllData()` - Deletes all user data with confirmation
+- `repairDuplicateIds()` - Fixes duplicate member IDs (runs automatically on load)
+- `cleanupInvalidBillMembers()` - Removes invalid member references from bills (runs automatically on load)
 
 ### Rendering
 - `renderFamilyMembers()` - Renders member cards with avatars, edit/delete controls
@@ -202,8 +199,6 @@ Covered areas:
 - `calculateAnnualSummary` - bill splitting math across members and multiple bills
 - `updatePayment` - proportional payment distribution for linked members, negative clamping
 - `manageLinkMembers` - link preservation and cross-parent isolation
-- `clearAllData` - Firestore persistence on clear
-- `importFromLocalStorage` - data replacement behavior
 - `editBillWebsite` - URL validation (rejects non-http schemes)
 
 ### Local Development
@@ -267,5 +262,5 @@ The app tracks these Firebase Analytics events:
 
 - **Data not loading:** Hard refresh (Cmd+Shift+R / Ctrl+Shift+R), check console, verify Firebase config
 - **Auth issues:** Verify providers are enabled in Firebase Console, check authorized domains
-- **Payment errors:** Use "Repair Data" button, re-enter payment amounts
+- **Payment errors:** Data repair runs automatically on load; re-enter payment amounts if needed
 - **Data verification:** Open `check_data.html` while logged in to inspect raw Firestore data

@@ -373,68 +373,6 @@ describe('manageLinkMembers', () => {
     });
 });
 
-// ──────────────────────── clearAllData ─────────────────────────
-
-describe('clearAllData', () => {
-    it('resets arrays and persists to Firestore', async () => {
-        const ctx = createContext({
-            confirm: () => true,
-            alert: () => {},
-        });
-
-        ctx._set('familyMembers', [
-            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ]);
-        ctx._set('bills', [
-            { id: 100, name: 'X', amount: 10, logo: '', website: '', members: [1] },
-        ]);
-
-        await ctx.clearAllData();
-
-        assert.equal(ctx._get('familyMembers').length, 0);
-        assert.equal(ctx._get('bills').length, 0);
-        assert.ok(ctx._saved.length > 0, 'saveData should have persisted to Firestore');
-    });
-});
-
-// ──────────────────────── importFromLocalStorage ──────────────
-
-describe('importFromLocalStorage', () => {
-    it('replaces existing data with imported data', async () => {
-        const storage = {
-            familyMembers: JSON.stringify([
-                { id: 99, name: 'Imported', email: 'i@e.com' },
-            ]),
-            bills: JSON.stringify([
-                { id: 200, name: 'ImportedBill', amount: 50 },
-            ]),
-            settings: null,
-        };
-
-        const ctx = createContext({
-            confirm: () => true,
-            alert: () => {},
-            localStorage: {
-                getItem: (key) => storage[key] || null,
-            },
-        });
-
-        ctx._set('familyMembers', [
-            { id: 1, name: 'Existing', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ]);
-
-        await ctx.importFromLocalStorage();
-
-        const members = ctx._get('familyMembers');
-        assert.equal(members.length, 1);
-        assert.equal(members[0].name, 'Imported');
-
-        const bills = ctx._get('bills');
-        assert.equal(bills.length, 1);
-        assert.equal(bills[0].name, 'ImportedBill');
-    });
-});
-
 // ──────────────────── URL validation ──────────────────────────
 
 describe('editBillWebsite URL validation', () => {
@@ -543,34 +481,3 @@ describe('analytics null guard', () => {
     });
 });
 
-// ──────────── import replaces with empty arrays ───────────────
-
-describe('importFromLocalStorage with empty arrays', () => {
-    it('replaces existing data even when imported arrays are empty', async () => {
-        const storage = {
-            familyMembers: '[]',
-            bills: '[]',
-            settings: null,
-        };
-
-        const ctx = createContext({
-            confirm: () => true,
-            alert: () => {},
-            localStorage: {
-                getItem: (key) => storage[key] || null,
-            },
-        });
-
-        ctx._set('familyMembers', [
-            { id: 1, name: 'Existing', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ]);
-        ctx._set('bills', [
-            { id: 100, name: 'OldBill', amount: 50, logo: '', website: '', members: [1] },
-        ]);
-
-        await ctx.importFromLocalStorage();
-
-        assert.equal(ctx._get('familyMembers').length, 0, 'familyMembers should be empty after importing []');
-        assert.equal(ctx._get('bills').length, 0, 'bills should be empty after importing []');
-    });
-});
