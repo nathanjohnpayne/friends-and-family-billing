@@ -1,4 +1,4 @@
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -9,17 +9,30 @@ const scriptSource = fs.readFileSync(
     'utf8'
 );
 
-// No stripping needed — document.addEventListener is mocked as a no-op,
-// so the DOMContentLoaded callback never fires.
+// Append test helpers that close over the let-scoped variables,
+// giving tests a way to read/write them from outside the VM.
+const testableSource = scriptSource + `
+function _set(key, val) {
+    switch(key) {
+        case 'familyMembers': familyMembers = val; break;
+        case 'bills': bills = val; break;
+        case 'settings': settings = val; break;
+        case 'currentUser': currentUser = val; break;
+    }
+}
+function _get(key) {
+    switch(key) {
+        case 'familyMembers': return familyMembers;
+        case 'bills': return bills;
+        case 'settings': return settings;
+        case 'currentUser': return currentUser;
+    }
+}
+`;
 
 function createContext(overrides = {}) {
     const saved = [];
     const ctx = {
-        familyMembers: [],
-        bills: [],
-        settings: { emailMessage: 'Pay %total now.' },
-        currentUser: { uid: 'test-user' },
-
         // Minimal DOM stubs
         document: {
             addEventListener: () => {},
@@ -29,7 +42,7 @@ function createContext(overrides = {}) {
                 value: '',
             }),
             querySelectorAll: () => [],
-            createElement: (tag) => ({
+            createElement: () => ({
                 type: '',
                 accept: '',
                 click: () => {},
@@ -64,7 +77,9 @@ function createContext(overrides = {}) {
         String,
         Object,
         Array,
+        JSON,
         Promise,
+        RegExp,
         setTimeout,
         clearTimeout,
         Image: class {
@@ -74,6 +89,7 @@ function createContext(overrides = {}) {
         },
         FileReader: class {},
         encodeURIComponent,
+        localStorage: { getItem: () => null, clear: () => {} },
 
         firebase: {
             firestore: {
@@ -102,23 +118,26 @@ function createContext(overrides = {}) {
 
     ctx._saved = saved;
     vm.createContext(ctx);
-    vm.runInContext(scriptSource, ctx);
+    vm.runInContext(testableSource, ctx);
+
+    // Set currentUser so saveData works
+    ctx._set('currentUser', { uid: 'test-user' });
+
     return ctx;
 }
 
 // ───────────────────────── escapeHtml ─────────────────────────
 
 describe('escapeHtml', () => {
-    let ctx;
-    beforeEach(() => { ctx = createContext(); });
-
     it('returns empty string for falsy input', () => {
+        const ctx = createContext();
         assert.equal(ctx.escapeHtml(''), '');
         assert.equal(ctx.escapeHtml(null), '');
         assert.equal(ctx.escapeHtml(undefined), '');
     });
 
     it('escapes HTML special characters', () => {
+        const ctx = createContext();
         assert.equal(
             ctx.escapeHtml('<script>alert("xss")</script>'),
             '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
@@ -126,10 +145,12 @@ describe('escapeHtml', () => {
     });
 
     it('escapes ampersands and single quotes', () => {
+        const ctx = createContext();
         assert.equal(ctx.escapeHtml("Tom & Jerry's"), "Tom &amp; Jerry&#039;s");
     });
 
     it('passes through safe strings unchanged', () => {
+        const ctx = createContext();
         assert.equal(ctx.escapeHtml('John Doe'), 'John Doe');
     });
 });
@@ -137,66 +158,64 @@ describe('escapeHtml', () => {
 // ───────────────────── calculateAnnualSummary ─────────────────
 
 describe('calculateAnnualSummary', () => {
-    let ctx;
-
-    beforeEach(() => {
-        ctx = createContext();
-    });
-
     it('returns empty summary when no members or bills', () => {
+        const ctx = createContext();
         const summary = ctx.calculateAnnualSummary();
-        assert.deepEqual(summary, {});
+        assert.equal(Object.keys(summary).length, 0);
     });
 
     it('returns zero totals when members exist but no bills', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
+        ]);
         const summary = ctx.calculateAnnualSummary();
         assert.equal(summary[1].total, 0);
         assert.equal(summary[1].bills.length, 0);
     });
 
     it('splits a bill evenly among assigned members', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
             { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Internet', amount: 120, logo: '', website: '', members: [1, 2] },
-        ];
+        ]);
 
         const summary = ctx.calculateAnnualSummary();
         // $120/mo split 2 ways = $60/mo each, $720/yr each
         assert.equal(summary[1].total, 720);
         assert.equal(summary[2].total, 720);
-        assert.equal(summary[1].bills.length, 1);
         assert.equal(summary[1].bills[0].monthlyShare, 60);
         assert.equal(summary[1].bills[0].annualShare, 720);
     });
 
     it('excludes members not assigned to a bill', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
             { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Netflix', amount: 20, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
         const summary = ctx.calculateAnnualSummary();
-        assert.equal(summary[1].total, 240); // $20 * 12
+        assert.equal(summary[1].total, 240);
         assert.equal(summary[2].total, 0);
     });
 
     it('accumulates across multiple bills', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'A', amount: 10, logo: '', website: '', members: [1] },
             { id: 101, name: 'B', amount: 30, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
         const summary = ctx.calculateAnnualSummary();
         assert.equal(summary[1].total, (10 + 30) * 12);
@@ -204,12 +223,13 @@ describe('calculateAnnualSummary', () => {
     });
 
     it('handles a bill with no members assigned', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Orphan', amount: 50, logo: '', website: '', members: [] },
-        ];
+        ]);
 
         const summary = ctx.calculateAnnualSummary();
         assert.equal(summary[1].total, 0);
@@ -219,120 +239,114 @@ describe('calculateAnnualSummary', () => {
 // ───────────────────────── updatePayment ──────────────────────
 
 describe('updatePayment', () => {
-    let ctx;
-
-    beforeEach(() => {
-        ctx = createContext();
-    });
-
     it('sets paymentReceived on a simple (unlinked) member', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
         ctx.updatePayment(1, '500');
-        assert.equal(ctx.familyMembers[0].paymentReceived, 500);
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 500);
     });
 
     it('clamps negative values to zero', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
         ctx.updatePayment(1, '-50');
-        assert.equal(ctx.familyMembers[0].paymentReceived, 0);
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 0);
     });
 
     it('distributes payment proportionally among linked members', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Phone', amount: 100, logo: '', website: '', members: [1, 2] },
-        ];
+        ]);
 
         // Both owe $50/mo = $600/yr each, combined $1200
         ctx.updatePayment(1, '600');
 
-        // Parent stores full payment
-        assert.equal(ctx.familyMembers[0].paymentReceived, 600);
+        const members = ctx._get('familyMembers');
+        assert.equal(members[0].paymentReceived, 600);
         // Child gets proportional share: 600 * (600/1200) = 300
-        assert.equal(ctx.familyMembers[1].paymentReceived, 300);
+        assert.equal(members[1].paymentReceived, 300);
     });
 
     it('distributes proportionally with unequal bill assignments', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
-            // Both on this bill
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'Phone', amount: 100, logo: '', website: '', members: [1, 2] },
-            // Only parent on this bill
             { id: 101, name: 'Insurance', amount: 200, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
-        // Parent: $50/mo + $200/mo = $250/mo = $3000/yr
+        // Parent: $50/mo + $200/mo = $3000/yr
         // Child: $50/mo = $600/yr
         // Combined: $3600
         const payment = 1800;
         ctx.updatePayment(1, String(payment));
 
-        const parentTotal = 3000;
-        const childTotal = 600;
-        const combined = parentTotal + childTotal;
-        const expectedChild = payment * (childTotal / combined);
+        const members = ctx._get('familyMembers');
+        const expectedChild = payment * (600 / 3600);
 
-        assert.equal(ctx.familyMembers[0].paymentReceived, payment);
+        assert.equal(members[0].paymentReceived, payment);
         assert.ok(
-            Math.abs(ctx.familyMembers[1].paymentReceived - expectedChild) < 0.01,
-            `Child payment ${ctx.familyMembers[1].paymentReceived} should be ~${expectedChild}`
+            Math.abs(members[1].paymentReceived - expectedChild) < 0.01,
+            `Child payment ${members[1].paymentReceived} should be ~${expectedChild}`
         );
     });
 
     it('handles zero combined total without NaN', () => {
-        ctx.familyMembers = [
+        const ctx = createContext();
+        ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [];
+        ]);
+        ctx._set('bills', []);
 
         ctx.updatePayment(1, '100');
-        assert.equal(ctx.familyMembers[0].paymentReceived, 100);
-        assert.equal(ctx.familyMembers[1].paymentReceived, 0);
+        const members = ctx._get('familyMembers');
+        assert.equal(members[0].paymentReceived, 100);
+        assert.equal(members[1].paymentReceived, 0);
+        assert.ok(!Number.isNaN(members[1].paymentReceived));
     });
 });
 
 // ─────────────────── manageLinkMembers ────────────────────────
 
 describe('manageLinkMembers', () => {
-    let ctx;
-
     it('preserves existing links in the available members list', () => {
         let promptMessage = '';
-        ctx = createContext({
+        const ctx = createContext({
             prompt: (msg) => {
                 promptMessage = msg;
                 return null; // cancel
             },
         });
 
-        ctx.familyMembers = [
+        ctx._set('familyMembers', [
             { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
             { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
             { id: 3, name: 'Other', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
+        ]);
 
         ctx.manageLinkMembers(1);
 
-        // Both Child (already linked) and Other (unlinked) should appear
         assert.ok(promptMessage.includes('Child'), 'Already-linked child should appear in list');
         assert.ok(promptMessage.includes('[LINKED]'), 'Already-linked child should be marked');
         assert.ok(promptMessage.includes('Other'), 'Unlinked member should appear');
@@ -340,22 +354,21 @@ describe('manageLinkMembers', () => {
 
     it('does not show members linked to a different parent', () => {
         let promptMessage = '';
-        ctx = createContext({
+        const ctx = createContext({
             prompt: (msg) => {
                 promptMessage = msg;
                 return null;
             },
         });
 
-        ctx.familyMembers = [
+        ctx._set('familyMembers', [
             { id: 1, name: 'Parent1', email: '', avatar: '', paymentReceived: 0, linkedMembers: [3] },
             { id: 2, name: 'Parent2', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
             { id: 3, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
+        ]);
 
         ctx.manageLinkMembers(2);
 
-        // Child is linked to Parent1, should NOT appear for Parent2
         assert.ok(!promptMessage.includes('Child'), 'Child linked to another parent should not appear');
     });
 });
@@ -369,18 +382,18 @@ describe('clearAllData', () => {
             alert: () => {},
         });
 
-        ctx.familyMembers = [
+        ctx._set('familyMembers', [
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
-        ctx.bills = [
+        ]);
+        ctx._set('bills', [
             { id: 100, name: 'X', amount: 10, logo: '', website: '', members: [1] },
-        ];
+        ]);
 
         await ctx.clearAllData();
 
-        assert.equal(ctx.familyMembers.length, 0);
-        assert.equal(ctx.bills.length, 0);
-        assert.ok(ctx._saved.length > 0, 'saveData should have been called (Firestore write)');
+        assert.equal(ctx._get('familyMembers').length, 0);
+        assert.equal(ctx._get('bills').length, 0);
+        assert.ok(ctx._saved.length > 0, 'saveData should have persisted to Firestore');
     });
 });
 
@@ -406,16 +419,19 @@ describe('importFromLocalStorage', () => {
             },
         });
 
-        ctx.familyMembers = [
+        ctx._set('familyMembers', [
             { id: 1, name: 'Existing', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
-        ];
+        ]);
 
         await ctx.importFromLocalStorage();
 
-        assert.equal(ctx.familyMembers.length, 1);
-        assert.equal(ctx.familyMembers[0].name, 'Imported');
-        assert.equal(ctx.bills.length, 1);
-        assert.equal(ctx.bills[0].name, 'ImportedBill');
+        const members = ctx._get('familyMembers');
+        assert.equal(members.length, 1);
+        assert.equal(members[0].name, 'Imported');
+
+        const bills = ctx._get('bills');
+        assert.equal(bills.length, 1);
+        assert.equal(bills[0].name, 'ImportedBill');
     });
 });
 
@@ -429,12 +445,12 @@ describe('editBillWebsite URL validation', () => {
             alert: (msg) => alerts.push(msg),
         });
 
-        ctx.bills = [
+        ctx._set('bills', [
             { id: 1, name: 'Test', amount: 10, logo: '', website: '', members: [] },
-        ];
+        ]);
 
         ctx.editBillWebsite(1);
-        assert.equal(ctx.bills[0].website, '', 'Website should not be set to javascript: URL');
+        assert.equal(ctx._get('bills')[0].website, '', 'Website should not be set to javascript: URL');
         assert.ok(alerts.some(a => a.includes('http')), 'Should warn about URL format');
     });
 
@@ -444,11 +460,25 @@ describe('editBillWebsite URL validation', () => {
             alert: () => {},
         });
 
-        ctx.bills = [
+        ctx._set('bills', [
             { id: 1, name: 'Test', amount: 10, logo: '', website: '', members: [] },
-        ];
+        ]);
 
         ctx.editBillWebsite(1);
-        assert.equal(ctx.bills[0].website, 'https://example.com');
+        assert.equal(ctx._get('bills')[0].website, 'https://example.com');
+    });
+
+    it('allows clearing website by entering empty string', () => {
+        const ctx = createContext({
+            prompt: () => '',
+            alert: () => {},
+        });
+
+        ctx._set('bills', [
+            { id: 1, name: 'Test', amount: 10, logo: '', website: 'https://old.com', members: [] },
+        ]);
+
+        ctx.editBillWebsite(1);
+        assert.equal(ctx._get('bills')[0].website, '');
     });
 });

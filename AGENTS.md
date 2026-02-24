@@ -31,6 +31,9 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
 ├── styles.css                 # Application styles (~540 lines)
 ├── firestore.rules            # Firestore security rules
 ├── firebase.json              # Firebase hosting and deployment configuration
+├── package.json               # Test script (npm test)
+├── tests/
+│   └── billing.test.js        # Automated tests (Node built-in test runner)
 ├── .gitignore                 # Git ignore rules
 ├── .gitattributes             # Git line-ending normalization
 ├── AGENTS.md                  # AI agent instructions (this file)
@@ -185,6 +188,23 @@ Example: Parent owes $1,000, Child owes $500 (total: $1,500). Payment of $900:
 - **Logo size:** 80x60px rectangle (40x30px in invoices)
 
 ## Development
+
+### Testing
+
+```bash
+npm test
+```
+
+Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
+
+Covered areas:
+- `escapeHtml` - XSS prevention utility
+- `calculateAnnualSummary` - bill splitting math across members and multiple bills
+- `updatePayment` - proportional payment distribution for linked members, negative clamping
+- `manageLinkMembers` - link preservation and cross-parent isolation
+- `clearAllData` - Firestore persistence on clear
+- `importFromLocalStorage` - data replacement behavior
+- `editBillWebsite` - URL validation (rejects non-http schemes)
 
 ### Local Development
 
