@@ -11,6 +11,8 @@ let currentUser = null;
 let currentBillingYear = null;
 let billingYears = [];
 
+const CURRENT_MIGRATION_VERSION = 1;
+
 // Version checking — polls version.json to detect deploys while the page is open
 let _knownVersion = null;
 let _updateCheckInterval = null;
@@ -92,6 +94,9 @@ async function loadData() {
                 activeYearId = await migrateLegacyData(userDocRef, userData);
             } else {
                 activeYearId = userData.activeBillingYear;
+                if (!userData.migrationVersion || userData.migrationVersion < CURRENT_MIGRATION_VERSION) {
+                    await userDocRef.set({ migrationVersion: CURRENT_MIGRATION_VERSION }, { merge: true });
+                }
             }
         } else {
             activeYearId = String(new Date().getFullYear());
@@ -252,22 +257,31 @@ function isArchivedYear() {
 
 async function migrateLegacyData(userDocRef, userData) {
     const yearId = String(new Date().getFullYear());
+    const yearDocRef = userDocRef.collection('billingYears').doc(yearId);
 
-    const yearData = {
-        label: yearId,
-        status: 'open',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        archivedAt: null,
-        familyMembers: userData.familyMembers || [],
-        bills: userData.bills || [],
-        settings: userData.settings || settings,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
+    const existingYearDoc = await yearDocRef.get();
+    if (!existingYearDoc.exists) {
+        const yearData = {
+            label: yearId,
+            status: 'open',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            archivedAt: null,
+            familyMembers: userData.familyMembers || [],
+            bills: userData.bills || [],
+            payments: userData.payments || [],
+            settings: userData.settings || settings,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
 
-    await userDocRef.collection('billingYears').doc(yearId).set(yearData);
-    await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
+        await yearDocRef.set(yearData);
+    }
 
-    console.log('Migrated legacy data to billing year ' + yearId);
+    await userDocRef.set({
+        activeBillingYear: yearId,
+        migrationVersion: CURRENT_MIGRATION_VERSION
+    }, { merge: true });
+
+    console.log('Migration v' + CURRENT_MIGRATION_VERSION + ' complete — data in billing year ' + yearId);
     return yearId;
 }
 

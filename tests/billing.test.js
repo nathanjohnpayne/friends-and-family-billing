@@ -40,6 +40,7 @@ function _get(key) {
         case 'EVIDENCE_MAX_COUNT': return EVIDENCE_MAX_COUNT;
         case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
         case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
+        case 'CURRENT_MIGRATION_VERSION': return CURRENT_MIGRATION_VERSION;
     }
 }
 `;
@@ -1591,6 +1592,144 @@ describe('DISPUTE_STATUS_LABELS', () => {
         assert.equal(labels.in_review, 'In Review');
         assert.equal(labels.resolved, 'Resolved');
         assert.equal(labels.rejected, 'Rejected');
+    });
+});
+
+// ──────────────── migrateLegacyData ───────────────────────────
+
+describe('migrateLegacyData', () => {
+    function makeMigrationMocks(yearDocExists) {
+        const saved = { user: [], year: [] };
+        const mockDocRef = {
+            set: (...args) => { saved.user.push(args); return Promise.resolve(); },
+            collection: () => ({
+                doc: () => ({
+                    set: (...args) => { saved.year.push(args); return Promise.resolve(); },
+                    get: () => Promise.resolve({ exists: yearDocExists }),
+                }),
+            }),
+        };
+        return { saved, mockDocRef };
+    }
+
+    it('copies flat data including payments to year-scoped doc', async () => {
+        const ctx = createContext();
+        const { saved, mockDocRef } = makeMigrationMocks(false);
+
+        const userData = {
+            familyMembers: [
+                { id: 1, name: 'Alice', email: '', paymentReceived: 500, linkedMembers: [] },
+            ],
+            bills: [
+                { id: 100, name: 'Internet', amount: 120, members: [1] },
+            ],
+            payments: [
+                { id: 'p1', memberId: 1, amount: 300, receivedAt: '2025-01-01', note: '', method: 'cash' },
+            ],
+            settings: { emailMessage: 'test' },
+        };
+
+        await ctx.migrateLegacyData(mockDocRef, userData);
+
+        assert.equal(saved.year.length, 1, 'Year doc should be created');
+        const yearData = saved.year[0][0];
+        assert.deepStrictEqual(yearData.familyMembers, userData.familyMembers);
+        assert.deepStrictEqual(yearData.bills, userData.bills);
+        assert.deepStrictEqual(yearData.payments, userData.payments);
+        assert.equal(yearData.settings.emailMessage, 'test');
+        assert.equal(yearData.status, 'open');
+    });
+
+    it('sets migrationVersion and activeBillingYear on user doc', async () => {
+        const ctx = createContext();
+        const { saved, mockDocRef } = makeMigrationMocks(false);
+
+        await ctx.migrateLegacyData(mockDocRef, { familyMembers: [] });
+
+        assert.equal(saved.user.length, 1, 'User doc should be updated');
+        const userUpdate = saved.user[0][0];
+        assert.equal(userUpdate.migrationVersion, ctx._get('CURRENT_MIGRATION_VERSION'));
+        assert.ok(userUpdate.activeBillingYear, 'activeBillingYear should be set');
+    });
+
+    it('skips year doc creation when it already exists (idempotent)', async () => {
+        const ctx = createContext();
+        const { saved, mockDocRef } = makeMigrationMocks(true);
+
+        const userData = {
+            familyMembers: [
+                { id: 1, name: 'Alice', email: '', paymentReceived: 500, linkedMembers: [] },
+            ],
+        };
+
+        await ctx.migrateLegacyData(mockDocRef, userData);
+
+        assert.equal(saved.year.length, 0, 'Should not overwrite existing year doc');
+        assert.equal(saved.user.length, 1, 'User doc should still be stamped');
+        assert.equal(saved.user[0][0].migrationVersion, ctx._get('CURRENT_MIGRATION_VERSION'));
+    });
+
+    it('defaults missing fields to empty arrays/objects', async () => {
+        const ctx = createContext();
+        const { saved, mockDocRef } = makeMigrationMocks(false);
+
+        await ctx.migrateLegacyData(mockDocRef, {});
+
+        const yearData = saved.year[0][0];
+        assert.ok(Array.isArray(yearData.familyMembers) && yearData.familyMembers.length === 0);
+        assert.ok(Array.isArray(yearData.bills) && yearData.bills.length === 0);
+        assert.ok(Array.isArray(yearData.payments) && yearData.payments.length === 0);
+    });
+
+    it('returns the current year as the active year ID', async () => {
+        const ctx = createContext();
+        const { mockDocRef } = makeMigrationMocks(false);
+
+        const yearId = await ctx.migrateLegacyData(mockDocRef, {});
+        assert.equal(yearId, String(new Date().getFullYear()));
+    });
+
+    it('preserves totals — paymentReceived converted to ledger on load', async () => {
+        const ctx = createContext();
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 750, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 300, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        assert.equal(ctx.getPaymentTotalForMember(1), 750, 'Alice total should match pre-migration');
+        assert.equal(ctx.getPaymentTotalForMember(2), 300, 'Bob total should match pre-migration');
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 0, 'paymentReceived zeroed');
+        assert.equal(ctx._get('familyMembers')[1].paymentReceived, 0, 'paymentReceived zeroed');
+    });
+
+    it('does not duplicate payments if ledger already has entries', async () => {
+        const ctx = createContext();
+        ctx._set('payments', [
+            { id: 'existing', memberId: 1, amount: 200, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 750, linkedMembers: [] },
+        ]);
+
+        ctx.migratePaymentReceivedToLedger();
+
+        assert.equal(ctx._get('payments').length, 1, 'Should not add migration entries');
+        assert.equal(ctx._get('payments')[0].id, 'existing');
+    });
+});
+
+// ──────────────── CURRENT_MIGRATION_VERSION ───────────────────
+
+describe('CURRENT_MIGRATION_VERSION', () => {
+    it('is a positive integer', () => {
+        const ctx = createContext();
+        const version = ctx._get('CURRENT_MIGRATION_VERSION');
+        assert.equal(typeof version, 'number');
+        assert.ok(version >= 1);
+        assert.equal(version, Math.floor(version));
     });
 });
 
