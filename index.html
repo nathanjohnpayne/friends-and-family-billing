@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Bill Splitter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Family Bill Splitter</h1>
+            <p class="subtitle">Manage and split bills among family members</p>
+            <div style="text-align: right; margin-top: 10px;">
+                <span id="user-email" style="color: white; margin-right: 15px;"></span>
+                <button onclick="logout()" class="btn btn-secondary" style="padding: 8px 16px;">Logout</button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Family Members Section -->
+            <section class="card">
+                <h2>Family Members</h2>
+                <div class="family-members-input">
+                    <input type="text" id="memberName" placeholder="Enter family member name" />
+                    <input type="email" id="memberEmail" placeholder="Email address (optional)" />
+                    <button onclick="addFamilyMember()" class="btn btn-primary">Add Member</button>
+                </div>
+                <div id="familyMembersList" class="members-list"></div>
+            </section>
+
+            <!-- Bills Section -->
+            <section class="card">
+                <h2>Bills</h2>
+                <div class="bill-input-section">
+                    <div class="form-group">
+                        <label for="billName">Bill Name</label>
+                        <input type="text" id="billName" placeholder="e.g., T-Mobile" />
+                    </div>
+                    <div class="form-group">
+                        <label for="billAmount">Monthly Amount ($)</label>
+                        <input type="number" id="billAmount" step="0.01" placeholder="0.00" />
+                    </div>
+                    <div class="form-group">
+                        <label for="billWebsite">Website (optional)</label>
+                        <input type="url" id="billWebsite" placeholder="https://example.com" />
+                    </div>
+                    <button onclick="addBill()" class="btn btn-primary">Add Bill</button>
+                </div>
+                <div id="billsList" class="bills-list"></div>
+            </section>
+
+            <!-- Summary Section -->
+            <section class="card summary-card">
+                <h2>Annual Summary</h2>
+                <div id="annualSummary" class="summary-content"></div>
+                <button onclick="generateInvoice()" class="btn btn-success">Generate Annual Invoice</button>
+            </section>
+
+            <!-- Email Settings Section -->
+            <section class="card summary-card">
+                <h2>Email Settings</h2>
+                <div id="emailSettings"></div>
+            </section>
+
+            <!-- Data Management Section -->
+            <section class="card summary-card">
+                <h2>Data Management</h2>
+                <p style="color: #666; margin-bottom: 15px;">Use these tools if you experience data issues or need to import old data.</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button onclick="importFromLocalStorage()" class="btn btn-primary">Import from LocalStorage</button>
+                    <button onclick="forceDataRepair()" class="btn btn-secondary">Repair Data</button>
+                    <button onclick="clearAllData()" class="btn btn-danger">Clear All Data</button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-analytics-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

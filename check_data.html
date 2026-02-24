@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check Firebase Data</title>
+</head>
+<body>
+    <h1>Firebase Data Checker</h1>
+    <button onclick="checkData()">Check My Data</button>
+    <pre id="output"></pre>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script>
+        async function checkData() {
+            const output = document.getElementById('output');
+            
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    output.textContent = 'Not logged in. Logging in...';
+                    await new Promise(resolve => {
+                        auth.onAuthStateChanged(u => {
+                            if (u) resolve();
+                        });
+                    });
+                }
+                
+                const uid = auth.currentUser.uid;
+                output.textContent = 'Fetching data for user: ' + uid + '\n\n';
+                
+                const docRef = db.collection('users').doc(uid);
+                const doc = await docRef.get();
+                
+                if (doc.exists) {
+                    const data = doc.data();
+                    output.textContent += 'DATA FOUND!\n\n';
+                    output.textContent += 'Family Members: ' + (data.familyMembers ? data.familyMembers.length : 0) + '\n';
+                    output.textContent += 'Bills: ' + (data.bills ? data.bills.length : 0) + '\n\n';
+                    output.textContent += JSON.stringify(data, null, 2);
+                } else {
+                    output.textContent += 'No data found in Firebase for this user.';
+                }
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message + '\n\n' + error.stack;
+            }
+        }
+    </script>
+</body>
+</html>
