@@ -158,32 +158,6 @@ Your app will be live at: `https://your-project-id.web.app`
 - All data transmitted over HTTPS
 - Firebase provides DDoS protection
 
-## Migrating Existing LocalStorage Data
-
-If you have existing data in LocalStorage that you want to migrate to Firebase:
-
-1. Open your app in the browser (old version)
-2. Open Developer Console (F12)
-3. Run:
-```javascript
-const data = {
-  familyMembers: JSON.parse(localStorage.getItem('familyMembers')),
-  bills: JSON.parse(localStorage.getItem('bills')),
-  settings: JSON.parse(localStorage.getItem('settings'))
-};
-console.log(JSON.stringify(data));
-```
-4. Copy the output
-5. After logging into the new Firebase version, run:
-```javascript
-// Paste your data here
-const oldData = { /* paste here */ };
-familyMembers = oldData.familyMembers;
-bills = oldData.bills;
-settings = oldData.settings;
-await saveData();
-```
-
 ## Troubleshooting
 
 **Problem**: "Firebase not defined"

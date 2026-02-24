@@ -107,8 +107,7 @@ Each user's data is completely isolated and private.
 - Payment tracking
 - Email invoices with %total placeholder
 - Annual summary
-- Data repair tools
-- Everything!
+- Automatic data integrity repair on load
 
 ## New Features Added
 
@@ -119,7 +118,6 @@ Each user's data is completely isolated and private.
 ✅ **Data privacy**: Users can only see their own data
 ✅ **Auto-save**: Data automatically syncs to cloud
 ✅ **No data loss**: Won't lose data when clearing browser cache
-✅ **LocalStorage migration**: Import old data with one click
 ✅ **Google authentication**: One-click sign-in with Google account
 ✅ **Data verification tool**: check_data.html to verify Firebase data
 ✅ **Proportional payments**: Smart distribution for linked members
@@ -153,14 +151,6 @@ To enable Google Sign-In in Firebase Console:
 2. Click "Google" and toggle "Enable"
 3. Click "Save"
 
-### Importing Old Data
-
-If you have data in LocalStorage from before Firebase migration:
-1. Log into the app at https://friends-and-family-billing.web.app
-2. Scroll to "Data Management" section
-3. Click "Import from LocalStorage"
-4. Your old data will be migrated to Firebase
-
 ## Testing Locally
 
 Before deploying, test on your computer:
@@ -173,14 +163,6 @@ python3 -m http.server 8000
 Open http://localhost:8000/login.html
 
 **Note**: Some Firebase features require HTTPS, so you may see warnings locally. This is normal and will work fine when deployed.
-
-## Migration from Old Version
-
-Your existing users won't lose data! The old LocalStorage version will still work for them. To migrate:
-
-**Option 1**: Users manually export/import their data
-**Option 2**: Keep both versions running (old URL for existing users, new URL for new users)
-**Option 3**: Run migration script (see DEPLOYMENT.md)
 
 ## Cost Breakdown
 
