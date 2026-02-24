@@ -12,9 +12,9 @@ const firebaseConfig = {
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 
-// Initialize Analytics
-const analytics = firebase.analytics();
+// Initialize Analytics (guard for pages that don't load the analytics SDK)
+const analytics = (typeof firebase.analytics === 'function') ? firebase.analytics() : null;
 
-// Export auth, firestore, and analytics for use in other files
+// Export auth and firestore for use in other files
 const auth = firebase.auth();
-const db = firebase.firestore();
+const db = (typeof firebase.firestore === 'function') ? firebase.firestore() : null;

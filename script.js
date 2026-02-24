@@ -159,23 +159,29 @@ function cleanupInvalidBillMembers() {
     }
 }
 
-// Save data to Firestore
-async function saveData() {
-    if (!currentUser) return;
+// Serialized write queue — each saveData() chains onto the previous write
+// so concurrent calls never overwrite each other out of order.
+let _saveChain = Promise.resolve();
 
-    try {
-        const docRef = db.collection('users').doc(currentUser.uid);
-        await docRef.set({
-            familyMembers: familyMembers,
-            bills: bills,
-            settings: settings,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        console.log('Data saved successfully');
-    } catch (error) {
-        console.error('Error saving data:', error);
-        alert('Error saving your data. Please try again.');
-    }
+function saveData() {
+    if (!currentUser) return Promise.resolve();
+
+    _saveChain = _saveChain.then(async () => {
+        try {
+            const docRef = db.collection('users').doc(currentUser.uid);
+            await docRef.set({
+                familyMembers: familyMembers,
+                bills: bills,
+                settings: settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('Data saved successfully');
+        } catch (error) {
+            console.error('Error saving data:', error);
+            alert('Error saving your data. Please try again.');
+        }
+    });
+    return _saveChain;
 }
 
 // Logout function
@@ -190,26 +196,34 @@ function logout() {
     }
 }
 
-// Helper: Get initials from name
+// Escape user-controlled strings before interpolating into HTML
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 function getInitials(name) {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
 
-// Helper: Generate avatar HTML
 function generateAvatar(member) {
     if (member.avatar) {
-        return `<img src="${member.avatar}" alt="${member.name}" class="avatar" />`;
+        return `<img src="${member.avatar}" alt="${escapeHtml(member.name)}" class="avatar" />`;
     } else {
-        return `<div class="avatar avatar-initials">${getInitials(member.name)}</div>`;
+        return `<div class="avatar avatar-initials">${escapeHtml(getInitials(member.name))}</div>`;
     }
 }
 
-// Helper: Generate logo HTML
 function generateLogo(bill) {
     if (bill.logo) {
-        return `<img src="${bill.logo}" alt="${bill.name}" class="logo" />`;
+        return `<img src="${bill.logo}" alt="${escapeHtml(bill.name)}" class="logo" />`;
     } else {
-        return `<div class="logo logo-text">${bill.name}</div>`;
+        return `<div class="logo logo-text">${escapeHtml(bill.name)}</div>`;
     }
 }
 
@@ -406,16 +420,15 @@ function removeAvatar(id) {
     }
 }
 
-// Manage linked members
 function manageLinkMembers(parentId) {
     const parent = familyMembers.find(m => m.id === parentId);
     if (!parent) return;
 
-    // Get all members except the parent and any that are parents themselves
+    // Include members already linked to THIS parent, plus unlinked non-parents
     const availableMembers = familyMembers.filter(m =>
         m.id !== parentId &&
-        m.linkedMembers.length === 0 && // Not a parent
-        !isLinkedToAnyone(m.id) // Not already linked to someone
+        m.linkedMembers.length === 0 &&
+        (!isLinkedToAnyone(m.id) || parent.linkedMembers.includes(m.id))
     );
 
     if (availableMembers.length === 0) {
@@ -498,7 +511,7 @@ function renderFamilyMembers() {
         const linkedNames = member.linkedMembers
             .map(id => {
                 const linked = familyMembers.find(m => m.id === id);
-                return linked ? linked.name : null;
+                return linked ? escapeHtml(linked.name) : null;
             })
             .filter(name => name)
             .join(', ');
@@ -509,9 +522,9 @@ function renderFamilyMembers() {
                 ${generateAvatar(member)}
             </div>
             <div class="member-info">
-                <div class="member-name" onclick="editFamilyMember(${member.id})" title="Click to edit name">${member.name}</div>
+                <div class="member-name" onclick="editFamilyMember(${member.id})" title="Click to edit name">${escapeHtml(member.name)}</div>
                 <div class="member-email" onclick="editMemberEmail(${member.id})" title="Click to edit email">
-                    ${member.email || 'No email'}
+                    ${escapeHtml(member.email) || 'No email'}
                 </div>
                 ${linkedNames ? `<div class="linked-members">Linked: ${linkedNames}</div>` : ''}
             </div>
@@ -542,6 +555,11 @@ function addBill() {
 
     if (!amount || amount <= 0) {
         alert('Please enter a valid amount');
+        return;
+    }
+
+    if (website && !/^https?:\/\//i.test(website)) {
+        alert('Please enter a website URL starting with http:// or https://');
         return;
     }
 
@@ -614,7 +632,6 @@ function editBillAmount(id) {
     updateSummary();
 }
 
-// Edit bill website
 function editBillWebsite(id) {
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
@@ -622,7 +639,13 @@ function editBillWebsite(id) {
     const newWebsite = prompt('Enter website URL:', bill.website);
     if (newWebsite === null) return;
 
-    bill.website = newWebsite.trim();
+    const trimmed = newWebsite.trim();
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+        alert('Please enter a URL starting with http:// or https://');
+        return;
+    }
+
+    bill.website = trimmed;
 
     saveData();
     renderBills();
@@ -689,6 +712,7 @@ function renderBills() {
 
     container.innerHTML = bills.map(bill => {
         const perPerson = bill.members.length > 0 ? (bill.amount / bill.members.length).toFixed(2) : '0.00';
+        const safeWebsite = (bill.website && /^https?:\/\//i.test(bill.website)) ? escapeHtml(bill.website) : '';
 
         return `
             <div class="bill-item">
@@ -698,8 +722,8 @@ function renderBills() {
                     </div>
                     <div class="bill-header">
                         <div>
-                            <div class="bill-title editable" onclick="editBillName(${bill.id})" title="Click to edit name">${bill.name}</div>
-                            ${bill.website ? `<div class="bill-website"><a href="${bill.website}" target="_blank">${bill.website}</a></div>` : ''}
+                            <div class="bill-title editable" onclick="editBillName(${bill.id})" title="Click to edit name">${escapeHtml(bill.name)}</div>
+                            ${safeWebsite ? `<div class="bill-website"><a href="${safeWebsite}" target="_blank" rel="noopener noreferrer">${safeWebsite}</a></div>` : ''}
                             <div style="color: #666; font-size: 0.9rem; margin-top: 5px;">
                                 ${bill.members.length > 0 ? `$${perPerson} per person (${bill.members.length} members)` : 'No members selected'}
                             </div>
@@ -719,7 +743,7 @@ function renderBills() {
                                     ${bill.members.includes(member.id) ? 'checked' : ''}
                                     onchange="toggleMember(${bill.id}, ${member.id})"
                                 />
-                                <label for="bill-${bill.id}-${member.id}">${member.name}</label>
+                                <label for="bill-${bill.id}-${member.id}">${escapeHtml(member.name)}</label>
                             </div>
                         `).join('')}
                     </div>
@@ -834,7 +858,7 @@ function updateSummary() {
                 <td>
                     <div class="summary-member">
                         ${generateAvatar(data.member)}
-                        <span>${data.member.name}</span>
+                        <span>${escapeHtml(data.member.name)}</span>
                         ${member.linkedMembers.length > 0 ? `<span class="member-count">(+${member.linkedMembers.length})</span>` : ''}
                     </div>
                 </td>
@@ -846,6 +870,7 @@ function updateSummary() {
                         class="payment-input"
                         value="${payment}"
                         step="0.01"
+                        min="0"
                         onchange="updatePayment(${data.member.id}, this.value)"
                         placeholder="0.00"
                     />
@@ -871,7 +896,7 @@ function updateSummary() {
                         <div class="summary-member summary-child">
                             <span class="child-indicator">↳</span>
                             ${generateAvatar(linkedSummary.member)}
-                            <span>${linkedSummary.member.name}</span>
+                            <span>${escapeHtml(linkedSummary.member.name)}</span>
                         </div>
                     </td>
                     <td>$${(linkedSummary.total / 12).toFixed(2)}</td>
@@ -922,7 +947,7 @@ function updatePayment(memberId, value) {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
-    const payment = parseFloat(value) || 0;
+    const payment = Math.max(0, parseFloat(value) || 0);
     member.paymentReceived = payment;
 
     // If this member has linked members, distribute the payment proportionally
@@ -969,7 +994,7 @@ function renderEmailSettings() {
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 8px;">
                 Use <strong>%total</strong> to insert the combined annual total (e.g., "payment of %total")
             </p>
-            <textarea id="emailMessageInput" rows="4">${settings.emailMessage}</textarea>
+            <textarea id="emailMessageInput" rows="4">${escapeHtml(settings.emailMessage)}</textarea>
             <button class="btn btn-primary" onclick="saveEmailMessage()" style="margin-top: 10px;">Save Message</button>
         </div>
     `;
@@ -1017,7 +1042,7 @@ async function importFromLocalStorage() {
             return;
         }
 
-        if (!confirm('This will import your LocalStorage data and merge it with your current Firebase data. Continue?')) {
+        if (!confirm('This will import your LocalStorage data and REPLACE your current Firebase data. Continue?')) {
             return;
         }
 
@@ -1030,7 +1055,7 @@ async function importFromLocalStorage() {
         console.log('- Family Members:', importedMembers.length);
         console.log('- Bills:', importedBills.length);
 
-        // Merge data (prefer imported data if conflicts)
+        // Replace current data with imported data
         if (importedMembers.length > 0) {
             familyMembers = importedMembers.map(m => {
                 if (!m.email) m.email = '';
@@ -1071,8 +1096,7 @@ async function importFromLocalStorage() {
     }
 }
 
-// Clear all data
-function clearAllData() {
+async function clearAllData() {
     if (!confirm('Are you sure you want to clear ALL data? This cannot be undone!')) {
         return;
     }
@@ -1081,19 +1105,20 @@ function clearAllData() {
         return;
     }
 
-    localStorage.clear();
     familyMembers = [];
     bills = [];
     settings = {
         emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.'
     };
 
+    await saveData();
+
     renderFamilyMembers();
     renderBills();
     updateSummary();
     renderEmailSettings();
 
-    alert('All data has been cleared. Starting fresh!');
+    alert('All data has been cleared.');
 }
 
 // Generate printable invoice (full)
@@ -1106,7 +1131,7 @@ function generateInvoice() {
     }
 
     const currentYear = new Date().getFullYear();
-    const invoiceHTML = generateInvoiceHTML(summary, currentYear, false);
+    const invoiceHTML = generateInvoiceHTML(summary, currentYear);
 
     // Open in new window
     const invoiceWindow = window.open('', '_blank');
@@ -1246,8 +1271,7 @@ function sendIndividualInvoice(memberId) {
     }
 }
 
-// Generate full invoice HTML
-function generateInvoiceHTML(summary, currentYear, forPrint = true) {
+function generateInvoiceHTML(summary, currentYear) {
     let totalAnnual = 0;
     Object.values(summary).forEach(data => {
         totalAnnual += data.total;
@@ -1363,13 +1387,14 @@ function generateInvoiceHTML(summary, currentYear, forPrint = true) {
     `;
 
     Object.values(summary).forEach(data => {
+        const safeName = escapeHtml(data.member.name);
         const avatarHTML = data.member.avatar
-            ? `<img src="${data.member.avatar}" class="avatar" alt="${data.member.name}" />`
-            : `<div class="avatar-initials">${getInitials(data.member.name)}</div>`;
+            ? `<img src="${data.member.avatar}" class="avatar" alt="${safeName}" />`
+            : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
 
         html += `
                     <tr>
-                        <td>${avatarHTML}${data.member.name}</td>
+                        <td>${avatarHTML}${safeName}</td>
                         <td>$${(data.total / 12).toFixed(2)}</td>
                         <td><strong>$${data.total.toFixed(2)}</strong></td>
                     </tr>
@@ -1386,17 +1411,17 @@ function generateInvoiceHTML(summary, currentYear, forPrint = true) {
             </table>
     `;
 
-    // Add detailed breakdown for each member
     Object.values(summary).forEach(data => {
         if (data.total === 0) return;
 
+        const safeName = escapeHtml(data.member.name);
         const avatarHTML = data.member.avatar
-            ? `<img src="${data.member.avatar}" class="avatar" alt="${data.member.name}" />`
-            : `<div class="avatar-initials">${getInitials(data.member.name)}</div>`;
+            ? `<img src="${data.member.avatar}" class="avatar" alt="${safeName}" />`
+            : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
 
         html += `
             <div class="member-section">
-                <h2>${avatarHTML}${data.member.name}'s Bill Breakdown</h2>
+                <h2>${avatarHTML}${safeName}'s Bill Breakdown</h2>
                 <table>
                     <thead>
                         <tr>
@@ -1411,13 +1436,14 @@ function generateInvoiceHTML(summary, currentYear, forPrint = true) {
         `;
 
         data.bills.forEach(billData => {
+            const safeBillName = escapeHtml(billData.bill.name);
             const logoHTML = billData.bill.logo
-                ? `<img src="${billData.bill.logo}" class="logo" alt="${billData.bill.name}" />`
-                : `<div class="logo-text">${billData.bill.name}</div>`;
+                ? `<img src="${billData.bill.logo}" class="logo" alt="${safeBillName}" />`
+                : `<div class="logo-text">${safeBillName}</div>`;
 
             html += `
                         <tr>
-                            <td>${logoHTML}${billData.bill.name}</td>
+                            <td>${logoHTML}${safeBillName}</td>
                             <td>$${billData.bill.amount.toFixed(2)}</td>
                             <td>${billData.bill.members.length} members</td>
                             <td>$${billData.monthlyShare.toFixed(2)}</td>

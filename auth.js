@@ -1,19 +1,15 @@
 // Authentication handling
 
 function switchTab(tab) {
-    // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
+        btn.classList.toggle('active', btn.dataset.tab === tab);
     });
-    event.target.classList.add('active');
 
-    // Update tab content
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     document.getElementById(`${tab}-tab`).classList.add('active');
 
-    // Clear messages
     hideMessages();
 }
 
