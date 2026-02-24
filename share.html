@@ -165,6 +165,125 @@
             margin-top: 24px;
         }
 
+        .review-btn {
+            background: none;
+            border: 1px solid #e2e8f0;
+            color: #667eea;
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-family: inherit;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .review-btn:hover {
+            background: #f0f0ff;
+            border-color: #667eea;
+        }
+
+        .dispute-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .dispute-overlay.visible { display: flex; }
+
+        .dispute-dialog {
+            background: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 480px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .dispute-dialog-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .dispute-dialog-header h3 { color: #333; font-size: 1.1rem; margin: 0; }
+        .dispute-dialog-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #999;
+            line-height: 1;
+        }
+
+        .dispute-dialog-body { padding: 20px; }
+
+        .dispute-dialog-body label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+        .dispute-dialog-body textarea,
+        .dispute-dialog-body input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .dispute-dialog-body textarea:focus,
+        .dispute-dialog-body input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+        }
+        .dispute-field { margin-bottom: 16px; }
+        .dispute-field .hint { color: #888; font-size: 0.8rem; margin-top: 4px; }
+
+        .dispute-dialog-footer {
+            padding: 12px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .dispute-dialog-footer button {
+            padding: 9px 18px;
+            border-radius: 6px;
+            border: none;
+            font-size: 0.95rem;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        .dispute-btn-cancel {
+            background: #e2e8f0;
+            color: #555;
+        }
+        .dispute-btn-submit {
+            background: #667eea;
+            color: white;
+        }
+        .dispute-btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .dispute-success {
+            text-align: center;
+            padding: 30px 20px;
+            color: #48bb78;
+        }
+        .dispute-success .check-icon { font-size: 2.5rem; margin-bottom: 8px; }
+
         @media print {
             body { background: white; padding: 0; }
             .card { box-shadow: none; border: 1px solid #ddd; }
@@ -232,8 +351,14 @@
         </div>
     </div>
 
+    <div class="dispute-overlay" id="disputeOverlay">
+        <div class="dispute-dialog" id="disputeDialog"></div>
+    </div>
+
     <script>
         var FUNCTION_BASE = 'https://us-central1-friends-and-family-billing.cloudfunctions.net';
+        var _shareToken = null;
+        var _canDispute = false;
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -254,16 +379,23 @@
                 + '<p>' + escapeHtml(message) + '</p>';
         }
 
-        function renderBillsTable(bills, tbody) {
+        function renderBillsTable(bills, tbody, showReview) {
             var total = 0;
+            var colCount = showReview ? 6 : 5;
             bills.forEach(function(b) {
                 total += b.annualShare;
                 var tr = document.createElement('tr');
-                tr.innerHTML = '<td>' + escapeHtml(b.name) + '</td>'
+                var html = '<td>' + escapeHtml(b.name) + '</td>'
                     + '<td>$' + b.monthlyAmount.toFixed(2) + '</td>'
                     + '<td>' + b.splitCount + ' members</td>'
                     + '<td>$' + b.monthlyShare.toFixed(2) + '</td>'
                     + '<td>$' + b.annualShare.toFixed(2) + '</td>';
+                if (showReview) {
+                    html += '<td><button class="review-btn" onclick="openDisputeForm('
+                        + b.billId + ', \'' + escapeHtml(b.name).replace(/'/g, "\\'") + '\')">'
+                        + 'Request Review</button></td>';
+                }
+                tr.innerHTML = html;
                 tbody.appendChild(tr);
             });
 
@@ -271,8 +403,99 @@
             totalRow.className = 'total-row';
             totalRow.innerHTML = '<td colspan="3">TOTAL</td>'
                 + '<td>$' + (total / 12).toFixed(2) + '</td>'
-                + '<td><strong>$' + total.toFixed(2) + '</strong></td>';
+                + '<td><strong>$' + total.toFixed(2) + '</strong></td>'
+                + (showReview ? '<td></td>' : '');
             tbody.appendChild(totalRow);
+        }
+
+        function openDisputeForm(billId, billName) {
+            var overlay = document.getElementById('disputeOverlay');
+            var dialog = document.getElementById('disputeDialog');
+            dialog.innerHTML = '<div class="dispute-dialog-header">'
+                + '<h3>Request Review</h3>'
+                + '<button class="dispute-dialog-close" onclick="closeDispute()">&times;</button>'
+                + '</div>'
+                + '<div class="dispute-dialog-body">'
+                + '<p style="color:#555;margin-bottom:16px;">Flagging <strong>' + escapeHtml(billName) + '</strong> for review.</p>'
+                + '<div class="dispute-field">'
+                + '<label for="disputeMessage">What looks wrong?</label>'
+                + '<textarea id="disputeMessage" rows="4" placeholder="Describe the issue..."></textarea>'
+                + '<div class="hint">Required. Max 2,000 characters.</div>'
+                + '</div>'
+                + '<div class="dispute-field">'
+                + '<label for="disputeCorrection">Suggested correction (optional)</label>'
+                + '<input type="text" id="disputeCorrection" placeholder="e.g. Should be $45/mo instead of $60" />'
+                + '<div class="hint">Max 500 characters.</div>'
+                + '</div>'
+                + '</div>'
+                + '<div class="dispute-dialog-footer">'
+                + '<button class="dispute-btn-cancel" onclick="closeDispute()">Cancel</button>'
+                + '<button class="dispute-btn-submit" id="disputeSubmitBtn" onclick="submitDispute(' + billId + ', \'' + escapeHtml(billName).replace(/'/g, "\\'") + '\')">Submit</button>'
+                + '</div>';
+            overlay.classList.add('visible');
+        }
+
+        function closeDispute() {
+            document.getElementById('disputeOverlay').classList.remove('visible');
+        }
+
+        async function submitDispute(billId, billName) {
+            var msgEl = document.getElementById('disputeMessage');
+            var corrEl = document.getElementById('disputeCorrection');
+            var btn = document.getElementById('disputeSubmitBtn');
+            var message = (msgEl.value || '').trim();
+            var correction = (corrEl.value || '').trim();
+
+            if (!message) {
+                msgEl.style.borderColor = '#f56565';
+                msgEl.focus();
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Submitting...';
+
+            try {
+                var resp = await fetch(FUNCTION_BASE + '/submitDispute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: _shareToken,
+                        billId: billId,
+                        billName: billName,
+                        message: message,
+                        proposedCorrection: correction || null
+                    })
+                });
+
+                var data = await resp.json();
+
+                if (!resp.ok) {
+                    alert(data.error || 'Could not submit. Please try again.');
+                    btn.disabled = false;
+                    btn.textContent = 'Submit';
+                    return;
+                }
+
+                var dialog = document.getElementById('disputeDialog');
+                dialog.innerHTML = '<div class="dispute-dialog-header">'
+                    + '<h3>Request Review</h3>'
+                    + '<button class="dispute-dialog-close" onclick="closeDispute()">&times;</button>'
+                    + '</div>'
+                    + '<div class="dispute-success">'
+                    + '<div class="check-icon">&#10003;</div>'
+                    + '<h3 style="color:#333;margin-bottom:8px;">Review Request Submitted</h3>'
+                    + '<p style="color:#666;">The account owner will be notified of your request.</p>'
+                    + '</div>'
+                    + '<div class="dispute-dialog-footer">'
+                    + '<button class="dispute-btn-cancel" onclick="closeDispute()">Close</button>'
+                    + '</div>';
+            } catch (err) {
+                console.error('Dispute submission error:', err);
+                alert('Could not connect to the server. Please try again later.');
+                btn.disabled = false;
+                btn.textContent = 'Submit';
+            }
         }
 
         async function load() {
@@ -282,6 +505,7 @@
                 showError('No share token provided. Please check your link.');
                 return;
             }
+            _shareToken = token;
 
             try {
                 var resp = await fetch(FUNCTION_BASE + '/resolveShareToken', {
@@ -300,6 +524,9 @@
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
+                var scopes = data.scopes || [];
+                _canDispute = scopes.includes('disputes:create');
+
                 document.title = data.memberName + ' — Billing Summary ' + data.year;
                 document.getElementById('headerTitle').textContent =
                     data.memberName + "'s Billing Summary";
@@ -310,8 +537,19 @@
                     document.getElementById('billBreakdownTitle').textContent =
                         data.memberName + "'s Bills";
 
+                    var thead = document.querySelector('.summary-table thead tr');
+                    if (_canDispute && thead) {
+                        var th = document.createElement('th');
+                        th.textContent = '';
+                        thead.appendChild(th);
+                    }
+
                     var tbody = document.getElementById('billsTableBody');
-                    renderBillsTable(data.summary.bills, tbody);
+                    var billsWithIds = data.summary.bills.map(function(b, i) {
+                        b.billId = b.billId || i;
+                        return b;
+                    });
+                    renderBillsTable(billsWithIds, tbody, _canDispute);
 
                     if (data.linkedMembers && data.linkedMembers.length > 0) {
                         var linkedEl = document.getElementById('linkedSections');
@@ -325,12 +563,18 @@
 
                             var table = document.createElement('table');
                             table.className = 'summary-table';
-                            table.innerHTML = '<thead><tr>'
+                            var headHtml = '<thead><tr>'
                                 + '<th>Bill</th><th>Monthly Amount</th>'
                                 + '<th>Split</th><th>Share</th><th>Annual</th>'
+                                + (_canDispute ? '<th></th>' : '')
                                 + '</tr></thead>';
+                            table.innerHTML = headHtml;
                             var tb = document.createElement('tbody');
-                            renderBillsTable(lm.bills, tb);
+                            var lmBills = lm.bills.map(function(b, i) {
+                                b.billId = b.billId || i;
+                                return b;
+                            });
+                            renderBillsTable(lmBills, tb, _canDispute);
                             table.appendChild(tb);
                             section.appendChild(table);
                             linkedEl.appendChild(section);

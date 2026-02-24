@@ -1292,7 +1292,7 @@ describe('computeMemberSummary', () => {
 
     it('computes correct summary for a member in a shared bill', () => {
         const bills = [
-            { name: 'Internet', amount: 120, members: [1, 2] },
+            { id: 42, name: 'Internet', amount: 120, members: [1, 2] },
         ];
         const result = computeMemberSummary(members, bills, 1);
         assert.equal(result.name, 'Alice');
@@ -1302,6 +1302,16 @@ describe('computeMemberSummary', () => {
         assert.equal(result.bills[0].splitCount, 2);
         assert.equal(result.bills[0].monthlyShare, 60);
         assert.equal(result.bills[0].annualShare, 720);
+    });
+
+    it('includes billId in the summary output', () => {
+        const bills = [
+            { id: 99, name: 'Netflix', amount: 20, members: [1] },
+            { id: 100, name: 'Hulu', amount: 15, members: [1, 2] },
+        ];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.bills[0].billId, 99);
+        assert.equal(result.bills[1].billId, 100);
     });
 
     it('returns null for a non-existent member', () => {
@@ -1336,6 +1346,111 @@ describe('computeMemberSummary', () => {
         ];
         const result = computeMemberSummary(members, bills, 1);
         assert.equal(result.annualTotal, 0);
+    });
+});
+
+// ──────────────── submitDispute validation helpers ─────────────
+
+const { _testHelpers } = require(path.join(__dirname, '..', 'functions', 'index'));
+const { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT } = _testHelpers;
+
+describe('validateToken', () => {
+    it('rejects null/undefined token', () => {
+        assert.equal(validateToken(null).valid, false);
+        assert.equal(validateToken(undefined).valid, false);
+    });
+
+    it('rejects non-string token', () => {
+        assert.equal(validateToken(12345).valid, false);
+        assert.equal(validateToken({}).valid, false);
+    });
+
+    it('rejects short tokens', () => {
+        assert.equal(validateToken('abc').valid, false);
+        assert.equal(validateToken('a'.repeat(31)).valid, false);
+    });
+
+    it('accepts valid 64-char hex token', () => {
+        const token = 'a'.repeat(64);
+        assert.equal(validateToken(token).valid, true);
+    });
+
+    it('accepts token of exactly 32 characters', () => {
+        assert.equal(validateToken('x'.repeat(32)).valid, true);
+    });
+});
+
+describe('validateDisputeInput', () => {
+    const validInput = {
+        billId: 1,
+        billName: 'Internet',
+        message: 'This amount seems wrong.',
+        proposedCorrection: null,
+    };
+
+    it('accepts valid dispute input', () => {
+        assert.equal(validateDisputeInput(validInput).valid, true);
+    });
+
+    it('rejects missing billId', () => {
+        const result = validateDisputeInput({ ...validInput, billId: undefined });
+        assert.equal(result.valid, false);
+        assert.ok(result.error.includes('bill'));
+    });
+
+    it('rejects non-numeric billId', () => {
+        const result = validateDisputeInput({ ...validInput, billId: 'abc' });
+        assert.equal(result.valid, false);
+    });
+
+    it('rejects missing billName', () => {
+        const result = validateDisputeInput({ ...validInput, billName: '' });
+        assert.equal(result.valid, false);
+    });
+
+    it('rejects missing message', () => {
+        const result = validateDisputeInput({ ...validInput, message: '' });
+        assert.equal(result.valid, false);
+        assert.ok(result.error.includes('message'));
+    });
+
+    it('rejects whitespace-only message', () => {
+        const result = validateDisputeInput({ ...validInput, message: '   ' });
+        assert.equal(result.valid, false);
+    });
+
+    it('rejects message exceeding 2000 characters', () => {
+        const result = validateDisputeInput({ ...validInput, message: 'x'.repeat(2001) });
+        assert.equal(result.valid, false);
+        assert.ok(result.error.includes('2000'));
+    });
+
+    it('accepts message of exactly 2000 characters', () => {
+        const result = validateDisputeInput({ ...validInput, message: 'x'.repeat(2000) });
+        assert.equal(result.valid, true);
+    });
+
+    it('rejects proposedCorrection exceeding 500 characters', () => {
+        const result = validateDisputeInput({ ...validInput, proposedCorrection: 'x'.repeat(501) });
+        assert.equal(result.valid, false);
+        assert.ok(result.error.includes('500'));
+    });
+
+    it('accepts proposedCorrection of exactly 500 characters', () => {
+        const result = validateDisputeInput({ ...validInput, proposedCorrection: 'x'.repeat(500) });
+        assert.equal(result.valid, true);
+    });
+
+    it('accepts null proposedCorrection', () => {
+        const result = validateDisputeInput({ ...validInput, proposedCorrection: null });
+        assert.equal(result.valid, true);
+    });
+});
+
+describe('DISPUTE_RATE_LIMIT', () => {
+    it('is set to a reasonable value', () => {
+        assert.equal(typeof DISPUTE_RATE_LIMIT, 'number');
+        assert.ok(DISPUTE_RATE_LIMIT > 0 && DISPUTE_RATE_LIMIT <= 100);
     });
 });
 

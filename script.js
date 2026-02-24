@@ -70,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSummary();
             renderEmailSettings();
             renderPaymentLinksSettings();
+            loadDisputes();
             startUpdateChecker();
         }
     });
@@ -356,6 +357,7 @@ async function switchBillingYear(yearId) {
         updateSummary();
         renderEmailSettings();
         renderPaymentLinksSettings();
+        loadDisputes();
     } catch (error) {
         console.error('Error switching billing year:', error);
         alert('Error switching billing year. Please try again.');
@@ -391,6 +393,7 @@ async function archiveCurrentYear() {
         updateSummary();
         renderEmailSettings();
         renderPaymentLinksSettings();
+        loadDisputes();
 
         if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
             await startNewYear();
@@ -465,6 +468,7 @@ async function startNewYear() {
         updateSummary();
         renderEmailSettings();
         renderPaymentLinksSettings();
+        loadDisputes();
 
         alert('Billing year ' + yearId + ' created successfully!');
     } catch (error) {
@@ -1502,6 +1506,98 @@ function removePaymentLink(linkId) {
     renderPaymentLinksSettings();
 }
 
+// ──────────────── Review Requests (Disputes) ────────────────
+
+async function loadDisputes() {
+    const container = document.getElementById('disputesList');
+    if (!container || !currentUser || !currentBillingYear) return;
+
+    try {
+        const snapshot = await db
+            .collection('users')
+            .doc(currentUser.uid)
+            .collection('billingYears')
+            .doc(currentBillingYear.id)
+            .collection('disputes')
+            .get();
+
+        const disputes = [];
+        snapshot.docs.forEach(doc => {
+            disputes.push({ id: doc.id, ...doc.data() });
+        });
+
+        disputes.sort((a, b) => {
+            const aTime = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
+            const bTime = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
+            return bTime - aTime;
+        });
+
+        renderDisputes(disputes);
+    } catch (error) {
+        console.error('Error loading disputes:', error);
+        container.innerHTML = '<p style="color: #f56565;">Error loading review requests.</p>';
+    }
+}
+
+function renderDisputes(disputes) {
+    const container = document.getElementById('disputesList');
+    if (!container) return;
+
+    if (disputes.length === 0) {
+        container.innerHTML = '<p class="empty-state">No review requests yet.</p>';
+        return;
+    }
+
+    let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
+    disputes.forEach(d => {
+        const created = d.createdAt
+            ? (d.createdAt.toDate ? d.createdAt.toDate() : new Date(d.createdAt)).toLocaleDateString()
+            : 'Unknown';
+
+        const statusClass = d.status === 'pending' ? 'dispute-pending'
+            : d.status === 'reviewed' ? 'dispute-reviewed' : 'dispute-resolved';
+        const statusLabel = d.status ? d.status.charAt(0).toUpperCase() + d.status.slice(1) : 'Pending';
+
+        html += `<div class="dispute-item ${statusClass}">
+            <div class="dispute-item-header">
+                <strong>${escapeHtml(d.billName)}</strong>
+                <span class="dispute-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
+            </div>
+            <div class="dispute-item-meta">
+                From <strong>${escapeHtml(d.memberName)}</strong> &middot; ${escapeHtml(created)}
+            </div>
+            <div class="dispute-item-message">${escapeHtml(d.message)}</div>
+            ${d.proposedCorrection ? `<div class="dispute-item-correction">Suggested: ${escapeHtml(d.proposedCorrection)}</div>` : ''}
+            <div class="dispute-item-actions">
+                ${d.status === 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="updateDisputeStatus('${escapeHtml(d.id)}', 'reviewed')">Mark Reviewed</button>` : ''}
+                ${d.status !== 'resolved' ? `<button class="btn btn-sm btn-success" onclick="updateDisputeStatus('${escapeHtml(d.id)}', 'resolved')">Resolve</button>` : ''}
+            </div>
+        </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+async function updateDisputeStatus(disputeId, newStatus) {
+    if (!currentUser || !currentBillingYear) return;
+
+    try {
+        await db
+            .collection('users')
+            .doc(currentUser.uid)
+            .collection('billingYears')
+            .doc(currentBillingYear.id)
+            .collection('disputes')
+            .doc(disputeId)
+            .update({ status: newStatus });
+
+        loadDisputes();
+    } catch (error) {
+        console.error('Error updating dispute:', error);
+        alert('Error updating review request. Please try again.');
+    }
+}
+
 // ──────────────── Share Link Functions ────────────────
 
 async function hashToken(rawToken) {
@@ -1548,6 +1644,15 @@ async function generateShareLink(memberId) {
                     <option value="365">1 year</option>
                 </select>
             </div>
+            <div class="form-group" style="margin-top: 12px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="shareLinkDisputes" />
+                    Allow member to request bill reviews
+                </label>
+                <p style="color:#888;font-size:0.8rem;margin-top:4px;">
+                    Adds <code>disputes:create</code> scope so the member can flag bill line items for review.
+                </p>
+            </div>
         </div>
         <div class="dialog-footer">
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
@@ -1578,11 +1683,17 @@ async function doGenerateShareLink(memberId) {
             expiresAt = d;
         }
 
+        const disputeCheckbox = document.getElementById('shareLinkDisputes');
+        const scopes = ['summary:read', 'paymentLinks:read'];
+        if (disputeCheckbox && disputeCheckbox.checked) {
+            scopes.push('disputes:create');
+        }
+
         const tokenDoc = {
             ownerId: currentUser.uid,
             memberId: memberId,
             billingYearId: currentBillingYear.id,
-            scopes: ['summary:read', 'paymentLinks:read'],
+            scopes: scopes,
             revoked: false,
             expiresAt: expiresAt ? firebase.firestore.Timestamp.fromDate(expiresAt) : null,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),

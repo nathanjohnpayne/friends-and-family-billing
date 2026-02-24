@@ -11,6 +11,7 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
       const annualShare = monthlyShare * 12;
       total += annualShare;
       memberBills.push({
+        billId: bill.id,
         name: bill.name,
         monthlyAmount: bill.amount,
         splitCount: bill.members.length,

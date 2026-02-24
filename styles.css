@@ -968,3 +968,74 @@ textarea:focus {
     padding-left: 102px;
     margin-top: -4px;
 }
+
+/* ──────────────── Review Requests (Disputes) ──────────────── */
+
+.dispute-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+    border-left: 4px solid #e2e8f0;
+}
+
+.dispute-item.dispute-pending { border-left-color: #ecc94b; }
+.dispute-item.dispute-reviewed { border-left-color: #667eea; }
+.dispute-item.dispute-resolved { border-left-color: #48bb78; }
+
+.dispute-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.dispute-item-header strong {
+    font-size: 1rem;
+    color: #333;
+}
+
+.dispute-status-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.dispute-status-badge.dispute-pending { background: #fefcbf; color: #975a16; }
+.dispute-status-badge.dispute-reviewed { background: #ebf4ff; color: #3c5a99; }
+.dispute-status-badge.dispute-resolved { background: #f0fff4; color: #276749; }
+
+.dispute-item-meta {
+    font-size: 0.85rem;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.dispute-item-message {
+    font-size: 0.95rem;
+    color: #444;
+    line-height: 1.5;
+    margin-bottom: 6px;
+}
+
+.dispute-item-correction {
+    font-size: 0.9rem;
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.06);
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.dispute-item-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 0.85rem;
+}

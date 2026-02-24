@@ -1,10 +1,13 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 
 initializeApp();
 const db = getFirestore();
+
+const DISPUTE_RATE_LIMIT = 10;
+const DISPUTE_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const ALLOWED_ORIGINS = [
   "https://friends-and-family-billing.web.app",
@@ -147,6 +150,135 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     res.status(200).json(result);
   } catch (err) {
     console.error("resolveShareToken error:", err);
+    res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+  }
+});
+
+function validateToken(token) {
+  if (!token || typeof token !== "string" || token.length < 32) {
+    return { valid: false, status: 400, error: "Invalid token" };
+  }
+  return { valid: true };
+}
+
+function validateDisputeInput({ billId, billName, message, proposedCorrection }) {
+  if (typeof billId !== "number" || !billName || typeof billName !== "string") {
+    return { valid: false, status: 400, error: "Missing or invalid bill information." };
+  }
+  if (!message || typeof message !== "string" || message.trim().length === 0) {
+    return { valid: false, status: 400, error: "A message is required." };
+  }
+  if (message.length > 2000) {
+    return { valid: false, status: 400, error: "Message is too long (max 2000 characters)." };
+  }
+  if (proposedCorrection && typeof proposedCorrection === "string" && proposedCorrection.length > 500) {
+    return { valid: false, status: 400, error: "Proposed correction is too long (max 500 characters)." };
+  }
+  return { valid: true };
+}
+
+exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT };
+
+async function resolveAndValidateToken(token, requiredScope) {
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
+  const tokenDoc = await db.collection("shareTokens").doc(hash).get();
+
+  if (!tokenDoc.exists) {
+    return { ok: false, status: 404, error: "This link is invalid or has been removed." };
+  }
+
+  const tokenData = tokenDoc.data();
+
+  if (tokenData.revoked) {
+    return { ok: false, status: 403, error: "This link has been revoked by the account owner." };
+  }
+
+  if (tokenData.expiresAt) {
+    const expiry = tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt);
+    if (expiry < new Date()) {
+      return { ok: false, status: 403, error: "This link has expired." };
+    }
+  }
+
+  const scopes = tokenData.scopes || [];
+  if (!scopes.includes(requiredScope)) {
+    return { ok: false, status: 403, error: "This link does not have permission to perform this action." };
+  }
+
+  return { ok: true, tokenData, tokenHash: hash, tokenDoc };
+}
+
+exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) => {
+  setCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { token, billId, billName, message, proposedCorrection } = req.body || {};
+
+  const tokenCheck = validateToken(token);
+  if (!tokenCheck.valid) {
+    res.status(tokenCheck.status).json({ error: tokenCheck.error });
+    return;
+  }
+
+  const inputCheck = validateDisputeInput({ billId, billName, message, proposedCorrection });
+  if (!inputCheck.valid) {
+    res.status(inputCheck.status).json({ error: inputCheck.error });
+    return;
+  }
+
+  try {
+    const result = await resolveAndValidateToken(token, "disputes:create");
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    const { tokenData, tokenHash } = result;
+
+    const disputesRef = db
+      .collection("users")
+      .doc(tokenData.ownerId)
+      .collection("billingYears")
+      .doc(tokenData.billingYearId)
+      .collection("disputes");
+
+    const cutoff = Timestamp.fromDate(new Date(Date.now() - DISPUTE_RATE_WINDOW_MS));
+    const recentSnap = await disputesRef
+      .where("tokenHash", "==", tokenHash)
+      .where("createdAt", ">", cutoff)
+      .get();
+
+    if (recentSnap.size >= DISPUTE_RATE_LIMIT) {
+      res.status(429).json({ error: "Too many review requests. Please try again later." });
+      return;
+    }
+
+    const dispute = {
+      memberId: tokenData.memberId,
+      memberName: tokenData.memberName || "",
+      billId: billId,
+      billName: billName.trim(),
+      message: message.trim(),
+      proposedCorrection: proposedCorrection ? proposedCorrection.trim() : null,
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+      tokenHash: tokenHash,
+    };
+
+    const docRef = await disputesRef.add(dispute);
+
+    res.status(201).json({ id: docRef.id, message: "Review request submitted successfully." });
+  } catch (err) {
+    console.error("submitDispute error:", err);
     res.status(500).json({ error: "An unexpected error occurred. Please try again." });
   }
 });
