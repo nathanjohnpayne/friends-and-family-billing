@@ -399,7 +399,7 @@ exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) =
 
     const [url] = await file.getSignedUrl({
       action: "read",
-      expires: Date.now() + 3600000,
+      expires: Date.now() + 30 * 24 * 60 * 60 * 1000,
     });
 
     res.status(200).json({ url });
