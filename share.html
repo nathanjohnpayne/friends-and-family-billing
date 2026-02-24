@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Billing Summary</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        header h1 { font-size: 2rem; margin-bottom: 6px; }
+        header .subtitle { font-size: 1rem; opacity: 0.9; }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            color: #333;
+            margin-bottom: 16px;
+            font-size: 1.3rem;
+        }
+
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 12px;
+        }
+
+        .summary-table th, .summary-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .summary-table th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #333;
+            font-size: 0.9rem;
+        }
+
+        .summary-table tr:hover { background: #f9fafb; }
+
+        .total-row {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 1.05rem;
+        }
+
+        .child-section { margin-top: 20px; }
+        .child-section h3 {
+            font-size: 1.1rem;
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        .payment-summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .payment-stat {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .payment-stat .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .payment-stat .value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .payment-stat .value.owed { color: #f56565; }
+        .payment-stat .value.paid { color: #48bb78; }
+
+        .payment-links-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .payment-link-card {
+            display: block;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .payment-link-card:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        .loading-state, .error-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        .loading-state .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        .loading-state p { color: white; font-size: 1.1rem; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-state .error-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+        }
+
+        .error-state h2 { color: #333; margin-bottom: 8px; }
+        .error-state p { color: #666; }
+
+        #content { display: none; }
+
+        .powered-by {
+            text-align: center;
+            color: rgba(255,255,255,0.6);
+            font-size: 0.8rem;
+            margin-top: 24px;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .card { box-shadow: none; border: 1px solid #ddd; }
+            header { color: #333; }
+            .payment-link-card { background: #eee; color: #333; }
+            .no-print { display: none; }
+        }
+
+        @media (max-width: 600px) {
+            .payment-summary-grid { grid-template-columns: 1fr; }
+            .payment-links-grid { grid-template-columns: 1fr; }
+            header h1 { font-size: 1.6rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="loading" class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading your billing summary&hellip;</p>
+        </div>
+
+        <div id="error" class="error-state card" style="display:none;"></div>
+
+        <div id="content">
+            <header>
+                <h1 id="headerTitle">Billing Summary</h1>
+                <p class="subtitle" id="headerSubtitle"></p>
+            </header>
+
+            <div class="card">
+                <h2 id="billBreakdownTitle">Bill Breakdown</h2>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th>Bill</th>
+                            <th>Monthly Amount</th>
+                            <th>Split</th>
+                            <th>Your Share</th>
+                            <th>Annual</th>
+                        </tr>
+                    </thead>
+                    <tbody id="billsTableBody"></tbody>
+                </table>
+                <div id="linkedSections"></div>
+            </div>
+
+            <div class="card">
+                <h2>Payment Summary</h2>
+                <div class="payment-summary-grid" id="paymentSummaryGrid"></div>
+            </div>
+
+            <div id="paymentLinksCard" class="card" style="display:none;">
+                <h2>Payment Options</h2>
+                <div class="payment-links-grid" id="paymentLinksGrid"></div>
+            </div>
+
+            <div class="no-print" style="text-align:center; margin-top: 16px;">
+                <button onclick="window.print()" style="padding: 10px 24px; background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.4); border-radius: 8px; font-size: 1rem; cursor: pointer; font-family: inherit;">
+                    Print / Save PDF
+                </button>
+            </div>
+
+            <div class="powered-by">Friends &amp; Family Billing</div>
+        </div>
+    </div>
+
+    <script>
+        var FUNCTION_BASE = 'https://us-central1-friends-and-family-billing.cloudfunctions.net';
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            var el = document.getElementById('error');
+            el.style.display = 'block';
+            el.innerHTML = '<div class="error-icon">&#9888;&#65039;</div>'
+                + '<h2>Unable to Load Summary</h2>'
+                + '<p>' + escapeHtml(message) + '</p>';
+        }
+
+        function renderBillsTable(bills, tbody) {
+            var total = 0;
+            bills.forEach(function(b) {
+                total += b.annualShare;
+                var tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + escapeHtml(b.name) + '</td>'
+                    + '<td>$' + b.monthlyAmount.toFixed(2) + '</td>'
+                    + '<td>' + b.splitCount + ' members</td>'
+                    + '<td>$' + b.monthlyShare.toFixed(2) + '</td>'
+                    + '<td>$' + b.annualShare.toFixed(2) + '</td>';
+                tbody.appendChild(tr);
+            });
+
+            var totalRow = document.createElement('tr');
+            totalRow.className = 'total-row';
+            totalRow.innerHTML = '<td colspan="3">TOTAL</td>'
+                + '<td>$' + (total / 12).toFixed(2) + '</td>'
+                + '<td><strong>$' + total.toFixed(2) + '</strong></td>';
+            tbody.appendChild(totalRow);
+        }
+
+        async function load() {
+            var params = new URLSearchParams(window.location.search);
+            var token = params.get('token');
+            if (!token) {
+                showError('No share token provided. Please check your link.');
+                return;
+            }
+
+            try {
+                var resp = await fetch(FUNCTION_BASE + '/resolveShareToken', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+
+                var data = await resp.json();
+
+                if (!resp.ok) {
+                    showError(data.error || 'Something went wrong.');
+                    return;
+                }
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+                document.title = data.memberName + ' — Billing Summary ' + data.year;
+                document.getElementById('headerTitle').textContent =
+                    data.memberName + "'s Billing Summary";
+                document.getElementById('headerSubtitle').textContent =
+                    'Billing Year ' + data.year;
+
+                if (data.summary) {
+                    document.getElementById('billBreakdownTitle').textContent =
+                        data.memberName + "'s Bills";
+
+                    var tbody = document.getElementById('billsTableBody');
+                    renderBillsTable(data.summary.bills, tbody);
+
+                    if (data.linkedMembers && data.linkedMembers.length > 0) {
+                        var linkedEl = document.getElementById('linkedSections');
+                        data.linkedMembers.forEach(function(lm) {
+                            var section = document.createElement('div');
+                            section.className = 'child-section';
+
+                            var heading = document.createElement('h3');
+                            heading.textContent = lm.name + "'s Bills";
+                            section.appendChild(heading);
+
+                            var table = document.createElement('table');
+                            table.className = 'summary-table';
+                            table.innerHTML = '<thead><tr>'
+                                + '<th>Bill</th><th>Monthly Amount</th>'
+                                + '<th>Split</th><th>Share</th><th>Annual</th>'
+                                + '</tr></thead>';
+                            var tb = document.createElement('tbody');
+                            renderBillsTable(lm.bills, tb);
+                            table.appendChild(tb);
+                            section.appendChild(table);
+                            linkedEl.appendChild(section);
+                        });
+                    }
+                }
+
+                if (data.paymentSummary) {
+                    var ps = data.paymentSummary;
+                    var grid = document.getElementById('paymentSummaryGrid');
+                    var balClass = ps.balanceRemaining > 0 ? 'owed' : 'paid';
+
+                    grid.innerHTML = ''
+                        + '<div class="payment-stat"><div class="label">Annual Total</div>'
+                        + '<div class="value">$' + ps.combinedAnnualTotal.toFixed(2) + '</div></div>'
+                        + '<div class="payment-stat"><div class="label">Monthly</div>'
+                        + '<div class="value">$' + ps.combinedMonthlyTotal.toFixed(2) + '</div></div>'
+                        + '<div class="payment-stat"><div class="label">Paid to Date</div>'
+                        + '<div class="value paid">$' + ps.totalPaid.toFixed(2) + '</div></div>'
+                        + '<div class="payment-stat"><div class="label">Balance Remaining</div>'
+                        + '<div class="value ' + balClass + '">$' + ps.balanceRemaining.toFixed(2) + '</div></div>';
+                }
+
+                if (data.paymentLinks && data.paymentLinks.length > 0) {
+                    var linksCard = document.getElementById('paymentLinksCard');
+                    linksCard.style.display = 'block';
+                    var linksGrid = document.getElementById('paymentLinksGrid');
+
+                    data.paymentLinks.forEach(function(pl) {
+                        var a = document.createElement('a');
+                        a.className = 'payment-link-card';
+                        a.href = pl.url;
+                        a.target = '_blank';
+                        a.rel = 'noopener noreferrer';
+                        a.textContent = pl.name;
+                        linksGrid.appendChild(a);
+                    });
+                }
+
+            } catch (err) {
+                console.error('Share page error:', err);
+                showError('Could not connect to the server. Please try again later.');
+            }
+        }
+
+        load();
+    </script>
+</body>
+</html>

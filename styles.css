@@ -650,6 +650,114 @@ textarea:focus {
     }
 }
 
+/* ──────────────── Payment Links Settings ──────────────── */
+
+.payment-links-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.payment-link-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.payment-link-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.payment-link-info a {
+    color: #667eea;
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.payment-link-info a:hover {
+    text-decoration: underline;
+}
+
+.payment-link-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* ──────────────── Share Link Button ──────────────── */
+
+.btn-share {
+    background: #667eea;
+    color: white;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+}
+
+.btn-share:hover {
+    background: #5568d3;
+}
+
+.share-link-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.share-link-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.9rem;
+}
+
+.share-link-meta .share-link-date {
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.share-link-meta .share-link-status {
+    font-size: 0.8rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    width: fit-content;
+}
+
+.share-link-status.active {
+    background: rgba(72, 187, 120, 0.15);
+    color: #276749;
+}
+
+.share-link-status.revoked {
+    background: rgba(245, 101, 101, 0.15);
+    color: #c53030;
+}
+
+.share-link-status.expired {
+    background: rgba(160, 174, 192, 0.2);
+    color: #718096;
+}
+
+.share-link-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.share-link-access {
+    font-size: 0.8rem;
+    color: #999;
+}
+
 /* ──────────────── Payment Dialog ──────────────── */
 
 .dialog-overlay {

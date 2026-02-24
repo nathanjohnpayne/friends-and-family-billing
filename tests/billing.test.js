@@ -49,6 +49,7 @@ function makeMockDoc(saved) {
 
 function createContext(overrides = {}) {
     const saved = [];
+    const nodeCrypto = require('node:crypto');
     const ctx = {
         // Minimal DOM stubs
         document: {
@@ -79,10 +80,13 @@ function createContext(overrides = {}) {
             }),
         },
         window: {
-            location: { href: '' },
+            location: { href: '', origin: 'https://friends-and-family-billing.web.app' },
             open: () => ({
                 document: { write: () => {}, close: () => {} },
             }),
+        },
+        navigator: {
+            clipboard: { writeText: () => Promise.resolve() },
         },
         alert: () => {},
         confirm: () => true,
@@ -104,6 +108,9 @@ function createContext(overrides = {}) {
         setTimeout,
         clearTimeout,
         Number,
+        Uint8Array,
+        TextEncoder,
+        crypto: nodeCrypto.webcrypto,
         Image: class {
             set src(v) {
                 if (this.onload) this.onload();
@@ -116,6 +123,7 @@ function createContext(overrides = {}) {
         firebase: {
             firestore: {
                 FieldValue: { serverTimestamp: () => new Date() },
+                Timestamp: { fromDate: (d) => d },
             },
         },
         auth: {
@@ -123,8 +131,14 @@ function createContext(overrides = {}) {
             signOut: () => Promise.resolve(),
         },
         db: {
-            collection: () => ({
-                doc: () => makeMockDoc(saved),
+            collection: (name) => ({
+                doc: (id) => makeMockDoc(saved),
+                where: () => ({
+                    where: () => ({
+                        get: () => Promise.resolve({ docs: [] }),
+                    }),
+                    get: () => Promise.resolve({ docs: [] }),
+                }),
             }),
         },
         analytics: { logEvent: () => {} },
@@ -1107,6 +1121,221 @@ describe('saveData archived guard', () => {
         const savedBefore = ctx._saved.length;
         await ctx.saveData();
         assert.ok(ctx._saved.length > savedBefore, 'Should save when open');
+    });
+});
+
+// ──────────────── generateRawToken ────────────────────────────
+
+describe('generateRawToken', () => {
+    it('produces a 64-character hex string', () => {
+        const ctx = createContext();
+        const token = ctx.generateRawToken();
+        assert.equal(token.length, 64);
+        assert.ok(/^[0-9a-f]{64}$/.test(token), 'Should be lowercase hex');
+    });
+
+    it('produces unique tokens on successive calls', () => {
+        const ctx = createContext();
+        const a = ctx.generateRawToken();
+        const b = ctx.generateRawToken();
+        assert.notEqual(a, b, 'Two generated tokens should differ');
+    });
+});
+
+// ──────────────── hashToken ───────────────────────────────────
+
+describe('hashToken', () => {
+    it('produces a 64-character hex SHA-256 hash', async () => {
+        const ctx = createContext();
+        const hash = await ctx.hashToken('test-token-value');
+        assert.equal(hash.length, 64);
+        assert.ok(/^[0-9a-f]{64}$/.test(hash), 'Should be lowercase hex');
+    });
+
+    it('is deterministic for the same input', async () => {
+        const ctx = createContext();
+        const hash1 = await ctx.hashToken('same-input');
+        const hash2 = await ctx.hashToken('same-input');
+        assert.equal(hash1, hash2);
+    });
+
+    it('produces different hashes for different inputs', async () => {
+        const ctx = createContext();
+        const hash1 = await ctx.hashToken('input-a');
+        const hash2 = await ctx.hashToken('input-b');
+        assert.notEqual(hash1, hash2);
+    });
+
+    it('matches Node.js crypto SHA-256', async () => {
+        const ctx = createContext();
+        const input = 'verify-against-node';
+        const hash = await ctx.hashToken(input);
+        const nodeCrypto = require('node:crypto');
+        const expected = nodeCrypto.createHash('sha256').update(input).digest('hex');
+        assert.equal(hash, expected);
+    });
+});
+
+// ──────────────── Payment Links Settings ──────────────────────
+
+describe('payment links settings', () => {
+    it('addPaymentLink adds a link to settings', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [] });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'paymentLinkName') return { value: 'Venmo' };
+            if (id === 'paymentLinkUrl') return { value: 'https://venmo.com/handle' };
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addPaymentLink();
+        const links = ctx._get('settings').paymentLinks;
+        assert.equal(links.length, 1);
+        assert.equal(links[0].name, 'Venmo');
+        assert.equal(links[0].url, 'https://venmo.com/handle');
+        assert.ok(links[0].id.startsWith('pl_'), 'ID should have pl_ prefix');
+    });
+
+    it('removePaymentLink removes a link', () => {
+        const ctx = createContext();
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [
+                { id: 'pl_1', name: 'Venmo', url: 'https://venmo.com/x' },
+                { id: 'pl_2', name: 'Zelle', url: 'zelle:test@test.com' },
+            ]
+        });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.removePaymentLink('pl_1');
+        const links = ctx._get('settings').paymentLinks;
+        assert.equal(links.length, 1);
+        assert.equal(links[0].id, 'pl_2');
+    });
+
+    it('editPaymentLink updates name and url', () => {
+        let promptCalls = 0;
+        const ctx = createContext({
+            prompt: () => {
+                promptCalls++;
+                return promptCalls === 1 ? 'PayPal' : 'https://paypal.me/new';
+            }
+        });
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [
+                { id: 'pl_1', name: 'Venmo', url: 'https://venmo.com/x' },
+            ]
+        });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.editPaymentLink('pl_1');
+        const link = ctx._get('settings').paymentLinks[0];
+        assert.equal(link.name, 'PayPal');
+        assert.equal(link.url, 'https://paypal.me/new');
+    });
+
+    it('prevents changes when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [] });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'paymentLinkName') return { value: 'Venmo' };
+            if (id === 'paymentLinkUrl') return { value: 'https://venmo.com/x' };
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addPaymentLink();
+        assert.equal(ctx._get('settings').paymentLinks.length, 0, 'Should not add link');
+        assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
+    });
+
+    it('initializes paymentLinks when missing from settings', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test' });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'paymentLinkName') return { value: 'Test' };
+            if (id === 'paymentLinkUrl') return { value: 'https://test.com' };
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addPaymentLink();
+        const links = ctx._get('settings').paymentLinks;
+        assert.equal(links.length, 1);
+    });
+});
+
+// ──────────────── computeMemberSummary (Cloud Function) ───────
+
+const { computeMemberSummary } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('computeMemberSummary', () => {
+    const members = [
+        { id: 1, name: 'Alice', email: '', linkedMembers: [] },
+        { id: 2, name: 'Bob', email: '', linkedMembers: [] },
+    ];
+
+    it('computes correct summary for a member in a shared bill', () => {
+        const bills = [
+            { name: 'Internet', amount: 120, members: [1, 2] },
+        ];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.name, 'Alice');
+        assert.equal(result.annualTotal, 720);
+        assert.equal(result.monthlyTotal, 60);
+        assert.equal(result.bills.length, 1);
+        assert.equal(result.bills[0].splitCount, 2);
+        assert.equal(result.bills[0].monthlyShare, 60);
+        assert.equal(result.bills[0].annualShare, 720);
+    });
+
+    it('returns null for a non-existent member', () => {
+        const bills = [];
+        const result = computeMemberSummary(members, bills, 999);
+        assert.equal(result, null);
+    });
+
+    it('returns zero totals when member has no bills', () => {
+        const bills = [
+            { name: 'Netflix', amount: 20, members: [2] },
+        ];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 0);
+        assert.equal(result.monthlyTotal, 0);
+        assert.equal(result.bills.length, 0);
+    });
+
+    it('accumulates across multiple bills', () => {
+        const bills = [
+            { name: 'A', amount: 10, members: [1] },
+            { name: 'B', amount: 30, members: [1, 2] },
+        ];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 10 * 12 + 15 * 12);
+        assert.equal(result.bills.length, 2);
+    });
+
+    it('ignores bills with empty members array', () => {
+        const bills = [
+            { name: 'Orphan', amount: 100, members: [] },
+        ];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 0);
     });
 });
 

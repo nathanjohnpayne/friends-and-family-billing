@@ -3,7 +3,8 @@ let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, l
 let bills = []; // Array of {id, name, amount, logo, website, members: [memberIds]}
 let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
 let settings = {
-    emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.'
+    emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.',
+    paymentLinks: []
 };
 
 let currentUser = null;
@@ -68,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderBills();
             updateSummary();
             renderEmailSettings();
+            renderPaymentLinksSettings();
             startUpdateChecker();
         }
     });
@@ -322,6 +324,7 @@ async function loadBillingYearData(yearId) {
 
         if (yearData.settings) {
             settings = yearData.settings;
+            if (!settings.paymentLinks) settings.paymentLinks = [];
         }
 
         if (!isArchivedYear() && familyMembers.length > 0) {
@@ -352,6 +355,7 @@ async function switchBillingYear(yearId) {
         renderBills();
         updateSummary();
         renderEmailSettings();
+        renderPaymentLinksSettings();
     } catch (error) {
         console.error('Error switching billing year:', error);
         alert('Error switching billing year. Please try again.');
@@ -386,6 +390,7 @@ async function archiveCurrentYear() {
         renderBills();
         updateSummary();
         renderEmailSettings();
+        renderPaymentLinksSettings();
 
         if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
             await startNewYear();
@@ -440,7 +445,10 @@ async function startNewYear() {
             familyMembers: clonedMembers,
             bills: clonedBills,
             payments: [],
-            settings: { emailMessage: settings.emailMessage },
+            settings: {
+                emailMessage: settings.emailMessage,
+                paymentLinks: (settings.paymentLinks || []).map(l => ({...l}))
+            },
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
@@ -456,6 +464,7 @@ async function startNewYear() {
         renderBills();
         updateSummary();
         renderEmailSettings();
+        renderPaymentLinksSettings();
 
         alert('Billing year ' + yearId + ' created successfully!');
     } catch (error) {
@@ -1230,6 +1239,10 @@ function updateSummary() {
                     <button class="btn btn-sm btn-primary" onclick="sendIndividualInvoice(${data.member.id})">
                         Email Invoice
                     </button>
+                    <button class="btn btn-sm btn-share" onclick="generateShareLink(${data.member.id})" title="Generate share link">
+                        Share
+                    </button>
+                    <button class="btn-icon" onclick="showShareLinks(${data.member.id})" title="Manage share links" style="font-size:0.9rem;">🔗</button>
                 </td>
             </tr>
             `;
@@ -1388,6 +1401,324 @@ function saveEmailMessage() {
     settings.emailMessage = input.value;
     saveData();
     alert('Email message saved!');
+}
+
+// ──────────────── Payment Links Settings ────────────────
+
+function renderPaymentLinksSettings() {
+    const container = document.getElementById('paymentLinksSettings');
+    if (!container) return;
+    const archived = isArchivedYear();
+    const links = settings.paymentLinks || [];
+
+    let html = '';
+
+    if (links.length > 0) {
+        html += '<div class="payment-links-list">';
+        links.forEach(link => {
+            html += `<div class="payment-link-item">
+                <div class="payment-link-info">
+                    <strong>${escapeHtml(link.name)}</strong>
+                    <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.url)}</a>
+                </div>
+                ${archived ? '' : `<div class="payment-link-actions">
+                    <button class="btn-icon" onclick="editPaymentLink('${escapeHtml(link.id)}')" title="Edit">✏️</button>
+                    <button class="btn-icon remove" onclick="removePaymentLink('${escapeHtml(link.id)}')" title="Remove">&times;</button>
+                </div>`}
+            </div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<p class="empty-state" style="padding: 20px;">No payment links configured yet</p>';
+    }
+
+    if (!archived) {
+        html += `<div class="payment-link-add" style="margin-top: 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="paymentLinkName">Name</label>
+                    <input type="text" id="paymentLinkName" placeholder="e.g., Venmo" />
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="paymentLinkUrl">URL</label>
+                    <input type="text" id="paymentLinkUrl" placeholder="https://venmo.com/YourHandle" />
+                </div>
+                <button class="btn btn-primary" onclick="addPaymentLink()">Add Link</button>
+            </div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function addPaymentLink() {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const nameInput = document.getElementById('paymentLinkName');
+    const urlInput = document.getElementById('paymentLinkUrl');
+    const name = nameInput.value.trim();
+    const url = urlInput.value.trim();
+
+    if (!name) { alert('Please enter a name for the payment link.'); return; }
+    if (!url) { alert('Please enter a URL for the payment link.'); return; }
+
+    if (!settings.paymentLinks) settings.paymentLinks = [];
+
+    settings.paymentLinks.push({
+        id: 'pl_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+        name: name,
+        url: url
+    });
+
+    saveData();
+    renderPaymentLinksSettings();
+}
+
+function editPaymentLink(linkId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const link = (settings.paymentLinks || []).find(l => l.id === linkId);
+    if (!link) return;
+
+    const newName = prompt('Payment link name:', link.name);
+    if (newName === null) return;
+    if (!newName.trim()) { alert('Name cannot be empty.'); return; }
+
+    const newUrl = prompt('Payment link URL:', link.url);
+    if (newUrl === null) return;
+    if (!newUrl.trim()) { alert('URL cannot be empty.'); return; }
+
+    link.name = newName.trim();
+    link.url = newUrl.trim();
+
+    saveData();
+    renderPaymentLinksSettings();
+}
+
+function removePaymentLink(linkId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (!confirm('Remove this payment link?')) return;
+
+    settings.paymentLinks = (settings.paymentLinks || []).filter(l => l.id !== linkId);
+    saveData();
+    renderPaymentLinksSettings();
+}
+
+// ──────────────── Share Link Functions ────────────────
+
+async function hashToken(rawToken) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(rawToken);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function generateRawToken() {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function generateShareLink(memberId) {
+    if (!currentUser || !currentBillingYear) return;
+
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member) return;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    const yearLabel = currentBillingYear.label;
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Generate Share Link</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <p>Create a shareable link for <strong>${escapeHtml(member.name)}</strong> to view their ${escapeHtml(yearLabel)} billing summary.</p>
+            <div class="form-group" style="margin-top: 16px;">
+                <label for="shareLinkExpiry">Link Expiry (optional)</label>
+                <select id="shareLinkExpiry">
+                    <option value="">No expiry</option>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="365">1 year</option>
+                </select>
+            </div>
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-primary" id="generateShareBtn" onclick="doGenerateShareLink(${memberId})">Generate &amp; Copy Link</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+}
+
+async function doGenerateShareLink(memberId) {
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member || !currentUser || !currentBillingYear) return;
+
+    const btn = document.getElementById('generateShareBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+
+    try {
+        const rawToken = generateRawToken();
+        const tokenHash = await hashToken(rawToken);
+
+        const expirySelect = document.getElementById('shareLinkExpiry');
+        const expiryDays = expirySelect ? parseInt(expirySelect.value) : 0;
+        let expiresAt = null;
+        if (expiryDays > 0) {
+            const d = new Date();
+            d.setDate(d.getDate() + expiryDays);
+            expiresAt = d;
+        }
+
+        const tokenDoc = {
+            ownerId: currentUser.uid,
+            memberId: memberId,
+            billingYearId: currentBillingYear.id,
+            scopes: ['summary:read', 'paymentLinks:read'],
+            revoked: false,
+            expiresAt: expiresAt ? firebase.firestore.Timestamp.fromDate(expiresAt) : null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastAccessedAt: null,
+            accessCount: 0,
+            memberName: member.name
+        };
+
+        await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
+
+        const shareUrl = window.location.origin + '/share.html?token=' + rawToken;
+
+        await navigator.clipboard.writeText(shareUrl);
+
+        closePaymentDialog();
+        alert('Share link copied to clipboard!\n\n' + member.name + ' can open this link to view their billing summary without logging in.');
+
+        if (analytics) {
+            analytics.logEvent('share_link_generated', {
+                has_expiry: !!expiresAt,
+                billing_year: currentBillingYear.label
+            });
+        }
+    } catch (error) {
+        console.error('Error generating share link:', error);
+        alert('Error generating share link. Please try again.');
+        if (btn) { btn.disabled = false; btn.textContent = 'Generate & Copy Link'; }
+    }
+}
+
+async function showShareLinks(memberId) {
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member || !currentUser) return;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Share Links: ${escapeHtml(member.name)}</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <p style="color: #666;">Loading share links...</p>
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
+        </div>
+    `;
+    overlay.classList.add('visible');
+
+    try {
+        const snapshot = await db.collection('shareTokens')
+            .where('ownerId', '==', currentUser.uid)
+            .where('memberId', '==', memberId)
+            .get();
+
+        const links = [];
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            links.push({ id: doc.id, ...data });
+        });
+
+        links.sort((a, b) => {
+            const aTime = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
+            const bTime = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
+            return bTime - aTime;
+        });
+
+        let html = '';
+        if (links.length === 0) {
+            html = '<p class="empty-state" style="padding: 20px;">No share links generated yet for this member.</p>';
+        } else {
+            html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
+            links.forEach(link => {
+                const created = link.createdAt
+                    ? (link.createdAt.toDate ? link.createdAt.toDate() : new Date(link.createdAt)).toLocaleDateString()
+                    : 'Unknown';
+                const yearLabel = link.billingYearId || '';
+
+                let statusClass = 'active';
+                let statusLabel = 'Active';
+                if (link.revoked) {
+                    statusClass = 'revoked';
+                    statusLabel = 'Revoked';
+                } else if (link.expiresAt) {
+                    const exp = link.expiresAt.toDate ? link.expiresAt.toDate() : new Date(link.expiresAt);
+                    if (exp < new Date()) {
+                        statusClass = 'expired';
+                        statusLabel = 'Expired';
+                    } else {
+                        statusLabel = 'Expires ' + exp.toLocaleDateString();
+                    }
+                }
+
+                const accessInfo = link.accessCount > 0
+                    ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '')
+                    : 'Never viewed';
+
+                html += `<div class="share-link-item">
+                    <div class="share-link-meta">
+                        <span>Year: <strong>${escapeHtml(yearLabel)}</strong></span>
+                        <span class="share-link-date">Created: ${escapeHtml(created)}</span>
+                        <span class="share-link-status ${statusClass}">${escapeHtml(statusLabel)}</span>
+                        <span class="share-link-access">${escapeHtml(accessInfo)}</span>
+                    </div>
+                    <div class="share-link-actions">
+                        ${!link.revoked ? `<button class="btn btn-danger btn-sm" onclick="revokeShareLink('${escapeHtml(link.id)}', ${memberId})">Revoke</button>` : ''}
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+        }
+
+        const body = dialog.querySelector('.dialog-body');
+        if (body) body.innerHTML = html;
+
+    } catch (error) {
+        console.error('Error loading share links:', error);
+        const body = dialog.querySelector('.dialog-body');
+        if (body) body.innerHTML = '<p style="color: #f56565;">Error loading share links.</p>';
+    }
+}
+
+async function revokeShareLink(tokenHash, memberId) {
+    if (!confirm('Revoke this share link? Anyone with this link will no longer be able to view the billing summary.')) return;
+
+    try {
+        await db.collection('shareTokens').doc(tokenHash).update({ revoked: true });
+        showShareLinks(memberId);
+    } catch (error) {
+        console.error('Error revoking share link:', error);
+        alert('Error revoking link. Please try again.');
+    }
 }
 
 // Generate printable invoice (full)

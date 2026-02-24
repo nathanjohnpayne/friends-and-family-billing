@@ -9,5 +9,17 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
+
+    // Share tokens: admin CRUD scoped to own tokens.
+    // The Cloud Function uses the Admin SDK (bypasses these rules)
+    // to resolve tokens on behalf of unauthenticated share-link visitors.
+    match /shareTokens/{tokenId} {
+      allow read, update, delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow list: if request.auth != null
+        && request.auth.uid == resource.data.ownerId;
+    }
   }
 }

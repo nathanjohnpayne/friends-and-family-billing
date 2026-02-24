@@ -11,7 +11,8 @@
       "FIREBASE_IMPLEMENTATION.md",
       "README.md",
       "package.json",
-      "tests/**"
+      "tests/**",
+      "functions/**"
     ],
     "headers": [
       {
@@ -31,14 +32,30 @@
             "value": "no-cache, no-store, must-revalidate"
           }
         ]
+      },
+      {
+        "source": "share.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
       }
     ],
     "rewrites": [
+      {
+        "source": "/share",
+        "destination": "/share.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"
       }
     ]
+  },
+  "functions": {
+    "source": "functions"
   },
   "firestore": {
     "rules": "firestore.rules"
