@@ -72,7 +72,7 @@ A cloud-based web application for managing and splitting monthly bills among fam
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd "Claude Code"
+cd friends-and-family-billing
 
 # Install Firebase CLI
 npm install -g firebase-tools
@@ -83,7 +83,10 @@ firebase login
 # Link to project
 firebase use friends-and-family-billing
 
-# Deploy
+# Serve locally
+firebase serve
+
+# Deploy to production
 firebase deploy
 ```
 
@@ -132,23 +135,22 @@ firebase deploy
 ## Technical Details
 
 ### Image Storage
-- Images converted to base64 data URLs
-- Stored directly in LocalStorage (no server required)
-- PNG and JPG formats supported
-- Automatically processed on upload
+- Images converted to base64 data URLs via Canvas API
+- Compressed to max 200x200px and saved as PNG
+- Stored in Cloud Firestore as part of user document
+- PNG and JPG upload formats supported
 
 ### Image Display
 - **Avatars**: 48x48px circles in UI, 32x32px in invoices
 - **Logos**: 80x60px rectangles in UI, 40x30px in invoices
 - CSS `object-fit` ensures proper scaling
-- No distortion regardless of source image dimensions
+- Fallback: initials for avatars, service name for logos
 
 ### Email System
-Since this is a browser-based app with no backend:
-- Uses `mailto:` links to open email client
-- User must manually save invoice as PDF
-- Email pre-filled with subject, greeting, and message
-- Works with any desktop email client
+- Uses `mailto:` links to open the user's email client
+- Invoices rendered as printable HTML (save as PDF)
+- Email pre-filled with subject, greeting, and customizable message
+- `%total` placeholder in email message replaced with member's total
 
 ### Data Structure
 ```javascript
@@ -158,7 +160,9 @@ Since this is a browser-based app with no backend:
       id: number,
       name: string,
       email: string,
-      avatar: string (base64 data URL)
+      avatar: string,           // base64 data URL
+      paymentReceived: number,
+      linkedMembers: [number]   // child member IDs
     }
   ],
   bills: [
@@ -167,8 +171,8 @@ Since this is a browser-based app with no backend:
       name: string,
       amount: number,
       website: string,
-      logo: string (base64 data URL),
-      members: [memberIds]
+      logo: string,             // base64 data URL
+      members: [number]         // member IDs assigned to bill
     }
   ],
   settings: {
@@ -180,9 +184,9 @@ Since this is a browser-based app with no backend:
 ## Browser Compatibility
 - Works in all modern browsers (Chrome, Firefox, Safari, Edge)
 - Requires JavaScript enabled
-- Uses LocalStorage API
-- FileReader API for image upload
-- No server or build tools needed
+- Uses FileReader API for image upload
+- Canvas API for image compression
+- No build tools or bundlers required
 
 ## Example Use Cases
 
@@ -206,26 +210,17 @@ Since this is a browser-based app with no backend:
 - Update amounts when prices change
 - Add/remove members as family changes
 
-## Tech Stack
-
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript
-- **Backend:** Firebase
-  - Authentication (Email/Password + Google)
-  - Cloud Firestore (NoSQL database)
-  - Firebase Hosting with CDN
-- **Image Processing:** Canvas API (200x200px PNG compression)
-
 ## Security
 
-- **Firestore Rules:** Per-user data isolation
-- **HTTPS:** All data transmitted securely
-- **Password Hashing:** Firebase handles authentication
-- **Image Compression:** Prevents quota issues
-- **No Cross-User Access:** Users can only see their own data
+- **Firestore Rules:** Per-user data isolation (`/users/{userId}`)
+- **HTTPS:** All data transmitted securely via Firebase Hosting
+- **Password Hashing:** Handled by Firebase Authentication
+- **Image Compression:** Prevents Firestore document size issues
+- **No Cross-User Access:** Users can only read/write their own data
 
 ## Documentation
 
-- **[CLAUDE.md](CLAUDE.md)** - Comprehensive project documentation
+- **[AGENTS.md](AGENTS.md)** - AI agent instructions and technical reference
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment instructions
 - **[QUICKSTART.md](QUICKSTART.md)** - Fast 10-minute setup
 - **[FIREBASE_IMPLEMENTATION.md](FIREBASE_IMPLEMENTATION.md)** - Firebase migration details

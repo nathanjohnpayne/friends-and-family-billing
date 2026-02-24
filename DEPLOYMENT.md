@@ -87,7 +87,7 @@ firebase login
 ### Initialize Firebase in your project:
 
 ```bash
-cd "/Users/nathanpayne/Claude Code"
+cd friends-and-family-billing
 firebase init
 ```
 
@@ -207,9 +207,10 @@ For issues, check:
 
 ## Next Steps
 
-Consider adding:
-- Password reset functionality
-- Email verification
-- Social login (Google, Facebook)
-- Data export feature
-- Real-time sync between devices
+Potential enhancements:
+- Password reset via email
+- Email verification on signup
+- Facebook/Apple social login
+- Data export to CSV/PDF
+- Monthly email reminders
+- Shared bills between multiple users

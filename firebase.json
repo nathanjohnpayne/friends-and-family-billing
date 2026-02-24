@@ -6,7 +6,9 @@
       "**/.*",
       "**/node_modules/**",
       "DEPLOYMENT.md",
-      "CLAUDE.MD",
+      "AGENTS.md",
+      "QUICKSTART.md",
+      "FIREBASE_IMPLEMENTATION.md",
       "README.md"
     ],
     "headers": [

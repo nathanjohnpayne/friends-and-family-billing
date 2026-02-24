@@ -64,7 +64,7 @@ npm install -g firebase-tools
 firebase login
 
 # Deploy
-cd "/Users/nathanpayne/Claude Code"
+cd friends-and-family-billing
 firebase deploy --only hosting
 ```
 
@@ -118,7 +118,7 @@ Just send them your deployed URL. Each person:
 → Verify Email/Password is enabled in Firebase Console
 
 **"localhost:8000 not working"**
-→ Make sure you're in the correct directory: cd "/Users/nathanpayne/Claude Code"
+→ Make sure you're in the correct project directory
 
 ### What Changed from the Old Version?
 

@@ -166,7 +166,7 @@ If you have data in LocalStorage from before Firebase migration:
 Before deploying, test on your computer:
 
 ```bash
-cd "/Users/nathanpayne/Claude Code"
+cd friends-and-family-billing
 python3 -m http.server 8000
 ```
 
@@ -239,7 +239,7 @@ Want to add more features? Consider:
 - ✨ Monthly email reminders
 - ✨ Payment history tracking
 
-Let me know if you want any of these!
+See project issues for feature requests and discussion.
 
 ## Files You Should Commit to Git
 
