@@ -18,6 +18,8 @@ function _set(key, val) {
         case 'bills': bills = val; break;
         case 'settings': settings = val; break;
         case 'currentUser': currentUser = val; break;
+        case 'currentBillingYear': currentBillingYear = val; break;
+        case 'billingYears': billingYears = val; break;
     }
 }
 function _get(key) {
@@ -26,9 +28,22 @@ function _get(key) {
         case 'bills': return bills;
         case 'settings': return settings;
         case 'currentUser': return currentUser;
+        case 'currentBillingYear': return currentBillingYear;
+        case 'billingYears': return billingYears;
     }
 }
 `;
+
+function makeMockDoc(saved) {
+    return {
+        set: (...args) => { saved.push(args); return Promise.resolve(); },
+        get: () => Promise.resolve({ exists: false }),
+        collection: () => ({
+            doc: () => makeMockDoc(saved),
+            get: () => Promise.resolve({ docs: [] }),
+        }),
+    };
+}
 
 function createContext(overrides = {}) {
     const saved = [];
@@ -40,7 +55,9 @@ function createContext(overrides = {}) {
                 innerHTML: '',
                 textContent: '',
                 value: '',
+                style: {},
             }),
+            querySelector: () => ({ style: {} }),
             querySelectorAll: () => [],
             createElement: () => ({
                 type: '',
@@ -82,6 +99,7 @@ function createContext(overrides = {}) {
         RegExp,
         setTimeout,
         clearTimeout,
+        Number,
         Image: class {
             set src(v) {
                 if (this.onload) this.onload();
@@ -102,14 +120,7 @@ function createContext(overrides = {}) {
         },
         db: {
             collection: () => ({
-                doc: () => ({
-                    set: (...args) => {
-                        saved.push(args);
-                        return Promise.resolve();
-                    },
-                    get: () =>
-                        Promise.resolve({ exists: false }),
-                }),
+                doc: () => makeMockDoc(saved),
             }),
         },
         analytics: { logEvent: () => {} },
@@ -120,8 +131,9 @@ function createContext(overrides = {}) {
     vm.createContext(ctx);
     vm.runInContext(testableSource, ctx);
 
-    // Set currentUser so saveData works
+    // Set currentUser and currentBillingYear so saveData works
     ctx._set('currentUser', { uid: 'test-user' });
+    ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
 
     return ctx;
 }
@@ -474,10 +486,271 @@ describe('analytics null guard', () => {
             if (id === 'familyMembersList') return { innerHTML: '' };
             if (id === 'billsList') return { innerHTML: '' };
             if (id === 'annualSummary') return { innerHTML: '' };
-            return { innerHTML: '', textContent: '', value: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
         };
 
         assert.doesNotThrow(() => ctx.addFamilyMember());
+    });
+});
+
+// ──────────────── isArchivedYear ──────────────────────────────
+
+describe('isArchivedYear', () => {
+    it('returns false when currentBillingYear is null', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', null);
+        assert.equal(ctx.isArchivedYear(), false);
+    });
+
+    it('returns false when status is open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        assert.equal(ctx.isArchivedYear(), false);
+    });
+
+    it('returns true when status is archived', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived' });
+        assert.equal(ctx.isArchivedYear(), true);
+    });
+});
+
+// ──────────────── archived year guards ────────────────────────
+
+describe('archived year guards', () => {
+    it('prevents addFamilyMember when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'New Member' };
+            if (id === 'memberEmail') return { value: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addFamilyMember();
+        assert.equal(ctx._get('familyMembers').length, 0, 'Member should not be added');
+        assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
+    });
+
+    it('prevents updatePayment when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 100, linkedMembers: [] },
+        ]);
+
+        ctx.updatePayment(1, '500');
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 100, 'Payment should not change');
+    });
+
+    it('prevents addBill when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('bills', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'billName') return { value: 'Test Bill' };
+            if (id === 'billAmount') return { value: '100' };
+            if (id === 'billWebsite') return { value: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addBill();
+        assert.equal(ctx._get('bills').length, 0, 'Bill should not be added');
+    });
+
+    it('prevents editBillAmount when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({
+            alert: (msg) => alerts.push(msg),
+            prompt: () => '200',
+        });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('bills', [
+            { id: 1, name: 'Test', amount: 100, logo: '', website: '', members: [] },
+        ]);
+
+        ctx.editBillAmount(1);
+        assert.equal(ctx._get('bills')[0].amount, 100, 'Amount should not change');
+    });
+
+    it('prevents saveEmailMessage when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('settings', { emailMessage: 'Original' });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'emailMessageInput') return { value: 'Changed' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.saveEmailMessage();
+        assert.equal(ctx._get('settings').emailMessage, 'Original', 'Setting should not change');
+    });
+
+    it('allows mutations when year is open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
+        ]);
+
+        ctx.updatePayment(1, '500');
+        assert.equal(ctx._get('familyMembers')[0].paymentReceived, 500, 'Payment should update when open');
+    });
+});
+
+// ──────────────── startNewYear ─────────────────────────────────
+
+describe('startNewYear', () => {
+    it('clones members with payments reset and bills preserved', async () => {
+        const ctx = createContext({
+            prompt: () => '2027',
+            alert: () => {},
+        });
+
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: 'a@b.com', avatar: '', paymentReceived: 500, linkedMembers: [2] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 200, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Internet', amount: 120, logo: '', website: 'https://isp.com', members: [1, 2] },
+        ]);
+
+        await ctx.startNewYear();
+
+        const yearSave = ctx._saved.find(args => args[0] && args[0].familyMembers);
+        assert.ok(yearSave, 'Should have saved year data');
+
+        const savedMembers = yearSave[0].familyMembers;
+        assert.equal(savedMembers[0].paymentReceived, 0, 'Alice payment should be reset');
+        assert.equal(savedMembers[1].paymentReceived, 0, 'Bob payment should be reset');
+        assert.equal(savedMembers[0].name, 'Alice', 'Name should be preserved');
+        assert.equal(savedMembers[0].linkedMembers.length, 1, 'Links should be preserved');
+
+        const savedBills = yearSave[0].bills;
+        assert.equal(savedBills.length, 1, 'Bills should be cloned');
+        assert.equal(savedBills[0].name, 'Internet', 'Bill name should be preserved');
+        assert.equal(savedBills[0].members.length, 2, 'Bill members should be preserved');
+    });
+
+    it('rejects duplicate year labels', async () => {
+        const alerts = [];
+        const ctx = createContext({
+            prompt: () => '2026',
+            alert: (msg) => alerts.push(msg),
+        });
+
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', []);
+        ctx._set('bills', []);
+
+        await ctx.startNewYear();
+        assert.ok(alerts.some(a => a.includes('already exists')), 'Should warn about duplicate');
+    });
+
+    it('does nothing when prompt is cancelled', async () => {
+        const ctx = createContext({
+            prompt: () => null,
+        });
+
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 500, linkedMembers: [] },
+        ]);
+
+        const savedBefore = ctx._saved.length;
+        await ctx.startNewYear();
+        assert.equal(ctx._saved.length, savedBefore, 'No data should be saved');
+    });
+});
+
+// ──────────────── archiveCurrentYear ──────────────────────────
+
+describe('archiveCurrentYear', () => {
+    it('sets status to archived on confirm', async () => {
+        const ctx = createContext({
+            confirm: () => true,
+            prompt: () => null,
+        });
+
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', []);
+        ctx._set('bills', []);
+
+        await ctx.archiveCurrentYear();
+
+        const billingYear = ctx._get('currentBillingYear');
+        assert.equal(billingYear.status, 'archived', 'Status should be archived');
+        assert.ok(billingYear.archivedAt, 'archivedAt should be set');
+
+        const yearsList = ctx._get('billingYears');
+        assert.equal(yearsList[0].status, 'archived', 'List entry should be archived');
+    });
+
+    it('does nothing when already archived', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: new Date() });
+
+        const savedBefore = ctx._saved.length;
+        await ctx.archiveCurrentYear();
+        assert.equal(ctx._saved.length, savedBefore, 'No data should be saved');
+    });
+
+    it('does nothing when user cancels', async () => {
+        const ctx = createContext({
+            confirm: () => false,
+        });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+
+        const savedBefore = ctx._saved.length;
+        await ctx.archiveCurrentYear();
+        assert.equal(ctx._get('currentBillingYear').status, 'open', 'Should remain open');
+    });
+});
+
+// ──────────────── saveData archived guard ─────────────────────
+
+describe('saveData archived guard', () => {
+    it('refuses to write when year is archived', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        const savedBefore = ctx._saved.length;
+        await ctx.saveData();
+        assert.equal(ctx._saved.length, savedBefore, 'Should not save when archived');
+    });
+
+    it('writes when year is open', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        const savedBefore = ctx._saved.length;
+        await ctx.saveData();
+        assert.ok(ctx._saved.length > savedBefore, 'Should save when open');
     });
 });
 

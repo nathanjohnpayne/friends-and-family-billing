@@ -582,6 +582,44 @@ textarea:focus {
     color: #fff;
 }
 
+.billing-year-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.billing-year-controls select {
+    padding: 8px 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    cursor: pointer;
+    appearance: auto;
+}
+
+.billing-year-controls select option {
+    color: #333;
+    background: white;
+}
+
+.archived-banner {
+    background: #fefce8;
+    border: 2px solid #facc15;
+    color: #854d0e;
+    padding: 12px 20px;
+    border-radius: 10px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 20px;
+}
+
 @media (max-width: 768px) {
     .main-content {
         grid-template-columns: 1fr;

@@ -6,6 +6,8 @@ let settings = {
 };
 
 let currentUser = null;
+let currentBillingYear = null;
+let billingYears = [];
 
 // Version checking — polls version.json to detect deploys while the page is open
 let _knownVersion = null;
@@ -59,6 +61,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Load user's data FIRST, then render
             await loadData();
             debugDataIntegrity(); // Debug function to check data
+            renderBillingYearSelector();
+            renderArchivedBanner();
             renderFamilyMembers();
             renderBills();
             updateSummary();
@@ -73,46 +77,37 @@ async function loadData() {
     if (!currentUser) return;
 
     try {
-        const docRef = db.collection('users').doc(currentUser.uid);
-        const doc = await docRef.get();
+        const userDocRef = db.collection('users').doc(currentUser.uid);
+        const userDoc = await userDocRef.get();
+        let activeYearId;
 
-        if (doc.exists) {
-            const data = doc.data();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
 
-            // Load family members
-            if (data.familyMembers) {
-                familyMembers = data.familyMembers.map(m => {
-                    if (!m.email) m.email = '';
-                    if (!m.avatar) m.avatar = '';
-                    if (m.paymentReceived === undefined) m.paymentReceived = 0;
-                    if (!m.linkedMembers) m.linkedMembers = [];
-                    return m;
-                });
-            }
-
-            // Load bills
-            if (data.bills) {
-                bills = data.bills.map(b => {
-                    if (!b.logo) b.logo = '';
-                    if (!b.website) b.website = '';
-                    if (!b.members) b.members = [];
-                    return b;
-                });
-            }
-
-            // Load settings
-            if (data.settings) {
-                settings = data.settings;
-            }
-
-            // Repair data AFTER loading
-            if (familyMembers.length > 0) {
-                repairDuplicateIds();
+            if (!userData.activeBillingYear) {
+                activeYearId = await migrateLegacyData(userDocRef, userData);
+            } else {
+                activeYearId = userData.activeBillingYear;
             }
         } else {
-            // No data yet, create initial document
-            await saveData();
+            activeYearId = String(new Date().getFullYear());
+            await userDocRef.set({ activeBillingYear: activeYearId });
+            const yearDocRef = userDocRef.collection('billingYears').doc(activeYearId);
+            await yearDocRef.set({
+                label: activeYearId,
+                status: 'open',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                archivedAt: null,
+                familyMembers: [],
+                bills: [],
+                settings: settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
         }
+
+        await loadBillingYearsList();
+        await loadBillingYearData(activeYearId);
+
     } catch (error) {
         console.error('Error loading data:', error);
         alert('Error loading your data. Please refresh the page.');
@@ -202,12 +197,21 @@ function cleanupInvalidBillMembers() {
 let _saveChain = Promise.resolve();
 
 function saveData() {
-    if (!currentUser) return Promise.resolve();
+    if (!currentUser || !currentBillingYear) return Promise.resolve();
+    if (isArchivedYear()) {
+        console.warn('Cannot save: billing year is archived');
+        return Promise.resolve();
+    }
 
     _saveChain = _saveChain.then(async () => {
         try {
-            const docRef = db.collection('users').doc(currentUser.uid);
-            await docRef.set({
+            const yearDocRef = db.collection('users').doc(currentUser.uid)
+                .collection('billingYears').doc(currentBillingYear.id);
+            await yearDocRef.set({
+                label: currentBillingYear.label,
+                status: currentBillingYear.status,
+                createdAt: currentBillingYear.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+                archivedAt: currentBillingYear.archivedAt || null,
                 familyMembers: familyMembers,
                 bills: bills,
                 settings: settings,
@@ -232,6 +236,245 @@ function logout() {
             alert('Error logging out. Please try again.');
         });
     }
+}
+
+// ──────────────── Billing Year Functions ────────────────
+
+function isArchivedYear() {
+    return currentBillingYear != null && currentBillingYear.status === 'archived';
+}
+
+async function migrateLegacyData(userDocRef, userData) {
+    const yearId = String(new Date().getFullYear());
+
+    const yearData = {
+        label: yearId,
+        status: 'open',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        archivedAt: null,
+        familyMembers: userData.familyMembers || [],
+        bills: userData.bills || [],
+        settings: userData.settings || settings,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    await userDocRef.collection('billingYears').doc(yearId).set(yearData);
+    await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
+
+    console.log('Migrated legacy data to billing year ' + yearId);
+    return yearId;
+}
+
+async function loadBillingYearsList() {
+    if (!currentUser) return;
+    const userDocRef = db.collection('users').doc(currentUser.uid);
+    const snapshot = await userDocRef.collection('billingYears').get();
+
+    billingYears = [];
+    snapshot.docs.forEach(function(doc) {
+        const data = doc.data();
+        billingYears.push({
+            id: doc.id,
+            label: data.label || doc.id,
+            status: data.status || 'open',
+        });
+    });
+
+    billingYears.sort(function(a, b) { return b.label.localeCompare(a.label); });
+}
+
+async function loadBillingYearData(yearId) {
+    if (!currentUser) return;
+    const userDocRef = db.collection('users').doc(currentUser.uid);
+    const yearDocRef = userDocRef.collection('billingYears').doc(yearId);
+    const yearDoc = await yearDocRef.get();
+
+    if (yearDoc.exists) {
+        const yearData = yearDoc.data();
+        currentBillingYear = {
+            id: yearId,
+            label: yearData.label || yearId,
+            status: yearData.status || 'open',
+            createdAt: yearData.createdAt,
+            archivedAt: yearData.archivedAt || null,
+        };
+
+        familyMembers = (yearData.familyMembers || []).map(m => {
+            if (!m.email) m.email = '';
+            if (!m.avatar) m.avatar = '';
+            if (m.paymentReceived === undefined) m.paymentReceived = 0;
+            if (!m.linkedMembers) m.linkedMembers = [];
+            return m;
+        });
+
+        bills = (yearData.bills || []).map(b => {
+            if (!b.logo) b.logo = '';
+            if (!b.website) b.website = '';
+            if (!b.members) b.members = [];
+            return b;
+        });
+
+        if (yearData.settings) {
+            settings = yearData.settings;
+        }
+
+        if (!isArchivedYear() && familyMembers.length > 0) {
+            repairDuplicateIds();
+        }
+    } else {
+        currentBillingYear = { id: yearId, label: yearId, status: 'open', createdAt: null, archivedAt: null };
+        familyMembers = [];
+        bills = [];
+    }
+}
+
+async function switchBillingYear(yearId) {
+    if (!currentUser) return;
+
+    try {
+        const userDocRef = db.collection('users').doc(currentUser.uid);
+        await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
+
+        await loadBillingYearData(yearId);
+
+        renderBillingYearSelector();
+        renderArchivedBanner();
+        renderFamilyMembers();
+        renderBills();
+        updateSummary();
+        renderEmailSettings();
+    } catch (error) {
+        console.error('Error switching billing year:', error);
+        alert('Error switching billing year. Please try again.');
+    }
+}
+
+async function archiveCurrentYear() {
+    if (!currentBillingYear || isArchivedYear()) return;
+
+    if (!confirm('Archive billing year ' + currentBillingYear.label + '? This will make it read-only.')) {
+        return;
+    }
+
+    try {
+        const yearDocRef = db.collection('users').doc(currentUser.uid)
+            .collection('billingYears').doc(currentBillingYear.id);
+
+        await yearDocRef.set({
+            status: 'archived',
+            archivedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        currentBillingYear.status = 'archived';
+        currentBillingYear.archivedAt = new Date();
+
+        const yearInList = billingYears.find(y => y.id === currentBillingYear.id);
+        if (yearInList) yearInList.status = 'archived';
+
+        renderBillingYearSelector();
+        renderArchivedBanner();
+        renderFamilyMembers();
+        renderBills();
+        updateSummary();
+        renderEmailSettings();
+
+        if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
+            await startNewYear();
+        }
+    } catch (error) {
+        console.error('Error archiving year:', error);
+        alert('Error archiving billing year. Please try again.');
+    }
+}
+
+async function startNewYear() {
+    const curLabel = currentBillingYear ? parseInt(currentBillingYear.label) : NaN;
+    const nextYear = !isNaN(curLabel) ? Math.max(new Date().getFullYear(), curLabel + 1) : new Date().getFullYear();
+    const defaultLabel = String(nextYear);
+
+    const label = prompt('Enter label for the new billing year:', defaultLabel);
+    if (!label || !label.trim()) return;
+
+    const yearId = label.trim();
+
+    if (billingYears.some(y => y.id === yearId)) {
+        alert('Billing year "' + yearId + '" already exists.');
+        return;
+    }
+
+    try {
+        const userDocRef = db.collection('users').doc(currentUser.uid);
+
+        const clonedMembers = familyMembers.map(m => ({
+            id: m.id,
+            name: m.name,
+            email: m.email,
+            avatar: m.avatar,
+            paymentReceived: 0,
+            linkedMembers: m.linkedMembers ? m.linkedMembers.slice() : []
+        }));
+        const clonedBills = bills.map(b => ({
+            id: b.id,
+            name: b.name,
+            amount: b.amount,
+            logo: b.logo,
+            website: b.website,
+            members: b.members ? b.members.slice() : []
+        }));
+
+        const yearData = {
+            label: yearId,
+            status: 'open',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            archivedAt: null,
+            familyMembers: clonedMembers,
+            bills: clonedBills,
+            settings: { emailMessage: settings.emailMessage },
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        await userDocRef.collection('billingYears').doc(yearId).set(yearData);
+        await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
+
+        await loadBillingYearsList();
+        await loadBillingYearData(yearId);
+
+        renderBillingYearSelector();
+        renderArchivedBanner();
+        renderFamilyMembers();
+        renderBills();
+        updateSummary();
+        renderEmailSettings();
+
+        alert('Billing year ' + yearId + ' created successfully!');
+    } catch (error) {
+        console.error('Error creating new year:', error);
+        alert('Error creating new billing year. Please try again.');
+    }
+}
+
+function renderBillingYearSelector() {
+    const container = document.getElementById('billingYearControls');
+    if (!container || !currentBillingYear) return;
+
+    const options = billingYears.map(y => {
+        const statusLabel = y.status === 'archived' ? 'Archived' : 'Open';
+        const selected = y.id === currentBillingYear.id ? 'selected' : '';
+        return '<option value="' + escapeHtml(y.id) + '" ' + selected + '>' + escapeHtml(y.label) + ' (' + statusLabel + ')</option>';
+    }).join('');
+
+    const archived = isArchivedYear();
+
+    container.innerHTML = '<select id="billingYearSelect" onchange="switchBillingYear(this.value)">' + options + '</select>'
+        + (archived ? '' : ' <button onclick="archiveCurrentYear()" class="btn btn-secondary btn-sm">Archive Year</button>')
+        + ' <button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>';
+}
+
+function renderArchivedBanner() {
+    const banner = document.getElementById('archivedBanner');
+    if (!banner) return;
+
+    banner.style.display = isArchivedYear() ? 'block' : 'none';
 }
 
 // Escape user-controlled strings before interpolating into HTML
@@ -364,6 +607,7 @@ function generateUniqueBillId() {
 
 // Add family member
 function addFamilyMember() {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const input = document.getElementById('memberName');
     const emailInput = document.getElementById('memberEmail');
     const name = input.value.trim();
@@ -408,6 +652,7 @@ function addFamilyMember() {
 
 // Edit family member
 function editFamilyMember(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -432,6 +677,7 @@ function editFamilyMember(id) {
 
 // Edit family member email
 function editMemberEmail(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -446,6 +692,7 @@ function editMemberEmail(id) {
 
 // Upload avatar
 function uploadAvatar(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     uploadImage((base64) => {
         const member = familyMembers.find(m => m.id === id);
         if (member) {
@@ -458,6 +705,7 @@ function uploadAvatar(id) {
 
 // Remove avatar
 function removeAvatar(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === id);
     if (member) {
         member.avatar = '';
@@ -467,6 +715,7 @@ function removeAvatar(id) {
 }
 
 function manageLinkMembers(parentId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const parent = familyMembers.find(m => m.id === parentId);
     if (!parent) return;
 
@@ -519,6 +768,7 @@ function getParentMember(memberId) {
 
 // Remove family member
 function removeFamilyMember(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -547,6 +797,12 @@ function removeFamilyMember(id) {
 // Render family members
 function renderFamilyMembers() {
     const container = document.getElementById('familyMembersList');
+    const archived = isArchivedYear();
+
+    const addMemberSection = document.querySelector('.family-members-input');
+    if (addMemberSection) {
+        addMemberSection.style.display = archived ? 'none' : '';
+    }
 
     if (familyMembers.length === 0) {
         container.innerHTML = '<p class="empty-state">No family members added yet</p>';
@@ -568,24 +824,25 @@ function renderFamilyMembers() {
                 ${generateAvatar(member)}
             </div>
             <div class="member-info">
-                <div class="member-name" onclick="editFamilyMember(${member.id})" title="Click to edit name">${escapeHtml(member.name)}</div>
-                <div class="member-email" onclick="editMemberEmail(${member.id})" title="Click to edit email">
+                <div class="member-name" ${archived ? '' : `onclick="editFamilyMember(${member.id})" title="Click to edit name"`}>${escapeHtml(member.name)}</div>
+                <div class="member-email" ${archived ? '' : `onclick="editMemberEmail(${member.id})" title="Click to edit email"`}>
                     ${escapeHtml(member.email) || 'No email'}
                 </div>
                 ${linkedNames ? `<div class="linked-members">Linked: ${linkedNames}</div>` : ''}
             </div>
-            <div class="member-actions">
+            ${archived ? '' : `<div class="member-actions">
                 <button class="btn-icon" onclick="uploadAvatar(${member.id})" title="Upload avatar">📷</button>
                 ${member.avatar ? `<button class="btn-icon" onclick="removeAvatar(${member.id})" title="Remove avatar">🗑️</button>` : ''}
                 <button class="btn-icon" onclick="manageLinkMembers(${member.id})" title="Link members">🔗</button>
                 <button class="btn-icon remove" onclick="removeFamilyMember(${member.id})" title="Remove member">×</button>
-            </div>
+            </div>`}
         </div>
     `}).join('');
 }
 
 // Add bill
 function addBill() {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const nameInput = document.getElementById('billName');
     const amountInput = document.getElementById('billAmount');
     const websiteInput = document.getElementById('billWebsite');
@@ -645,6 +902,7 @@ function addBill() {
 
 // Edit bill name
 function editBillName(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -659,6 +917,7 @@ function editBillName(id) {
 
 // Edit bill amount
 function editBillAmount(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -679,6 +938,7 @@ function editBillAmount(id) {
 }
 
 function editBillWebsite(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -699,6 +959,7 @@ function editBillWebsite(id) {
 
 // Upload logo
 function uploadLogo(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     uploadImage((base64) => {
         const bill = bills.find(b => b.id === id);
         if (bill) {
@@ -711,6 +972,7 @@ function uploadLogo(id) {
 
 // Remove logo
 function removeLogo(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const bill = bills.find(b => b.id === id);
     if (bill) {
         bill.logo = '';
@@ -721,6 +983,7 @@ function removeLogo(id) {
 
 // Remove bill
 function removeBill(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     if (!confirm('Remove this bill?')) return;
 
     bills = bills.filter(b => b.id !== id);
@@ -732,6 +995,7 @@ function removeBill(id) {
 
 // Toggle member for a bill
 function toggleMember(billId, memberId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const bill = bills.find(b => b.id === billId);
     if (!bill) return;
 
@@ -750,6 +1014,12 @@ function toggleMember(billId, memberId) {
 // Render bills
 function renderBills() {
     const container = document.getElementById('billsList');
+    const archived = isArchivedYear();
+
+    const addBillSection = document.querySelector('.bill-input-section');
+    if (addBillSection) {
+        addBillSection.style.display = archived ? 'none' : '';
+    }
 
     if (bills.length === 0) {
         container.innerHTML = '<p class="empty-state">No bills added yet</p>';
@@ -768,13 +1038,13 @@ function renderBills() {
                     </div>
                     <div class="bill-header">
                         <div>
-                            <div class="bill-title editable" onclick="editBillName(${bill.id})" title="Click to edit name">${escapeHtml(bill.name)}</div>
+                            <div class="bill-title${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillName(${bill.id})" title="Click to edit name"`}>${escapeHtml(bill.name)}</div>
                             ${safeWebsite ? `<div class="bill-website"><a href="${safeWebsite}" target="_blank" rel="noopener noreferrer">${safeWebsite}</a></div>` : ''}
                             <div style="color: #666; font-size: 0.9rem; margin-top: 5px;">
                                 ${bill.members.length > 0 ? `$${perPerson} per person (${bill.members.length} members)` : 'No members selected'}
                             </div>
                         </div>
-                        <div class="bill-amount editable" onclick="editBillAmount(${bill.id})" title="Click to edit amount">$${bill.amount.toFixed(2)}/mo</div>
+                        <div class="bill-amount${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillAmount(${bill.id})" title="Click to edit amount"`}>$${bill.amount.toFixed(2)}/mo</div>
                     </div>
                 </div>
 
@@ -787,7 +1057,7 @@ function renderBills() {
                                     type="checkbox"
                                     id="bill-${bill.id}-${member.id}"
                                     ${bill.members.includes(member.id) ? 'checked' : ''}
-                                    onchange="toggleMember(${bill.id}, ${member.id})"
+                                    ${archived ? 'disabled' : `onchange="toggleMember(${bill.id}, ${member.id})"`}
                                 />
                                 <label for="bill-${bill.id}-${member.id}">${escapeHtml(member.name)}</label>
                             </div>
@@ -795,12 +1065,12 @@ function renderBills() {
                     </div>
                 </div>
 
-                <div class="bill-actions">
+                ${archived ? '' : `<div class="bill-actions">
                     <button class="btn btn-secondary" onclick="uploadLogo(${bill.id})">Upload Logo</button>
                     ${bill.logo ? `<button class="btn btn-secondary" onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
                     <button class="btn btn-secondary" onclick="editBillWebsite(${bill.id})">Edit Website</button>
                     <button class="btn btn-danger" onclick="removeBill(${bill.id})">Remove Bill</button>
-                </div>
+                </div>`}
             </div>
         `;
     }).join('');
@@ -845,6 +1115,7 @@ function calculateAnnualSummary() {
 function updateSummary() {
     const container = document.getElementById('annualSummary');
     const summary = calculateAnnualSummary();
+    const archived = isArchivedYear();
 
     if (familyMembers.length === 0) {
         container.innerHTML = '<p class="empty-state">Add family members and bills to see the summary</p>';
@@ -911,15 +1182,17 @@ function updateSummary() {
                 <td>$${(combinedTotal / 12).toFixed(2)}</td>
                 <td><strong>$${combinedTotal.toFixed(2)}</strong></td>
                 <td>
-                    <input
-                        type="number"
-                        class="payment-input"
-                        value="${payment}"
-                        step="0.01"
-                        min="0"
-                        onchange="updatePayment(${data.member.id}, this.value)"
-                        placeholder="0.00"
-                    />
+                    ${archived
+                        ? `$${payment.toFixed(2)}`
+                        : `<input
+                            type="number"
+                            class="payment-input"
+                            value="${payment}"
+                            step="0.01"
+                            min="0"
+                            onchange="updatePayment(${data.member.id}, this.value)"
+                            placeholder="0.00"
+                        />`}
                 </td>
                 <td class="${balance > 0 ? 'balance-owed' : 'balance-paid'}">
                     <strong>$${balance.toFixed(2)}</strong>
@@ -990,6 +1263,7 @@ function updateSummary() {
 
 // Update payment received for a member
 function updatePayment(memberId, value) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
@@ -1034,20 +1308,22 @@ function updatePayment(memberId, value) {
 // Render email settings
 function renderEmailSettings() {
     const container = document.getElementById('emailSettings');
+    const archived = isArchivedYear();
     container.innerHTML = `
         <div class="form-group">
             <label for="emailMessage">Email Message (sent with all invoices)</label>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 8px;">
                 Use <strong>%total</strong> to insert the combined annual total (e.g., "payment of %total")
             </p>
-            <textarea id="emailMessageInput" rows="4">${escapeHtml(settings.emailMessage)}</textarea>
-            <button class="btn btn-primary" onclick="saveEmailMessage()" style="margin-top: 10px;">Save Message</button>
+            <textarea id="emailMessageInput" rows="4" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
+            ${archived ? '' : '<button class="btn btn-primary" onclick="saveEmailMessage()" style="margin-top: 10px;">Save Message</button>'}
         </div>
     `;
 }
 
 // Save email message
 function saveEmailMessage() {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
     const input = document.getElementById('emailMessageInput');
     settings.emailMessage = input.value;
     saveData();
@@ -1063,7 +1339,7 @@ function generateInvoice() {
         return;
     }
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = currentBillingYear ? currentBillingYear.label : new Date().getFullYear();
     const invoiceHTML = generateInvoiceHTML(summary, currentYear);
 
     // Open in new window
@@ -1099,7 +1375,7 @@ function sendIndividualInvoice(memberId) {
         return;
     }
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = currentBillingYear ? currentBillingYear.label : new Date().getFullYear();
     const firstName = member.name.split(' ')[0];
     const numMembers = 1 + member.linkedMembers.length;
     const payment = member.paymentReceived || 0;
