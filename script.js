@@ -7,6 +7,43 @@ let settings = {
 
 let currentUser = null;
 
+// Version checking — polls version.json to detect deploys while the page is open
+let _knownVersion = null;
+let _updateCheckInterval = null;
+
+async function checkForUpdate() {
+    try {
+        const resp = await fetch('version.json?_=' + Date.now());
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (_knownVersion && data.version !== _knownVersion) {
+            showUpdateToast();
+        }
+        _knownVersion = data.version;
+    } catch (_) {
+        // Network errors are fine — user may be offline
+    }
+}
+
+function showUpdateToast() {
+    const toast = document.getElementById('update-toast');
+    if (toast) toast.classList.add('visible');
+    if (_updateCheckInterval) {
+        clearInterval(_updateCheckInterval);
+        _updateCheckInterval = null;
+    }
+}
+
+function dismissUpdateToast() {
+    const toast = document.getElementById('update-toast');
+    if (toast) toast.classList.remove('visible');
+}
+
+function startUpdateChecker() {
+    checkForUpdate();
+    _updateCheckInterval = setInterval(checkForUpdate, 60000);
+}
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     // Check authentication
@@ -26,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderBills();
             updateSummary();
             renderEmailSettings();
+            startUpdateChecker();
         }
     });
 });
