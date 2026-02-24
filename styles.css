@@ -67,7 +67,8 @@ label {
 }
 
 input[type="text"],
-input[type="number"] {
+input[type="number"],
+input[type="tel"] {
     width: 100%;
     padding: 10px;
     border: 2px solid #e0e0e0;
@@ -77,7 +78,8 @@ input[type="number"] {
 }
 
 input[type="text"]:focus,
-input[type="number"]:focus {
+input[type="number"]:focus,
+input[type="tel"]:focus {
     outline: none;
     border-color: #667eea;
 }
@@ -128,7 +130,7 @@ input[type="number"]:focus {
 
 .family-members-input {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: 1fr 1fr 1fr auto;
     gap: 10px;
     margin-bottom: 20px;
 }
@@ -201,6 +203,20 @@ input[type="number"]:focus {
 }
 
 .member-email:hover {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+.member-phone {
+    font-size: 0.9rem;
+    color: #666;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background 0.2s;
+    margin-top: 2px;
+}
+
+.member-phone:hover {
     background: rgba(102, 126, 234, 0.1);
 }
 

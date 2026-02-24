@@ -63,6 +63,7 @@ Family Bill Splitter is a cloud-based web application for managing and splitting
   │     id: number,
   │     name: string,
   │     email: string,
+  │     phone: string (E.164 format, e.g. "+14155551212"),
   │     avatar: string (base64 data URL),
   │     paymentReceived: number,
   │     linkedMembers: number[] (child member IDs)
@@ -115,8 +116,8 @@ Scripts must load in this exact order (all pages):
 - `saveData()` - Persists `familyMembers`, `bills`, `settings` to Firestore with timestamp
 
 ### Family Member Management
-- `addFamilyMember()` - Creates member with unique ID, optional email
-- `editFamilyMember(id)` / `editMemberEmail(id)` - Inline editing via prompt
+- `addFamilyMember()` - Creates member with unique ID, optional email and phone
+- `editFamilyMember(id)` / `editMemberEmail(id)` / `editMemberPhone(id)` - Inline editing via prompt
 - `removeFamilyMember(id)` - Deletes member and cleans up all bill references
 - `uploadAvatar(id)` / `removeAvatar(id)` - Image upload with 200x200px PNG compression
 - `manageLinkMembers(parentId)` - Opens dialog to link child members to a parent
@@ -149,6 +150,7 @@ Scripts must load in this exact order (all pages):
 - `renderEmailSettings()` - Renders email message editor
 
 ### Helpers
+- `isValidE164(phone)` - Validates E.164 phone number format (+ followed by 1-15 digits, first digit non-zero)
 - `getInitials(name)` - Extracts initials for avatar fallback
 - `generateAvatar(member)` / `generateLogo(bill)` - HTML generation for images
 - `uploadImage(callback)` - Shared image upload with Canvas compression
@@ -200,6 +202,9 @@ Covered areas:
 - `updatePayment` - proportional payment distribution for linked members, negative clamping
 - `manageLinkMembers` - link preservation and cross-parent isolation
 - `editBillWebsite` - URL validation (rejects non-http schemes)
+- `isValidE164` - E.164 phone validation (format, length, leading zero rejection)
+- `editMemberPhone` - phone editing (set, clear, reject invalid, archived guard)
+- `addFamilyMember` with phone - phone included on create (valid, invalid, blank, missing input)
 
 ### Local Development
 

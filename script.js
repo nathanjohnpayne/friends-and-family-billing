@@ -301,6 +301,7 @@ async function loadBillingYearData(yearId) {
 
         familyMembers = (yearData.familyMembers || []).map(m => {
             if (!m.email) m.email = '';
+            if (!m.phone) m.phone = '';
             if (!m.avatar) m.avatar = '';
             if (m.paymentReceived === undefined) m.paymentReceived = 0;
             if (!m.linkedMembers) m.linkedMembers = [];
@@ -409,6 +410,7 @@ async function startNewYear() {
             id: m.id,
             name: m.name,
             email: m.email,
+            phone: m.phone || '',
             avatar: m.avatar,
             paymentReceived: 0,
             linkedMembers: m.linkedMembers ? m.linkedMembers.slice() : []
@@ -494,6 +496,11 @@ function sanitizeImageSrc(src) {
     if (!src) return '';
     if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(src)) return src;
     return '';
+}
+
+// Validate E.164 phone format: + followed by 1-15 digits
+function isValidE164(phone) {
+    return /^\+[1-9]\d{1,14}$/.test(phone);
 }
 
 function getInitials(name) {
@@ -623,10 +630,19 @@ function addFamilyMember() {
         return;
     }
 
+    const phoneInput = document.getElementById('memberPhone');
+    const phone = phoneInput ? phoneInput.value.trim() : '';
+
+    if (phone && !isValidE164(phone)) {
+        alert('Please enter a valid phone number in E.164 format (e.g. +14155551212) or leave blank.');
+        return;
+    }
+
     const member = {
         id: generateUniqueId(),
         name: name,
         email: email,
+        phone: phone,
         avatar: '',
         paymentReceived: 0,
         linkedMembers: []
@@ -635,6 +651,7 @@ function addFamilyMember() {
     familyMembers.push(member);
     input.value = '';
     emailInput.value = '';
+    if (phoneInput) phoneInput.value = '';
 
     saveData();
     renderFamilyMembers();
@@ -685,6 +702,27 @@ function editMemberEmail(id) {
     if (newEmail === null) return;
 
     member.email = newEmail.trim();
+
+    saveData();
+    renderFamilyMembers();
+}
+
+// Edit family member phone
+function editMemberPhone(id) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const member = familyMembers.find(m => m.id === id);
+    if (!member) return;
+
+    const newPhone = prompt('Enter phone number (E.164 format, e.g. +14155551212):', member.phone);
+    if (newPhone === null) return;
+
+    const trimmed = newPhone.trim();
+    if (trimmed && !isValidE164(trimmed)) {
+        alert('Invalid phone number. Use E.164 format (e.g. +14155551212) or leave blank to clear.');
+        return;
+    }
+
+    member.phone = trimmed;
 
     saveData();
     renderFamilyMembers();
@@ -827,6 +865,9 @@ function renderFamilyMembers() {
                 <div class="member-name" ${archived ? '' : `onclick="editFamilyMember(${member.id})" title="Click to edit name"`}>${escapeHtml(member.name)}</div>
                 <div class="member-email" ${archived ? '' : `onclick="editMemberEmail(${member.id})" title="Click to edit email"`}>
                     ${escapeHtml(member.email) || 'No email'}
+                </div>
+                <div class="member-phone" ${archived ? '' : `onclick="editMemberPhone(${member.id})" title="Click to edit phone"`}>
+                    ${escapeHtml(member.phone) || 'No phone'}
                 </div>
                 ${linkedNames ? `<div class="linked-members">Linked: ${linkedNames}</div>` : ''}
             </div>

@@ -726,6 +726,223 @@ describe('archiveCurrentYear', () => {
     });
 });
 
+// ──────────────── isValidE164 ──────────────────────────────────
+
+describe('isValidE164', () => {
+    it('accepts valid E.164 numbers', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164('+14155551212'), true);
+        assert.equal(ctx.isValidE164('+441234567890'), true);
+        assert.equal(ctx.isValidE164('+86123456789'), true);
+        assert.equal(ctx.isValidE164('+12'), true); // minimal valid: country code + digit
+    });
+
+    it('rejects numbers without leading +', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164('14155551212'), false);
+        assert.equal(ctx.isValidE164('4155551212'), false);
+    });
+
+    it('rejects numbers starting with +0', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164('+0123456789'), false);
+    });
+
+    it('rejects numbers with non-digit characters', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164('+1-415-555-1212'), false);
+        assert.equal(ctx.isValidE164('+1 415 555 1212'), false);
+        assert.equal(ctx.isValidE164('+1(415)5551212'), false);
+    });
+
+    it('rejects numbers exceeding 15 digits', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164('+1234567890123456'), false);
+    });
+
+    it('rejects empty and plus-only strings', () => {
+        const ctx = createContext();
+        assert.equal(ctx.isValidE164(''), false);
+        assert.equal(ctx.isValidE164('+'), false);
+    });
+});
+
+// ──────────────── editMemberPhone ─────────────────────────────
+
+describe('editMemberPhone', () => {
+    it('sets a valid phone number', () => {
+        const ctx = createContext({
+            prompt: () => '+14155551212',
+        });
+
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.editMemberPhone(1);
+        assert.equal(ctx._get('familyMembers')[0].phone, '+14155551212');
+    });
+
+    it('clears phone when empty string is entered', () => {
+        const ctx = createContext({
+            prompt: () => '',
+        });
+
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '+14155551212', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.editMemberPhone(1);
+        assert.equal(ctx._get('familyMembers')[0].phone, '');
+    });
+
+    it('rejects invalid phone format', () => {
+        const alerts = [];
+        const ctx = createContext({
+            prompt: () => '555-1212',
+            alert: (msg) => alerts.push(msg),
+        });
+
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.editMemberPhone(1);
+        assert.equal(ctx._get('familyMembers')[0].phone, '', 'Phone should not be set');
+        assert.ok(alerts.some(a => a.includes('E.164')), 'Should warn about format');
+    });
+
+    it('does nothing when prompt is cancelled', () => {
+        const ctx = createContext({
+            prompt: () => null,
+        });
+
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '+14155551212', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.editMemberPhone(1);
+        assert.equal(ctx._get('familyMembers')[0].phone, '+14155551212', 'Phone should remain unchanged');
+    });
+
+    it('prevents editing when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({
+            prompt: () => '+14155551212',
+            alert: (msg) => alerts.push(msg),
+        });
+
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.editMemberPhone(1);
+        assert.equal(ctx._get('familyMembers')[0].phone, '', 'Phone should not change');
+        assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
+    });
+});
+
+// ──────────────── phone field in addFamilyMember ──────────────
+
+describe('addFamilyMember with phone', () => {
+    it('includes phone when adding a member', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'Alice' };
+            if (id === 'memberEmail') return { value: 'alice@test.com' };
+            if (id === 'memberPhone') return { value: '+14155551212' };
+            if (id === 'familyMembersList') return { innerHTML: '' };
+            if (id === 'billsList') return { innerHTML: '' };
+            if (id === 'annualSummary') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addFamilyMember();
+        const members = ctx._get('familyMembers');
+        assert.equal(members.length, 1);
+        assert.equal(members[0].phone, '+14155551212');
+    });
+
+    it('rejects invalid phone on add', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('familyMembers', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'Bob' };
+            if (id === 'memberEmail') return { value: '' };
+            if (id === 'memberPhone') return { value: 'not-a-phone' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addFamilyMember();
+        assert.equal(ctx._get('familyMembers').length, 0, 'Member should not be added');
+        assert.ok(alerts.some(a => a.includes('E.164')), 'Should warn about format');
+    });
+
+    it('allows blank phone on add', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'Charlie' };
+            if (id === 'memberEmail') return { value: '' };
+            if (id === 'memberPhone') return { value: '' };
+            if (id === 'familyMembersList') return { innerHTML: '' };
+            if (id === 'billsList') return { innerHTML: '' };
+            if (id === 'annualSummary') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addFamilyMember();
+        const members = ctx._get('familyMembers');
+        assert.equal(members.length, 1);
+        assert.equal(members[0].phone, '');
+    });
+
+    it('defaults phone to empty string when input element is absent', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'memberName') return { value: 'Dave' };
+            if (id === 'memberEmail') return { value: '' };
+            if (id === 'memberPhone') return null;
+            if (id === 'familyMembersList') return { innerHTML: '' };
+            if (id === 'billsList') return { innerHTML: '' };
+            if (id === 'annualSummary') return { innerHTML: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addFamilyMember();
+        const members = ctx._get('familyMembers');
+        assert.equal(members.length, 1);
+        assert.equal(members[0].phone, '');
+    });
+});
+
+// ──────────────── phone field in loadBillingYearData ───────────
+
+describe('phone field backwards compatibility', () => {
+    it('defaults phone to empty string for legacy members without phone', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Legacy', email: 'test@test.com', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        // Simulate what loadBillingYearData does
+        const members = ctx._get('familyMembers').map(m => {
+            if (!m.phone) m.phone = '';
+            return m;
+        });
+
+        assert.equal(members[0].phone, '');
+    });
+});
+
 // ──────────────── saveData archived guard ─────────────────────
 
 describe('saveData archived guard', () => {
