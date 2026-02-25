@@ -90,13 +90,20 @@ await db.collection('users').doc(currentUser.uid).set({
 ```
 users (collection)
   └── {userId} (document)
-      ├── familyMembers: [...]
-      ├── bills: [...]
-      ├── settings: {...}
-      └── updatedAt: timestamp
+      ├── activeBillingYear: string
+      ├── migrationVersion: number
+      └── billingYears (subcollection)
+          └── {yearId} (document)
+              ├── label: string
+              ├── status: "open"|"settling"|"closed"|"archived"
+              ├── familyMembers: [...]
+              ├── bills: [...]
+              ├── payments: [...]
+              ├── settings: {...}
+              └── updatedAt: timestamp
 ```
 
-Each user's data is completely isolated and private.
+Each user's data is completely isolated and private. Data is organized per billing year to support multi-year workflows and archival.
 
 ## Features Preserved
 
@@ -210,16 +217,26 @@ This ensures fair distribution based on actual amounts owed.
 
 ## Next Steps (Optional Enhancements)
 
-Want to add more features? Consider:
+Features implemented since this document was written:
 
-- ✨ Password reset via email
+- ✅ Password reset via email (forgot password flow on login page)
+- ✅ Payment history tracking (timeline-style ledger per member)
+- ✅ Billing year lifecycle (open/settling/closed/archived states)
+- ✅ Share links (token-based billing summaries for members)
+- ✅ Dispute/review system with evidence uploads
+- ✅ Settlement progress tracking with completion banners
+- ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, etc.)
+- ✅ Calculation transparency (expandable bill breakdowns)
+- ✅ Design token system for consistent UI
+- ✅ Cloud Functions for share token resolution
+
+Remaining ideas:
+
 - ✨ Email verification
-- ✨ Facebook login
+- ✨ Facebook/Apple social login
 - ✨ Real-time sync (see changes instantly)
 - ✨ Data export to PDF
-- ✨ Shared bills between multiple users
-- ✨ Monthly email reminders
-- ✨ Payment history tracking
+- ✨ Automated email reminders
 
 See project issues for feature requests and discussion.
 

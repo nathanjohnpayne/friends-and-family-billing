@@ -1,6 +1,6 @@
 # Family Bill Splitter
 
-A cloud-based web application for managing and splitting monthly bills among family members with multi-user authentication, parent-child account linking, payment tracking, and email invoicing.
+A cloud-based web application for coordinating and settling annual shared bills among friends and family. Features multi-user authentication, billing year lifecycle management, settlement progress tracking, share links, dispute resolution, and email invoicing.
 
 **🌐 Live Application:** [https://friends-and-family-billing.web.app](https://friends-and-family-billing.web.app)
 
@@ -11,19 +11,26 @@ A cloud-based web application for managing and splitting monthly bills among fam
 ## Features
 
 ### 👥 User Management
-- ✅ Email/Password authentication
-- ✅ Google Sign-In integration
+- ✅ Email/Password authentication with forgot-password recovery
+- ✅ Google Sign-In (primary action)
 - ✅ Secure logout
 - ✅ Per-user data isolation
 - ✅ Cloud sync across devices
+
+### 📅 Billing Year Lifecycle
+- ✅ Four lifecycle states: Open → Settling → Closed → Archived
+- ✅ Visual lifecycle progress bar on dashboard
+- ✅ State-specific UI behavior (editable, collecting, complete, read-only)
+- ✅ Year selector with status badges
+- ✅ Start new billing year with cloned members/bills
+- ✅ Archive years for historical reference
 
 ### 👨‍👩‍👧‍👦 Family Member Management
 - ✅ Add/edit/delete family members
 - ✅ Upload custom avatars (PNG/JPG) with automatic compression to 200x200px
 - ✅ Automatic initials generation for members without avatars
-- ✅ Email addresses for invoicing
+- ✅ Email addresses and phone numbers (E.164 format)
 - ✅ Parent-child linking for combined invoices
-- ✅ Payment tracking with editable fields
 - ✅ Proportional payment distribution for linked members
 
 ### 💰 Bill Management
@@ -32,13 +39,27 @@ A cloud-based web application for managing and splitting monthly bills among fam
 - ✅ Website URLs for each service
 - ✅ Flexible member selection per bill (checkbox interface)
 - ✅ Automatic annual calculation
-- ✅ Logo management with fallback to service name display
+- ✅ Calculation transparency ("View calculation" expandable breakdowns)
 
-### 📊 Bill Splitting & Calculations
-- ✅ Even splits - divides bill amount equally among selected members
-- ✅ Real-time calculations for monthly and annual totals
-- ✅ Visual feedback with logos and avatars throughout
-- ✅ Proportional payment distribution for linked family members
+### 📊 Settlement Progress
+- ✅ Global settlement progress bar with percentage
+- ✅ Group completion messaging ("5 of 8 members settled")
+- ✅ Payment status badges: Settled / Partial / Outstanding
+- ✅ Completion banner when all balances reach zero
+- ✅ Payment confirmation with progress feedback
+- ✅ Admin reminder hints for outstanding members
+
+### 🔗 Share Links
+- ✅ Token-based billing summaries for individual members (no login required)
+- ✅ Configurable scopes (summary, payment links, disputes)
+- ✅ Personal settlement callout (outstanding balance or settled confirmation)
+- ✅ Personal payment progress bar
+- ✅ Trust banner with security messaging
+
+### 💳 Payment Methods
+- ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, Cash App, PayPal, etc.)
+- ✅ Payment methods appear on invoices and share links
+- ✅ Copy-to-clipboard for payment handles
 
 ### 📧 Invoicing & Reporting
 - ✅ Annual summary with monthly and yearly totals
@@ -46,13 +67,27 @@ A cloud-based web application for managing and splitting monthly bills among fam
 - ✅ Individual email invoices (plain text via mailto)
 - ✅ Customizable email messages with %total placeholder
 - ✅ Combined invoices for parent + linked members
-- ✅ Hierarchical display showing parent-child relationships
+- ✅ Payment history timeline with remaining balance
+
+### 🛡️ Trust & Transparency
+- ✅ Expandable calculation breakdowns showing per-bill math
+- ✅ Change confirmation toasts for all financial data mutations
+- ✅ Privacy footer on main app and share pages
+- ✅ Trust banner on share link pages
+- ✅ Archive integrity messaging for historical years
+
+### 📋 Dispute / Review System
+- ✅ Members can flag bill items for review via share links
+- ✅ Admin dispute management with status workflow (Open → In Review → Resolved/Rejected)
+- ✅ Evidence file uploads (PDF/PNG/JPEG, 20MB max)
+- ✅ User approval/rejection of resolutions
 
 ### 🔧 Data Management
 - ✅ Real-time cloud sync across devices
 - ✅ Automatic data integrity repair on load
 - ✅ Data verification tool (check_data.html)
 - ✅ Cloud Firestore persistence with per-user isolation
+- ✅ Legacy data migration (flat → year-scoped)
 
 ## Quick Start
 
@@ -151,30 +186,47 @@ firebase deploy
 - `%total` placeholder in email message replaced with member's total
 
 ### Data Structure
+
+Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`:
+
 ```javascript
 {
+  label: "2026",
+  status: "open",                 // "open" | "settling" | "closed" | "archived"
   familyMembers: [
     {
       id: number,
       name: string,
       email: string,
-      avatar: string,           // base64 data URL
-      paymentReceived: number,
-      linkedMembers: [number]   // child member IDs
+      phone: string,              // E.164 format (e.g. "+14155551212")
+      avatar: string,             // base64 data URL
+      paymentReceived: number,    // legacy, migrated to payments ledger
+      linkedMembers: [number]     // child member IDs
     }
   ],
   bills: [
     {
       id: number,
       name: string,
-      amount: number,
+      amount: number,             // monthly amount
       website: string,
-      logo: string,             // base64 data URL
-      members: [number]         // member IDs assigned to bill
+      logo: string,               // base64 data URL
+      members: [number]           // member IDs assigned to bill
+    }
+  ],
+  payments: [
+    {
+      id: string,
+      memberId: number,
+      amount: number,
+      receivedAt: string,         // ISO 8601
+      note: string,
+      method: string              // "cash" | "zelle" | "venmo" | etc.
     }
   ],
   settings: {
-    emailMessage: string
+    emailMessage: string,
+    paymentLinks: [...]           // configured payment methods
   }
 }
 ```
@@ -254,14 +306,28 @@ firebase deploy
 
 ## Changelog
 
-### Latest Updates (2026-01)
-- ✅ Added Google Sign-In authentication
-- ✅ Fixed proportional payment distribution for linked members
-- ✅ Fixed logo black background issue (PNG compression)
-- ✅ Fixed data loading issue (async/await)
-- ✅ Removed legacy Data Management section (LocalStorage import, manual repair, clear all)
-- ✅ Added data verification tool
-- ✅ Added cache-control headers
+### Annual Billing Experience (2026-02)
+- ✅ Billing year lifecycle (Open → Settling → Closed → Archived)
+- ✅ Settlement progress bars and group completion messaging
+- ✅ Payment confirmation with settlement progress feedback
+- ✅ Calculation transparency (expandable per-bill breakdowns)
+- ✅ Change confirmation toasts for financial data mutations
+- ✅ Trust & privacy banners on share links and main app
+- ✅ Payment history timeline with remaining balance
+- ✅ Archive integrity messaging
+- ✅ Annual billing messaging alignment across all screens
+- ✅ Login experience optimized for annual billing context
+- ✅ Forgot password flow
+- ✅ 162 automated tests across 45 suites
+
+### Share Links & Disputes (2026-01)
+- ✅ Token-based share links for member billing summaries
+- ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, etc.)
+- ✅ Dispute/review request system with evidence uploads
+- ✅ Cloud Functions for share token resolution and dispute submission
+- ✅ Design tokens system (design-tokens.css)
+- ✅ Google Sign-In as primary authentication
+- ✅ E.164 phone number support
 
 ### Firebase Migration (2025)
 - ✅ Multi-user authentication
