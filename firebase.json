@@ -2,21 +2,24 @@
   "hosting": {
     "public": ".",
     "predeploy": [
-      "node stamp-version.js"
+      "node stamp-version.js && npm run build"
     ],
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
+      "src/**",
       "DEPLOYMENT.md",
       "AGENTS.md",
       "QUICKSTART.md",
       "FIREBASE_IMPLEMENTATION.md",
       "README.md",
       "package.json",
+      "package-lock.json",
       "tests/**",
       "functions/**",
-      "stamp-version.js"
+      "stamp-version.js",
+      "enhancements/**"
     ],
     "headers": [
       {

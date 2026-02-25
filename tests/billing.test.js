@@ -9,46 +9,8 @@ const scriptSource = fs.readFileSync(
     'utf8'
 );
 
-// Append test helpers that close over the let-scoped variables,
-// giving tests a way to read/write them from outside the VM.
-const testableSource = scriptSource + `
-function _set(key, val) {
-    switch(key) {
-        case 'familyMembers': familyMembers = val; break;
-        case 'bills': bills = val; break;
-        case 'payments': payments = val; break;
-        case 'billingEvents': billingEvents = val; break;
-        case 'settings': settings = val; break;
-        case 'currentUser': currentUser = val; break;
-        case 'currentBillingYear': currentBillingYear = val; break;
-        case 'billingYears': billingYears = val; break;
-        case '_loadedDisputes': _loadedDisputes = val; break;
-        case '_disputeStatusFilter': _disputeStatusFilter = val; break;
-    }
-}
-function _get(key) {
-    switch(key) {
-        case 'familyMembers': return familyMembers;
-        case 'bills': return bills;
-        case 'payments': return payments;
-        case 'billingEvents': return billingEvents;
-        case 'settings': return settings;
-        case 'currentUser': return currentUser;
-        case 'currentBillingYear': return currentBillingYear;
-        case 'billingYears': return billingYears;
-        case '_loadedDisputes': return _loadedDisputes;
-        case '_disputeStatusFilter': return _disputeStatusFilter;
-        case 'EVIDENCE_MAX_SIZE': return EVIDENCE_MAX_SIZE;
-        case 'EVIDENCE_MAX_COUNT': return EVIDENCE_MAX_COUNT;
-        case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
-        case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
-        case 'BILLING_YEAR_STATUSES': return BILLING_YEAR_STATUSES;
-        case 'PAYMENT_METHOD_TYPES': return PAYMENT_METHOD_TYPES;
-        case 'BILLING_EVENT_LABELS': return BILLING_EVENT_LABELS;
-        case 'CURRENT_MIGRATION_VERSION': return CURRENT_MIGRATION_VERSION;
-    }
-}
-`;
+// The bundle already includes _set/_get helpers (exported to window.*)
+const testableSource = scriptSource;
 
 function makeMockDoc(saved) {
     return {
@@ -91,12 +53,6 @@ function createContext(overrides = {}) {
                 toDataURL: () => 'data:image/png;base64,stub',
                 width: 0,
                 height: 0,
-            }),
-        },
-        window: {
-            location: { href: '', origin: 'https://friends-and-family-billing.web.app' },
-            open: () => ({
-                document: { write: () => {}, close: () => {} },
             }),
         },
         navigator: {
@@ -166,6 +122,26 @@ function createContext(overrides = {}) {
         ...overrides,
     };
 
+    // Proxy wraps window so that writes (window.fn = fn) also appear on ctx,
+    // and reads (window.auth) fall back to ctx for Firebase mock access.
+    const windowBase = {
+        location: { href: '', origin: 'https://friends-and-family-billing.web.app' },
+        open: () => ({
+            document: { write: () => {}, close: () => {} },
+        }),
+    };
+    ctx.window = new Proxy(windowBase, {
+        get(target, prop) {
+            if (prop in target) return target[prop];
+            return ctx[prop];
+        },
+        set(target, prop, value) {
+            target[prop] = value;
+            ctx[prop] = value;
+            return true;
+        },
+    });
+    ctx.globalThis = ctx;
     ctx._saved = saved;
     vm.createContext(ctx);
     vm.runInContext(testableSource, ctx);
@@ -3674,7 +3650,7 @@ describe('updateInvoiceVariant', () => {
         ctx._set('payments', []);
 
         const summary = ctx.getInvoiceSummaryContext(1);
-        ctx._invoiceDialogState = { ctx: summary, shareUrl: 'https://example.com', memberId: 1, variant: 'text-only' };
+        ctx._set('_invoiceDialogState', { ctx: summary, shareUrl: 'https://example.com', memberId: 1, variant: 'text-only' });
 
         let textareaValue = '';
         ctx.document.getElementById = (id) => {
