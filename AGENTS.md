@@ -9,7 +9,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 
 ## Tech Stack
 
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript (no build tools or frameworks)
+- **Frontend:** HTML5, CSS3, Vanilla JavaScript (esbuild bundler, no frameworks)
 - **Backend/Infrastructure:** Firebase
   - Firebase Authentication (Email/Password + Google Sign-In)
   - Cloud Firestore (NoSQL database)
@@ -18,19 +18,26 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   - Firebase Analytics
   - Firebase Storage (dispute evidence uploads)
 - **Image Processing:** Canvas API for client-side compression (max 200x200px PNG)
-- **Dependencies:** Firebase SDK v10.7.1 loaded via CDN (compat libraries)
+- **Build:** esbuild (IIFE bundle from `src/` → `script.js`)
+- **Dependencies:** Firebase SDK v10.7.1 loaded via CDN (compat libraries); esbuild (dev)
 
 ## Project Structure
 
 ```
 .
+├── src/                       # Application source (ES modules, bundled by esbuild)
+│   ├── index.js               # Bundle entry point — imports main.js, assigns window.* exports
+│   ├── main.js                # Main application logic (~4,690 lines, the monolith being modularized)
+│   └── platform/
+│       └── firebase.js        # Bridge module — re-exports Firebase globals from window.*
+├── script.js                  # BUILD ARTIFACT (gitignored) — IIFE bundle produced by esbuild
+├── script.js.map              # Source map (gitignored)
 ├── index.html                 # Main application page (authenticated users only)
 ├── login.html                 # Login/signup page with Google Sign-In
 ├── share.html                 # Public share-link page (reads from Firestore, no auth)
 ├── check_data.html            # Firebase data verification/debugging tool
-├── script.js                  # Main application logic (~4,440 lines)
 ├── auth.js                    # Authentication handling (~170 lines)
-├── firebase-config.js         # Firebase init, conditional SDK exports (guards for missing SDKs)
+├── firebase-config.js         # Firebase init, assigns auth/db/storage/analytics to window.*
 ├── design-tokens.css          # Design system tokens (colors, spacing, typography)
 ├── styles.css                 # Application styles (~2,470 lines, consumes design-tokens.css)
 ├── version.json               # App version for update checking (stamped on deploy)
@@ -40,13 +47,14 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── firestore.rules            # Firestore security rules
 ├── storage.rules              # Firebase Storage security rules
 ├── firebase.json              # Firebase hosting, functions, and deployment configuration
-├── package.json               # Test script (npm test) and root dependencies
+├── package.json               # Build/test scripts and root dependencies
 ├── functions/
 │   ├── index.js               # Cloud Functions v2 entry point
 │   ├── billing.js             # Shared billing utilities for Cloud Functions
 │   └── package.json           # Cloud Functions dependencies
 ├── tests/
 │   └── billing.test.js        # Automated tests (~3,690 lines, Node built-in test runner)
+├── enhancements/              # Engineering epics, tickets, and bug reports (markdown)
 ├── .gitignore                 # Git ignore rules
 ├── .gitattributes             # Git line-ending normalization
 ├── AGENTS.md                  # AI agent instructions (this file)
@@ -241,10 +249,38 @@ Scripts must load in this exact order (all pages):
 3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html, share.html)
 4. `firebase-storage-compat.js` - Storage (index.html only)
 5. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
-6. `firebase-config.js` - Initializes Firebase, conditionally exports `auth`, `db`, `storage`, `analytics` (returns `null` for SDKs not loaded on the current page)
-7. `script.js` or `auth.js` - Application logic
+6. `firebase-config.js` - Initializes Firebase, assigns `auth`, `db`, `storage`, `analytics` to `window.*` (`null` for SDKs not loaded on the current page)
+7. `script.js` (esbuild IIFE bundle from `src/`) or `auth.js` - Application logic
 
-## Key Functions (script.js)
+## Build System
+
+The application source lives in `src/` as ES modules bundled by **esbuild** into a single IIFE (`script.js`):
+
+```bash
+npm run build          # one-shot bundle (src/index.js → script.js, ~20ms)
+npm run build:watch    # rebuild on file change
+```
+
+**How it works:**
+- `src/main.js` contains all application logic (the monolith, being incrementally modularized)
+- `src/platform/firebase.js` bridges Firebase globals from `window.*` into ES module imports
+- `src/index.js` is the entry point: imports everything from `main.js` and assigns ~120 functions to `window.*` for inline `onclick` handler compatibility
+- esbuild bundles to `--format=iife`, producing a single classic-script-compatible file
+- `script.js` and `script.js.map` are **build artifacts** (gitignored); source of truth is `src/`
+
+**Firebase globals bridge:** `firebase-config.js` assigns `auth`, `db`, `storage`, `analytics` to `window.*`. The bridge module `src/platform/firebase.js` re-exports these for use inside ES modules:
+
+```js
+// src/platform/firebase.js
+export const auth = window.auth;
+export const db = window.db;
+export const FieldValue = window.firebase.firestore.FieldValue;
+// ...
+```
+
+**Inline handler compatibility:** During the modularization transition, all functions called by inline `onclick` handlers are assigned to `window.*` in `src/index.js`. When adding a new function that needs to be callable from HTML, add the export in both `src/main.js` (barrel export) and `src/index.js` (`window.*` assignment).
+
+## Key Functions (src/main.js)
 
 ### Data Persistence
 - `loadData()` - Fetches user data from Firestore billing year document, initializes defaults for missing fields
@@ -534,7 +570,7 @@ All visual primitives are defined in `design-tokens.css` and consumed by `styles
 npm test
 ```
 
-Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
+Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox the bundled `script.js` in a mock DOM/Firebase environment. The test script runs `npm run build` first to produce the bundle, then evaluates it via `vm.runInContext()`. A `Proxy` on `ctx.window` bridges `window.*` assignments from the IIFE bundle back onto the VM context so tests can call functions directly as `ctx.functionName()`. Test file: `tests/billing.test.js`.
 
 **267 tests across 77 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
@@ -588,11 +624,18 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 ```bash
 git clone <repository-url>
 cd friends-and-family-billing
+npm install
 
 firebase login
 firebase use friends-and-family-billing
 
-# Local server
+# Build the bundle (required before serving)
+npm run build
+
+# Watch mode (rebuilds on file changes in src/)
+npm run build:watch
+
+# Local server (in a separate terminal)
 firebase serve
 # Or: python3 -m http.server 8000
 ```
@@ -616,8 +659,8 @@ firebase deploy --only functions
 ### Firebase Hosting Configuration
 
 - Public directory: `.` (project root)
-- Predeploy hook: `node stamp-version.js` (stamps `version.json` with current ISO timestamp for update detection)
-- Ignored from deployment: `firebase.json`, dotfiles, `node_modules`, markdown docs, `package.json`, `tests/`, `functions/`, `stamp-version.js`
+- Predeploy hook: `node stamp-version.js && npm run build` (stamps version, then bundles `src/` → `script.js`)
+- Ignored from deployment: `firebase.json`, dotfiles, `node_modules`, `src/`, markdown docs, `package.json`, `package-lock.json`, `tests/`, `functions/`, `stamp-version.js`, `enhancements/`
 - Cache-control: `no-cache, no-store, must-revalidate` on all `.js` files, `version.json`, and `share.html`
 - Rewrites: `/share` → `share.html`, then SPA catch-all `**` → `index.html`
 
