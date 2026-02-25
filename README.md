@@ -226,7 +226,9 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
   ],
   settings: {
     emailMessage: string,
-    paymentLinks: [...]           // configured payment methods
+    paymentMethods: [             // structured payment methods
+      { id, type, label, enabled, handle, url, phone, email, instructions }
+    ]
   }
 }
 ```
@@ -262,9 +264,10 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ## Security
 
-- **Firestore Rules:** Per-user data isolation (`/users/{userId}`)
+- **Firestore Rules:** Per-user data isolation (`/users/{userId}`), public read on `publicShares` (secured by SHA-256 token hashes)
 - **HTTPS:** All data transmitted securely via Firebase Hosting
 - **Password Hashing:** Handled by Firebase Authentication
+- **Share Links:** Cryptographic tokens with SHA-256 hashing; configurable expiry and revocation
 - **Image Compression:** Prevents Firestore document size issues
 - **No Cross-User Access:** Users can only read/write their own data
 
@@ -318,13 +321,14 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Annual billing messaging alignment across all screens
 - ✅ Login experience optimized for annual billing context
 - ✅ Forgot password flow
-- ✅ 162 automated tests across 45 suites
+- ✅ 173 automated tests across 45 suites
 
 ### Share Links & Disputes (2026-01)
 - ✅ Token-based share links for member billing summaries
 - ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, etc.)
 - ✅ Dispute/review request system with evidence uploads
-- ✅ Cloud Functions for share token resolution and dispute submission
+- ✅ Cloud Functions v2 for dispute submission and evidence management
+- ✅ Direct Firestore reads for share link data (via `publicShares` collection)
 - ✅ Design tokens system (design-tokens.css)
 - ✅ Google Sign-In as primary authentication
 - ✅ E.164 phone number support

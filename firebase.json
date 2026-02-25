@@ -53,34 +53,6 @@
         "destination": "/share.html"
       },
       {
-        "source": "/resolveShareToken",
-        "function": {
-          "functionId": "resolveShareToken",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/submitDispute",
-        "function": {
-          "functionId": "submitDispute",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/getEvidenceUrl",
-        "function": {
-          "functionId": "getEvidenceUrl",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/submitDisputeDecision",
-        "function": {
-          "functionId": "submitDisputeDecision",
-          "region": "us-central1"
-        }
-      },
-      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -13,7 +13,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 - **Backend/Infrastructure:** Firebase
   - Firebase Authentication (Email/Password + Google Sign-In)
   - Cloud Firestore (NoSQL database)
-  - Cloud Functions (share token resolution, dispute submission, evidence URLs)
+  - Cloud Functions v2 (dispute submission, evidence URLs, dispute decisions)
   - Firebase Hosting with CDN
   - Firebase Analytics
   - Firebase Storage (dispute evidence uploads)
@@ -26,24 +26,27 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 .
 ├── index.html                 # Main application page (authenticated users only)
 ├── login.html                 # Login/signup page with Google Sign-In
-├── share.html                 # Public share-link page (token-based, no auth)
+├── share.html                 # Public share-link page (reads from Firestore, no auth)
 ├── check_data.html            # Firebase data verification/debugging tool
-├── script.js                  # Main application logic (~3,590 lines)
-├── auth.js                    # Authentication handling (~160 lines)
-├── firebase-config.js         # Firebase initialization and SDK exports
+├── script.js                  # Main application logic (~3,670 lines)
+├── auth.js                    # Authentication handling (~170 lines)
+├── firebase-config.js         # Firebase init, conditional SDK exports (guards for missing SDKs)
 ├── design-tokens.css          # Design system tokens (colors, spacing, typography)
-├── styles.css                 # Application styles (~1,960 lines, consumes design-tokens.css)
-├── version.json               # App version for update checking
+├── styles.css                 # Application styles (~1,980 lines, consumes design-tokens.css)
+├── version.json               # App version for update checking (stamped on deploy)
+├── stamp-version.js           # Predeploy script that writes current timestamp to version.json
+├── logo.svg                   # App logo (SVG)
+├── og-image.png               # OpenGraph social preview image
 ├── firestore.rules            # Firestore security rules
 ├── storage.rules              # Firebase Storage security rules
-├── firebase.json              # Firebase hosting and deployment configuration
-├── package.json               # Test script (npm test)
+├── firebase.json              # Firebase hosting, functions, and deployment configuration
+├── package.json               # Test script (npm test) and root dependencies
 ├── functions/
-│   ├── index.js               # Cloud Functions entry point
+│   ├── index.js               # Cloud Functions v2 entry point
 │   ├── billing.js             # Shared billing utilities for Cloud Functions
 │   └── package.json           # Cloud Functions dependencies
 ├── tests/
-│   └── billing.test.js        # Automated tests (~2,090 lines, Node built-in test runner)
+│   └── billing.test.js        # Automated tests (~2,240 lines, Node built-in test runner)
 ├── .gitignore                 # Git ignore rules
 ├── .gitattributes             # Git line-ending normalization
 ├── AGENTS.md                  # AI agent instructions (this file)
@@ -119,12 +122,6 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   │       instructions: string
   │     }>
   │   }
-  ├── shareTokens: Array<{
-  │     tokenHash: string (SHA-256),
-  │     memberId: number,
-  │     createdAt: string (ISO 8601),
-  │     scopes: string[]
-  │   }>
   └── updatedAt: Timestamp
 
 /users/{userId}/billingYears/{yearId}/disputes/{disputeId}
@@ -152,15 +149,64 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   │   }|null
   ├── createdAt: Timestamp
   └── tokenHash: string (SHA-256 of share token)
+
+/users/{userId}/auditLog/{logId}
+  ├── action: string (e.g. "share_token_resolved", "dispute_submitted")
+  ├── timestamp: Timestamp (server-generated)
+  └── ... (action-specific fields)
+
+/shareTokens/{tokenHash}  (top-level collection)
+  ├── ownerId: string (Firebase UID)
+  ├── memberId: number
+  ├── memberName: string
+  ├── billingYearId: string
+  ├── scopes: string[]
+  ├── revoked: boolean
+  ├── expiresAt: string (ISO 8601)|null
+  ├── createdAt: string (ISO 8601)
+  ├── lastAccessedAt: string (ISO 8601)|null
+  └── accessCount: number
+
+/publicShares/{tokenHash}  (top-level collection, publicly readable)
+  ├── ownerId: string (Firebase UID)
+  ├── memberId: number
+  ├── billingYearId: string
+  ├── scopes: string[]
+  ├── member: { id, name, email, phone }
+  ├── bills: Array<{ billId, billName, monthlyShare, annualShare }>
+  ├── total: number
+  ├── monthlyTotal: number
+  ├── linkedMembers: Array<{ id, name, bills, total, monthlyTotal }>
+  ├── paymentMethods: Array<{ type, label, ... }>
+  ├── payments: Array<{ amount, receivedAt, note, method }>
+  ├── paymentTotal: number
+  ├── yearLabel: string
+  └── updatedAt: string (ISO 8601)
 ```
 
 **Storage path:** `users/{userId}/disputes/{disputeId}/{timestamp}_{filename}`
 
-**Security rules** enforce that users can only read/write their own document:
+**Security rules:**
 
 ```javascript
+// Owner-only access for user data
 match /users/{userId} {
   allow read, write: if request.auth != null && request.auth.uid == userId;
+  match /billingYears/{yearId} { /* owner only */ }
+  match /billingYears/{yearId}/disputes/{disputeId} { /* owner only */ }
+  match /auditLog/{logId} { allow read: if owner; allow write: if false; }
+}
+
+// Share tokens — owner CRUD, Cloud Functions use Admin SDK for resolution
+match /shareTokens/{tokenId} {
+  allow read, update, delete: if auth && resource.data.ownerId == auth.uid;
+  allow create: if auth && request.resource.data.ownerId == auth.uid;
+}
+
+// Public shares — anyone can read (security via SHA-256 token hash), owner-only write
+match /publicShares/{tokenHash} {
+  allow read: if true;
+  allow create, update, delete: if auth && resource.data.ownerId == auth.uid;
 }
 ```
 
@@ -170,7 +216,7 @@ match /users/{userId} {
 |------|:------------:|---------|
 | `index.html` | Yes | Main app with all bill-splitting functionality |
 | `login.html` | No | Email/Password and Google Sign-In authentication |
-| `share.html` | No | Token-based annual billing summary for individual members |
+| `share.html` | No | Public billing summary via Firestore `publicShares` collection |
 | `check_data.html` | Yes | Debug tool to inspect raw Firestore data |
 
 ### Firebase SDK Loading Order
@@ -178,18 +224,25 @@ match /users/{userId} {
 Scripts must load in this exact order (all pages):
 
 1. `firebase-app-compat.js` - Core Firebase
-2. `firebase-auth-compat.js` - Authentication
-3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html only)
+2. `firebase-auth-compat.js` - Authentication (index.html, login.html, check_data.html)
+3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html, share.html)
 4. `firebase-storage-compat.js` - Storage (index.html only)
 5. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
-6. `firebase-config.js` - Initializes Firebase, exports `auth`, `db`, `storage`, `analytics`
+6. `firebase-config.js` - Initializes Firebase, conditionally exports `auth`, `db`, `storage`, `analytics` (returns `null` for SDKs not loaded on the current page)
 7. `script.js` or `auth.js` - Application logic
 
 ## Key Functions (script.js)
 
 ### Data Persistence
 - `loadData()` - Fetches user data from Firestore billing year document, initializes defaults for missing fields
-- `saveData()` - Persists `familyMembers`, `bills`, `payments`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived).
+- `saveData()` - Persists `familyMembers`, `bills`, `payments`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived). Also calls `refreshPublicShares()`.
+- `logout()` - Signs out the current user and redirects to login page
+
+### Version Checking
+- `checkForUpdate()` - Fetches `version.json` and compares against the running version to detect new deployments
+- `showUpdateToast()` - Displays an "Update available" toast notification with reload action
+- `dismissUpdateToast()` - Dismisses the update toast
+- `startUpdateChecker()` - Starts periodic update checking (every 5 minutes)
 
 ### Billing Year Lifecycle
 - `BILLING_YEAR_STATUSES` - Constant defining the four lifecycle states with labels, colors, and sort order
@@ -202,9 +255,14 @@ Scripts must load in this exact order (all pages):
 - `setBillingYearStatus(newStatus)` - Writes new status to the billing year document
 - `renderBillingYearSelector()` - Renders year dropdown with status badges and lifecycle transition buttons
 - `renderStatusBanner()` - Displays status-specific banner (settling, closed with completion message, archived with integrity message)
+- `renderArchivedBanner()` - Renders the archived year read-only banner
+- `loadBillingYearsList()` - Loads all billing year documents for the current user
+- `loadBillingYearData(yearId)` - Loads a specific billing year's data from Firestore
+- `switchBillingYear(yearId)` - Switches the active billing year in the UI
 - `startNewYear()` - Clones members and bills into a new billing year with fresh payment state
 - `archiveCurrentYear()` - Sets year status to `archived` with confirmation
 - `closeCurrentYear()` - Sets year status to `closed` with outstanding balance warning
+- `migrateLegacyData(userDocRef, userData)` - Migrates flat user document data into year-scoped subcollections
 
 ### Family Member Management
 - `addFamilyMember()` - Creates member with unique ID, optional email and phone. Shows change toast on success.
@@ -212,6 +270,8 @@ Scripts must load in this exact order (all pages):
 - `removeFamilyMember(id)` - Deletes member, cleans up bill references, shows change toast
 - `uploadAvatar(id)` / `removeAvatar(id)` - Image upload with 200x200px PNG compression
 - `manageLinkMembers(parentId)` - Opens dialog to link child members to a parent
+- `isLinkedToAnyone(memberId)` - Checks if a member is linked as a child to any parent
+- `getParentMember(memberId)` - Returns the parent member for a linked child
 
 ### Bill Management
 - `addBill()` - Creates bill with unique ID, amount, optional website. Shows change toast with recalculation message.
@@ -238,15 +298,21 @@ Scripts must load in this exact order (all pages):
 - `generateInvoiceHTML(summary, year)` - Renders printable HTML invoice
 
 ### Share Links
-- `generateShareLink(memberId)` - Creates a cryptographic share token with configurable scopes, stores hash in Firestore
+- `generateShareLink(memberId)` - Opens scope selection dialog for share link generation
+- `doGenerateShareLink(memberId)` - Creates a cryptographic share token, writes to `shareTokens` and `publicShares` collections
+- `showShareLinkSuccess(shareUrl, memberName, autoCopied)` - Renders success dialog with copy-to-clipboard UI
+- `copyShareLinkUrl()` - Copies the share link URL from the success dialog input field
 - `showShareLinks(memberId)` - Dialog listing all active share links for a member with copy/revoke controls
+- `revokeShareLink(tokenHash, memberId)` - Marks a share token as revoked in Firestore
 - `generateRawToken()` - Generates a 64-character hex token via Web Crypto API
 - `hashToken(token)` - SHA-256 hashes a token for storage
-- `validateToken(token)` - Client-side token format validation
-- `computeMemberSummary(memberId)` - Computes a member's bill breakdown for share link data
+- `computeMemberSummaryForShare(targetMemberId)` - Computes a member's bill breakdown for share data
+- `buildPublicShareData(memberId, scopes)` - Constructs the denormalized `publicShares` document
+- `refreshPublicShares()` - Refreshes all active `publicShares` documents for the current billing year (called by `saveData()`)
 
 ### Payment Methods
 - `PAYMENT_METHOD_TYPES` - Constant defining supported types (zelle, apple_cash, cashapp, venmo, paypal, other) with per-type field lists
+- `getPaymentMethodLabel(method)` - Returns display label for a payment method type
 - `addPaymentMethod()` - Adds a payment method by type, opens edit dialog for field entry
 - `editPaymentMethod(id)` - Opens dialog with type-specific fields (email, phone, handle, url, instructions)
 - `savePaymentMethodEdit(id)` - Persists edits from the payment method dialog with validation
@@ -262,6 +328,8 @@ Scripts must load in this exact order (all pages):
 ### Payment UI
 - `showAddPaymentDialog(memberId)` - Modal dialog to record a payment with amount, method, and note
 - `submitPayment(memberId)` - Records payment, then shows confirmation with settlement progress bar for 2 seconds before auto-closing
+- `updatePaymentPreview(memberId)` - Dynamically updates the payment amount preview in the payment dialog
+- `toggleDistributePreview()` - Toggles the distributed payment breakdown preview for linked members
 - `showPaymentHistory(memberId)` - Timeline-style modal showing all ledger entries with remaining balance indicator
 - `closePaymentDialog()` - Closes the payment dialog overlay
 - `ensureDialogContainer()` - Lazily creates the dialog overlay DOM
@@ -269,6 +337,8 @@ Scripts must load in this exact order (all pages):
 ### Settlement & Dashboard
 - `renderDashboardStatus()` - Renders lifecycle progress bar, settlement progress bar with percentage, group completion messaging, and admin reminder hints
 - `updateSummary()` - Renders annual summary table with payment tracking, calculation breakdown toggles, and settlement completion banner when all balances are zero
+- `toggleActionMenu(event)` - Toggles visibility of per-member action menu dropdowns
+- `closeAllActionMenus()` - Closes all open action menus
 
 ### Trust & Feedback
 - `showChangeToast(message)` - Displays a brief green toast notification (3 seconds) confirming financial data changes
@@ -285,9 +355,11 @@ Scripts must load in this exact order (all pages):
 - `setDisputeFilter(status)` - Applies client-side status filter and re-renders
 - `renderDisputes(disputes)` - Renders filtered dispute cards (clickable to open detail)
 - `showDisputeDetail(disputeId)` - Detail dialog with status actions, resolution note, evidence, user review toggle, quick-jump links
+- `getDisputeRef(disputeId)` - Returns a Firestore document reference for a dispute
 - `doDisputeAction(disputeId, newStatus)` - Changes status with resolution note (required for resolve/reject)
 - `updateDispute(disputeId, updates)` - Writes arbitrary updates to a dispute doc
 - `toggleUserReview(disputeId, checked)` - Sets/clears `userReview.state = 'requested'`
+- `scrollToBill(billId)` / `scrollToMember(memberId)` - Scrolls the view to a specific bill or member card
 - `uploadEvidence(disputeId)` - File picker with validation (PDF/PNG/JPEG, 20MB max, 10 max), uploads to Storage, saves metadata
 - `viewEvidence(disputeId, index)` - Opens evidence file via Storage download URL
 - `removeEvidence(disputeId, index)` - Deletes evidence from Storage and removes metadata
@@ -296,14 +368,14 @@ Scripts must load in this exact order (all pages):
 - `renderFamilyMembers()` - Renders member cards with avatars, edit/delete controls
 - `renderBills()` - Renders bill cards with logos, member checkboxes
 - `renderEmailSettings()` - Renders email message editor
-- `renderStatusBanner()` - Renders lifecycle-state-specific banner
+- `saveEmailMessage()` - Persists the email message setting
 
 ### Helpers
 - `isValidE164(phone)` - Validates E.164 phone number format (+ followed by 1-15 digits, first digit non-zero)
 - `getInitials(name)` - Extracts initials for avatar fallback
 - `generateAvatar(member)` / `generateLogo(bill)` - HTML generation for images
 - `uploadImage(callback)` - Shared image upload with Canvas compression
-- `generateUniqueId()` / `generateUniqueBillId()` - Unique ID generators
+- `generateUniqueId()` / `generateUniqueBillId()` / `generateUniquePaymentId()` - Unique ID generators
 - `escapeHtml(str)` - XSS prevention by escaping HTML special characters
 - `sanitizeImageSrc(src)` - Validates image data URIs, rejects non-image and external sources
 - `formatFileSize(bytes)` - Human-readable file size formatting
@@ -320,10 +392,16 @@ Scripts must load in this exact order (all pages):
 
 ## Cloud Functions (functions/index.js)
 
-- `resolveShareToken` - POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment links
-- `submitDispute` - POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token
+All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`). They are deployed to `us-central1`.
+
+> **Note:** The GCP organization policy blocks granting `allUsers` the Cloud Run invoker role, so these functions cannot be made publicly accessible. The share page reads data directly from the `publicShares` Firestore collection instead of calling `resolveShareToken`. Dispute-related functions are still called from `share.html` via Firebase Hosting rewrites or direct URLs.
+
+- `resolveShareToken` - POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Writes audit log entry on access.
+- `submitDispute` - POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token. Writes audit log entry.
 - `getEvidenceUrl` - POST endpoint: returns a 1-hour signed URL for a dispute evidence file (requires `disputes:read` scope, validates member ownership)
-- `submitDisputeDecision` - POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent)
+- `submitDisputeDecision` - POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent). Writes audit log entry.
+- `appendAuditLog(ownerId, entry)` - Internal helper that writes audit entries to `/users/{userId}/auditLog`
+- `_testHelpers` - Test-only export exposing `validateToken`, `validateDisputeInput`, `DISPUTE_RATE_LIMIT`, `EVIDENCE_URL_EXPIRY_MS`
 
 ### Share Token Scopes
 
@@ -389,7 +467,7 @@ npm test
 
 Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
 
-**162 tests across 45 suites.** Covered areas:
+**173 tests across 45 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
 - `calculateAnnualSummary` - bill splitting math across members and multiple bills
 - `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection
@@ -408,7 +486,7 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 - `startNewYear` / `archiveCurrentYear` - year management operations
 - `saveData archived guard` - write prevention for read-only years
 - `generateRawToken` / `hashToken` - cryptographic token generation and hashing
-- `computeMemberSummary` / `validateToken` / `validateDisputeInput` - share link utilities
+- `computeMemberSummary` / `validateToken` / `validateDisputeInput` - share link and dispute utilities (tested via Cloud Functions exports)
 - `payment methods settings` - payment method CRUD, migration, type constants, enable/disable, archived guards
 - `normalizeDisputeStatus` / `disputeStatusClass` - dispute status mapping
 - `formatFileSize` / `Evidence constraints` / `DISPUTE_STATUS_LABELS` - dispute utilities
@@ -436,31 +514,33 @@ firebase serve
 ### Deployment
 
 ```bash
-# Full deployment (hosting + Firestore rules)
+# Full deployment (hosting + Firestore rules + Storage rules + functions)
 firebase deploy
 
-# Hosting only
+# Hosting only (runs stamp-version.js predeploy hook automatically)
 firebase deploy --only hosting
 
 # Firestore rules only
 firebase deploy --only firestore:rules
 
-# Cloud Functions only
+# Cloud Functions only (may show IAM errors due to org policy — functions still deploy)
 firebase deploy --only functions
 ```
 
 ### Firebase Hosting Configuration
 
 - Public directory: `.` (project root)
-- Ignored from deployment: `firebase.json`, dotfiles, `node_modules`, markdown docs
-- Cache-control: `no-cache, no-store, must-revalidate` on all `.js` files
-- SPA rewrite: all routes -> `/index.html`
+- Predeploy hook: `node stamp-version.js` (stamps `version.json` with current ISO timestamp for update detection)
+- Ignored from deployment: `firebase.json`, dotfiles, `node_modules`, markdown docs, `package.json`, `tests/`, `functions/`, `stamp-version.js`
+- Cache-control: `no-cache, no-store, must-revalidate` on all `.js` files, `version.json`, and `share.html`
+- Rewrites: `/share` → `share.html`, then SPA catch-all `**` → `index.html`
 
 ## Analytics Events
 
 The app tracks these Firebase Analytics events:
 - `family_member_added` - When a new member is created
 - `bill_added` - When a new bill is created
+- `share_link_generated` - When a share link is created (includes `has_expiry`, `billing_year`)
 - `invoice_sent` - When an individual invoice is emailed
 - `login` / `sign_up` - Authentication events
 
@@ -470,6 +550,8 @@ The app tracks these Firebase Analytics events:
 - Images stored as base64 strings in Firestore (subject to document size limits)
 - No PDF generation (invoices are printable HTML)
 - Single Firestore document per billing year (may hit 1MB limit with many large images)
+- GCP organization policy blocks making Cloud Functions publicly accessible; share page reads from `publicShares` Firestore collection instead
+- Existing share links generated before the `publicShares` migration must be regenerated
 
 ## Resolved Bugs (Historical)
 
@@ -486,3 +568,5 @@ The app tracks these Firebase Analytics events:
 - **Payment errors:** Data repair runs automatically on load; re-enter payment amounts if needed
 - **Data verification:** Open `check_data.html` while logged in to inspect raw Firestore data
 - **Billing year issues:** Check `currentBillingYear.status` in console; use year selector to switch years
+- **Share links not loading:** Regenerate the share link — older links created before the `publicShares` migration won't have data in Firestore
+- **Cloud Functions 403:** Expected due to GCP org policy; share page reads from Firestore directly, not Cloud Functions

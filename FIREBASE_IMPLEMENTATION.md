@@ -76,13 +76,12 @@ Your Family Bill Splitter app now has full multi-user support with cloud storage
 localStorage.setItem('familyMembers', JSON.stringify(familyMembers));
 ```
 
-**After (Firestore):**
+**After (Firestore, year-scoped):**
 ```javascript
-await db.collection('users').doc(currentUser.uid).set({
-  familyMembers: familyMembers,
-  bills: bills,
-  settings: settings
-});
+await db.collection('users').doc(currentUser.uid)
+  .collection('billingYears').doc(activeYear).set({
+    familyMembers, bills, payments, settings, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
 ```
 
 ### Data Structure in Firestore
@@ -104,6 +103,19 @@ users (collection)
 ```
 
 Each user's data is completely isolated and private. Data is organized per billing year to support multi-year workflows and archival.
+
+Additionally, two top-level collections support share links:
+```
+shareTokens (collection)
+  └── {tokenHash} (document)
+      ├── ownerId, memberId, billingYearId, scopes, revoked, expiresAt, ...
+
+publicShares (collection)   ← publicly readable, written by app owner
+  └── {tokenHash} (document)
+      ├── ownerId, memberId, billingYearId, member, bills, total, payments, ...
+```
+
+Share links work by reading directly from the `publicShares` collection (no Cloud Function needed), which is secured by the SHA-256 token hash being unguessable.
 
 ## Features Preserved
 
@@ -128,6 +140,9 @@ Each user's data is completely isolated and private. Data is organized per billi
 ✅ **Google authentication**: One-click sign-in with Google account
 ✅ **Data verification tool**: check_data.html to verify Firebase data
 ✅ **Proportional payments**: Smart distribution for linked members
+✅ **Share links**: Token-based billing summaries via `publicShares` Firestore collection
+✅ **Dispute system**: Members can request bill reviews with evidence uploads
+✅ **Version checking**: Automatic update detection via `version.json` stamping
 
 ## Security
 
@@ -144,6 +159,10 @@ Each user's data is completely isolated and private. Data is organized per billi
 The app is already configured and deployed! To deploy updates:
 
 ```bash
+# Full deployment (hosting, rules, functions)
+firebase deploy
+
+# Or hosting only (runs version stamp predeploy hook automatically)
 firebase deploy --only hosting
 ```
 
@@ -228,7 +247,9 @@ Features implemented since this document was written:
 - ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, etc.)
 - ✅ Calculation transparency (expandable bill breakdowns)
 - ✅ Design token system for consistent UI
-- ✅ Cloud Functions for share token resolution
+- ✅ Cloud Functions v2 for dispute submission and evidence management
+- ✅ Direct Firestore reads for share link data (via `publicShares` collection)
+- ✅ Automatic version stamping on deploy (`stamp-version.js` predeploy hook)
 
 Remaining ideas:
 
@@ -243,17 +264,21 @@ See project issues for feature requests and discussion.
 ## Files You Should Commit to Git
 
 ```
-✅ index.html (modified)
-✅ login.html (new)
-✅ script.js (modified)
-✅ auth.js (new)
-✅ firebase-config.js (new - BUT add to .gitignore after deploying!)
-✅ firebase.json (new)
-✅ firestore.rules (new)
-✅ styles.css (unchanged)
+✅ index.html, login.html, share.html, check_data.html
+✅ script.js, auth.js, firebase-config.js
+✅ design-tokens.css, styles.css
+✅ firebase.json, firestore.rules, storage.rules
+✅ stamp-version.js, version.json
+✅ logo.svg, og-image.png
+✅ functions/ (index.js, billing.js, package.json)
+✅ tests/ (billing.test.js)
+✅ package.json
 ❌ .firebase/ (auto-generated, ignore)
-❌ node_modules/ (if you have any, ignore)
+❌ node_modules/ (ignore)
+❌ package-lock.json, functions/package-lock.json (optional)
 ```
+
+> **Note:** `firebase-config.js` contains a Firebase web config (API key, project ID, etc.). These are safe to commit — Firebase web API keys are designed to be public and are restricted by Firestore security rules, not by key secrecy.
 
 ## Summary
 

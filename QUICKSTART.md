@@ -20,9 +20,9 @@
 #### 2. Enable Authentication (1 minute)
 ```
 1. Click "Authentication" → "Get Started"
-2. Click "Email/Password"
-3. Toggle "Enable"
-4. Click "Save"
+2. Click "Email/Password" → Toggle "Enable" → "Save"
+3. Go back, click "Google" → Toggle "Enable"
+4. Select a support email → "Save"
 ```
 
 #### 3. Create Firestore Database (1 minute)
@@ -63,10 +63,12 @@ npm install -g firebase-tools
 # Login
 firebase login
 
-# Deploy
+# Deploy (hosting + Firestore rules + Storage rules + functions)
 cd friends-and-family-billing
-firebase deploy --only hosting
+firebase deploy
 ```
+
+> **Note:** If Cloud Functions deployment shows IAM errors, that's OK — the functions deploy but can't be made publicly accessible. Share links work via direct Firestore reads instead. You can also deploy just hosting: `firebase deploy --only hosting`
 
 #### 8. Done! 🎉
 Your app is now live at: `https://your-project-id.web.app`
@@ -88,10 +90,8 @@ firebase serve
 ### First Time Using the App
 
 1. Open your deployed URL
-2. Click "Sign Up"
-3. Enter email and password (min 6 characters)
-4. Login automatically
-5. Start adding family members and bills!
+2. Sign in with Google (recommended) or click "Sign Up" for email/password
+3. Start adding family members and bills!
 
 ### Sharing with Family
 

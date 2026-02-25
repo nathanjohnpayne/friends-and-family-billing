@@ -17,6 +17,11 @@ Your Family Bill Splitter app is now configured to use Firebase for authenticati
 3. Click on "Email/Password" under Sign-in method
 4. Enable "Email/Password"
 5. Click "Save"
+6. Go back to Sign-in method and click "Google"
+7. Enable Google Sign-In
+8. Select a support email address
+9. Click "Save"
+10. Under Settings > Authorized domains, ensure your hosting domain is listed
 
 ## Step 3: Set Up Firestore Database
 
@@ -29,21 +34,22 @@ Your Family Bill Splitter app is now configured to use Firebase for authenticati
 ### Configure Firestore Security Rules:
 
 1. Click on the "Rules" tab
-2. Replace the rules with:
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can only read/write their own data
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
-```
-
+2. Replace the rules with the contents of `firestore.rules` from this repository. The rules include:
+   - Owner-only access for user data, billing years, disputes, and audit logs
+   - Owner-scoped CRUD for the `shareTokens` top-level collection
+   - Public read access on `publicShares` (secured by SHA-256 token hashes)
+   - Explicit deny-all catch-all rule
 3. Click "Publish"
+
+Alternatively, deploy rules via CLI: `firebase deploy --only firestore:rules`
+
+### Set Up Firebase Storage (for dispute evidence):
+
+1. Click "Storage" in the left sidebar
+2. Click "Get Started"
+3. Start in Production mode
+4. Choose a location matching your Firestore region
+5. Deploy storage rules: `firebase deploy --only storage`
 
 ## Step 4: Get Your Firebase Configuration
 
@@ -92,20 +98,28 @@ firebase init
 ```
 
 When prompted:
-- Select: **Hosting**
+- Select: **Hosting**, **Firestore**, **Functions**, **Storage**
 - Use existing project: Select your project
 - Public directory: Enter `.` (current directory)
-- Configure as single-page app: **No**
+- Configure as single-page app: **Yes** (the app uses SPA-style rewrites)
 - Set up automatic builds: **No**
 - Overwrite index.html: **No**
+
+> **Note:** The repository already includes `firebase.json` with correct hosting configuration, a predeploy hook (`node stamp-version.js`), and `firestore.rules` / `storage.rules`. You should not need to overwrite these during `firebase init`.
 
 ### Deploy:
 
 ```bash
+# Full deployment (hosting, rules, functions)
 firebase deploy
+
+# Or hosting only (fastest, runs version stamp automatically)
+firebase deploy --only hosting
 ```
 
 Your app will be live at: `https://your-project-id.web.app`
+
+> **Cloud Functions note:** Deployment may show IAM invoker errors if your GCP organization policy blocks granting `allUsers` access to Cloud Run services. The functions still deploy successfully — they just can't be made publicly accessible. The share page works around this by reading directly from the `publicShares` Firestore collection instead of calling Cloud Functions.
 
 ## Step 7: Test Your App
 
@@ -117,19 +131,21 @@ Your app will be live at: `https://your-project-id.web.app`
 
 ## Alternative Deployment Options
 
-### Option 1: Netlify (Free)
+> **Important:** The app uses Firebase Cloud Functions and Firestore for share links, disputes, and data storage. Alternative hosting platforms will serve the frontend but cannot run Cloud Functions. Only Firebase Hosting fully supports all features.
+
+### Option 1: Netlify (Free) — frontend only
 
 1. Create account at [netlify.com](https://netlify.com)
 2. Drag and drop your project folder
 3. Site will be live at `https://random-name.netlify.app`
 
-### Option 2: Vercel (Free)
+### Option 2: Vercel (Free) — frontend only
 
 1. Create account at [vercel.com](https://vercel.com)
 2. Import your GitHub repository
 3. Deploy automatically
 
-### Option 3: GitHub Pages (Free)
+### Option 3: GitHub Pages (Free) — frontend only
 
 1. Create a GitHub repository
 2. Push your code
@@ -182,7 +198,6 @@ For issues, check:
 ## Next Steps
 
 Potential enhancements:
-- Password reset via email
 - Email verification on signup
 - Facebook/Apple social login
 - Data export to CSV/PDF
