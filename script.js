@@ -3539,7 +3539,7 @@ function sendIndividualInvoice(memberId) {
     }
 }
 
-async function showTextInvoiceDialog(memberId) {
+async function showTextInvoiceDialog(memberId, shareUrl) {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
@@ -3559,7 +3559,7 @@ async function showTextInvoiceDialog(memberId) {
     const amountStr = balance > 0 ? '$' + balance.toFixed(2) : '$' + combinedTotal.toFixed(2);
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
 
-    let shareUrl = '';
+    if (!shareUrl) shareUrl = '';
 
     const defaultMsg = shareUrl
         ? `Hey ${firstName} — your annual shared bills for ${currentYear} are ready. Your ${amountLabel} is ${amountStr}. You can review and pay here: ${shareUrl}. Thanks!`
@@ -3573,6 +3573,13 @@ async function showTextInvoiceDialog(memberId) {
     const phoneNumber = member.phone || '';
     const smsHref = phoneNumber ? 'sms:' + encodeURIComponent(phoneNumber) : '';
 
+    let shareLinkHtml;
+    if (shareUrl) {
+        shareLinkHtml = `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-invoice-link">${escapeHtml(shareUrl)}</span></div>`;
+    } else {
+        shareLinkHtml = `<div class="text-invoice-stat" id="textInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" id="textInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
+    }
+
     dialog.innerHTML = `
         <div class="dialog-header">
             <h3>Text Invoice: ${escapeHtml(member.name)}</h3>
@@ -3583,7 +3590,7 @@ async function showTextInvoiceDialog(memberId) {
                 <div class="text-invoice-stat"><span class="label">Recipient</span><span class="value">${escapeHtml(member.name)}</span></div>
                 <div class="text-invoice-stat"><span class="label">Annual Total</span><span class="value">$${combinedTotal.toFixed(2)}</span></div>
                 ${payment > 0 ? `<div class="text-invoice-stat"><span class="label">Balance</span><span class="value">$${balance.toFixed(2)}</span></div>` : ''}
-                ${shareUrl ? `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-invoice-link">${escapeHtml(shareUrl)}</span></div>` : `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" onclick="generateShareLink(${memberId}); closePaymentDialog(); return false;">generate one</a></span></div>`}
+                ${shareLinkHtml}
             </div>
             <div class="form-group mt-3">
                 <label for="textInvoiceMessage">Message</label>
@@ -3598,6 +3605,74 @@ async function showTextInvoiceDialog(memberId) {
         </div>
     `;
     overlay.classList.add('visible');
+
+    const genLink = document.getElementById('textInvoiceGenerateLink');
+    if (genLink) {
+        genLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            generateShareLinkForTextInvoice(memberId);
+        });
+    }
+}
+
+async function generateShareLinkForTextInvoice(memberId) {
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member || !currentUser || !currentBillingYear) return;
+
+    const row = document.getElementById('textInvoiceShareRow');
+    if (row) {
+        row.querySelector('.value').innerHTML = '<em>Generating link\u2026</em>';
+    }
+
+    try {
+        const rawToken = generateRawToken();
+        const tokenHash = await hashToken(rawToken);
+        const scopes = ['summary:read', 'paymentMethods:read'];
+
+        const tokenDoc = {
+            ownerId: currentUser.uid,
+            memberId: memberId,
+            billingYearId: currentBillingYear.id,
+            scopes: scopes,
+            revoked: false,
+            expiresAt: null,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastAccessedAt: null,
+            accessCount: 0,
+            memberName: member.name
+        };
+
+        await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
+
+        const publicData = buildPublicShareData(memberId, scopes);
+        if (publicData) {
+            await db.collection('publicShares').doc(tokenHash).set(publicData);
+        }
+
+        const shareUrl = window.location.origin + '/share?token=' + rawToken;
+
+        if (analytics) {
+            analytics.logEvent('share_link_generated', {
+                has_expiry: false,
+                billing_year: currentBillingYear.label,
+                source: 'text_invoice'
+            });
+        }
+
+        showTextInvoiceDialog(memberId, shareUrl);
+    } catch (error) {
+        console.error('Error generating share link for text invoice:', error);
+        if (row) {
+            row.querySelector('.value').innerHTML = 'Error — <a href="#" id="textInvoiceGenerateLink" data-member-id="' + memberId + '">try again</a>';
+            const retryLink = document.getElementById('textInvoiceGenerateLink');
+            if (retryLink) {
+                retryLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    generateShareLinkForTextInvoice(memberId);
+                });
+            }
+        }
+    }
 }
 
 function copyTextInvoiceMessage() {
