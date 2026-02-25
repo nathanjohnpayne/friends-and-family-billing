@@ -39,6 +39,18 @@ service cloud.firestore {
         && resource.data.ownerId == request.auth.uid;
     }
 
+    // Public share data — anyone with the token hash can read.
+    // Only the owner can write (via the main app after generating a share link).
+    match /publicShares/{tokenHash} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow update, delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+
     // Deny everything else by default (implicit, but explicit for clarity)
     match /{document=**} {
       allow read, write: if false;

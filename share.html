@@ -602,8 +602,10 @@
         <div class="dispute-dialog" id="disputeDialog"></div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
     <script>
-        var FUNCTION_BASE = 'https://us-central1-friends-and-family-billing.cloudfunctions.net';
         var _shareToken = null;
         var _canDispute = false;
 
@@ -873,6 +875,12 @@
             submitDecision(disputeId, 'reject', note.trim());
         }
 
+        async function hashToken(raw) {
+            var encoder = new TextEncoder();
+            var buf = await crypto.subtle.digest('SHA-256', encoder.encode(raw));
+            return Array.from(new Uint8Array(buf)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+        }
+
         async function load() {
             var params = new URLSearchParams(window.location.search);
             var token = params.get('token');
@@ -883,18 +891,15 @@
             _shareToken = token;
 
             try {
-                var resp = await fetch(FUNCTION_BASE + '/resolveShareToken', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: token })
-                });
+                var tokenHash = await hashToken(token);
+                var doc = await db.collection('publicShares').doc(tokenHash).get();
 
-                var data = await resp.json();
-
-                if (!resp.ok) {
-                    showError(data.error || 'Something went wrong.');
+                if (!doc.exists) {
+                    showError('This link is invalid or has been removed.');
                     return;
                 }
+
+                var data = doc.data();
 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';

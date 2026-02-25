@@ -268,6 +268,7 @@ function saveData() {
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             console.log('Data saved successfully');
+            refreshPublicShares();
         } catch (error) {
             console.error('Error saving data:', error);
             alert('Error saving your data. Please try again.');
@@ -2539,6 +2540,114 @@ async function removeEvidence(disputeId, index) {
 
 // ──────────────── Share Link Functions ────────────────
 
+function computeMemberSummaryForShare(targetMemberId) {
+    const member = familyMembers.find(m => m.id === targetMemberId);
+    if (!member) return null;
+    const memberBills = [];
+    let total = 0;
+    bills.forEach(bill => {
+        if (bill.members && bill.members.includes(targetMemberId) && bill.members.length > 0) {
+            const monthlyShare = bill.amount / bill.members.length;
+            const annualShare = monthlyShare * 12;
+            total += annualShare;
+            memberBills.push({
+                billId: bill.id,
+                name: bill.name,
+                monthlyAmount: bill.amount,
+                splitCount: bill.members.length,
+                monthlyShare: Math.round(monthlyShare * 100) / 100,
+                annualShare: Math.round(annualShare * 100) / 100,
+            });
+        }
+    });
+    return {
+        name: member.name,
+        memberId: targetMemberId,
+        monthlyTotal: Math.round((total / 12) * 100) / 100,
+        annualTotal: Math.round(total * 100) / 100,
+        bills: memberBills,
+    };
+}
+
+function buildPublicShareData(memberId, scopes) {
+    const primarySummary = computeMemberSummaryForShare(memberId);
+    if (!primarySummary) return null;
+
+    const member = familyMembers.find(m => m.id === memberId);
+    const linkedIds = (member && member.linkedMembers) || [];
+    const linkedSummaries = linkedIds
+        .map(id => computeMemberSummaryForShare(id))
+        .filter(Boolean);
+
+    const paymentTotal = payments
+        .filter(p => p.memberId === memberId)
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+    let combinedAnnual = primarySummary.annualTotal;
+    let combinedPayment = paymentTotal;
+    linkedSummaries.forEach(ls => {
+        combinedAnnual += ls.annualTotal;
+        combinedPayment += payments
+            .filter(p => p.memberId === ls.memberId)
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+    });
+
+    const enabledMethods = getEnabledPaymentMethods();
+
+    const data = {
+        memberName: primarySummary.name,
+        year: currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '',
+        scopes: scopes,
+        ownerId: currentUser ? currentUser.uid : '',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (scopes.includes('summary:read')) {
+        data.summary = primarySummary;
+        data.linkedMembers = linkedSummaries;
+        data.paymentSummary = {
+            combinedAnnualTotal: Math.round(combinedAnnual * 100) / 100,
+            combinedMonthlyTotal: Math.round((combinedAnnual / 12) * 100) / 100,
+            totalPaid: Math.round(combinedPayment * 100) / 100,
+            balanceRemaining: Math.round((combinedAnnual - combinedPayment) * 100) / 100,
+        };
+    }
+
+    if (scopes.includes('paymentMethods:read')) {
+        data.paymentMethods = enabledMethods;
+    }
+
+    return data;
+}
+
+async function refreshPublicShares() {
+    if (!currentUser || !db || !currentBillingYear) return;
+    if (typeof db.batch !== 'function') return;
+    try {
+        const snapshot = await db.collection('shareTokens')
+            .where('ownerId', '==', currentUser.uid)
+            .where('billingYearId', '==', currentBillingYear.id)
+            .get();
+        const batch = db.batch();
+        let count = 0;
+        snapshot.docs.forEach(doc => {
+            const tokenData = doc.data();
+            if (tokenData.revoked) return;
+            if (tokenData.expiresAt) {
+                const exp = tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt);
+                if (exp < new Date()) return;
+            }
+            const shareData = buildPublicShareData(tokenData.memberId, tokenData.scopes || ['summary:read', 'paymentMethods:read']);
+            if (shareData) {
+                batch.set(db.collection('publicShares').doc(doc.id), shareData);
+                count++;
+            }
+        });
+        if (count > 0) await batch.commit();
+    } catch (err) {
+        console.error('Error refreshing public shares:', err);
+    }
+}
+
 async function hashToken(rawToken) {
     const encoder = new TextEncoder();
     const data = encoder.encode(rawToken);
@@ -2655,6 +2764,11 @@ async function doGenerateShareLink(memberId) {
         };
 
         await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
+
+        const publicData = buildPublicShareData(memberId, scopes);
+        if (publicData) {
+            await db.collection('publicShares').doc(tokenHash).set(publicData);
+        }
 
         const shareUrl = window.location.origin + '/share.html?token=' + rawToken;
 

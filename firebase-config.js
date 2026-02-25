@@ -16,6 +16,6 @@ firebase.initializeApp(firebaseConfig);
 const analytics = (typeof firebase.analytics === 'function') ? firebase.analytics() : null;
 
 // Export auth, firestore, and storage for use in other files
-const auth = firebase.auth();
+const auth = (typeof firebase.auth === 'function') ? firebase.auth() : null;
 const db = (typeof firebase.firestore === 'function') ? firebase.firestore() : null;
 const storage = (typeof firebase.storage === 'function') ? firebase.storage() : null;
