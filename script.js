@@ -2084,105 +2084,6 @@ function formatPaymentOptionsText() {
     return text;
 }
 
-// ──────────────── Payment Links Settings (Legacy) ────────────────
-
-function renderPaymentMethodsSettings() {
-    const container = document.getElementById('paymentLinksSettings');
-    if (!container) return;
-    const archived = isYearReadOnly();
-    const links = settings.paymentLinks || [];
-
-    let html = '';
-
-    if (links.length > 0) {
-        html += '<div class="payment-links-list">';
-        links.forEach(link => {
-            html += `<div class="payment-link-item">
-                <div class="payment-link-info">
-                    <strong>${escapeHtml(link.name)}</strong>
-                    <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.url)}</a>
-                </div>
-                ${archived ? '' : `<div class="payment-link-actions">
-                    <button class="btn-icon" onclick="editPaymentLink('${escapeHtml(link.id)}')" title="Edit">✏️</button>
-                    <button class="btn-icon remove" onclick="removePaymentLink('${escapeHtml(link.id)}')" title="Remove">&times;</button>
-                </div>`}
-            </div>`;
-        });
-        html += '</div>';
-    } else {
-        html += '<p class="empty-state-compact">No payment links configured yet</p>';
-    }
-
-    if (!archived) {
-        html += `<div class="payment-link-add mt-3">
-            <div class="form-inline">
-                <div class="form-group mb-0">
-                    <label for="paymentLinkName">Name</label>
-                    <input type="text" id="paymentLinkName" placeholder="e.g., Venmo" />
-                </div>
-                <div class="form-group mb-0">
-                    <label for="paymentLinkUrl">URL</label>
-                    <input type="text" id="paymentLinkUrl" placeholder="https://venmo.com/YourHandle" />
-                </div>
-                <button class="btn btn-primary" onclick="addPaymentLink()">Add Link</button>
-            </div>
-        </div>`;
-    }
-
-    container.innerHTML = html;
-}
-
-function addPaymentLink() {
-    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
-    const nameInput = document.getElementById('paymentLinkName');
-    const urlInput = document.getElementById('paymentLinkUrl');
-    const name = nameInput.value.trim();
-    const url = urlInput.value.trim();
-
-    if (!name) { alert('Please enter a name for the payment link.'); return; }
-    if (!url) { alert('Please enter a URL for the payment link.'); return; }
-
-    if (!settings.paymentLinks) settings.paymentLinks = [];
-
-    settings.paymentLinks.push({
-        id: 'pl_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
-        name: name,
-        url: url
-    });
-
-    saveData();
-    renderPaymentMethodsSettings();
-}
-
-function editPaymentLink(linkId) {
-    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
-    const link = (settings.paymentLinks || []).find(l => l.id === linkId);
-    if (!link) return;
-
-    const newName = prompt('Payment link name:', link.name);
-    if (newName === null) return;
-    if (!newName.trim()) { alert('Name cannot be empty.'); return; }
-
-    const newUrl = prompt('Payment link URL:', link.url);
-    if (newUrl === null) return;
-    if (!newUrl.trim()) { alert('URL cannot be empty.'); return; }
-
-    link.name = newName.trim();
-    link.url = newUrl.trim();
-
-    saveData();
-    renderPaymentMethodsSettings();
-}
-
-function removePaymentLink(linkId) {
-    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
-    if (!confirm('Remove this payment link?')) return;
-
-    settings.paymentLinks = (settings.paymentLinks || []).filter(l => l.id !== linkId);
-    saveData();
-    renderPaymentMethodsSettings();
-}
-
 // ──────────────── Review Requests (Disputes) ────────────────
 
 let _loadedDisputes = [];
@@ -2724,7 +2625,7 @@ async function doGenerateShareLink(memberId) {
 
         const disputeCheckbox = document.getElementById('shareLinkDisputes');
         const disputeReadCheckbox = document.getElementById('shareLinkDisputesRead');
-        const scopes = ['summary:read', 'paymentLinks:read'];
+        const scopes = ['summary:read', 'paymentMethods:read'];
         if (disputeCheckbox && disputeCheckbox.checked) {
             scopes.push('disputes:create');
         }

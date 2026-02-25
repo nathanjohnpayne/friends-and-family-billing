@@ -41,6 +41,7 @@ function _get(key) {
         case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
         case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
         case 'BILLING_YEAR_STATUSES': return BILLING_YEAR_STATUSES;
+        case 'PAYMENT_METHOD_TYPES': return PAYMENT_METHOD_TYPES;
         case 'CURRENT_MIGRATION_VERSION': return CURRENT_MIGRATION_VERSION;
     }
 }
@@ -1355,35 +1356,80 @@ describe('hashToken', () => {
     });
 });
 
-// ──────────────── Payment Links Settings ──────────────────────
+// ──────────────── Payment Methods Settings ──────────────────────
 
-describe('payment links settings', () => {
-    it('addPaymentLink adds a link to settings', () => {
+describe('payment methods settings', () => {
+    const dialogStub = () => ({
+        innerHTML: '', textContent: '', value: '', style: {},
+        classList: { add: () => {}, remove: () => {}, contains: () => false },
+    });
+
+    it('addPaymentMethod creates a method with correct type and default label', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [] });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'newPaymentMethodType') return { value: 'zelle' };
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            if (id === 'payment-dialog-overlay') return dialogStub();
+            if (id === 'payment-dialog') return dialogStub();
+            return dialogStub();
+        };
+
+        ctx.addPaymentMethod();
+        const methods = ctx._get('settings').paymentMethods;
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].type, 'zelle');
+        assert.equal(methods[0].label, 'Zelle');
+        assert.equal(methods[0].enabled, true);
+        assert.ok(methods[0].id.startsWith('pm_'), 'ID should have pm_ prefix');
+    });
+
+    it('addPaymentMethod defaults to other when type select is missing', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [] });
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'newPaymentMethodType') return null;
+            if (id === 'paymentLinksSettings') return { innerHTML: '' };
+            if (id === 'payment-dialog-overlay') return dialogStub();
+            if (id === 'payment-dialog') return dialogStub();
+            return dialogStub();
+        };
+
+        ctx.addPaymentMethod();
+        const methods = ctx._get('settings').paymentMethods;
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].type, 'other');
+        assert.equal(methods[0].label, 'Other');
+    });
+
+    it('addPaymentMethod initializes paymentMethods array when missing', () => {
         const ctx = createContext();
         ctx._set('settings', { emailMessage: 'test', paymentLinks: [] });
 
         ctx.document.getElementById = (id) => {
-            if (id === 'paymentLinkName') return { value: 'Venmo' };
-            if (id === 'paymentLinkUrl') return { value: 'https://venmo.com/handle' };
+            if (id === 'newPaymentMethodType') return { value: 'venmo' };
             if (id === 'paymentLinksSettings') return { innerHTML: '' };
-            return { innerHTML: '', textContent: '', value: '', style: {} };
+            if (id === 'payment-dialog-overlay') return dialogStub();
+            if (id === 'payment-dialog') return dialogStub();
+            return dialogStub();
         };
 
-        ctx.addPaymentLink();
-        const links = ctx._get('settings').paymentLinks;
-        assert.equal(links.length, 1);
-        assert.equal(links[0].name, 'Venmo');
-        assert.equal(links[0].url, 'https://venmo.com/handle');
-        assert.ok(links[0].id.startsWith('pl_'), 'ID should have pl_ prefix');
+        ctx.addPaymentMethod();
+        const methods = ctx._get('settings').paymentMethods;
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].type, 'venmo');
     });
 
-    it('removePaymentLink removes a link', () => {
+    it('removePaymentMethod removes by ID and preserves others', () => {
         const ctx = createContext();
         ctx._set('settings', {
             emailMessage: 'test',
-            paymentLinks: [
-                { id: 'pl_1', name: 'Venmo', url: 'https://venmo.com/x' },
-                { id: 'pl_2', name: 'Zelle', url: 'zelle:test@test.com' },
+            paymentLinks: [],
+            paymentMethods: [
+                { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true },
+                { id: 'pm_2', type: 'zelle', label: 'Zelle', enabled: true },
             ]
         });
 
@@ -1392,24 +1438,19 @@ describe('payment links settings', () => {
             return { innerHTML: '', textContent: '', value: '', style: {} };
         };
 
-        ctx.removePaymentLink('pl_1');
-        const links = ctx._get('settings').paymentLinks;
-        assert.equal(links.length, 1);
-        assert.equal(links[0].id, 'pl_2');
+        ctx.removePaymentMethod('pm_1');
+        const methods = ctx._get('settings').paymentMethods;
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].id, 'pm_2');
     });
 
-    it('editPaymentLink updates name and url', () => {
-        let promptCalls = 0;
-        const ctx = createContext({
-            prompt: () => {
-                promptCalls++;
-                return promptCalls === 1 ? 'PayPal' : 'https://paypal.me/new';
-            }
-        });
+    it('togglePaymentMethodEnabled toggles enabled state', () => {
+        const ctx = createContext();
         ctx._set('settings', {
             emailMessage: 'test',
-            paymentLinks: [
-                { id: 'pl_1', name: 'Venmo', url: 'https://venmo.com/x' },
+            paymentLinks: [],
+            paymentMethods: [
+                { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true },
             ]
         });
 
@@ -1418,44 +1459,150 @@ describe('payment links settings', () => {
             return { innerHTML: '', textContent: '', value: '', style: {} };
         };
 
-        ctx.editPaymentLink('pl_1');
-        const link = ctx._get('settings').paymentLinks[0];
-        assert.equal(link.name, 'PayPal');
-        assert.equal(link.url, 'https://paypal.me/new');
+        ctx.togglePaymentMethodEnabled('pm_1');
+        assert.equal(ctx._get('settings').paymentMethods[0].enabled, false);
+
+        ctx.togglePaymentMethodEnabled('pm_1');
+        assert.equal(ctx._get('settings').paymentMethods[0].enabled, true);
     });
 
-    it('prevents changes when year is archived', () => {
+    it('getEnabledPaymentMethods filters disabled methods', () => {
+        const ctx = createContext();
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [],
+            paymentMethods: [
+                { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true },
+                { id: 'pm_2', type: 'zelle', label: 'Zelle', enabled: false },
+                { id: 'pm_3', type: 'paypal', label: 'PayPal', enabled: true },
+            ]
+        });
+
+        const enabled = ctx.getEnabledPaymentMethods();
+        assert.equal(enabled.length, 2);
+        assert.equal(enabled[0].id, 'pm_1');
+        assert.equal(enabled[1].id, 'pm_3');
+    });
+
+    it('getEnabledPaymentMethods returns empty array when no methods', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [] });
+        const enabled = ctx.getEnabledPaymentMethods();
+        assert.equal(enabled.length, 0);
+    });
+
+    it('migratePaymentLinksToMethods infers type from name', () => {
+        const ctx = createContext();
+        const legacy = [
+            { id: 'pl_1', name: 'Venmo', url: 'https://venmo.com/x' },
+            { id: 'pl_2', name: 'My Zelle', url: '' },
+            { id: 'pl_3', name: 'PayPal', url: 'https://paypal.me/x' },
+            { id: 'pl_4', name: 'Cash App', url: 'https://cash.app/x' },
+            { id: 'pl_5', name: 'Apple Cash Pay', url: '' },
+            { id: 'pl_6', name: 'Wire Transfer', url: 'https://bank.com' },
+        ];
+
+        const migrated = ctx.migratePaymentLinksToMethods(legacy);
+        assert.equal(migrated.length, 6);
+        assert.equal(migrated[0].type, 'venmo');
+        assert.equal(migrated[1].type, 'zelle');
+        assert.equal(migrated[2].type, 'paypal');
+        assert.equal(migrated[3].type, 'cashapp');
+        assert.equal(migrated[4].type, 'apple_cash');
+        assert.equal(migrated[5].type, 'other');
+    });
+
+    it('migratePaymentLinksToMethods preserves label and url', () => {
+        const ctx = createContext();
+        const legacy = [{ id: 'pl_1', name: 'My Venmo', url: 'https://venmo.com/handle' }];
+        const migrated = ctx.migratePaymentLinksToMethods(legacy);
+        assert.equal(migrated[0].label, 'My Venmo');
+        assert.equal(migrated[0].url, 'https://venmo.com/handle');
+        assert.equal(migrated[0].enabled, true);
+    });
+
+    it('migratePaymentLinksToMethods returns empty array for empty input', () => {
+        const ctx = createContext();
+        assert.equal(ctx.migratePaymentLinksToMethods([]).length, 0);
+        assert.equal(ctx.migratePaymentLinksToMethods(null).length, 0);
+        assert.equal(ctx.migratePaymentLinksToMethods(undefined).length, 0);
+    });
+
+    it('prevents addPaymentMethod when year is archived', () => {
         const alerts = [];
         const ctx = createContext({ alert: (msg) => alerts.push(msg) });
         ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
-        ctx._set('settings', { emailMessage: 'test', paymentLinks: [] });
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [] });
 
         ctx.document.getElementById = (id) => {
-            if (id === 'paymentLinkName') return { value: 'Venmo' };
-            if (id === 'paymentLinkUrl') return { value: 'https://venmo.com/x' };
+            if (id === 'newPaymentMethodType') return { value: 'zelle' };
             if (id === 'paymentLinksSettings') return { innerHTML: '' };
             return { innerHTML: '', textContent: '', value: '', style: {} };
         };
 
-        ctx.addPaymentLink();
-        assert.equal(ctx._get('settings').paymentLinks.length, 0, 'Should not add link');
+        ctx.addPaymentMethod();
+        assert.equal(ctx._get('settings').paymentMethods.length, 0, 'Should not add method');
         assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
     });
 
-    it('initializes paymentLinks when missing from settings', () => {
-        const ctx = createContext();
-        ctx._set('settings', { emailMessage: 'test' });
+    it('prevents removePaymentMethod when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [],
+            paymentMethods: [{ id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true }]
+        });
+
+        ctx.removePaymentMethod('pm_1');
+        assert.equal(ctx._get('settings').paymentMethods.length, 1, 'Should not remove method');
+        assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
+    });
+
+    it('prevents togglePaymentMethodEnabled when year is archived', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [],
+            paymentMethods: [{ id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true }]
+        });
 
         ctx.document.getElementById = (id) => {
-            if (id === 'paymentLinkName') return { value: 'Test' };
-            if (id === 'paymentLinkUrl') return { value: 'https://test.com' };
             if (id === 'paymentLinksSettings') return { innerHTML: '' };
             return { innerHTML: '', textContent: '', value: '', style: {} };
         };
 
-        ctx.addPaymentLink();
-        const links = ctx._get('settings').paymentLinks;
-        assert.equal(links.length, 1);
+        ctx.togglePaymentMethodEnabled('pm_1');
+        assert.equal(ctx._get('settings').paymentMethods[0].enabled, true, 'Should not toggle');
+        assert.ok(alerts.some(a => a.includes('archived')), 'Should show archived alert');
+    });
+
+    it('PAYMENT_METHOD_TYPES defines all supported types', () => {
+        const ctx = createContext();
+        const types = ctx._get('PAYMENT_METHOD_TYPES');
+        assert.ok(types.zelle, 'Should define zelle');
+        assert.ok(types.apple_cash, 'Should define apple_cash');
+        assert.ok(types.venmo, 'Should define venmo');
+        assert.ok(types.cashapp, 'Should define cashapp');
+        assert.ok(types.paypal, 'Should define paypal');
+        assert.ok(types.other, 'Should define other');
+    });
+
+    it('PAYMENT_METHOD_TYPES zelle includes email and phone fields', () => {
+        const ctx = createContext();
+        const types = ctx._get('PAYMENT_METHOD_TYPES');
+        assert.ok(types.zelle.fields.includes('email'), 'Zelle should have email field');
+        assert.ok(types.zelle.fields.includes('phone'), 'Zelle should have phone field');
+    });
+
+    it('PAYMENT_METHOD_TYPES apple_cash includes email and phone fields', () => {
+        const ctx = createContext();
+        const types = ctx._get('PAYMENT_METHOD_TYPES');
+        assert.ok(types.apple_cash.fields.includes('email'), 'Apple Cash should have email field');
+        assert.ok(types.apple_cash.fields.includes('phone'), 'Apple Cash should have phone field');
     });
 });
 

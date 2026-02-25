@@ -106,10 +106,12 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   │   }>
   ├── settings: {
   │     emailMessage: string,
-  │     paymentLinks: Array<{
+  │     paymentLinks: Array<{ id, name, url }> (legacy, migrated to paymentMethods on load),
+  │     paymentMethods: Array<{
   │       id: string,
   │       type: string ("zelle"|"apple_cash"|"venmo"|"cashapp"|"paypal"|"other"),
   │       label: string,
+  │       enabled: boolean,
   │       handle: string,
   │       url: string,
   │       phone: string,
@@ -244,10 +246,18 @@ Scripts must load in this exact order (all pages):
 - `computeMemberSummary(memberId)` - Computes a member's bill breakdown for share link data
 
 ### Payment Methods
-- `addPaymentLink()` - Adds a payment method (Zelle, Apple Cash, Venmo, etc.) to settings
-- `removePaymentLink(id)` - Removes a payment method
-- `editPaymentLink(id)` - Edits a payment method
-- `renderPaymentLinksSettings()` - Renders the payment methods configuration UI
+- `PAYMENT_METHOD_TYPES` - Constant defining supported types (zelle, apple_cash, cashapp, venmo, paypal, other) with per-type field lists
+- `addPaymentMethod()` - Adds a payment method by type, opens edit dialog for field entry
+- `editPaymentMethod(id)` - Opens dialog with type-specific fields (email, phone, handle, url, instructions)
+- `savePaymentMethodEdit(id)` - Persists edits from the payment method dialog with validation
+- `removePaymentMethod(id)` - Removes a payment method
+- `togglePaymentMethodEnabled(id)` - Toggles a payment method's enabled state
+- `getEnabledPaymentMethods()` - Returns enabled payment methods from settings
+- `getPaymentMethodDetail(method)` - Returns a summary string of a method's identifiers
+- `renderPaymentMethodsSettings()` - Renders the payment methods configuration UI with type-aware cards
+- `migratePaymentLinksToMethods(paymentLinks)` - Migrates legacy `{name, url}` links to structured payment methods, inferring type from name
+- `formatPaymentOptionsHTML()` - Renders enabled payment methods as HTML for invoices (type-aware: Zelle shows email/phone, Apple Cash shows contact, others show URL)
+- `formatPaymentOptionsText()` - Renders enabled payment methods as plain text for email invoices
 
 ### Payment UI
 - `showAddPaymentDialog(memberId)` - Modal dialog to record a payment with amount, method, and note
@@ -320,7 +330,7 @@ Scripts must load in this exact order (all pages):
 | Scope | Purpose |
 |-------|---------|
 | `summary:read` | View billing summary and bill breakdown |
-| `paymentLinks:read` | View payment links (Venmo, Zelle, etc.) |
+| `paymentMethods:read` | View payment methods (Venmo, Zelle, etc.) |
 | `disputes:create` | Submit new review requests |
 | `disputes:read` | View disputes, evidence, and approve/reject resolutions |
 
@@ -399,7 +409,7 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 - `saveData archived guard` - write prevention for read-only years
 - `generateRawToken` / `hashToken` - cryptographic token generation and hashing
 - `computeMemberSummary` / `validateToken` / `validateDisputeInput` - share link utilities
-- `payment links settings` - payment method CRUD operations
+- `payment methods settings` - payment method CRUD, migration, type constants, enable/disable, archived guards
 - `normalizeDisputeStatus` / `disputeStatusClass` - dispute status mapping
 - `formatFileSize` / `Evidence constraints` / `DISPUTE_STATUS_LABELS` - dispute utilities
 - `migrateLegacyData` - flat-to-year-scoped data migration

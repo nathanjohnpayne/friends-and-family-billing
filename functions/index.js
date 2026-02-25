@@ -154,7 +154,7 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       ip: req.ip || null,
     });
 
-    const scopes = tokenData.scopes || ["summary:read", "paymentLinks:read"];
+    const scopes = tokenData.scopes || ["summary:read", "paymentMethods:read"];
     const result = {
       memberName: primarySummary.name,
       year: yearData.label || tokenData.billingYearId,
@@ -172,7 +172,7 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       };
     }
 
-    if (scopes.includes("paymentLinks:read")) {
+    if (scopes.includes("paymentMethods:read") || scopes.includes("paymentLinks:read")) {
       result.paymentLinks = yearSettings.paymentLinks || [];
       result.paymentMethods = (yearSettings.paymentMethods || []).filter(
         (m) => m.enabled
