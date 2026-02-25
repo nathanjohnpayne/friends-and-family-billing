@@ -216,6 +216,26 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       });
     }
 
+    // Self-heal: recreate publicShares doc for future direct Firestore reads
+    const publicShareData = {
+      memberName: result.memberName,
+      year: result.year,
+      scopes: scopes,
+      ownerId: tokenData.ownerId,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (result.summary) {
+      publicShareData.summary = result.summary;
+      publicShareData.linkedMembers = result.linkedMembers || [];
+      publicShareData.paymentSummary = result.paymentSummary;
+    }
+    if (result.paymentMethods) {
+      publicShareData.paymentMethods = result.paymentMethods;
+    }
+    db.collection("publicShares").doc(hash).set(publicShareData).catch((err) => {
+      console.error("Failed to self-heal publicShares:", err);
+    });
+
     res.status(200).json(result);
   } catch (err) {
     console.error("resolveShareToken error:", err);

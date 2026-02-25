@@ -998,15 +998,25 @@
             _shareToken = token;
 
             try {
+                var data = null;
                 var tokenHash = await hashToken(token);
                 var doc = await db.collection('publicShares').doc(tokenHash).get();
 
-                if (!doc.exists) {
-                    showError('This link is invalid or has been removed.');
-                    return;
+                if (doc.exists) {
+                    data = doc.data();
+                } else {
+                    var resp = await fetch('/resolveShareToken', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token })
+                    });
+                    if (!resp.ok) {
+                        var errData = await resp.json().catch(function() { return {}; });
+                        showError(errData.error || 'This link is invalid or has been removed.');
+                        return;
+                    }
+                    data = await resp.json();
                 }
-
-                var data = doc.data();
 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';

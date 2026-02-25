@@ -53,6 +53,10 @@
         "destination": "/share.html"
       },
       {
+        "source": "/resolveShareToken",
+        "function": "resolveShareToken"
+      },
+      {
         "source": "/submitDispute",
         "function": "submitDispute"
       },
