@@ -95,10 +95,11 @@ header h1 {
     flex-wrap: wrap;
     gap: var(--space-2) var(--space-4);
     margin-top: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(4px);
+    padding: var(--space-3) var(--space-4);
+    background: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(8px);
     border-radius: var(--radius-xl);
+    border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .dashboard-status:empty {
@@ -116,7 +117,7 @@ header h1 {
     font-size: var(--text-badge-sm);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .dashboard-stat-value {
@@ -294,6 +295,34 @@ textarea:focus {
     font-size: var(--text-body-xs);
 }
 
+.btn-header-secondary {
+    background: transparent;
+    color: var(--color-text-inverse);
+    border: 1.5px solid rgba(255, 255, 255, 0.5);
+}
+
+.btn-header-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.7);
+}
+
+.btn-header-tertiary {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.8);
+    border: none;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-body-xs);
+}
+
+.btn-header-tertiary:hover {
+    color: #fff;
+    text-decoration-style: solid;
+    background: transparent;
+}
+
 .btn-icon {
     background: transparent;
     border: none;
@@ -438,7 +467,7 @@ textarea:focus {
 .bill-item {
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--radius-lg);
-    padding: var(--space-3);
+    padding: var(--space-4);
     background: var(--color-surface-dim);
 }
 
@@ -589,10 +618,44 @@ textarea:focus {
     margin-top: var(--space-3);
 }
 
+.bill-split-collapsed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.split-summary-text {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-secondary);
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    font-size: var(--text-body-sm);
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    font-family: inherit;
+}
+
+.btn-link:hover {
+    color: var(--color-primary-hover);
+    text-decoration-style: solid;
+}
+
+.split-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+}
+
 .split-header {
     font-weight: var(--font-weight-medium);
     color: var(--color-text-secondary);
-    margin-bottom: var(--space-2);
 }
 
 .member-checkboxes {
@@ -637,6 +700,55 @@ textarea:focus {
     gap: var(--space-2);
     margin-top: var(--space-3);
     flex-wrap: wrap;
+    align-items: center;
+}
+
+.bill-actions-dropdown {
+    position: relative;
+}
+
+.bill-actions-menu {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 4px;
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 160px;
+    z-index: 100;
+    overflow: hidden;
+}
+
+.bill-actions-menu.open {
+    display: block;
+}
+
+.bill-actions-menu button {
+    display: block;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    background: none;
+    border: none;
+    text-align: left;
+    font-size: var(--text-body-sm);
+    color: var(--color-text);
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.bill-actions-menu button:hover {
+    background: var(--color-surface-alt);
+}
+
+.bill-actions-menu button.danger {
+    color: var(--color-danger);
+}
+
+.bill-actions-menu button.danger:hover {
+    background: var(--color-danger-light, #fff5f5);
 }
 
 /* ──────────────── Summary Table ──────────────── */
@@ -649,6 +761,7 @@ textarea:focus {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: var(--space-4);
+    font-variant-numeric: tabular-nums;
 }
 
 .summary-table th,
@@ -656,7 +769,26 @@ textarea:focus {
     padding: var(--space-2);
     text-align: left;
     border-bottom: var(--border-thin) solid var(--color-border);
+    vertical-align: middle;
 }
+
+.summary-table th:nth-child(2),
+.summary-table td:nth-child(2),
+.summary-table th:nth-child(3),
+.summary-table td:nth-child(3),
+.summary-table th:nth-child(4),
+.summary-table td:nth-child(4),
+.summary-table th:nth-child(5),
+.summary-table td:nth-child(5) {
+    text-align: right;
+}
+
+.summary-table th:nth-child(1) { width: 25%; }
+.summary-table th:nth-child(2) { width: 14%; }
+.summary-table th:nth-child(3) { width: 18%; }
+.summary-table th:nth-child(4) { width: 15%; }
+.summary-table th:nth-child(5) { width: 15%; }
+.summary-table th:nth-child(6) { width: 13%; }
 
 .summary-table th {
     background: var(--color-surface-alt);
@@ -674,8 +806,13 @@ textarea:focus {
     gap: var(--space-2);
 }
 
+.total-row td {
+    border-top: 2px solid var(--color-border-strong, var(--color-text-secondary));
+    border-bottom: none;
+}
+
 .total-row {
-    font-weight: var(--font-weight-semi);
+    font-weight: var(--font-weight-bold);
     color: var(--color-primary);
     font-size: var(--text-numeric);
 }
@@ -1009,41 +1146,42 @@ textarea:focus {
 .lifecycle-step {
     font-size: var(--text-body-xs);
     font-weight: var(--font-weight-semi);
-    padding: 2px var(--space-2);
+    padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-pill);
-    color: rgba(255, 255, 255, 0.45);
-    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.1);
     transition: all var(--transition-base);
 }
 
 .lifecycle-step.lifecycle-complete {
-    color: rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.18);
 }
 
 .lifecycle-step.lifecycle-active {
     color: #fff;
     font-weight: var(--font-weight-bold);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
 }
 
 .lifecycle-active.lifecycle-primary {
-    background: rgba(110, 120, 214, 0.5);
+    background: rgba(110, 120, 214, 0.7);
 }
 
 .lifecycle-active.lifecycle-warning {
-    background: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.65);
 }
 
 .lifecycle-active.lifecycle-success {
-    background: rgba(63, 163, 124, 0.5);
+    background: rgba(63, 163, 124, 0.65);
 }
 
 .lifecycle-active.lifecycle-muted {
-    background: rgba(160, 174, 192, 0.4);
+    background: rgba(160, 174, 192, 0.5);
 }
 
 .lifecycle-arrow {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
     font-size: var(--text-body-xs);
 }
 
@@ -1111,6 +1249,19 @@ textarea:focus {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+}
+
+.payment-method-icon {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+}
+
+.payment-method-icon svg {
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .payment-method-info {
@@ -1900,13 +2051,14 @@ textarea:focus {
 /* ──────────────── Trust & Transparency ──────────────── */
 
 .calc-toggle-btn {
-    display: block;
+    display: inline;
     background: none;
     border: none;
     color: var(--color-primary);
     font-size: var(--text-caption);
     cursor: pointer;
     padding: 2px 0;
+    margin-left: var(--space-1);
     font-family: inherit;
     text-decoration: underline;
     text-decoration-style: dotted;
@@ -1925,8 +2077,44 @@ textarea:focus {
     font-size: var(--text-caption);
 }
 
+.payment-methods-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) 0;
+}
+
+.payment-strip-label {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+}
+
+.payment-strip-icon {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    color: var(--color-text-secondary);
+}
+
+.payment-strip-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.calc-breakdown-logo {
+    width: 20px;
+    height: 15px;
+    border-radius: 2px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
 .calc-breakdown-line {
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     padding: 2px 0;
