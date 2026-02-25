@@ -28,11 +28,11 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── login.html                 # Login/signup page with Google Sign-In
 ├── share.html                 # Public share-link page (reads from Firestore, no auth)
 ├── check_data.html            # Firebase data verification/debugging tool
-├── script.js                  # Main application logic (~3,670 lines)
+├── script.js                  # Main application logic (~4,440 lines)
 ├── auth.js                    # Authentication handling (~170 lines)
 ├── firebase-config.js         # Firebase init, conditional SDK exports (guards for missing SDKs)
 ├── design-tokens.css          # Design system tokens (colors, spacing, typography)
-├── styles.css                 # Application styles (~1,980 lines, consumes design-tokens.css)
+├── styles.css                 # Application styles (~2,470 lines, consumes design-tokens.css)
 ├── version.json               # App version for update checking (stamped on deploy)
 ├── stamp-version.js           # Predeploy script that writes current timestamp to version.json
 ├── logo.svg                   # App logo (SVG)
@@ -46,7 +46,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   ├── billing.js             # Shared billing utilities for Cloud Functions
 │   └── package.json           # Cloud Functions dependencies
 ├── tests/
-│   └── billing.test.js        # Automated tests (~2,240 lines, Node built-in test runner)
+│   └── billing.test.js        # Automated tests (~3,690 lines, Node built-in test runner)
 ├── .gitignore                 # Git ignore rules
 ├── .gitattributes             # Git line-ending normalization
 ├── AGENTS.md                  # AI agent instructions (this file)
@@ -314,10 +314,23 @@ Scripts must load in this exact order (all pages):
 - `deletePaymentEntry(paymentId, memberId)` - Creates a reversal entry (negative amount) instead of deleting. Marks original as `reversed: true`. Emits `PAYMENT_REVERSED` event. Preserves full audit trail.
 - `migratePaymentReceivedToLedger()` - One-time migration of legacy `paymentReceived` values into ledger entries
 
+### Invoice Composer Helpers
+- `_invoiceDialogState` - Shared state object for invoice dialog variant selection
+- `getInvoiceSummaryContext(memberId)` - Extracts member billing context (totals, balance, linked members) for invoice composition
+- `buildInvoiceSubject(year, member)` - Returns formatted email subject line for a billing invoice
+- `buildInvoiceBody(ctx, variant, shareUrl, channel)` - Builds invoice body text for a given variant (`link-cta`, `text-only`, `full`, `text-link`) and channel (`email` or `sms`)
+- `buildFullInvoiceText(ctx, shareUrl)` - Generates detailed plain-text invoice with bill breakdown tables, payment summary, and payment methods
+- `buildSmsDeepLink(phone, body)` - Creates platform-specific `sms:` deep link (iOS vs Android format)
+- `openSmsComposer(phone, body)` - Opens native SMS composer via deep link, falls back to clipboard copy
+- `updateInvoiceVariant(variant, channel)` - Updates the active invoice dialog textarea when the user switches variant
+
 ### Invoicing
 - `generateInvoice()` - Full annual invoice in a new window (printable)
-- `sendIndividualInvoice(memberId)` - Individual member invoice via mailto link
+- `showEmailInvoiceDialog(memberId, shareUrl)` - Opens email invoice dialog with variant selector (link CTA, text + link, text only, full detailed), subject editing, and mailto integration
+- `sendIndividualInvoice(memberId)` - Sends email invoice using selected variant via mailto link
+- `copyEmailInvoiceMessage()` - Copies email invoice message textarea to clipboard
 - `generateInvoiceHTML(summary, year)` - Renders printable HTML invoice
+- `generateShareLinkForInvoiceDialog(memberId, dialogFn)` - Generates a share link and re-opens the invoice dialog with the share URL
 
 ### Share Links
 - `generateShareLink(memberId)` - Opens scope selection dialog for share link generation
@@ -361,7 +374,7 @@ Scripts must load in this exact order (all pages):
 - `ensureDialogContainer()` - Lazily creates the dialog overlay DOM
 
 ### Text Invoice
-- `showTextInvoiceDialog(memberId)` - Opens a dialog with a pre-filled SMS message containing the member's billing summary, amount due, and share link (if available). Supports copy-to-clipboard and `sms:` deep link.
+- `showTextInvoiceDialog(memberId, shareUrl)` - Opens text invoice dialog with variant selector and SMS deep link. Supports copy-to-clipboard and platform-aware `sms:` deep link.
 - `copyTextInvoiceMessage()` - Copies the text invoice message textarea to clipboard
 - `copyTextInvoiceLink(url)` - Copies a share link URL to clipboard
 
@@ -508,6 +521,7 @@ All visual primitives are defined in `design-tokens.css` and consumed by `styles
 - **Transparency components:** `.calc-breakdown`, `.calc-toggle-btn`, `.payment-timeline`, `.change-toast`, `.privacy-footer`
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`, `.lifecycle-active`, `.lifecycle-complete`
 - **Frequency toggle components:** `.frequency-toggle`, `.frequency-option`, `.frequency-option.active`, `.bill-frequency-toggle`, `.derived-amount-preview`, `.bill-derived-amount`
+- **Invoice variant components:** `.invoice-variant-selector`, `.invoice-variant-option`, `.invoice-subject-input`
 - **Audit & reversal components:** `.audit-event`, `.audit-event-header`, `.payment-reversed`, `.payment-reversal`, `.reversal-tag`
 - **Avatar size:** 48x48px circle (32x32px in invoices)
 - **Logo size:** 80x60px rectangle (40x30px in invoices)
@@ -522,7 +536,7 @@ npm test
 
 Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
 
-**232 tests across 66 suites.** Covered areas:
+**267 tests across 77 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
 - `calculateAnnualSummary` - bill splitting math across members and multiple bills, frequency-aware calculations
 - `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection, event emission
@@ -558,6 +572,16 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 - `showBillAuditHistory` - audit history dialog rendering
 - `updateBillAmountPreview` - derived amount preview (monthly↔annual conversion, edge cases, rounding)
 - `setAddBillFrequency updates label` - dynamic form label updates when frequency toggle changes
+- `getInvoiceSummaryContext` - invoice context extraction (totals, balance, linked members, edge cases)
+- `buildInvoiceSubject` - email subject line formatting
+- `buildInvoiceBody` - invoice body generation across variants (link-cta, text-only, full, text-link) and channels (email, sms)
+- `buildFullInvoiceText` - detailed plain-text invoice with bill tables and payment summary
+- `buildSmsDeepLink` - platform-specific SMS deep link generation (iOS, Android, fallback)
+- `openSmsComposer` - SMS composer launch with clipboard fallback
+- `updateInvoiceVariant` - invoice dialog variant switching
+- `showEmailInvoiceDialog` - email invoice dialog rendering and interaction
+- `showTextInvoiceDialog` - text invoice dialog rendering with variant support
+- `refreshPublicShares cleanup` - public share refresh and stale token cleanup
 
 ### Local Development
 

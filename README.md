@@ -337,7 +337,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Per-bill audit history dialog ("View History")
 - ✅ 8 event types tracked: bill CRUD, member assignment, payments, reversals, year lifecycle
 - ✅ Frequency-aware calculation breakdowns
-- ✅ 222 automated tests across 64 suites
+- ✅ 267 automated tests across 77 suites
 
 ### Annual Billing Experience (2026-02)
 - ✅ Billing year lifecycle (Open → Settling → Closed → Archived)
