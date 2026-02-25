@@ -1706,6 +1706,94 @@ textarea:focus {
     transition: width var(--transition-slow);
 }
 
+/* ──────────────── Settlement Progress ──────────────── */
+
+.settlement-progress {
+    position: relative;
+    height: 10px;
+    background: var(--color-surface-inset);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    margin-top: var(--space-2);
+    width: 100%;
+}
+
+.settlement-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-success));
+    border-radius: var(--radius-pill);
+    transition: width var(--transition-slow);
+}
+
+.settlement-progress-label {
+    position: absolute;
+    right: 0;
+    top: -18px;
+    font-size: var(--text-caption);
+    font-weight: var(--font-weight-semi);
+    color: var(--color-text-muted);
+}
+
+.settlement-message {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+    margin-top: var(--space-2);
+    text-align: center;
+}
+
+.settlement-admin-hint {
+    font-size: var(--text-body-xs);
+    color: var(--color-warning-fg);
+    background: var(--color-warning-surface);
+    border: var(--border-thin) solid var(--color-warning-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+    text-align: center;
+}
+
+.settlement-complete-banner {
+    background: var(--color-success-bg);
+    color: var(--color-success-fg);
+    border: var(--border-thin) solid var(--color-success);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-3);
+    text-align: center;
+    font-weight: var(--font-weight-semi);
+    font-size: var(--text-body);
+}
+
+.payment-confirmation {
+    text-align: center;
+    padding: var(--space-5) var(--space-4);
+}
+
+.payment-confirmation-icon {
+    font-size: 2.5rem;
+    color: var(--color-success);
+    margin-bottom: var(--space-2);
+}
+
+.payment-confirmation-text {
+    font-size: var(--text-heading-md);
+    font-weight: var(--font-weight-semi);
+    color: var(--color-text);
+    margin-bottom: var(--space-3);
+}
+
+.payment-confirmation-progress-label {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-2);
+}
+
+.payment-confirmation .settlement-progress {
+    max-width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 /* ──────────────── Text Utility Classes ──────────────── */
 
 .text-muted {

@@ -1902,3 +1902,127 @@ describe('CURRENT_MIGRATION_VERSION', () => {
     });
 });
 
+// ──────────────── calculateSettlementMetrics ──────────────────
+
+describe('calculateSettlementMetrics', () => {
+    it('returns zero metrics when no members or bills exist', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', []);
+        ctx._set('bills', []);
+        ctx._set('payments', []);
+
+        const m = ctx.calculateSettlementMetrics();
+        assert.equal(m.totalAnnual, 0);
+        assert.equal(m.totalPayments, 0);
+        assert.equal(m.totalOutstanding, 0);
+        assert.equal(m.paidCount, 0);
+        assert.equal(m.totalMembers, 0);
+        assert.equal(m.percentage, 0);
+    });
+
+    it('computes correct percentage with partial payments', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Rent', amount: 100, logo: '', website: '', members: [1, 2] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 600, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+
+        const m = ctx.calculateSettlementMetrics();
+        assert.equal(m.totalAnnual, 1200);
+        assert.equal(m.totalPayments, 600);
+        assert.equal(m.totalOutstanding, 600);
+        assert.equal(m.paidCount, 1);
+        assert.equal(m.totalMembers, 2);
+        assert.equal(m.percentage, 50);
+    });
+
+    it('reports 100% when all members are fully paid', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Internet', amount: 50, logo: '', website: '', members: [1] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 600, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+
+        const m = ctx.calculateSettlementMetrics();
+        assert.equal(m.percentage, 100);
+        assert.equal(m.paidCount, 1);
+        assert.equal(m.totalOutstanding, 0);
+    });
+
+    it('caps percentage at 100 when overpaid', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Rent', amount: 10, logo: '', website: '', members: [1] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 999, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+
+        const m = ctx.calculateSettlementMetrics();
+        assert.equal(m.percentage, 100);
+    });
+
+    it('includes linked member totals in parent metrics', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
+            { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Rent', amount: 120, logo: '', website: '', members: [1, 2] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 720, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+            { id: 'p2', memberId: 2, amount: 720, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+
+        const m = ctx.calculateSettlementMetrics();
+        assert.equal(m.totalMembers, 1, 'only parent counted as main member');
+        assert.equal(m.paidCount, 1);
+        assert.equal(m.percentage, 100);
+    });
+});
+
+// ──────────────── getPaymentStatusBadge (Settled label) ───────
+
+describe('getPaymentStatusBadge labels', () => {
+    it('returns "Settled" instead of "Paid" when fully paid', () => {
+        const ctx = createContext();
+        const badge = ctx.getPaymentStatusBadge(100, 100);
+        assert.ok(badge.includes('Settled'), 'badge should say Settled');
+        assert.ok(!badge.includes('>Paid<'), 'badge should NOT say Paid');
+    });
+
+    it('returns "Outstanding" for zero payment', () => {
+        const ctx = createContext();
+        const badge = ctx.getPaymentStatusBadge(100, 0);
+        assert.ok(badge.includes('Outstanding'));
+    });
+
+    it('returns "Partial" for partial payment', () => {
+        const ctx = createContext();
+        const badge = ctx.getPaymentStatusBadge(100, 50);
+        assert.ok(badge.includes('Partial'));
+    });
+
+    it('returns empty string when total is zero', () => {
+        const ctx = createContext();
+        const badge = ctx.getPaymentStatusBadge(0, 0);
+        assert.equal(badge, '');
+    });
+});
+

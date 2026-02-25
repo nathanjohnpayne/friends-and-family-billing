@@ -446,6 +446,68 @@
         .sd-user-decision.approved { background: #d1fae5; color: #065f46; }
         .sd-user-decision.rejected { background: #fee2e2; color: #991b1b; }
 
+        .settlement-callout {
+            border-radius: 12px;
+            padding: 20px 25px;
+            margin-bottom: 20px;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-left: 5px solid #e0e0e0;
+        }
+
+        .settlement-callout.outstanding {
+            border-left-color: #f56565;
+        }
+
+        .settlement-callout.settled {
+            border-left-color: #48bb78;
+        }
+
+        .settlement-callout-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+        }
+
+        .settlement-callout-amount {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .settlement-callout-amount.owed { color: #f56565; }
+        .settlement-callout-amount.clear { color: #48bb78; }
+
+        .settlement-callout-desc {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .share-settlement-progress {
+            position: relative;
+            height: 10px;
+            background: #e2e8f0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+
+        .share-settlement-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #48bb78);
+            border-radius: 5px;
+            transition: width 0.4s ease;
+        }
+
+        .share-settlement-progress-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 4px;
+            text-align: right;
+        }
+
         @media (max-width: 600px) {
             .payment-summary-grid { grid-template-columns: 1fr; }
             .payment-links-grid { grid-template-columns: 1fr; }
@@ -467,6 +529,8 @@
                 <h1 id="headerTitle">Annual Billing Summary</h1>
                 <p class="subtitle" id="headerSubtitle"></p>
             </header>
+
+            <div id="settlementCallout" style="display:none;"></div>
 
             <div class="card">
                 <h2 id="billBreakdownTitle">Bill Breakdown</h2>
@@ -884,6 +948,29 @@
                         + '<div class="value paid">$' + ps.totalPaid.toFixed(2) + '</div></div>'
                         + '<div class="payment-stat"><div class="label">Balance Remaining</div>'
                         + '<div class="value ' + balClass + '">$' + ps.balanceRemaining.toFixed(2) + '</div></div>';
+
+                    var pctPaid = ps.combinedAnnualTotal > 0
+                        ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100))
+                        : 0;
+                    grid.innerHTML += ''
+                        + '<div class="payment-stat" style="grid-column: 1 / -1; padding-bottom:10px;">'
+                        + '<div class="label">Your Payment Progress</div>'
+                        + '<div class="share-settlement-progress"><div class="share-settlement-progress-bar" style="width:' + pctPaid + '%"></div></div>'
+                        + '<div class="share-settlement-progress-label">' + pctPaid + '% paid</div>'
+                        + '</div>';
+
+                    var callout = document.getElementById('settlementCallout');
+                    if (callout) {
+                        if (ps.balanceRemaining > 0) {
+                            callout.className = 'settlement-callout outstanding';
+                            callout.innerHTML = '<div class="settlement-callout-title">You still have an outstanding balance for ' + escapeHtml(data.year) + '.</div>'
+                                + '<div class="settlement-callout-amount owed">Amount Remaining: $' + ps.balanceRemaining.toFixed(2) + '</div>';
+                        } else if (ps.totalPaid > 0) {
+                            callout.className = 'settlement-callout settled';
+                            callout.innerHTML = '<div class="settlement-callout-title">You\'re all settled for ' + escapeHtml(data.year) + '. Thank you!</div>';
+                        }
+                        if (callout.innerHTML) callout.style.display = 'block';
+                    }
                 }
 
                 if (data.paymentMethods && data.paymentMethods.length > 0) {

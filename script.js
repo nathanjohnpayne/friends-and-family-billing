@@ -1316,8 +1316,41 @@ function calculateAnnualSummary() {
 function getPaymentStatusBadge(total, payment) {
     if (total <= 0) return '';
     if (payment <= 0) return '<span class="payment-status-badge outstanding">Outstanding</span>';
-    if (payment >= total) return '<span class="payment-status-badge paid">Paid</span>';
+    if (payment >= total) return '<span class="payment-status-badge paid">Settled</span>';
     return '<span class="payment-status-badge partial">Partial</span>';
+}
+
+function calculateSettlementMetrics() {
+    const summary = calculateAnnualSummary();
+    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
+
+    let totalAnnual = 0;
+    let totalPayments = 0;
+    let paidCount = 0;
+
+    mainMembers.forEach(member => {
+        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
+        (member.linkedMembers || []).forEach(id => {
+            if (summary[id]) combinedTotal += summary[id].total;
+        });
+        const payment = getPaymentTotalForMember(member.id) +
+            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
+        totalAnnual += combinedTotal;
+        totalPayments += payment;
+        if (combinedTotal > 0 && payment >= combinedTotal) paidCount++;
+    });
+
+    const totalOutstanding = Math.max(0, totalAnnual - totalPayments);
+    const percentage = totalAnnual > 0 ? Math.min(100, Math.round((totalPayments / totalAnnual) * 100)) : 0;
+
+    return {
+        totalAnnual: totalAnnual,
+        totalPayments: totalPayments,
+        totalOutstanding: totalOutstanding,
+        paidCount: paidCount,
+        totalMembers: mainMembers.length,
+        percentage: percentage
+    };
 }
 
 function toggleActionMenu(event) {
@@ -1447,7 +1480,13 @@ function updateSummary() {
 
     const totalBalance = totalAnnual - totalPayments;
 
+    const yearLabel = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
+    const completionBanner = (totalBalance <= 0 && totalAnnual > 0 && mainMembers.length > 0)
+        ? '<div class="settlement-complete-banner">Annual settlement complete. All shared bills for ' + escapeHtml(yearLabel) + ' have been resolved.</div>'
+        : '';
+
     container.innerHTML = `
+        ${completionBanner}
         <p class="section-desc mb-0" style="margin-bottom: 12px;">Each member's total responsibility for this billing year.</p>
         <table class="summary-table">
             <thead>
@@ -1485,25 +1524,8 @@ function renderDashboardStatus() {
         return;
     }
 
-    const summary = calculateAnnualSummary();
-    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
-    let totalOutstanding = 0;
-    let paidCount = 0;
-
-    mainMembers.forEach(member => {
-        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
-        (member.linkedMembers || []).forEach(id => {
-            if (summary[id]) combinedTotal += summary[id].total;
-        });
-        const payment = getPaymentTotalForMember(member.id) +
-            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
-        const balance = combinedTotal - payment;
-        if (balance > 0) totalOutstanding += balance;
-        if (combinedTotal > 0 && balance <= 0) paidCount++;
-    });
-
+    const metrics = calculateSettlementMetrics();
     const yearLabel = currentBillingYear.label || currentBillingYear.id;
-    const statusLabel = getBillingYearStatusLabel(currentBillingYear.status);
 
     const currentStatus = currentBillingYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
@@ -1518,6 +1540,25 @@ function renderDashboardStatus() {
         return '<span class="' + cls + '">' + meta.label + '</span>';
     }).join('<span class="lifecycle-arrow">\u2192</span>');
 
+    let settlementMessage = '';
+    const remaining = metrics.totalMembers - metrics.paidCount;
+    if (metrics.totalMembers === 0 || metrics.totalAnnual <= 0) {
+        settlementMessage = '';
+    } else if (metrics.percentage >= 100) {
+        settlementMessage = 'Everyone is settled for ' + escapeHtml(yearLabel) + '!';
+    } else if (metrics.percentage === 0) {
+        settlementMessage = 'No payments received yet.';
+    } else if (metrics.percentage > 50) {
+        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled. Almost done \u2014 only ' + remaining + ' remaining.';
+    } else {
+        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled.';
+    }
+
+    let adminReminder = '';
+    if (remaining > 0 && currentStatus === 'settling') {
+        adminReminder = '<div class="settlement-admin-hint">' + remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding. Send reminders via share links.</div>';
+    }
+
     container.innerHTML = `
         <div class="lifecycle-bar">${lifecycleSteps}</div>
         <div class="dashboard-stat">
@@ -1526,12 +1567,18 @@ function renderDashboardStatus() {
         </div>
         <div class="dashboard-stat">
             <span class="dashboard-stat-label">Outstanding Balance</span>
-            <span class="dashboard-stat-value ${totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${totalOutstanding.toFixed(2)}</span>
+            <span class="dashboard-stat-value ${metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${metrics.totalOutstanding.toFixed(2)}</span>
         </div>
         <div class="dashboard-stat">
-            <span class="dashboard-stat-label">Members Paid</span>
-            <span class="dashboard-stat-value">${paidCount} / ${mainMembers.length}</span>
+            <span class="dashboard-stat-label">Members Settled</span>
+            <span class="dashboard-stat-value">${metrics.paidCount} / ${metrics.totalMembers}</span>
         </div>
+        <div class="settlement-progress">
+            <div class="settlement-progress-bar" style="width: ${metrics.percentage}%"></div>
+            <span class="settlement-progress-label">${metrics.percentage}%</span>
+        </div>
+        ${settlementMessage ? '<div class="settlement-message">' + settlementMessage + '</div>' : ''}
+        ${adminReminder}
     `;
     const contextBanner = document.getElementById('dashboardContextBanner');
     if (contextBanner) {
@@ -3397,7 +3444,21 @@ function submitPayment(memberId) {
     var distribute = distributeEl ? distributeEl.checked : false;
 
     recordPayment(memberId, amount, method, note, distribute);
-    closePaymentDialog();
+
+    var dialog = document.getElementById('payment-dialog');
+    if (dialog) {
+        var metrics = calculateSettlementMetrics();
+        dialog.innerHTML =
+            '<div class="payment-confirmation">'
+            + '<div class="payment-confirmation-icon">&#10003;</div>'
+            + '<div class="payment-confirmation-text">Payment recorded successfully.</div>'
+            + '<div class="payment-confirmation-progress-label">Settlement Progress: ' + metrics.percentage + '% Complete</div>'
+            + '<div class="settlement-progress"><div class="settlement-progress-bar" style="width:' + metrics.percentage + '%"></div></div>'
+            + '</div>';
+        setTimeout(function() { closePaymentDialog(); }, 2000);
+    } else {
+        closePaymentDialog();
+    }
 }
 
 function closePaymentDialog() {
