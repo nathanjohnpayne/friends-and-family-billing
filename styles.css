@@ -511,8 +511,19 @@ textarea:focus {
 .bill-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     flex: 1;
+    gap: var(--space-3);
+}
+
+.bill-header-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.bill-header-right {
+    text-align: right;
+    flex-shrink: 0;
 }
 
 .bill-title {
@@ -525,12 +536,14 @@ textarea:focus {
     font-size: var(--text-numeric);
     color: var(--color-primary);
     font-weight: var(--font-weight-semi);
+    font-variant-numeric: tabular-nums;
 }
 
 .bill-per-person {
     color: var(--color-text-muted);
     font-size: var(--text-body-sm);
     margin-top: var(--space-1);
+    line-height: var(--line-height-relaxed, 1.6);
 }
 
 .frequency-toggle {
@@ -600,7 +613,8 @@ textarea:focus {
 .bill-derived-amount {
     font-size: var(--text-body-xs);
     color: var(--color-text-muted);
-    margin-top: 2px;
+    margin-top: var(--space-1);
+    font-variant-numeric: tabular-nums;
 }
 
 .editable {
@@ -684,11 +698,17 @@ textarea:focus {
 .bill-website {
     font-size: var(--text-body-xs);
     margin-top: var(--space-1);
+    max-width: 280px;
+    overflow: hidden;
 }
 
 .bill-website a {
     color: var(--color-primary);
     text-decoration: none;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .bill-website a:hover {
@@ -1229,15 +1249,25 @@ textarea:focus {
 .payment-methods-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: 0;
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
 }
 
 .payment-method-item {
-    padding: var(--space-2);
-    background: var(--color-surface-alt);
-    border-radius: var(--radius-lg);
-    border: var(--border-thin) solid var(--color-border);
+    padding: var(--space-3) var(--space-3);
+    background: var(--color-surface);
+    border-bottom: var(--border-thin) solid var(--color-border);
     transition: opacity var(--transition-base);
+}
+
+.payment-method-item:last-child {
+    border-bottom: none;
+}
+
+.payment-method-item:hover {
+    background: var(--color-surface-dim);
 }
 
 .payment-method-item.disabled {
@@ -1247,13 +1277,13 @@ textarea:focus {
 .payment-method-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    min-height: 36px;
 }
 
 .payment-method-icon {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
     color: var(--color-text-secondary);
 }
@@ -1269,14 +1299,16 @@ textarea:focus {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    flex: 1;
 }
 
 .payment-method-detail {
-    color: var(--color-primary);
+    color: var(--color-text-muted);
     font-size: var(--text-body-xs);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 260px;
 }
 
 .payment-method-actions {
@@ -1284,6 +1316,27 @@ textarea:focus {
     align-items: center;
     gap: var(--space-2);
     flex-shrink: 0;
+}
+
+.pm-actions-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--color-border);
+}
+
+.btn-pm-edit {
+    font-size: var(--text-body-xs) !important;
+}
+
+.btn-pm-remove {
+    font-size: var(--text-body-xs) !important;
+    color: var(--color-danger) !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.btn-pm-remove:hover {
+    background: var(--color-danger-light, #fff5f5) !important;
 }
 
 /* ──────────────── Toggle Switch ──────────────── */
@@ -1495,6 +1548,42 @@ textarea:focus {
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-top: var(--border-thin) solid var(--color-border);
+}
+
+.text-invoice-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-surface-alt);
+    border-radius: var(--radius-md);
+    border: var(--border-thin) solid var(--color-border);
+}
+
+.text-invoice-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.text-invoice-stat .label {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+.text-invoice-stat .value {
+    font-weight: var(--font-weight-semi);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.text-invoice-link {
+    font-size: var(--text-body-xs);
+    color: var(--color-primary);
+    word-break: break-all;
+    font-weight: var(--font-weight-medium) !important;
 }
 
 .checkbox-label {

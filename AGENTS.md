@@ -332,8 +332,12 @@ Scripts must load in this exact order (all pages):
 - `buildPublicShareData(memberId, scopes)` - Constructs the denormalized `publicShares` document
 - `refreshPublicShares()` - Refreshes all active `publicShares` documents for the current billing year (called by `saveData()`)
 
+### Payment Method Icons
+- `PAYMENT_METHOD_ICONS` - Constant mapping payment method types to inline SVG icon strings (zelle, cashapp, venmo, paypal, apple_cash, other)
+- `getPaymentMethodIcon(type)` - Returns the SVG icon string for a payment method type
+
 ### Payment Methods
-- `PAYMENT_METHOD_TYPES` - Constant defining supported types (zelle, apple_cash, cashapp, venmo, paypal, other) with per-type field lists
+- `PAYMENT_METHOD_TYPES` - Constant defining supported types ordered by popularity (venmo, zelle, cashapp, paypal, apple_cash, other) with per-type field lists
 - `getPaymentMethodLabel(method)` - Returns display label for a payment method type
 - `addPaymentMethod()` - Adds a payment method by type, opens edit dialog for field entry
 - `editPaymentMethod(id)` - Opens dialog with type-specific fields (email, phone, handle, url, instructions)
@@ -355,6 +359,15 @@ Scripts must load in this exact order (all pages):
 - `showPaymentHistory(memberId)` - Timeline-style modal showing all ledger entries with remaining balance indicator
 - `closePaymentDialog()` - Closes the payment dialog overlay
 - `ensureDialogContainer()` - Lazily creates the dialog overlay DOM
+
+### Text Invoice
+- `showTextInvoiceDialog(memberId)` - Opens a dialog with a pre-filled SMS message containing the member's billing summary, amount due, and share link (if available). Supports copy-to-clipboard and `sms:` deep link.
+- `copyTextInvoiceMessage()` - Copies the text invoice message textarea to clipboard
+- `copyTextInvoiceLink(url)` - Copies a share link URL to clipboard
+
+### Bill Card Helpers
+- `toggleBillSplit(billId)` - Toggles the collapsible "Split with" section between collapsed summary and expanded checkbox grid
+- `toggleBillActionsMenu(event, billId)` - Toggles the bill card "Actions" dropdown menu, closing any other open menus
 
 ### Settlement & Dashboard
 - `renderDashboardStatus()` - Renders lifecycle progress bar, settlement progress bar with percentage, group completion messaging, and admin reminder hints
