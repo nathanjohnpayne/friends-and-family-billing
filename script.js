@@ -1837,7 +1837,7 @@ function updateSummary() {
                         <button class="actions-dropdown-btn" onclick="toggleActionMenu(event)">Actions ▾</button>
                         <div class="actions-dropdown-menu">
                             ${archived ? '' : `<button onclick="showAddPaymentDialog(${data.member.id}); closeAllActionMenus();">Record Annual Payment</button>`}
-                            <button onclick="sendIndividualInvoice(${data.member.id}); closeAllActionMenus();">Email Invoice</button>
+                            <button onclick="showEmailInvoiceDialog(${data.member.id}); closeAllActionMenus();">Email Invoice</button>
                             <button onclick="showTextInvoiceDialog(${data.member.id}); closeAllActionMenus();">Text Invoice</button>
                             <button onclick="generateShareLink(${data.member.id}); closeAllActionMenus();">Share Billing Link</button>
                             <button onclick="showShareLinks(${data.member.id}); closeAllActionMenus();">Manage Share Links</button>
@@ -3391,157 +3391,13 @@ function generateInvoice() {
     invoiceWindow.document.close();
 }
 
-// Send individual invoice via email (plain text)
-function sendIndividualInvoice(memberId) {
+// ──────────────── Invoice Composer Helpers ────────────────
+
+var _invoiceDialogState = {};
+
+function getInvoiceSummaryContext(memberId) {
     const member = familyMembers.find(m => m.id === memberId);
-    if (!member) return;
-
-    if (!member.email) {
-        alert(`${member.name} does not have an email address set. Please add one first.`);
-        return;
-    }
-
-    const summary = calculateAnnualSummary();
-    const memberData = summary[memberId];
-
-    // Get linked members data
-    const linkedMembersData = member.linkedMembers.map(linkedId => summary[linkedId]).filter(d => d);
-
-    // Calculate combined total
-    let combinedTotal = memberData ? memberData.total : 0;
-    linkedMembersData.forEach(data => {
-        combinedTotal += data.total;
-    });
-
-    if (combinedTotal === 0) {
-        alert(`${member.name} has no bills to invoice.`);
-        return;
-    }
-
-    const currentYear = currentBillingYear ? currentBillingYear.label : new Date().getFullYear();
-    const firstName = member.name.split(' ')[0];
-    const numMembers = 1 + member.linkedMembers.length;
-    let payment = getPaymentTotalForMember(memberId);
-    member.linkedMembers.forEach(linkedId => {
-        payment += getPaymentTotalForMember(linkedId);
-    });
-    const paymentPerPerson = payment / numMembers;
-
-    const emailMessage = settings.emailMessage
-        .replace(/%billing_year%/g, currentYear)
-        .replace(/%annual_total%/g, `$${combinedTotal.toFixed(2)}`)
-        .replace(/%total/g, `$${combinedTotal.toFixed(2)}`)
-        .replace(/%payment_methods%/g, formatPaymentOptionsText());
-    let invoiceText = `Hello ${firstName},\n\n${emailMessage}\n\n`;
-    invoiceText += `======================================\n`;
-    invoiceText += `ANNUAL BILLING SUMMARY - ${currentYear}\n`;
-    invoiceText += `======================================\n\n`;
-    invoiceText += `Primary: ${member.name}\n`;
-
-    if (linkedMembersData.length > 0) {
-        invoiceText += `Linked Members: ${linkedMembersData.map(d => d.member.name).join(', ')}\n`;
-    }
-    invoiceText += `Invoice Date: ${new Date().toLocaleDateString()}\n\n`;
-
-    // Bill breakdown for primary member
-    if (memberData && memberData.bills.length > 0) {
-        invoiceText += `${member.name.toUpperCase()}'S BILLS:\n`;
-        invoiceText += `${'='.repeat(80)}\n`;
-        invoiceText += `${'Bill'.padEnd(25)} ${'Amount'.padEnd(14)} ${'Split'.padEnd(8)} ${'Your Share'.padEnd(14)} ${'Annual'}\n`;
-        invoiceText += `${'-'.repeat(80)}\n`;
-
-        let monthlyTotal = 0;
-        memberData.bills.forEach(billData => {
-            const billName = billData.bill.name.padEnd(25).substring(0, 25);
-            const isAnnual = billData.bill.billingFrequency === 'annual';
-            const billAmount = isAnnual
-                ? `$${billData.bill.amount.toFixed(2)} / year`.padEnd(18)
-                : `$${billData.bill.amount.toFixed(2)} / month`.padEnd(18);
-            const splitWith = `${billData.bill.members.length} ppl`.padEnd(8);
-            const yourShare = `$${billData.monthlyShare.toFixed(2)} / month`.padEnd(18);
-            const annual = `$${billData.annualShare.toFixed(2)}`;
-
-            invoiceText += `${billName} ${billAmount} ${splitWith} ${yourShare} ${annual}\n`;
-            monthlyTotal += billData.monthlyShare;
-        });
-
-        invoiceText += `${'-'.repeat(80)}\n`;
-        invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)} / month = $${memberData.total.toFixed(2)} / year\n`;
-        invoiceText += `${'='.repeat(80)}\n\n`;
-    }
-
-    // Bill breakdown for each linked member
-    linkedMembersData.forEach(linkedData => {
-        if (linkedData.bills.length > 0) {
-            invoiceText += `${linkedData.member.name.toUpperCase()}'S BILLS:\n`;
-            invoiceText += `${'='.repeat(80)}\n`;
-            invoiceText += `${'Bill'.padEnd(25)} ${'Amount'.padEnd(14)} ${'Split'.padEnd(8)} ${'Their Share'.padEnd(14)} ${'Annual'}\n`;
-            invoiceText += `${'-'.repeat(80)}\n`;
-
-            let monthlyTotal = 0;
-            linkedData.bills.forEach(billData => {
-                const billName = billData.bill.name.padEnd(25).substring(0, 25);
-                const isAnnual = billData.bill.billingFrequency === 'annual';
-                const billAmount = isAnnual
-                    ? `$${billData.bill.amount.toFixed(2)} / year`.padEnd(18)
-                    : `$${billData.bill.amount.toFixed(2)} / month`.padEnd(18);
-                const splitWith = `${billData.bill.members.length} ppl`.padEnd(8);
-                const theirShare = `$${billData.monthlyShare.toFixed(2)} / month`.padEnd(18);
-                const annual = `$${billData.annualShare.toFixed(2)}`;
-
-                invoiceText += `${billName} ${billAmount} ${splitWith} ${theirShare} ${annual}\n`;
-                monthlyTotal += billData.monthlyShare;
-            });
-
-            invoiceText += `${'-'.repeat(80)}\n`;
-            invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)} / month = $${linkedData.total.toFixed(2)} / year\n`;
-            invoiceText += `${'='.repeat(80)}\n\n`;
-        }
-    });
-
-    const balance = combinedTotal - payment;
-
-    invoiceText += `ANNUAL PAYMENT SUMMARY:\n`;
-    invoiceText += `${'='.repeat(80)}\n`;
-    invoiceText += `  Combined Annual Total:         $${combinedTotal.toFixed(2)}\n`;
-    if (payment > 0) {
-        invoiceText += `  Payment Received:              $${payment.toFixed(2)}\n`;
-        invoiceText += `  Payment Per Person (${numMembers} members):   $${paymentPerPerson.toFixed(2)}\n`;
-        invoiceText += `  Balance Remaining:             $${balance.toFixed(2)}\n`;
-    } else {
-        invoiceText += `  Payment Received:              $0.00\n`;
-        invoiceText += `  Balance Remaining:             $${balance.toFixed(2)}\n`;
-    }
-    invoiceText += `${'='.repeat(80)}\n`;
-
-    const paymentOptionsText = formatPaymentOptionsText();
-    if (paymentOptionsText) {
-        invoiceText += paymentOptionsText;
-    }
-
-    invoiceText += `\n\nThank you for your prompt payment!\n`;
-
-    // Create mailto link with plain text invoice
-    const subject = `Annual Billing Summary ${currentYear}`;
-    const mailtoLink = `mailto:${member.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(invoiceText)}`;
-
-    // Open email client
-    window.location.href = mailtoLink;
-
-    // Analytics: Track invoice sent
-    if (analytics) {
-        analytics.logEvent('invoice_sent', {
-            has_linked_members: linkedMembersData.length > 0,
-            num_linked_members: linkedMembersData.length,
-            total_amount: combinedTotal,
-            has_payment: payment > 0
-        });
-    }
-}
-
-async function showTextInvoiceDialog(memberId, shareUrl) {
-    const member = familyMembers.find(m => m.id === memberId);
-    if (!member) return;
+    if (!member) return null;
 
     const summary = calculateAnnualSummary();
     const memberData = summary[memberId];
@@ -3558,20 +3414,211 @@ async function showTextInvoiceDialog(memberId, shareUrl) {
     const firstName = member.name.split(' ')[0];
     const amountStr = balance > 0 ? '$' + balance.toFixed(2) : '$' + combinedTotal.toFixed(2);
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
+    const numMembers = 1 + member.linkedMembers.length;
+
+    return { member, firstName, combinedTotal, payment, balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers };
+}
+
+function buildInvoiceSubject(year, member) {
+    return 'Annual Billing Summary ' + year + ' \u2014 ' + member.name;
+}
+
+function buildInvoiceBody(ctx, variant, shareUrl, channel) {
+    const { firstName, amountStr, amountLabel, currentYear } = ctx;
+    const isEmail = channel === 'email';
+
+    if (variant === 'link-cta') {
+        if (!shareUrl) return 'Your ' + currentYear + ' billing summary is ready. Total: ' + amountStr + '.';
+        return 'Your ' + currentYear + ' billing summary is ready: ' + shareUrl;
+    }
+
+    if (variant === 'text-only') {
+        const greeting = isEmail ? 'Hello' : 'Hey';
+        return greeting + ' ' + firstName + ' \u2014 your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
+    }
+
+    if (variant === 'full') {
+        return buildFullInvoiceText(ctx, shareUrl);
+    }
+
+    // Default: text-link
+    const greeting = isEmail ? 'Hello' : 'Hey';
+    let msg = greeting + ' ' + firstName + ' \u2014 your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.';
+    if (shareUrl) {
+        msg += '\n\nView & pay here: ' + shareUrl;
+    }
+    msg += '\n\nThanks!';
+    return msg;
+}
+
+function buildFullInvoiceText(ctx, shareUrl) {
+    const { member, firstName, combinedTotal, payment, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
+    const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
+
+    const emailMessage = settings.emailMessage
+        .replace(/%billing_year%/g, currentYear)
+        .replace(/%annual_total%/g, '$' + combinedTotal.toFixed(2))
+        .replace(/%total/g, '$' + combinedTotal.toFixed(2))
+        .replace(/%payment_methods%/g, formatPaymentOptionsText());
+    let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
+    text += '======================================\n';
+    text += 'ANNUAL BILLING SUMMARY - ' + currentYear + '\n';
+    text += '======================================\n\n';
+    text += 'Primary: ' + member.name + '\n';
+
+    if (linkedMembersData.length > 0) {
+        text += 'Linked Members: ' + linkedMembersData.map(d => d.member.name).join(', ') + '\n';
+    }
+    text += 'Invoice Date: ' + new Date().toLocaleDateString() + '\n\n';
+
+    if (memberData && memberData.bills.length > 0) {
+        text += member.name.toUpperCase() + "'S BILLS:\n";
+        text += '='.repeat(80) + '\n';
+        text += 'Bill'.padEnd(25) + ' ' + 'Amount'.padEnd(14) + ' ' + 'Split'.padEnd(8) + ' ' + 'Your Share'.padEnd(14) + ' ' + 'Annual' + '\n';
+        text += '-'.repeat(80) + '\n';
+
+        let monthlyTotal = 0;
+        memberData.bills.forEach(billData => {
+            const billName = billData.bill.name.padEnd(25).substring(0, 25);
+            const isAnnual = billData.bill.billingFrequency === 'annual';
+            const billAmount = isAnnual
+                ? ('$' + billData.bill.amount.toFixed(2) + ' / year').padEnd(18)
+                : ('$' + billData.bill.amount.toFixed(2) + ' / month').padEnd(18);
+            const splitWith = (billData.bill.members.length + ' ppl').padEnd(8);
+            const yourShare = ('$' + billData.monthlyShare.toFixed(2) + ' / month').padEnd(18);
+            const annual = '$' + billData.annualShare.toFixed(2);
+            text += billName + ' ' + billAmount + ' ' + splitWith + ' ' + yourShare + ' ' + annual + '\n';
+            monthlyTotal += billData.monthlyShare;
+        });
+
+        text += '-'.repeat(80) + '\n';
+        text += 'SUBTOTAL: $' + monthlyTotal.toFixed(2) + ' / month = $' + memberData.total.toFixed(2) + ' / year\n';
+        text += '='.repeat(80) + '\n\n';
+    }
+
+    linkedMembersData.forEach(linkedData => {
+        if (linkedData.bills.length > 0) {
+            text += linkedData.member.name.toUpperCase() + "'S BILLS:\n";
+            text += '='.repeat(80) + '\n';
+            text += 'Bill'.padEnd(25) + ' ' + 'Amount'.padEnd(14) + ' ' + 'Split'.padEnd(8) + ' ' + 'Their Share'.padEnd(14) + ' ' + 'Annual' + '\n';
+            text += '-'.repeat(80) + '\n';
+
+            let monthlyTotal = 0;
+            linkedData.bills.forEach(billData => {
+                const billName = billData.bill.name.padEnd(25).substring(0, 25);
+                const isAnnual = billData.bill.billingFrequency === 'annual';
+                const billAmount = isAnnual
+                    ? ('$' + billData.bill.amount.toFixed(2) + ' / year').padEnd(18)
+                    : ('$' + billData.bill.amount.toFixed(2) + ' / month').padEnd(18);
+                const splitWith = (billData.bill.members.length + ' ppl').padEnd(8);
+                const theirShare = ('$' + billData.monthlyShare.toFixed(2) + ' / month').padEnd(18);
+                const annual = '$' + billData.annualShare.toFixed(2);
+                text += billName + ' ' + billAmount + ' ' + splitWith + ' ' + theirShare + ' ' + annual + '\n';
+                monthlyTotal += billData.monthlyShare;
+            });
+
+            text += '-'.repeat(80) + '\n';
+            text += 'SUBTOTAL: $' + monthlyTotal.toFixed(2) + ' / month = $' + linkedData.total.toFixed(2) + ' / year\n';
+            text += '='.repeat(80) + '\n\n';
+        }
+    });
+
+    text += 'ANNUAL PAYMENT SUMMARY:\n';
+    text += '='.repeat(80) + '\n';
+    text += '  Combined Annual Total:         $' + combinedTotal.toFixed(2) + '\n';
+    if (payment > 0) {
+        text += '  Payment Received:              $' + payment.toFixed(2) + '\n';
+        text += '  Payment Per Person (' + numMembers + ' members):   $' + paymentPerPerson.toFixed(2) + '\n';
+        text += '  Balance Remaining:             $' + balance.toFixed(2) + '\n';
+    } else {
+        text += '  Payment Received:              $0.00\n';
+        text += '  Balance Remaining:             $' + balance.toFixed(2) + '\n';
+    }
+    text += '='.repeat(80) + '\n';
+
+    const paymentOptionsText = formatPaymentOptionsText();
+    if (paymentOptionsText) {
+        text += paymentOptionsText;
+    }
+
+    if (shareUrl) {
+        text += '\nView your billing summary online: ' + shareUrl + '\n';
+    }
+
+    text += '\n\nThank you for your prompt payment!\n';
+    return text;
+}
+
+function buildSmsDeepLink(phone, body) {
+    const encodedBody = encodeURIComponent(body);
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const recipient = phone || '';
+    if (/iPhone|iPad|iPod/.test(ua)) return 'sms:' + recipient + '&body=' + encodedBody;
+    if (/Android/.test(ua)) return 'sms:' + recipient + '?body=' + encodedBody;
+    return null;
+}
+
+function openSmsComposer(phone, body) {
+    const link = buildSmsDeepLink(phone, body);
+    if (link) {
+        window.location.href = link;
+    } else {
+        navigator.clipboard.writeText(body).then(function() {
+            showChangeToast('Message copied \u2014 paste into your messaging app');
+        });
+    }
+}
+
+function updateInvoiceVariant(variant, channel) {
+    const state = _invoiceDialogState;
+    if (!state.ctx) return;
+    state.variant = variant;
+    const body = buildInvoiceBody(state.ctx, variant, state.shareUrl, channel);
+    const textareaId = channel === 'email' ? 'emailInvoiceMessage' : 'textInvoiceMessage';
+    const textarea = document.getElementById(textareaId);
+    if (textarea) textarea.value = body;
+}
+
+// ──────────────── Invoice Dialogs ────────────────
+
+// Opens the mail client with subject/body from the Email Invoice dialog
+function sendIndividualInvoice(memberId) {
+    const ctx = getInvoiceSummaryContext(memberId);
+    if (!ctx || !ctx.member.email) return;
+
+    const subjectInput = document.getElementById('emailInvoiceSubject');
+    const bodyTextarea = document.getElementById('emailInvoiceMessage');
+    if (!subjectInput || !bodyTextarea) return;
+
+    const subject = subjectInput.value;
+    const body = bodyTextarea.value;
+    const mailtoLink = `mailto:${ctx.member.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoLink;
+
+    if (analytics) {
+        analytics.logEvent('invoice_sent', {
+            has_linked_members: ctx.linkedMembersData.length > 0,
+            num_linked_members: ctx.linkedMembersData.length,
+            total_amount: ctx.combinedTotal,
+            has_payment: ctx.payment > 0
+        });
+    }
+}
+
+async function showTextInvoiceDialog(memberId, shareUrl) {
+    const ctx = getInvoiceSummaryContext(memberId);
+    if (!ctx) return;
 
     if (!shareUrl) shareUrl = '';
+    const defaultVariant = shareUrl ? 'text-link' : 'text-only';
+    const defaultMsg = buildInvoiceBody(ctx, defaultVariant, shareUrl, 'sms');
 
-    const defaultMsg = shareUrl
-        ? `Hey ${firstName} — your annual shared bills for ${currentYear} are ready. Your ${amountLabel} is ${amountStr}. You can review and pay here: ${shareUrl}. Thanks!`
-        : `Hey ${firstName} — your annual shared bills for ${currentYear} are ready. Your ${amountLabel} is ${amountStr}. Thanks!`;
+    _invoiceDialogState = { ctx: ctx, shareUrl: shareUrl, memberId: memberId, variant: defaultVariant };
 
     ensureDialogContainer();
     const overlay = document.getElementById('payment-dialog-overlay');
     const dialog = document.getElementById('payment-dialog');
     if (!overlay || !dialog) return;
-
-    const phoneNumber = member.phone || '';
-    const smsHref = phoneNumber ? 'sms:' + encodeURIComponent(phoneNumber) : '';
 
     let shareLinkHtml;
     if (shareUrl) {
@@ -3580,17 +3627,33 @@ async function showTextInvoiceDialog(memberId, shareUrl) {
         shareLinkHtml = `<div class="text-invoice-stat" id="textInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" id="textInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
     }
 
+    const variants = [
+        { value: 'text-only', label: 'Text only' },
+        { value: 'text-link', label: 'Text + link' },
+        { value: 'link-cta', label: 'Link + CTA' },
+    ];
+    let variantHtml = '<div class="invoice-variant-selector">';
+    variants.forEach(opt => {
+        const checked = opt.value === defaultVariant ? ' checked' : '';
+        variantHtml += `<label class="invoice-variant-option${opt.value === defaultVariant ? ' active' : ''}"><input type="radio" name="textInvoiceVariant" value="${opt.value}"${checked} onchange="updateInvoiceVariant('${opt.value}', 'sms'); this.closest('.invoice-variant-selector').querySelectorAll('.invoice-variant-option').forEach(l => l.classList.remove('active')); this.closest('.invoice-variant-option').classList.add('active');">${escapeHtml(opt.label)}</label>`;
+    });
+    variantHtml += '</div>';
+
     dialog.innerHTML = `
         <div class="dialog-header">
-            <h3>Text Invoice: ${escapeHtml(member.name)}</h3>
+            <h3>Text Invoice: ${escapeHtml(ctx.member.name)}</h3>
             <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
         </div>
         <div class="dialog-body">
             <div class="text-invoice-summary">
-                <div class="text-invoice-stat"><span class="label">Recipient</span><span class="value">${escapeHtml(member.name)}</span></div>
-                <div class="text-invoice-stat"><span class="label">Annual Total</span><span class="value">$${combinedTotal.toFixed(2)}</span></div>
-                ${payment > 0 ? `<div class="text-invoice-stat"><span class="label">Balance</span><span class="value">$${balance.toFixed(2)}</span></div>` : ''}
+                <div class="text-invoice-stat"><span class="label">Recipient</span><span class="value">${escapeHtml(ctx.member.name)}</span></div>
+                <div class="text-invoice-stat"><span class="label">Annual Total</span><span class="value">$${ctx.combinedTotal.toFixed(2)}</span></div>
+                ${ctx.payment > 0 ? `<div class="text-invoice-stat"><span class="label">Balance</span><span class="value">$${ctx.balance.toFixed(2)}</span></div>` : ''}
                 ${shareLinkHtml}
+            </div>
+            <div class="form-group mt-3">
+                <label>Message format</label>
+                ${variantHtml}
             </div>
             <div class="form-group mt-3">
                 <label for="textInvoiceMessage">Message</label>
@@ -3600,7 +3663,7 @@ async function showTextInvoiceDialog(memberId, shareUrl) {
         <div class="dialog-footer" style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn btn-primary" onclick="copyTextInvoiceMessage()">Copy Message</button>
             ${shareUrl ? `<button class="btn btn-secondary" onclick="copyTextInvoiceLink('${escapeHtml(shareUrl)}')">Copy Link</button>` : ''}
-            ${smsHref ? `<a class="btn btn-secondary" href="${smsHref}" target="_blank" rel="noopener">Open Messages</a>` : ''}
+            <button class="btn btn-secondary" onclick="openSmsComposer('${escapeHtml(ctx.member.phone || '')}', document.getElementById('textInvoiceMessage').value)">Open Messages</button>
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
         </div>
     `;
@@ -3610,16 +3673,16 @@ async function showTextInvoiceDialog(memberId, shareUrl) {
     if (genLink) {
         genLink.addEventListener('click', function(e) {
             e.preventDefault();
-            generateShareLinkForTextInvoice(memberId);
+            generateShareLinkForInvoiceDialog(memberId, showTextInvoiceDialog);
         });
     }
 }
 
-async function generateShareLinkForTextInvoice(memberId) {
+async function generateShareLinkForInvoiceDialog(memberId, dialogFn) {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member || !currentUser || !currentBillingYear) return;
 
-    const row = document.getElementById('textInvoiceShareRow');
+    const row = document.getElementById('textInvoiceShareRow') || document.getElementById('emailInvoiceShareRow');
     if (row) {
         row.querySelector('.value').innerHTML = '<em>Generating link\u2026</em>';
     }
@@ -3655,22 +3718,15 @@ async function generateShareLinkForTextInvoice(memberId) {
             analytics.logEvent('share_link_generated', {
                 has_expiry: false,
                 billing_year: currentBillingYear.label,
-                source: 'text_invoice'
+                source: 'invoice_dialog'
             });
         }
 
-        showTextInvoiceDialog(memberId, shareUrl);
+        dialogFn(memberId, shareUrl);
     } catch (error) {
-        console.error('Error generating share link for text invoice:', error);
+        console.error('Error generating share link for invoice:', error);
         if (row) {
-            row.querySelector('.value').innerHTML = 'Error — <a href="#" id="textInvoiceGenerateLink" data-member-id="' + memberId + '">try again</a>';
-            const retryLink = document.getElementById('textInvoiceGenerateLink');
-            if (retryLink) {
-                retryLink.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    generateShareLinkForTextInvoice(memberId);
-                });
-            }
+            row.querySelector('.value').innerHTML = 'Error \u2014 please close and try again';
         }
     }
 }
@@ -3686,6 +3742,103 @@ function copyTextInvoiceMessage() {
 function copyTextInvoiceLink(url) {
     navigator.clipboard.writeText(url).then(function() {
         showChangeToast('Share link copied to clipboard');
+    });
+}
+
+async function showEmailInvoiceDialog(memberId, shareUrl) {
+    const ctx = getInvoiceSummaryContext(memberId);
+    if (!ctx) return;
+
+    if (!ctx.member.email) {
+        alert(ctx.member.name + ' does not have an email address set. Please add one first.');
+        return;
+    }
+
+    if (ctx.combinedTotal === 0) {
+        alert(ctx.member.name + ' has no bills to invoice.');
+        return;
+    }
+
+    if (!shareUrl) shareUrl = '';
+    const defaultVariant = shareUrl ? 'text-link' : 'text-only';
+    const defaultBody = buildInvoiceBody(ctx, defaultVariant, shareUrl, 'email');
+    const defaultSubject = buildInvoiceSubject(ctx.currentYear, ctx.member);
+
+    _invoiceDialogState = { ctx: ctx, shareUrl: shareUrl, memberId: memberId, variant: defaultVariant };
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    let shareLinkHtml;
+    if (shareUrl) {
+        shareLinkHtml = `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-invoice-link">${escapeHtml(shareUrl)}</span></div>`;
+    } else {
+        shareLinkHtml = `<div class="text-invoice-stat" id="emailInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" id="emailInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
+    }
+
+    const variants = [
+        { value: 'text-only', label: 'Text only' },
+        { value: 'text-link', label: 'Text + link' },
+        { value: 'link-cta', label: 'Link + CTA' },
+        { value: 'full', label: 'Full invoice' },
+    ];
+    let variantHtml = '<div class="invoice-variant-selector">';
+    variants.forEach(opt => {
+        const checked = opt.value === defaultVariant ? ' checked' : '';
+        variantHtml += `<label class="invoice-variant-option${opt.value === defaultVariant ? ' active' : ''}"><input type="radio" name="emailInvoiceVariant" value="${opt.value}"${checked} onchange="updateInvoiceVariant('${opt.value}', 'email'); this.closest('.invoice-variant-selector').querySelectorAll('.invoice-variant-option').forEach(l => l.classList.remove('active')); this.closest('.invoice-variant-option').classList.add('active');">${escapeHtml(opt.label)}</label>`;
+    });
+    variantHtml += '</div>';
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Email Invoice: ${escapeHtml(ctx.member.name)}</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div class="text-invoice-summary">
+                <div class="text-invoice-stat"><span class="label">Recipient</span><span class="value">${escapeHtml(ctx.member.name)}</span></div>
+                <div class="text-invoice-stat"><span class="label">Email</span><span class="value">${escapeHtml(ctx.member.email)}</span></div>
+                <div class="text-invoice-stat"><span class="label">Annual Total</span><span class="value">$${ctx.combinedTotal.toFixed(2)}</span></div>
+                ${ctx.payment > 0 ? `<div class="text-invoice-stat"><span class="label">Balance</span><span class="value">$${ctx.balance.toFixed(2)}</span></div>` : ''}
+                ${shareLinkHtml}
+            </div>
+            <div class="form-group mt-3">
+                <label>Message format</label>
+                ${variantHtml}
+            </div>
+            <div class="form-group mt-3">
+                <label for="emailInvoiceSubject">Subject</label>
+                <input type="text" id="emailInvoiceSubject" class="invoice-subject-input" value="${escapeHtml(defaultSubject)}">
+            </div>
+            <div class="form-group mt-3">
+                <label for="emailInvoiceMessage">Body</label>
+                <textarea id="emailInvoiceMessage" rows="8" style="width:100%;font-size:0.95rem;">${escapeHtml(defaultBody)}</textarea>
+            </div>
+        </div>
+        <div class="dialog-footer" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="copyEmailInvoiceMessage()">Copy Email</button>
+            <button class="btn btn-secondary" onclick="sendIndividualInvoice(${memberId})">Open Mail App</button>
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
+        </div>
+    `;
+    overlay.classList.add('visible');
+
+    const genLink = document.getElementById('emailInvoiceGenerateLink');
+    if (genLink) {
+        genLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            generateShareLinkForInvoiceDialog(memberId, showEmailInvoiceDialog);
+        });
+    }
+}
+
+function copyEmailInvoiceMessage() {
+    const textarea = document.getElementById('emailInvoiceMessage');
+    if (!textarea) return;
+    navigator.clipboard.writeText(textarea.value).then(function() {
+        showChangeToast('Email body copied to clipboard');
     });
 }
 

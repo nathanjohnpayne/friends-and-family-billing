@@ -3406,3 +3406,284 @@ describe('refreshPublicShares cleanup', () => {
     });
 });
 
+// ──────────────── Invoice Composer Helpers ────────────────
+
+describe('getInvoiceSummaryContext', () => {
+    it('returns null for unknown memberId', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', []);
+        assert.equal(ctx.getInvoiceSummaryContext(999), null);
+    });
+
+    it('returns correct context for a member with bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+15551234567', avatar: '', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', members: [1], logo: '', website: '' },
+        ]);
+        ctx._set('payments', []);
+
+        const result = ctx.getInvoiceSummaryContext(1);
+        assert.ok(result);
+        assert.equal(result.member.id, 1);
+        assert.equal(result.firstName, 'Alice');
+        assert.equal(result.combinedTotal, 180);
+        assert.equal(result.payment, 0);
+        assert.equal(result.balance, 180);
+        assert.equal(result.amountStr, '$180.00');
+        assert.equal(result.amountLabel, 'total');
+        assert.equal(result.currentYear, '2026');
+        assert.equal(result.numMembers, 1);
+    });
+
+    it('includes linked member totals', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [2] },
+            { id: 2, name: 'Child', email: '', phone: '', avatar: '', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 10, billingFrequency: 'monthly', members: [1, 2], logo: '', website: '' },
+        ]);
+        ctx._set('payments', []);
+
+        const result = ctx.getInvoiceSummaryContext(1);
+        assert.equal(result.combinedTotal, 120);
+        assert.equal(result.numMembers, 2);
+        assert.equal(result.linkedMembersData.length, 1);
+    });
+
+    it('computes balance when payments exist', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Hulu', amount: 120, billingFrequency: 'annual', members: [1], logo: '', website: '' },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 50, receivedAt: '2026-01-01', note: '', method: 'cash' },
+        ]);
+
+        const result = ctx.getInvoiceSummaryContext(1);
+        assert.equal(result.combinedTotal, 120);
+        assert.equal(result.payment, 50);
+        assert.equal(result.balance, 70);
+        assert.equal(result.amountStr, '$70.00');
+        assert.equal(result.amountLabel, 'remaining balance');
+    });
+});
+
+describe('buildInvoiceSubject', () => {
+    it('returns formatted subject with year and member name', () => {
+        const ctx = createContext();
+        const result = ctx.buildInvoiceSubject('2026', { name: 'Alice Smith' });
+        assert.ok(result.includes('2026'));
+        assert.ok(result.includes('Alice Smith'));
+        assert.ok(result.includes('Annual Billing Summary'));
+    });
+});
+
+describe('buildInvoiceBody', () => {
+    function makeCtx() {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '', avatar: '', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', members: [1], logo: '', website: '' },
+        ]);
+        ctx._set('payments', []);
+        return ctx;
+    }
+
+    it('text-only variant includes greeting and amount, no link', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'text-only', 'https://example.com/share', 'sms');
+        assert.ok(body.includes('Alice'));
+        assert.ok(body.includes('$180.00'));
+        assert.ok(!body.includes('https://example.com/share'));
+        assert.ok(body.startsWith('Hey'));
+    });
+
+    it('text-only email variant uses Hello greeting', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'text-only', '', 'email');
+        assert.ok(body.startsWith('Hello'));
+    });
+
+    it('text-link variant includes greeting and link', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'text-link', 'https://example.com/share', 'sms');
+        assert.ok(body.includes('Alice'));
+        assert.ok(body.includes('$180.00'));
+        assert.ok(body.includes('https://example.com/share'));
+    });
+
+    it('text-link variant without shareUrl omits link', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'text-link', '', 'sms');
+        assert.ok(body.includes('Alice'));
+        assert.ok(!body.includes('View & pay'));
+    });
+
+    it('link-cta variant is compact with link', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'link-cta', 'https://example.com/share', 'sms');
+        assert.ok(body.includes('https://example.com/share'));
+        assert.ok(body.includes('ready'));
+        assert.ok(!body.includes('Alice'));
+    });
+
+    it('link-cta variant without shareUrl falls back gracefully', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'link-cta', '', 'sms');
+        assert.ok(body.includes('$180.00'));
+        assert.ok(!body.includes('undefined'));
+    });
+
+    it('full variant produces detailed invoice text', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'full', '', 'email');
+        assert.ok(body.includes('ANNUAL BILLING SUMMARY'));
+        assert.ok(body.includes('Netflix'));
+        assert.ok(body.includes('$180.00'));
+        assert.ok(body.includes('Thank you'));
+    });
+
+    it('full variant includes share link when provided', () => {
+        const ctx = makeCtx();
+        const summary = ctx.getInvoiceSummaryContext(1);
+        const body = ctx.buildInvoiceBody(summary, 'full', 'https://example.com/share', 'email');
+        assert.ok(body.includes('https://example.com/share'));
+    });
+});
+
+describe('buildSmsDeepLink', () => {
+    it('returns iOS format when user agent is iPhone', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink('+15551234567', 'Hello');
+        assert.ok(result.startsWith('sms:+15551234567&body='));
+        assert.ok(result.includes(encodeURIComponent('Hello')));
+    });
+
+    it('returns Android format when user agent is Android', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (Linux; Android 14)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink('+15551234567', 'Hello');
+        assert.ok(result.startsWith('sms:+15551234567?body='));
+        assert.ok(result.includes(encodeURIComponent('Hello')));
+    });
+
+    it('returns null for desktop user agent', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink('+15551234567', 'Hello');
+        assert.equal(result, null);
+    });
+
+    it('handles missing phone number on iOS', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink('', 'Test message');
+        assert.ok(result.startsWith('sms:&body='));
+    });
+
+    it('handles missing phone number on Android', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (Linux; Android 14)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink(null, 'Test message');
+        assert.ok(result.startsWith('sms:?body='));
+    });
+
+    it('handles undefined userAgent gracefully', () => {
+        const ctx = createContext({
+            navigator: {
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        const result = ctx.buildSmsDeepLink('+15551234567', 'Hello');
+        assert.equal(result, null);
+    });
+});
+
+describe('openSmsComposer', () => {
+    it('navigates via location.href on iOS', () => {
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)',
+                clipboard: { writeText: () => Promise.resolve() },
+            },
+        });
+        ctx.openSmsComposer('+15551234567', 'Hello');
+        assert.ok(ctx.window.location.href.startsWith('sms:'));
+    });
+
+    it('copies to clipboard on desktop fallback', async () => {
+        let copiedText = '';
+        const ctx = createContext({
+            navigator: {
+                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+                clipboard: { writeText: (text) => { copiedText = text; return Promise.resolve(); } },
+            },
+        });
+        ctx.openSmsComposer('+15551234567', 'Hello there');
+        assert.equal(copiedText, 'Hello there');
+    });
+});
+
+describe('updateInvoiceVariant', () => {
+    it('updates textarea value for sms channel', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', members: [1], logo: '', website: '' },
+        ]);
+        ctx._set('payments', []);
+
+        const summary = ctx.getInvoiceSummaryContext(1);
+        ctx._invoiceDialogState = { ctx: summary, shareUrl: 'https://example.com', memberId: 1, variant: 'text-only' };
+
+        let textareaValue = '';
+        ctx.document.getElementById = (id) => {
+            if (id === 'textInvoiceMessage') return { get value() { return textareaValue; }, set value(v) { textareaValue = v; } };
+            return { innerHTML: '', textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false } };
+        };
+
+        ctx.updateInvoiceVariant('text-link', 'sms');
+        assert.ok(textareaValue.includes('https://example.com'));
+    });
+});
+
