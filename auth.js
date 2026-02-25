@@ -1,21 +1,14 @@
 // Authentication handling
 
-function switchTab(tab) {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.tab === tab);
-    });
-
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(`${tab}-tab`).classList.add('active');
-
+function showAuthForm(form) {
+    document.getElementById('login-form-container').classList.toggle('active', form === 'login');
+    document.getElementById('signup-form-container').classList.toggle('active', form === 'signup');
     hideMessages();
 }
 
 function showError(message) {
     const errorDiv = document.getElementById('error-message');
-    errorDiv.textContent = message;
+    errorDiv.innerHTML = message;
     errorDiv.style.display = 'block';
     document.getElementById('success-message').style.display = 'none';
 }
@@ -42,12 +35,10 @@ async function handleLogin(event) {
     try {
         await auth.signInWithEmailAndPassword(email, password);
 
-        // Analytics: Track login
         if (analytics) {
             analytics.logEvent('login', { method: 'email' });
         }
 
-        // Redirect to main app
         window.location.href = 'index.html';
     } catch (error) {
         console.error('Login error details:', error);
@@ -65,22 +56,19 @@ async function handleSignup(event) {
     const password = document.getElementById('signup-password').value;
     const confirmPassword = document.getElementById('signup-password-confirm').value;
 
-    // Validate passwords match
     if (password !== confirmPassword) {
-        showError('Passwords do not match');
+        showError('Passwords do not match.');
         return;
     }
 
     try {
         await auth.createUserWithEmailAndPassword(email, password);
 
-        // Analytics: Track signup
         if (analytics) {
             analytics.logEvent('sign_up', { method: 'email' });
         }
 
         showSuccess('Account created successfully! Redirecting...');
-        // Redirect to main app after 1 second
         setTimeout(() => {
             window.location.href = 'index.html';
         }, 1000);
@@ -92,20 +80,46 @@ async function handleSignup(event) {
     }
 }
 
+async function handleForgotPassword() {
+    hideMessages();
+
+    const email = document.getElementById('login-email').value.trim();
+    if (!email) {
+        showError('Enter your email address above, then click "Forgot password?" again.');
+        return;
+    }
+
+    try {
+        await auth.sendPasswordResetEmail(email);
+        showSuccess('Password reset email sent to ' + email + '. Check your inbox.');
+    } catch (error) {
+        console.error('Password reset error:', error);
+        if (error.code === 'auth/user-not-found') {
+            showError('No account found with this email. This account may have been created using Google Sign\u2011In.');
+        } else if (error.code === 'auth/invalid-email') {
+            showError('Please enter a valid email address.');
+        } else {
+            showError('Unable to send reset email. Please try again.');
+        }
+    }
+}
+
 function getErrorMessage(errorCode) {
     switch (errorCode) {
         case 'auth/email-already-in-use':
-            return 'This email is already registered. Please login instead.';
+            return 'This email is already registered. Try signing in instead.';
         case 'auth/invalid-email':
             return 'Invalid email address.';
         case 'auth/user-not-found':
-            return 'No account found with this email.';
+            return 'No account found with this email. This account may have been created using Google Sign\u2011In.';
         case 'auth/wrong-password':
-            return 'Incorrect password.';
+            return 'Incorrect password. <a onclick="handleForgotPassword()" style="color:#dc2626;text-decoration:underline;cursor:pointer">Reset it?</a>';
         case 'auth/weak-password':
             return 'Password should be at least 6 characters.';
         case 'auth/network-request-failed':
             return 'Network error. Please check your connection.';
+        case 'auth/invalid-credential':
+            return 'Invalid credentials. This account may have been created using Google Sign\u2011In.';
         default:
             return 'An error occurred. Please try again.';
     }
@@ -118,13 +132,11 @@ async function handleGoogleSignIn() {
         const provider = new firebase.auth.GoogleAuthProvider();
         const result = await auth.signInWithPopup(provider);
 
-        // Analytics: Track Google sign-in
         if (analytics) {
             const isNewUser = result.additionalUserInfo?.isNewUser || false;
             analytics.logEvent(isNewUser ? 'sign_up' : 'login', { method: 'google' });
         }
 
-        // Redirect to main app
         window.location.href = 'index.html';
     } catch (error) {
         console.error('Google sign-in error details:', error);
@@ -142,10 +154,8 @@ async function handleGoogleSignIn() {
     }
 }
 
-// Check if user is already logged in
 auth.onAuthStateChanged(user => {
     if (user && window.location.pathname.includes('login.html')) {
-        // User is logged in, redirect to main app
         window.location.href = 'index.html';
     }
 });
