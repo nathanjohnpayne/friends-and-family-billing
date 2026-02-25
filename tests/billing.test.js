@@ -2236,3 +2236,295 @@ describe('showChangeToast', () => {
     });
 });
 
+// ──────────────── Billing Frequency Helpers ─────────────────────
+
+describe('getBillAnnualAmount', () => {
+    it('returns amount * 12 for monthly bills', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillAnnualAmount({ amount: 10, billingFrequency: 'monthly' }), 120);
+    });
+
+    it('returns amount as-is for annual bills', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillAnnualAmount({ amount: 139.99, billingFrequency: 'annual' }), 139.99);
+    });
+
+    it('defaults to monthly when billingFrequency is undefined', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillAnnualAmount({ amount: 10 }), 120);
+    });
+});
+
+describe('getBillMonthlyAmount', () => {
+    it('returns amount as-is for monthly bills', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillMonthlyAmount({ amount: 10, billingFrequency: 'monthly' }), 10);
+    });
+
+    it('returns amount / 12 for annual bills', () => {
+        const ctx = createContext();
+        const result = ctx.getBillMonthlyAmount({ amount: 120, billingFrequency: 'annual' });
+        assert.equal(result, 10);
+    });
+
+    it('defaults to monthly when billingFrequency is undefined', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillMonthlyAmount({ amount: 15 }), 15);
+    });
+});
+
+describe('getBillFrequencyLabel', () => {
+    it('returns /mo for monthly bills', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'monthly' }), '/mo');
+    });
+
+    it('returns /yr for annual bills', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'annual' }), '/yr');
+    });
+
+    it('returns /mo when billingFrequency is undefined', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillFrequencyLabel({}), '/mo');
+    });
+});
+
+// ──────────────── calculateAnnualSummary with billing frequency ─────────
+
+describe('calculateAnnualSummary with billing frequency', () => {
+    it('calculates correctly for monthly bills (backwards compatible)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Internet', amount: 120, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        assert.equal(summary[1].total, 720);
+        assert.equal(summary[2].total, 720);
+        assert.equal(summary[1].bills[0].monthlyShare, 60);
+        assert.equal(summary[1].bills[0].annualShare, 720);
+    });
+
+    it('calculates correctly for annual bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [1, 2] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        assert.equal(summary[1].total, 139.99 / 2);
+        assert.equal(summary[2].total, 139.99 / 2);
+        assert.equal(summary[1].bills[0].annualShare, 139.99 / 2);
+        assert.equal(summary[1].bills[0].monthlyShare, 139.99 / 2 / 12);
+    });
+
+    it('annual bill total equals entered amount (no rounding drift)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        assert.equal(summary[1].total, 139.99, 'Annual total must exactly equal the entered amount');
+    });
+
+    it('mixes monthly and annual bills correctly', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+            { id: 101, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const expectedTotal = (15 * 12) + 139.99;
+        assert.equal(summary[1].total, expectedTotal);
+        assert.equal(summary[1].bills.length, 2);
+    });
+
+    it('defaults missing billingFrequency to monthly', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Legacy', amount: 50, logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        assert.equal(summary[1].total, 600, 'Legacy bill without frequency should be treated as monthly');
+    });
+
+    it('annual bill split among 3 members sums to canonical amount', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 3, name: 'Charlie', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Service', amount: 100, billingFrequency: 'annual', logo: '', website: '', members: [1, 2, 3] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const totalFromShares = summary[1].total + summary[2].total + summary[3].total;
+        const diff = Math.abs(totalFromShares - 100);
+        assert.ok(diff < 0.01, 'Sum of member shares should approximately equal canonical annual amount');
+    });
+});
+
+// ──────────────── toggleBillFrequency ─────────────────────────
+
+describe('toggleBillFrequency', () => {
+    it('converts monthly to annual', () => {
+        const ctx = createContext();
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 10, billingFrequency: 'monthly', logo: '', website: '', members: [] },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.toggleBillFrequency(1);
+        const bill = ctx._get('bills')[0];
+        assert.equal(bill.billingFrequency, 'annual');
+        assert.equal(bill.amount, 120);
+    });
+
+    it('converts annual to monthly', () => {
+        const ctx = createContext();
+        ctx._set('bills', [
+            { id: 1, name: 'Disney+', amount: 120, billingFrequency: 'annual', logo: '', website: '', members: [] },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.toggleBillFrequency(1);
+        const bill = ctx._get('bills')[0];
+        assert.equal(bill.billingFrequency, 'monthly');
+        assert.equal(bill.amount, 10);
+    });
+
+    it('rounds to 2 decimal places when converting annual to monthly', () => {
+        const ctx = createContext();
+        ctx._set('bills', [
+            { id: 1, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [] },
+        ]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.toggleBillFrequency(1);
+        const bill = ctx._get('bills')[0];
+        assert.equal(bill.billingFrequency, 'monthly');
+        assert.equal(bill.amount, Math.round((139.99 / 12) * 100) / 100);
+    });
+
+    it('is blocked when year is read-only', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('bills', [
+            { id: 1, name: 'Test', amount: 100, billingFrequency: 'monthly', logo: '', website: '', members: [] },
+        ]);
+
+        ctx.toggleBillFrequency(1);
+        assert.equal(ctx._get('bills')[0].amount, 100, 'Amount should not change');
+        assert.equal(ctx._get('bills')[0].billingFrequency, 'monthly', 'Frequency should not change');
+    });
+
+    it('does nothing for non-existent bill', () => {
+        const ctx = createContext();
+        ctx._set('bills', []);
+        ctx.toggleBillFrequency(999);
+        assert.equal(ctx._get('bills').length, 0);
+    });
+});
+
+// ──────────────── getCalculationBreakdown with frequency ─────────
+
+describe('getCalculationBreakdown with billing frequency', () => {
+    it('shows monthly formula for monthly bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const html = ctx.getCalculationBreakdown(summary[1]);
+
+        assert.ok(html.includes('&times; 12'), 'Monthly bills should show x12 formula');
+        assert.ok(html.includes('/mo'), 'Monthly bills should show /mo label');
+    });
+
+    it('shows annual formula for annual bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [1, 2] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const html = ctx.getCalculationBreakdown(summary[1]);
+
+        assert.ok(html.includes('/yr'), 'Annual bills should show /yr label');
+        assert.ok(html.includes('&divide; 2'), 'Should show split count');
+        assert.ok(!html.includes('&times; 12'), 'Annual bills should NOT show x12');
+    });
+});
+
+// ──────────────── computeMemberSummaryForShare with frequency ─────
+
+describe('computeMemberSummaryForShare with billing frequency', () => {
+    it('computes correct totals for annual bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Disney+', amount: 139.99, billingFrequency: 'annual', logo: '', website: '', members: [1] },
+        ]);
+
+        const result = ctx.computeMemberSummaryForShare(1);
+        assert.equal(result.annualTotal, 139.99);
+        assert.equal(result.bills[0].annualShare, 139.99);
+        assert.equal(result.bills[0].billingFrequency, 'annual');
+        assert.equal(result.bills[0].canonicalAmount, 139.99);
+    });
+
+    it('includes billingFrequency and canonicalAmount in bill data', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+
+        const result = ctx.computeMemberSummaryForShare(1);
+        assert.equal(result.bills[0].billingFrequency, 'monthly');
+        assert.equal(result.bills[0].canonicalAmount, 15);
+    });
+});
+
