@@ -40,6 +40,7 @@ function _get(key) {
         case 'EVIDENCE_MAX_COUNT': return EVIDENCE_MAX_COUNT;
         case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
         case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
+        case 'BILLING_YEAR_STATUSES': return BILLING_YEAR_STATUSES;
         case 'CURRENT_MIGRATION_VERSION': return CURRENT_MIGRATION_VERSION;
     }
 }
@@ -674,6 +675,168 @@ describe('isArchivedYear', () => {
         const ctx = createContext();
         ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived' });
         assert.equal(ctx.isArchivedYear(), true);
+    });
+});
+
+// ──────────────── billing year lifecycle helpers ──────────────
+
+describe('isClosedYear', () => {
+    it('returns false when currentBillingYear is null', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', null);
+        assert.equal(ctx.isClosedYear(), false);
+    });
+
+    it('returns true when status is closed', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'closed' });
+        assert.equal(ctx.isClosedYear(), true);
+    });
+
+    it('returns false when status is open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        assert.equal(ctx.isClosedYear(), false);
+    });
+});
+
+describe('isSettlingYear', () => {
+    it('returns true when status is settling', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'settling' });
+        assert.equal(ctx.isSettlingYear(), true);
+    });
+
+    it('returns false when status is open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        assert.equal(ctx.isSettlingYear(), false);
+    });
+});
+
+describe('isYearReadOnly', () => {
+    it('returns false for open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        assert.equal(ctx.isYearReadOnly(), false);
+    });
+
+    it('returns false for settling', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'settling' });
+        assert.equal(ctx.isYearReadOnly(), false);
+    });
+
+    it('returns true for closed', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'closed' });
+        assert.equal(ctx.isYearReadOnly(), true);
+    });
+
+    it('returns true for archived', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived' });
+        assert.equal(ctx.isYearReadOnly(), true);
+    });
+});
+
+describe('yearReadOnlyMessage', () => {
+    it('returns archived message for archived status', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived' });
+        assert.ok(ctx.yearReadOnlyMessage().includes('archived'));
+    });
+
+    it('returns closed message for closed status', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'closed' });
+        assert.ok(ctx.yearReadOnlyMessage().includes('closed'));
+    });
+
+    it('returns empty string when year is open', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        assert.equal(ctx.yearReadOnlyMessage(), '');
+    });
+});
+
+describe('getBillingYearStatusLabel', () => {
+    it('returns correct labels for all statuses', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillingYearStatusLabel('open'), 'Open');
+        assert.equal(ctx.getBillingYearStatusLabel('settling'), 'Settling');
+        assert.equal(ctx.getBillingYearStatusLabel('closed'), 'Closed');
+        assert.equal(ctx.getBillingYearStatusLabel('archived'), 'Archived');
+    });
+
+    it('defaults to Open for unknown status', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getBillingYearStatusLabel('unknown'), 'Open');
+    });
+});
+
+describe('BILLING_YEAR_STATUSES', () => {
+    it('defines all four lifecycle stages in order', () => {
+        const ctx = createContext();
+        const statuses = ctx._get('BILLING_YEAR_STATUSES');
+        assert.ok(statuses.open);
+        assert.ok(statuses.settling);
+        assert.ok(statuses.closed);
+        assert.ok(statuses.archived);
+        assert.ok(statuses.open.order < statuses.settling.order);
+        assert.ok(statuses.settling.order < statuses.closed.order);
+        assert.ok(statuses.closed.order < statuses.archived.order);
+    });
+});
+
+// ──────────────── closed year guards ──────────────────────────
+
+describe('closed year guards', () => {
+    it('prevents recordPayment when year is closed', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'closed', createdAt: null, archivedAt: null });
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.recordPayment(1, 500, 'cash', '', false);
+        assert.equal(ctx._get('payments').length, 0, 'Payment should not be recorded');
+        assert.ok(alerts.some(a => a.includes('closed')), 'Should show closed alert');
+    });
+
+    it('allows recordPayment when year is settling', () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'settling', createdAt: null, archivedAt: null });
+        ctx._set('payments', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Net', amount: 100, logo: '', website: '', members: [1] },
+        ]);
+
+        ctx.recordPayment(1, 500, 'cash', '', false);
+        assert.equal(ctx.getPaymentTotalForMember(1), 500, 'Payment should be recorded when settling');
+    });
+
+    it('prevents addBill when year is closed', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg) });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'closed', createdAt: null, archivedAt: null });
+        ctx._set('bills', []);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'billName') return { value: 'Test Bill' };
+            if (id === 'billAmount') return { value: '100' };
+            if (id === 'billWebsite') return { value: '' };
+            return { innerHTML: '', textContent: '', value: '', style: {} };
+        };
+
+        ctx.addBill();
+        assert.equal(ctx._get('bills').length, 0, 'Bill should not be added');
+        assert.ok(alerts.some(a => a.includes('closed')), 'Should show closed alert');
     });
 });
 

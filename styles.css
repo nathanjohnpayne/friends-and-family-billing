@@ -884,6 +884,70 @@ textarea:focus {
     margin-bottom: var(--space-4);
 }
 
+.settling-banner {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #92400e;
+}
+
+.closed-banner {
+    background: var(--color-resolved-bg);
+    border-color: var(--color-success);
+    color: var(--color-resolved-fg);
+}
+
+/* ──────────────── Lifecycle Progress Bar ──────────────── */
+
+.lifecycle-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    width: 100%;
+    padding: var(--space-1) 0;
+}
+
+.lifecycle-step {
+    font-size: var(--text-body-xs);
+    font-weight: var(--font-weight-semi);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    color: rgba(255, 255, 255, 0.45);
+    background: rgba(255, 255, 255, 0.08);
+    transition: all var(--transition-base);
+}
+
+.lifecycle-step.lifecycle-complete {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.lifecycle-step.lifecycle-active {
+    color: #fff;
+    font-weight: var(--font-weight-bold);
+}
+
+.lifecycle-active.lifecycle-primary {
+    background: rgba(102, 126, 234, 0.5);
+}
+
+.lifecycle-active.lifecycle-warning {
+    background: rgba(245, 158, 11, 0.5);
+}
+
+.lifecycle-active.lifecycle-success {
+    background: rgba(72, 187, 120, 0.5);
+}
+
+.lifecycle-active.lifecycle-muted {
+    background: rgba(160, 174, 192, 0.4);
+}
+
+.lifecycle-arrow {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: var(--text-body-xs);
+}
+
 /* ──────────────── Payment Links Settings ──────────────── */
 
 .payment-links-list {

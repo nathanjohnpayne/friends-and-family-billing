@@ -226,8 +226,8 @@ let _saveChain = Promise.resolve();
 
 function saveData() {
     if (!currentUser || !currentBillingYear) return Promise.resolve();
-    if (isArchivedYear()) {
-        console.warn('Cannot save: billing year is archived');
+    if (isYearReadOnly()) {
+        console.warn('Cannot save: billing year is ' + (currentBillingYear ? currentBillingYear.status : 'locked'));
         return Promise.resolve();
     }
 
@@ -271,6 +271,70 @@ function logout() {
 
 function isArchivedYear() {
     return currentBillingYear != null && currentBillingYear.status === 'archived';
+}
+
+function isClosedYear() {
+    return currentBillingYear != null && currentBillingYear.status === 'closed';
+}
+
+function isSettlingYear() {
+    return currentBillingYear != null && currentBillingYear.status === 'settling';
+}
+
+function isYearReadOnly() {
+    return isClosedYear() || isArchivedYear();
+}
+
+function yearReadOnlyMessage() {
+    if (isArchivedYear()) return 'This billing year is archived and read-only.';
+    if (isClosedYear()) return 'This billing year is closed. All balances are settled.';
+    return '';
+}
+
+const BILLING_YEAR_STATUSES = {
+    open:     { label: 'Open',     order: 0, color: 'primary' },
+    settling: { label: 'Settling', order: 1, color: 'warning' },
+    closed:   { label: 'Closed',   order: 2, color: 'success' },
+    archived: { label: 'Archived', order: 3, color: 'muted' }
+};
+
+function getBillingYearStatusLabel(status) {
+    return (BILLING_YEAR_STATUSES[status] || BILLING_YEAR_STATUSES.open).label;
+}
+
+async function setBillingYearStatus(newStatus) {
+    if (!currentBillingYear || !currentUser) return;
+    if (currentBillingYear.status === newStatus) return;
+
+    const updates = { status: newStatus };
+    if (newStatus === 'closed') updates.closedAt = firebase.firestore.FieldValue.serverTimestamp();
+    if (newStatus === 'archived') updates.archivedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+    try {
+        const yearDocRef = db.collection('users').doc(currentUser.uid)
+            .collection('billingYears').doc(currentBillingYear.id);
+
+        await yearDocRef.set(updates, { merge: true });
+
+        currentBillingYear.status = newStatus;
+        if (newStatus === 'closed') currentBillingYear.closedAt = new Date();
+        if (newStatus === 'archived') currentBillingYear.archivedAt = new Date();
+
+        const yearInList = billingYears.find(y => y.id === currentBillingYear.id);
+        if (yearInList) yearInList.status = newStatus;
+
+        renderBillingYearSelector();
+        renderStatusBanner();
+        renderFamilyMembers();
+        renderBills();
+        updateSummary();
+        renderEmailSettings();
+        renderPaymentMethodsSettings();
+        loadDisputes();
+    } catch (error) {
+        console.error('Error updating billing year status:', error);
+        alert('Error updating billing year status. Please try again.');
+    }
 }
 
 async function migrateLegacyData(userDocRef, userData) {
@@ -363,7 +427,7 @@ async function loadBillingYearData(yearId) {
             }
         }
 
-        if (!isArchivedYear() && familyMembers.length > 0) {
+        if (!isYearReadOnly() && familyMembers.length > 0) {
             repairDuplicateIds();
         }
 
@@ -402,40 +466,16 @@ async function switchBillingYear(yearId) {
 async function archiveCurrentYear() {
     if (!currentBillingYear || isArchivedYear()) return;
 
-    if (!confirm('Archive billing year ' + currentBillingYear.label + '? This will make it read-only.')) {
-        return;
-    }
+    const msg = 'Archive billing year ' + currentBillingYear.label + '?\n\n'
+        + 'This will make all records read-only.\n'
+        + 'You can still view historical data later.';
 
-    try {
-        const yearDocRef = db.collection('users').doc(currentUser.uid)
-            .collection('billingYears').doc(currentBillingYear.id);
+    if (!confirm(msg)) return;
 
-        await yearDocRef.set({
-            status: 'archived',
-            archivedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+    await setBillingYearStatus('archived');
 
-        currentBillingYear.status = 'archived';
-        currentBillingYear.archivedAt = new Date();
-
-        const yearInList = billingYears.find(y => y.id === currentBillingYear.id);
-        if (yearInList) yearInList.status = 'archived';
-
-        renderBillingYearSelector();
-        renderArchivedBanner();
-        renderFamilyMembers();
-        renderBills();
-        updateSummary();
-        renderEmailSettings();
-        renderPaymentMethodsSettings();
-        loadDisputes();
-
-        if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
-            await startNewYear();
-        }
-    } catch (error) {
-        console.error('Error archiving year:', error);
-        alert('Error archiving billing year. Please try again.');
+    if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
+        await startNewYear();
     }
 }
 
@@ -517,23 +557,85 @@ function renderBillingYearSelector() {
     if (!container || !currentBillingYear) return;
 
     const options = billingYears.map(y => {
-        const statusLabel = y.status === 'archived' ? 'Archived' : 'Open';
+        const statusLabel = getBillingYearStatusLabel(y.status);
         const selected = y.id === currentBillingYear.id ? 'selected' : '';
         return '<option value="' + escapeHtml(y.id) + '" ' + selected + '>' + escapeHtml(y.label) + ' (' + statusLabel + ')</option>';
     }).join('');
 
-    const archived = isArchivedYear();
+    const status = currentBillingYear.status || 'open';
+    let actions = '';
 
-    container.innerHTML = '<select id="billingYearSelect" onchange="switchBillingYear(this.value)">' + options + '</select>'
-        + (archived ? '' : ' <button onclick="archiveCurrentYear()" class="btn btn-secondary btn-sm">Archive Year</button>')
-        + ' <button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>';
+    if (status === 'open') {
+        actions += ' <button onclick="setBillingYearStatus(\'settling\')" class="btn btn-secondary btn-sm">Mark as Settling</button>';
+    } else if (status === 'settling') {
+        actions += ' <button onclick="closeCurrentYear()" class="btn btn-secondary btn-sm">Close Year</button>';
+        actions += ' <button onclick="setBillingYearStatus(\'open\')" class="btn btn-tertiary btn-sm">Reopen</button>';
+    } else if (status === 'closed') {
+        actions += ' <button onclick="archiveCurrentYear()" class="btn btn-secondary btn-sm">Archive Year</button>';
+        actions += ' <button onclick="setBillingYearStatus(\'settling\')" class="btn btn-tertiary btn-sm">Reopen to Settling</button>';
+    }
+
+    if (status !== 'archived') {
+        actions += ' <button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>';
+    }
+
+    container.innerHTML = '<select id="billingYearSelect" onchange="switchBillingYear(this.value)">' + options + '</select>' + actions;
 }
 
-function renderArchivedBanner() {
+function renderStatusBanner() {
     const banner = document.getElementById('archivedBanner');
     if (!banner) return;
 
-    banner.style.display = isArchivedYear() ? 'block' : 'none';
+    if (!currentBillingYear || currentBillingYear.status === 'open') {
+        banner.style.display = 'none';
+        banner.className = 'archived-banner';
+        return;
+    }
+
+    const status = currentBillingYear.status;
+    banner.style.display = 'block';
+
+    if (status === 'settling') {
+        banner.className = 'archived-banner settling-banner';
+        banner.textContent = 'Invoices issued \u2014 collecting payments for ' + (currentBillingYear.label || '') + '.';
+    } else if (status === 'closed') {
+        banner.className = 'archived-banner closed-banner';
+        banner.innerHTML = '\u2705 All balances settled for ' + escapeHtml(currentBillingYear.label || '') + '. This billing year is complete.';
+    } else if (status === 'archived') {
+        banner.className = 'archived-banner';
+        banner.textContent = 'This billing year is archived and read-only.';
+    }
+}
+
+function renderArchivedBanner() {
+    renderStatusBanner();
+}
+
+async function closeCurrentYear() {
+    if (!currentBillingYear) return;
+
+    const summary = calculateAnnualSummary();
+    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
+    let totalOutstanding = 0;
+    mainMembers.forEach(member => {
+        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
+        (member.linkedMembers || []).forEach(id => {
+            if (summary[id]) combinedTotal += summary[id].total;
+        });
+        const payment = getPaymentTotalForMember(member.id) +
+            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
+        const balance = combinedTotal - payment;
+        if (balance > 0) totalOutstanding += balance;
+    });
+
+    let msg = 'Close billing year ' + currentBillingYear.label + '?';
+    if (totalOutstanding > 0) {
+        msg += '\n\nNote: $' + totalOutstanding.toFixed(2) + ' is still outstanding. Closing will prevent further payments.';
+    }
+    msg += '\n\nYou can archive it later for permanent read-only storage.';
+
+    if (!confirm(msg)) return;
+    await setBillingYearStatus('closed');
 }
 
 // Escape user-controlled strings before interpolating into HTML
@@ -671,7 +773,7 @@ function generateUniqueBillId() {
 
 // Add family member
 function addFamilyMember() {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const input = document.getElementById('memberName');
     const emailInput = document.getElementById('memberEmail');
     const name = input.value.trim();
@@ -726,7 +828,7 @@ function addFamilyMember() {
 
 // Edit family member
 function editFamilyMember(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -751,7 +853,7 @@ function editFamilyMember(id) {
 
 // Edit family member email
 function editMemberEmail(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -766,7 +868,7 @@ function editMemberEmail(id) {
 
 // Edit family member phone
 function editMemberPhone(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -787,7 +889,7 @@ function editMemberPhone(id) {
 
 // Upload avatar
 function uploadAvatar(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     uploadImage((base64) => {
         const member = familyMembers.find(m => m.id === id);
         if (member) {
@@ -800,7 +902,7 @@ function uploadAvatar(id) {
 
 // Remove avatar
 function removeAvatar(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === id);
     if (member) {
         member.avatar = '';
@@ -810,7 +912,7 @@ function removeAvatar(id) {
 }
 
 function manageLinkMembers(parentId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const parent = familyMembers.find(m => m.id === parentId);
     if (!parent) return;
 
@@ -863,7 +965,7 @@ function getParentMember(memberId) {
 
 // Remove family member
 function removeFamilyMember(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === id);
     if (!member) return;
 
@@ -894,7 +996,7 @@ function removeFamilyMember(id) {
 // Render family members
 function renderFamilyMembers() {
     const container = document.getElementById('familyMembersList');
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
 
     const addMemberSection = document.querySelector('.family-members-input');
     if (addMemberSection) {
@@ -942,7 +1044,7 @@ function renderFamilyMembers() {
 
 // Add bill
 function addBill() {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const nameInput = document.getElementById('billName');
     const amountInput = document.getElementById('billAmount');
     const websiteInput = document.getElementById('billWebsite');
@@ -1002,7 +1104,7 @@ function addBill() {
 
 // Edit bill name
 function editBillName(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -1017,7 +1119,7 @@ function editBillName(id) {
 
 // Edit bill amount
 function editBillAmount(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -1038,7 +1140,7 @@ function editBillAmount(id) {
 }
 
 function editBillWebsite(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
@@ -1059,7 +1161,7 @@ function editBillWebsite(id) {
 
 // Upload logo
 function uploadLogo(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     uploadImage((base64) => {
         const bill = bills.find(b => b.id === id);
         if (bill) {
@@ -1072,7 +1174,7 @@ function uploadLogo(id) {
 
 // Remove logo
 function removeLogo(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const bill = bills.find(b => b.id === id);
     if (bill) {
         bill.logo = '';
@@ -1083,7 +1185,7 @@ function removeLogo(id) {
 
 // Remove bill
 function removeBill(id) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!confirm('Remove this bill?')) return;
 
     bills = bills.filter(b => b.id !== id);
@@ -1095,7 +1197,7 @@ function removeBill(id) {
 
 // Toggle member for a bill
 function toggleMember(billId, memberId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const bill = bills.find(b => b.id === billId);
     if (!bill) return;
 
@@ -1114,7 +1216,7 @@ function toggleMember(billId, memberId) {
 // Render bills
 function renderBills() {
     const container = document.getElementById('billsList');
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
 
     const addBillSection = document.querySelector('.bill-input-section');
     if (addBillSection) {
@@ -1236,7 +1338,7 @@ document.addEventListener('click', closeAllActionMenus);
 function updateSummary() {
     const container = document.getElementById('annualSummary');
     const summary = calculateAnnualSummary();
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
 
     if (familyMembers.length === 0) {
         container.innerHTML = '<p class="empty-state">Add family members and bills to see the annual summary.</p>';
@@ -1401,12 +1503,26 @@ function renderDashboardStatus() {
     });
 
     const yearLabel = currentBillingYear.label || currentBillingYear.id;
-    const statusLabel = isArchivedYear() ? 'Archived' : 'Open';
+    const statusLabel = getBillingYearStatusLabel(currentBillingYear.status);
+
+    const currentStatus = currentBillingYear.status || 'open';
+    const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
+
+    const lifecycleSteps = ['open', 'settling', 'closed', 'archived'].map(s => {
+        const meta = BILLING_YEAR_STATUSES[s];
+        const isActive = s === currentStatus;
+        const isComplete = meta.order < currentOrder;
+        let cls = 'lifecycle-step';
+        if (isActive) cls += ' lifecycle-active lifecycle-' + meta.color;
+        else if (isComplete) cls += ' lifecycle-complete';
+        return '<span class="' + cls + '">' + meta.label + '</span>';
+    }).join('<span class="lifecycle-arrow">\u2192</span>');
 
     container.innerHTML = `
+        <div class="lifecycle-bar">${lifecycleSteps}</div>
         <div class="dashboard-stat">
             <span class="dashboard-stat-label">Billing Year</span>
-            <span class="dashboard-stat-value">${escapeHtml(yearLabel)} (${statusLabel})</span>
+            <span class="dashboard-stat-value">${escapeHtml(yearLabel)}</span>
         </div>
         <div class="dashboard-stat">
             <span class="dashboard-stat-label">Outstanding Balance</span>
@@ -1419,14 +1535,20 @@ function renderDashboardStatus() {
     `;
     const contextBanner = document.getElementById('dashboardContextBanner');
     if (contextBanner) {
-        contextBanner.textContent = 'Review annual totals and record payments below.';
+        const contextMessages = {
+            open: 'Review annual totals and record payments below.',
+            settling: 'Collecting payments \u2014 share billing links and track incoming payments.',
+            closed: 'All balances settled. This billing year is complete.',
+            archived: 'Viewing archived billing year. All records are read-only.'
+        };
+        contextBanner.textContent = contextMessages[currentStatus] || '';
         contextBanner.style.display = '';
     }
 }
 
 // Record a payment in the ledger for a member (or distributed across linked members)
 function recordPayment(memberId, amount, method, note, distribute) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
@@ -1498,7 +1620,7 @@ function recordPayment(memberId, amount, method, note, distribute) {
 // Render email settings
 function renderEmailSettings() {
     const container = document.getElementById('emailSettings');
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
     container.innerHTML = `
         <div class="form-group">
             <label for="emailMessage">Email Message (sent with annual invoices)</label>
@@ -1515,7 +1637,7 @@ function renderEmailSettings() {
 
 // Save email message
 function saveEmailMessage() {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const input = document.getElementById('emailMessageInput');
     settings.emailMessage = input.value;
     saveData();
@@ -1563,7 +1685,7 @@ const PAYMENT_METHOD_TYPES = {
 function renderPaymentMethodsSettings() {
     const container = document.getElementById('paymentLinksSettings');
     if (!container) return;
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
     const methods = settings.paymentMethods || [];
 
     let html = '';
@@ -1626,7 +1748,7 @@ function getPaymentMethodDetail(method) {
 }
 
 function addPaymentMethod() {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const typeSelect = document.getElementById('newPaymentMethodType');
     const type = typeSelect ? typeSelect.value : 'other';
     const typeInfo = PAYMENT_METHOD_TYPES[type] || PAYMENT_METHOD_TYPES.other;
@@ -1653,7 +1775,7 @@ function addPaymentMethod() {
 }
 
 function editPaymentMethod(methodId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const method = (settings.paymentMethods || []).find(m => m.id === methodId);
     if (!method) return;
     const typeInfo = PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other;
@@ -1754,7 +1876,7 @@ function savePaymentMethodEdit(methodId) {
 }
 
 function togglePaymentMethodEnabled(methodId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const method = (settings.paymentMethods || []).find(m => m.id === methodId);
     if (!method) return;
 
@@ -1764,7 +1886,7 @@ function togglePaymentMethodEnabled(methodId) {
 }
 
 function removePaymentMethod(methodId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!confirm('Remove this payment method?')) return;
 
     settings.paymentMethods = (settings.paymentMethods || []).filter(m => m.id !== methodId);
@@ -1859,7 +1981,7 @@ function formatPaymentOptionsText() {
 function renderPaymentMethodsSettings() {
     const container = document.getElementById('paymentLinksSettings');
     if (!container) return;
-    const archived = isArchivedYear();
+    const archived = isYearReadOnly();
     const links = settings.paymentLinks || [];
 
     let html = '';
@@ -1903,7 +2025,7 @@ function renderPaymentMethodsSettings() {
 }
 
 function addPaymentLink() {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const nameInput = document.getElementById('paymentLinkName');
     const urlInput = document.getElementById('paymentLinkUrl');
     const name = nameInput.value.trim();
@@ -1925,7 +2047,7 @@ function addPaymentLink() {
 }
 
 function editPaymentLink(linkId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const link = (settings.paymentLinks || []).find(l => l.id === linkId);
     if (!link) return;
 
@@ -1945,7 +2067,7 @@ function editPaymentLink(linkId) {
 }
 
 function removePaymentLink(linkId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!confirm('Remove this payment link?')) return;
 
     settings.paymentLinks = (settings.paymentLinks || []).filter(l => l.id !== linkId);
@@ -3106,7 +3228,7 @@ function ensureDialogContainer() {
 }
 
 function showAddPaymentDialog(memberId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return;
 
@@ -3294,7 +3416,7 @@ function showPaymentHistory(memberId) {
 
     var memberPayments = getMemberPayments(memberId);
     var total = getPaymentTotalForMember(memberId);
-    var archived = isArchivedYear();
+    var archived = isYearReadOnly();
 
     var paymentRows = memberPayments.length > 0
         ? memberPayments.map(function(p) {
@@ -3328,7 +3450,7 @@ function showPaymentHistory(memberId) {
 }
 
 function deletePaymentEntry(paymentId, memberId) {
-    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!confirm('Delete this payment entry?')) return;
 
     payments = payments.filter(p => p.id !== paymentId);
