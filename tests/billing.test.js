@@ -3097,3 +3097,312 @@ describe('setAddBillFrequency updates label', () => {
     });
 });
 
+// ──────────────── Cloud Function frequency math ─────────────────
+
+describe('computeMemberSummary with billing frequency', () => {
+    it('treats annual bills correctly (amount IS the annual total)', () => {
+        const members = [{ id: 1, name: 'Alice', email: '', linkedMembers: [] }];
+        const bills = [{ id: 1, name: 'Insurance', amount: 1200, billingFrequency: 'annual', members: [1] }];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 1200);
+        assert.equal(result.monthlyTotal, 100);
+        assert.equal(result.bills[0].annualShare, 1200);
+        assert.equal(result.bills[0].monthlyShare, 100);
+        assert.equal(result.bills[0].monthlyAmount, 100);
+    });
+
+    it('treats monthly bills correctly (amount * 12 = annual)', () => {
+        const members = [{ id: 1, name: 'Alice', email: '', linkedMembers: [] }];
+        const bills = [{ id: 1, name: 'Netflix', amount: 20, billingFrequency: 'monthly', members: [1] }];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 240);
+        assert.equal(result.monthlyTotal, 20);
+        assert.equal(result.bills[0].annualShare, 240);
+        assert.equal(result.bills[0].monthlyShare, 20);
+    });
+
+    it('defaults to monthly when billingFrequency is missing', () => {
+        const members = [{ id: 1, name: 'Alice', email: '', linkedMembers: [] }];
+        const bills = [{ id: 1, name: 'Utility', amount: 50, members: [1] }];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 600);
+        assert.equal(result.monthlyTotal, 50);
+    });
+
+    it('splits annual bills correctly among multiple members', () => {
+        const members = [
+            { id: 1, name: 'Alice', email: '', linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', linkedMembers: [] },
+        ];
+        const bills = [{ id: 1, name: 'Insurance', amount: 2400, billingFrequency: 'annual', members: [1, 2] }];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.annualTotal, 1200);
+        assert.equal(result.monthlyTotal, 100);
+    });
+
+    it('includes billingFrequency and canonicalAmount in bill output', () => {
+        const members = [{ id: 1, name: 'Alice', email: '', linkedMembers: [] }];
+        const bills = [{ id: 1, name: 'Annual Sub', amount: 120, billingFrequency: 'annual', members: [1] }];
+        const result = computeMemberSummary(members, bills, 1);
+        assert.equal(result.bills[0].billingFrequency, 'annual');
+        assert.equal(result.bills[0].canonicalAmount, 120);
+    });
+});
+
+// ──────────────── Dispute read-only year guards ─────────────────
+
+describe('dispute mutations respect read-only year', () => {
+    it('updateDispute blocks when year is closed', async () => {
+        const ctx = createContext();
+        let alertMsg = '';
+        ctx.alert = (msg) => { alertMsg = msg; };
+        ctx._set('currentBillingYear', { id: '2025', label: '2025', status: 'closed', createdAt: null, archivedAt: null });
+        ctx._set('_loadedDisputes', [{ id: 'd1', status: 'open', memberId: 1, billId: 1, message: 'test' }]);
+        await ctx.updateDispute('d1', { status: 'in_review' });
+        assert.ok(alertMsg.includes('closed'));
+    });
+
+    it('updateDispute blocks when year is archived', async () => {
+        const ctx = createContext();
+        let alertMsg = '';
+        ctx.alert = (msg) => { alertMsg = msg; };
+        ctx._set('currentBillingYear', { id: '2024', label: '2024', status: 'archived', createdAt: null, archivedAt: new Date() });
+        await ctx.updateDispute('d1', { status: 'resolved' });
+        assert.ok(alertMsg.includes('archived'));
+    });
+
+    it('uploadEvidence blocks when year is closed', () => {
+        const ctx = createContext();
+        let alertMsg = '';
+        ctx.alert = (msg) => { alertMsg = msg; };
+        ctx._set('currentBillingYear', { id: '2025', label: '2025', status: 'closed', createdAt: null, archivedAt: null });
+        ctx.uploadEvidence('d1');
+        assert.ok(alertMsg.includes('closed'));
+    });
+
+    it('removeEvidence blocks when year is archived', () => {
+        const ctx = createContext();
+        let alertMsg = '';
+        ctx.alert = (msg) => { alertMsg = msg; };
+        ctx._set('currentBillingYear', { id: '2024', label: '2024', status: 'archived', createdAt: null, archivedAt: new Date() });
+        ctx.removeEvidence('d1', 0);
+        assert.ok(alertMsg.includes('archived'));
+    });
+});
+
+// ──────────────── startNewYear preserves paymentMethods ──────────
+
+describe('startNewYear preserves paymentMethods', () => {
+    it('clones paymentMethods into the new year settings', async () => {
+        const saved = [];
+        const yearData = {};
+        const ctx = createContext({
+            db: {
+                collection: (name) => ({
+                    doc: (id) => ({
+                        set: (...args) => { saved.push({ name, id, args }); return Promise.resolve(); },
+                        get: () => Promise.resolve({ exists: true, data: () => ({}) }),
+                        update: (...args) => { saved.push({ name, id, action: 'update', args }); return Promise.resolve(); },
+                        collection: (subName) => ({
+                            doc: (subId) => ({
+                                set: (...args) => {
+                                    if (subName === 'billingYears') yearData[subId] = args[0];
+                                    return Promise.resolve();
+                                },
+                                get: () => Promise.resolve({ exists: false }),
+                                collection: () => ({ doc: () => ({ get: () => Promise.resolve({ exists: false }) }) }),
+                            }),
+                            get: () => Promise.resolve({ docs: [] }),
+                        }),
+                    }),
+                    where: () => ({ where: () => ({ get: () => Promise.resolve({ docs: [] }) }), get: () => Promise.resolve({ docs: [] }) }),
+                }),
+                batch: () => ({ set: () => {}, delete: () => {}, commit: () => Promise.resolve() }),
+            },
+        });
+
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Test', amount: 100, billingFrequency: 'monthly', logo: '', website: '', members: [1] }]);
+        ctx._set('settings', {
+            emailMessage: 'Hello',
+            paymentLinks: [],
+            paymentMethods: [
+                { id: 'pm1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@me', url: '', phone: '', email: '', instructions: '' },
+                { id: 'pm2', type: 'zelle', label: 'Zelle', enabled: true, handle: '', url: '', phone: '555', email: 'a@b.c', instructions: '' },
+            ],
+        });
+
+        ctx.prompt = () => '2027';
+        ctx.alert = () => {};
+
+        await ctx.startNewYear();
+
+        const newYear = yearData['2027'];
+        assert.ok(newYear, 'New year doc should be created');
+        assert.ok(newYear.settings.paymentMethods, 'paymentMethods should exist');
+        assert.equal(newYear.settings.paymentMethods.length, 2);
+        assert.equal(newYear.settings.paymentMethods[0].type, 'venmo');
+        assert.equal(newYear.settings.paymentMethods[1].type, 'zelle');
+    });
+});
+
+// ──────────────── revokeShareLink deletes publicShares doc ───────
+
+describe('revokeShareLink cleans up publicShares', () => {
+    it('deletes the publicShares doc when revoking a token', async () => {
+        const deletedDocs = [];
+        const updatedDocs = [];
+        const ctx = createContext({
+            db: {
+                collection: (name) => ({
+                    doc: (id) => ({
+                        update: (...args) => { updatedDocs.push({ name, id, args }); return Promise.resolve(); },
+                        delete: () => { deletedDocs.push({ name, id }); return Promise.resolve(); },
+                        set: () => Promise.resolve(),
+                        get: () => Promise.resolve({ exists: false }),
+                        collection: () => ({
+                            doc: () => ({ get: () => Promise.resolve({ exists: false }), set: () => Promise.resolve() }),
+                            get: () => Promise.resolve({ docs: [] }),
+                        }),
+                    }),
+                    where: () => ({ where: () => ({ get: () => Promise.resolve({ docs: [] }) }), get: () => Promise.resolve({ docs: [] }) }),
+                }),
+                batch: () => ({ set: () => {}, delete: () => {}, commit: () => Promise.resolve() }),
+            },
+        });
+        ctx.confirm = () => true;
+
+        await ctx.revokeShareLink('abc123hash', 1);
+
+        const shareTokenUpdate = updatedDocs.find(d => d.name === 'shareTokens' && d.id === 'abc123hash');
+        assert.ok(shareTokenUpdate, 'shareTokens doc should be updated');
+        assert.equal(shareTokenUpdate.args[0].revoked, true);
+
+        const publicShareDelete = deletedDocs.find(d => d.name === 'publicShares' && d.id === 'abc123hash');
+        assert.ok(publicShareDelete, 'publicShares doc should be deleted');
+    });
+});
+
+// ──────────────── refreshPublicShares deletes stale docs ────────
+
+describe('refreshPublicShares cleanup', () => {
+    it('deletes publicShares docs for revoked tokens', async () => {
+        const ops = [];
+        const ctx = createContext({
+            db: {
+                collection: (name) => ({
+                    doc: (id) => ({
+                        set: () => Promise.resolve(),
+                        get: () => Promise.resolve({ exists: false }),
+                        collection: () => ({
+                            doc: () => ({ get: () => Promise.resolve({ exists: false }), set: () => Promise.resolve() }),
+                            get: () => Promise.resolve({ docs: [] }),
+                        }),
+                    }),
+                    where: (field, op, val) => ({
+                        where: () => ({
+                            get: () => Promise.resolve({
+                                docs: [
+                                    {
+                                        id: 'hash1',
+                                        data: () => ({
+                                            ownerId: 'test-user',
+                                            memberId: 1,
+                                            billingYearId: '2026',
+                                            revoked: true,
+                                            scopes: ['summary:read'],
+                                        }),
+                                    },
+                                    {
+                                        id: 'hash2',
+                                        data: () => ({
+                                            ownerId: 'test-user',
+                                            memberId: 1,
+                                            billingYearId: '2026',
+                                            revoked: false,
+                                            scopes: ['summary:read'],
+                                        }),
+                                    },
+                                ],
+                            }),
+                        }),
+                        get: () => Promise.resolve({ docs: [] }),
+                    }),
+                }),
+                batch: () => {
+                    const batchOps = [];
+                    return {
+                        set: (ref, data) => { batchOps.push({ op: 'set', ref, data }); ops.push({ op: 'set' }); },
+                        delete: (ref) => { batchOps.push({ op: 'delete', ref }); ops.push({ op: 'delete' }); },
+                        commit: () => Promise.resolve(),
+                    };
+                },
+            },
+        });
+
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', phone: '', linkedMembers: [] }]);
+        ctx._set('bills', []);
+
+        await ctx.refreshPublicShares();
+
+        const deleteOps = ops.filter(o => o.op === 'delete');
+        const setOps = ops.filter(o => o.op === 'set');
+        assert.equal(deleteOps.length, 1, 'should delete 1 stale doc');
+        assert.equal(setOps.length, 1, 'should set 1 active doc');
+    });
+
+    it('deletes publicShares docs for expired tokens', async () => {
+        const ops = [];
+        const pastDate = new Date(Date.now() - 86400000);
+        const ctx = createContext({
+            db: {
+                collection: (name) => ({
+                    doc: (id) => ({
+                        set: () => Promise.resolve(),
+                        get: () => Promise.resolve({ exists: false }),
+                        collection: () => ({
+                            doc: () => ({ get: () => Promise.resolve({ exists: false }), set: () => Promise.resolve() }),
+                            get: () => Promise.resolve({ docs: [] }),
+                        }),
+                    }),
+                    where: (field, op, val) => ({
+                        where: () => ({
+                            get: () => Promise.resolve({
+                                docs: [
+                                    {
+                                        id: 'hashExpired',
+                                        data: () => ({
+                                            ownerId: 'test-user',
+                                            memberId: 1,
+                                            billingYearId: '2026',
+                                            revoked: false,
+                                            expiresAt: { toDate: () => pastDate },
+                                            scopes: ['summary:read'],
+                                        }),
+                                    },
+                                ],
+                            }),
+                        }),
+                        get: () => Promise.resolve({ docs: [] }),
+                    }),
+                }),
+                batch: () => {
+                    return {
+                        set: () => { ops.push({ op: 'set' }); },
+                        delete: () => { ops.push({ op: 'delete' }); },
+                        commit: () => Promise.resolve(),
+                    };
+                },
+            },
+        });
+
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', phone: '', linkedMembers: [] }]);
+        ctx._set('bills', []);
+
+        await ctx.refreshPublicShares();
+
+        assert.equal(ops.filter(o => o.op === 'delete').length, 1, 'should delete expired doc');
+        assert.equal(ops.filter(o => o.op === 'set').length, 0, 'should not set expired doc');
+    });
+});
+

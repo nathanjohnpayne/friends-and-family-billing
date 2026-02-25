@@ -20,7 +20,7 @@
             try {
                 const user = auth.currentUser;
                 if (!user) {
-                    output.textContent = 'Not logged in. Logging in...';
+                    output.textContent = 'Not logged in. Waiting for auth...';
                     await new Promise(resolve => {
                         auth.onAuthStateChanged(u => {
                             if (u) resolve();
@@ -31,17 +31,43 @@
                 const uid = auth.currentUser.uid;
                 output.textContent = 'Fetching data for user: ' + uid + '\n\n';
                 
-                const docRef = db.collection('users').doc(uid);
-                const doc = await docRef.get();
-                
-                if (doc.exists) {
-                    const data = doc.data();
-                    output.textContent += 'DATA FOUND!\n\n';
-                    output.textContent += 'Family Members: ' + (data.familyMembers ? data.familyMembers.length : 0) + '\n';
-                    output.textContent += 'Bills: ' + (data.bills ? data.bills.length : 0) + '\n\n';
-                    output.textContent += JSON.stringify(data, null, 2);
+                const userDocRef = db.collection('users').doc(uid);
+                const userDoc = await userDocRef.get();
+
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    output.textContent += 'User Document:\n';
+                    output.textContent += '  Active Billing Year: ' + (userData.activeBillingYear || 'not set') + '\n';
+                    output.textContent += '  Migration Version: ' + (userData.migrationVersion || 'none') + '\n\n';
+                }
+
+                const yearsSnap = await userDocRef.collection('billingYears').get();
+
+                if (yearsSnap.empty) {
+                    output.textContent += 'No billing years found.\n';
+                    if (userDoc.exists) {
+                        output.textContent += '\nLegacy user document:\n';
+                        output.textContent += JSON.stringify(userDoc.data(), null, 2);
+                    }
                 } else {
-                    output.textContent += 'No data found in Firebase for this user.';
+                    output.textContent += 'Billing Years: ' + yearsSnap.size + '\n';
+                    output.textContent += '─'.repeat(40) + '\n\n';
+
+                    for (const yearDoc of yearsSnap.docs) {
+                        const data = yearDoc.data();
+                        output.textContent += 'Year: ' + yearDoc.id + ' (status: ' + (data.status || 'unknown') + ')\n';
+                        output.textContent += '  Family Members: ' + (data.familyMembers ? data.familyMembers.length : 0) + '\n';
+                        output.textContent += '  Bills: ' + (data.bills ? data.bills.length : 0) + '\n';
+                        output.textContent += '  Payments: ' + (data.payments ? data.payments.length : 0) + '\n';
+                        output.textContent += '  Events: ' + (data.billingEvents ? data.billingEvents.length : 0) + '\n';
+
+                        const disputesSnap = await userDocRef
+                            .collection('billingYears').doc(yearDoc.id)
+                            .collection('disputes').get();
+                        output.textContent += '  Disputes: ' + disputesSnap.size + '\n';
+                        output.textContent += '\n  Full data:\n';
+                        output.textContent += JSON.stringify(data, null, 2) + '\n\n';
+                    }
                 }
             } catch (error) {
                 output.textContent = 'Error: ' + error.message + '\n\n' + error.stack;

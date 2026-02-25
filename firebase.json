@@ -53,6 +53,18 @@
         "destination": "/share.html"
       },
       {
+        "source": "/submitDispute",
+        "function": "submitDispute"
+      },
+      {
+        "source": "/getEvidenceUrl",
+        "function": "getEvidenceUrl"
+      },
+      {
+        "source": "/submitDisputeDecision",
+        "function": "submitDisputeDecision"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

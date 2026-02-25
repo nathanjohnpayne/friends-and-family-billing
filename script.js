@@ -565,7 +565,8 @@ async function startNewYear() {
             billingEvents: [],
             settings: {
                 emailMessage: settings.emailMessage,
-                paymentLinks: (settings.paymentLinks || []).map(l => ({...l}))
+                paymentLinks: (settings.paymentLinks || []).map(l => ({...l})),
+                paymentMethods: (settings.paymentMethods || []).map(m => ({...m}))
             },
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -2637,6 +2638,10 @@ function getDisputeRef(disputeId) {
 
 async function updateDispute(disputeId, updates) {
     if (!currentUser || !currentBillingYear) return;
+    if (isYearReadOnly()) {
+        alert(yearReadOnlyMessage());
+        return;
+    }
 
     try {
         await getDisputeRef(disputeId).update(updates);
@@ -2813,6 +2818,7 @@ const EVIDENCE_MAX_COUNT = 10;
 const EVIDENCE_ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
 
 function uploadEvidence(disputeId) {
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!storage) { alert('Storage is not available.'); return; }
     const d = _loadedDisputes.find(x => x.id === disputeId);
     if (!d) return;
@@ -2895,7 +2901,7 @@ async function viewEvidence(disputeId, index) {
     const ev = d.evidence[index];
     try {
         const url = await storage.ref(ev.storagePath).getDownloadURL();
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
     } catch (error) {
         console.error('Error getting evidence URL:', error);
         alert('Could not load evidence. It may have been deleted.');
@@ -2903,6 +2909,7 @@ async function viewEvidence(disputeId, index) {
 }
 
 async function removeEvidence(disputeId, index) {
+    if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!storage) return;
     if (!confirm('Remove this evidence file?')) return;
 
@@ -3021,22 +3028,39 @@ async function refreshPublicShares() {
             .where('ownerId', '==', currentUser.uid)
             .where('billingYearId', '==', currentBillingYear.id)
             .get();
-        const batch = db.batch();
-        let count = 0;
-        snapshot.docs.forEach(doc => {
+        const MAX_BATCH_OPS = 490;
+        let batch = db.batch();
+        let opCount = 0;
+
+        async function flushBatch() {
+            if (opCount > 0) {
+                await batch.commit();
+                batch = db.batch();
+                opCount = 0;
+            }
+        }
+
+        const now = new Date();
+        for (const doc of snapshot.docs) {
             const tokenData = doc.data();
-            if (tokenData.revoked) return;
-            if (tokenData.expiresAt) {
-                const exp = tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt);
-                if (exp < new Date()) return;
+            const isStale = tokenData.revoked || (tokenData.expiresAt && (
+                (tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt)) < now
+            ));
+
+            if (isStale) {
+                batch.delete(db.collection('publicShares').doc(doc.id));
+                opCount++;
+            } else {
+                const shareData = buildPublicShareData(tokenData.memberId, tokenData.scopes || ['summary:read', 'paymentMethods:read']);
+                if (shareData) {
+                    batch.set(db.collection('publicShares').doc(doc.id), shareData);
+                    opCount++;
+                }
             }
-            const shareData = buildPublicShareData(tokenData.memberId, tokenData.scopes || ['summary:read', 'paymentMethods:read']);
-            if (shareData) {
-                batch.set(db.collection('publicShares').doc(doc.id), shareData);
-                count++;
-            }
-        });
-        if (count > 0) await batch.commit();
+
+            if (opCount >= MAX_BATCH_OPS) await flushBatch();
+        }
+        await flushBatch();
     } catch (err) {
         console.error('Error refreshing public shares:', err);
     }
@@ -3339,6 +3363,9 @@ async function revokeShareLink(tokenHash, memberId) {
 
     try {
         await db.collection('shareTokens').doc(tokenHash).update({ revoked: true });
+        try {
+            await db.collection('publicShares').doc(tokenHash).delete();
+        } catch (_) {}
         showShareLinks(memberId);
     } catch (error) {
         console.error('Error revoking share link:', error);
@@ -3533,20 +3560,6 @@ async function showTextInvoiceDialog(memberId) {
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
 
     let shareUrl = '';
-    try {
-        const snapshot = await db.collection('shareTokens')
-            .where('ownerId', '==', currentUser.uid)
-            .where('memberId', '==', memberId)
-            .where('billingYearId', '==', currentBillingYear.id)
-            .where('revoked', '==', false)
-            .limit(1)
-            .get();
-
-        if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            shareUrl = window.location.origin + '/share?token=' + doc.id;
-        }
-    } catch (e) { /* no existing share link */ }
 
     const defaultMsg = shareUrl
         ? `Hey ${firstName} — your annual shared bills for ${currentYear} are ready. Your ${amountLabel} is ${amountStr}. You can review and pay here: ${shareUrl}. Thanks!`

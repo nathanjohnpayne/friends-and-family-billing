@@ -313,6 +313,23 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
 
     const { tokenData, tokenHash } = result;
 
+    const yearDoc = await db
+      .collection("users")
+      .doc(tokenData.ownerId)
+      .collection("billingYears")
+      .doc(tokenData.billingYearId)
+      .get();
+
+    if (yearDoc.exists) {
+      const yearData = yearDoc.data();
+      const billsData = yearData.bills || [];
+      const targetBill = billsData.find((b) => b.id === billId);
+      if (!targetBill || !targetBill.members || !targetBill.members.includes(tokenData.memberId)) {
+        res.status(403).json({ error: "You are not assigned to this bill." });
+        return;
+      }
+    }
+
     const disputesRef = db
       .collection("users")
       .doc(tokenData.ownerId)

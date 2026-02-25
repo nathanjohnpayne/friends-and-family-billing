@@ -700,6 +700,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="firebase-config.js"></script>
     <script>
+        var FUNCTION_BASE = '';
         var _shareToken = null;
         var _canDispute = false;
 
@@ -726,10 +727,9 @@
                 .replace(/'/g, '&#039;');
         }
 
-        function copyToClipboard(text) {
-            if (navigator.clipboard) {
+        function copyToClipboard(text, btn) {
+            if (navigator.clipboard && btn) {
                 navigator.clipboard.writeText(text).then(function() {
-                    var btn = event.target;
                     var orig = btn.textContent;
                     btn.textContent = 'Copied!';
                     setTimeout(function() { btn.textContent = orig; }, 1500);
@@ -748,7 +748,6 @@
 
         function renderBillsTable(bills, tbody, showReview) {
             var total = 0;
-            var colCount = showReview ? 6 : 5;
             bills.forEach(function(b) {
                 total += b.annualShare;
                 var tr = document.createElement('tr');
@@ -758,8 +757,8 @@
                     + '<td>$' + b.monthlyShare.toFixed(2) + '</td>'
                     + '<td>$' + b.annualShare.toFixed(2) + '</td>';
                 if (showReview) {
-                    html += '<td><button class="review-btn" onclick="openDisputeForm('
-                        + b.billId + ', \'' + escapeHtml(b.name).replace(/'/g, "\\'") + '\')">'
+                    html += '<td><button class="review-btn" data-action="open-dispute" data-bill-id="'
+                        + b.billId + '" data-bill-name="' + escapeHtml(b.name) + '">'
                         + 'Request Review</button></td>';
                 }
                 tr.innerHTML = html;
@@ -780,7 +779,7 @@
             var dialog = document.getElementById('disputeDialog');
             dialog.innerHTML = '<div class="dispute-dialog-header">'
                 + '<h3>Request Review</h3>'
-                + '<button class="dispute-dialog-close" onclick="closeDispute()">&times;</button>'
+                + '<button class="dispute-dialog-close" data-action="close-dispute">&times;</button>'
                 + '</div>'
                 + '<div class="dispute-dialog-body">'
                 + '<p style="color:#5B6475;margin-bottom:16px;">Flagging <strong>' + escapeHtml(billName) + '</strong> for review.</p>'
@@ -796,8 +795,9 @@
                 + '</div>'
                 + '</div>'
                 + '<div class="dispute-dialog-footer">'
-                + '<button class="dispute-btn-cancel" onclick="closeDispute()">Cancel</button>'
-                + '<button class="dispute-btn-submit" id="disputeSubmitBtn" onclick="submitDispute(' + billId + ', \'' + escapeHtml(billName).replace(/'/g, "\\'") + '\')">Submit</button>'
+                + '<button class="dispute-btn-cancel" data-action="close-dispute">Cancel</button>'
+                + '<button class="dispute-btn-submit" id="disputeSubmitBtn" data-action="submit-dispute" data-bill-id="'
+                + billId + '" data-bill-name="' + escapeHtml(billName) + '">Submit</button>'
                 + '</div>';
             overlay.classList.add('visible');
         }
@@ -847,7 +847,7 @@
                 var dialog = document.getElementById('disputeDialog');
                 dialog.innerHTML = '<div class="dispute-dialog-header">'
                     + '<h3>Request Review</h3>'
-                    + '<button class="dispute-dialog-close" onclick="closeDispute()">&times;</button>'
+                    + '<button class="dispute-dialog-close" data-action="close-dispute">&times;</button>'
                     + '</div>'
                     + '<div class="dispute-success">'
                     + '<div class="check-icon">&#10003;</div>'
@@ -855,7 +855,7 @@
                     + '<p style="color:#666;">The account owner will be notified of your request.</p>'
                     + '</div>'
                     + '<div class="dispute-dialog-footer">'
-                    + '<button class="dispute-btn-cancel" onclick="closeDispute()">Close</button>'
+                    + '<button class="dispute-btn-cancel" data-action="close-dispute">Close</button>'
                     + '</div>';
             } catch (err) {
                 console.error('Dispute submission error:', err);
@@ -894,7 +894,7 @@
                         var icon = ev.contentType && ev.contentType.startsWith('image/') ? '&#128247;' : '&#128196;';
                         html += '<div class="sd-evidence-item">'
                             + '<span>' + icon + '</span>'
-                            + '<a href="#" onclick="fetchEvidenceUrl(\'' + escapeHtml(d.id) + '\', ' + ev.index + '); return false;">' + escapeHtml(ev.name) + '</a>'
+                            + '<a href="#" data-action="fetch-evidence" data-dispute-id="' + escapeHtml(d.id) + '" data-evidence-index="' + ev.index + '">' + escapeHtml(ev.name) + '</a>'
                             + '</div>';
                     });
                     html += '</div>';
@@ -903,8 +903,8 @@
                 var ur = d.userReview;
                 if (ur && ur.state === 'requested') {
                     html += '<div class="sd-actions" id="sd-actions-' + escapeHtml(d.id) + '">'
-                        + '<button class="sd-btn sd-btn-approve" onclick="submitDecision(\'' + escapeHtml(d.id) + '\', \'approve\')">Approve</button>'
-                        + '<button class="sd-btn sd-btn-reject" onclick="promptRejectDecision(\'' + escapeHtml(d.id) + '\')">Reject</button>'
+                        + '<button class="sd-btn sd-btn-approve" data-action="approve-decision" data-dispute-id="' + escapeHtml(d.id) + '">Approve</button>'
+                        + '<button class="sd-btn sd-btn-reject" data-action="reject-decision" data-dispute-id="' + escapeHtml(d.id) + '">Reject</button>'
                         + '</div>';
                 } else if (ur && ur.state === 'approved_by_user') {
                     html += '<div class="sd-user-decision approved">You approved this resolution.</div>';
@@ -930,7 +930,7 @@
                     alert(data.error || 'Could not load evidence.');
                     return;
                 }
-                window.open(data.url, '_blank');
+                window.open(data.url, '_blank', 'noopener,noreferrer');
             } catch (err) {
                 console.error('Evidence URL error:', err);
                 alert('Could not load evidence. Please try again.');
@@ -1139,7 +1139,7 @@
                             if (contacts.length > 0) {
                                 html += '<p class="pm-detail">Send via Zelle to:</p>';
                                 contacts.forEach(function(c) {
-                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(c) + '\')">Copy</button></p>';
+                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></p>';
                                 });
                             }
                         } else if (pm.type === 'apple_cash') {
@@ -1147,16 +1147,16 @@
                             if (contacts.length > 0) {
                                 html += '<p class="pm-detail">Send via Messages or Wallet to:</p>';
                                 contacts.forEach(function(c) {
-                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(c) + '\')">Copy</button></p>';
+                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></p>';
                                 });
                             }
                         } else {
                             if (pm.handle) {
-                                html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(pm.handle) + '</span> <button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(pm.handle) + '\')">Copy</button></p>';
+                                html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(pm.handle) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.handle) + '">Copy</button></p>';
                             }
                             if (pm.url) {
                                 html += '<div class="pm-url-row"><a href="' + escapeHtml(pm.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(pm.url) + '</a>'
-                                    + '<button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(pm.url) + '\')">Copy</button></div>';
+                                    + '<button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.url) + '">Copy</button></div>';
                             }
                         }
 
@@ -1192,6 +1192,41 @@
                 showError('Could not connect to the server. Please try again later.');
             }
         }
+
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('[data-action]');
+            if (!target) return;
+            var action = target.getAttribute('data-action');
+
+            if (action === 'copy') {
+                e.preventDefault();
+                copyToClipboard(target.getAttribute('data-copy-text'), target);
+            } else if (action === 'open-dispute') {
+                e.preventDefault();
+                var billId = parseInt(target.getAttribute('data-bill-id'), 10);
+                var billName = target.getAttribute('data-bill-name');
+                openDisputeForm(billId, billName);
+            } else if (action === 'submit-dispute') {
+                e.preventDefault();
+                var billId = parseInt(target.getAttribute('data-bill-id'), 10);
+                var billName = target.getAttribute('data-bill-name');
+                submitDispute(billId, billName);
+            } else if (action === 'close-dispute') {
+                e.preventDefault();
+                closeDispute();
+            } else if (action === 'fetch-evidence') {
+                e.preventDefault();
+                var disputeId = target.getAttribute('data-dispute-id');
+                var evidenceIndex = parseInt(target.getAttribute('data-evidence-index'), 10);
+                fetchEvidenceUrl(disputeId, evidenceIndex);
+            } else if (action === 'approve-decision') {
+                e.preventDefault();
+                submitDecision(target.getAttribute('data-dispute-id'), 'approve');
+            } else if (action === 'reject-decision') {
+                e.preventDefault();
+                promptRejectDecision(target.getAttribute('data-dispute-id'));
+            }
+        });
 
         load();
     </script>
