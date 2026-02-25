@@ -17,6 +17,7 @@ function _set(key, val) {
         case 'familyMembers': familyMembers = val; break;
         case 'bills': bills = val; break;
         case 'payments': payments = val; break;
+        case 'billingEvents': billingEvents = val; break;
         case 'settings': settings = val; break;
         case 'currentUser': currentUser = val; break;
         case 'currentBillingYear': currentBillingYear = val; break;
@@ -30,6 +31,7 @@ function _get(key) {
         case 'familyMembers': return familyMembers;
         case 'bills': return bills;
         case 'payments': return payments;
+        case 'billingEvents': return billingEvents;
         case 'settings': return settings;
         case 'currentUser': return currentUser;
         case 'currentBillingYear': return currentBillingYear;
@@ -42,6 +44,7 @@ function _get(key) {
         case 'DISPUTE_STATUS_LABELS': return DISPUTE_STATUS_LABELS;
         case 'BILLING_YEAR_STATUSES': return BILLING_YEAR_STATUSES;
         case 'PAYMENT_METHOD_TYPES': return PAYMENT_METHOD_TYPES;
+        case 'BILLING_EVENT_LABELS': return BILLING_EVENT_LABELS;
         case 'CURRENT_MIGRATION_VERSION': return CURRENT_MIGRATION_VERSION;
     }
 }
@@ -485,7 +488,7 @@ describe('migratePaymentReceivedToLedger', () => {
 // ──────────────── deletePaymentEntry ──────────────────────────
 
 describe('deletePaymentEntry', () => {
-    it('removes a payment entry from the ledger', () => {
+    it('reverses a payment entry instead of removing it', () => {
         const ctx = createContext();
         ctx._set('payments', [
             { id: 'p1', memberId: 1, amount: 100, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
@@ -498,8 +501,14 @@ describe('deletePaymentEntry', () => {
         ctx.deletePaymentEntry('p1', 1);
 
         const payments = ctx._get('payments');
-        assert.equal(payments.length, 1);
-        assert.equal(payments[0].id, 'p2');
+        assert.equal(payments.length, 3, 'should have original 2 + reversal');
+        const original = payments.find(p => p.id === 'p1');
+        assert.equal(original.reversed, true, 'original should be marked reversed');
+        const reversal = payments.find(p => p.type === 'reversal');
+        assert.equal(reversal.amount, -100, 'reversal should negate original');
+        assert.equal(reversal.reversesPaymentId, 'p1');
+        const p2 = payments.find(p => p.id === 'p2');
+        assert.equal(p2.reversed, undefined, 'other payment should be unaffected');
     });
 });
 
@@ -2525,6 +2534,388 @@ describe('computeMemberSummaryForShare with billing frequency', () => {
         const result = ctx.computeMemberSummaryForShare(1);
         assert.equal(result.bills[0].billingFrequency, 'monthly');
         assert.equal(result.bills[0].canonicalAmount, 15);
+    });
+});
+
+// ──────────────── Money Integrity Layer — Event Ledger ─────────────────
+
+describe('emitBillingEvent', () => {
+    it('appends an event to billingEvents', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        ctx.emitBillingEvent('BILL_CREATED', { billId: 1, billName: 'Test' });
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'BILL_CREATED');
+        assert.equal(events[0].payload.billId, 1);
+    });
+
+    it('generates unique event IDs', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        ctx.emitBillingEvent('BILL_CREATED', { billId: 1 });
+        ctx.emitBillingEvent('BILL_UPDATED', { billId: 1 });
+        const events = ctx._get('billingEvents');
+        assert.notEqual(events[0].id, events[1].id);
+    });
+
+    it('records timestamp and actor', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        const event = ctx.emitBillingEvent('PAYMENT_RECORDED', { amount: 100 });
+        assert.ok(event.timestamp, 'should have timestamp');
+        assert.equal(event.actor.type, 'admin');
+        assert.equal(event.actor.userId, 'test-user');
+    });
+
+    it('defaults source to ui', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        const event = ctx.emitBillingEvent('BILL_CREATED', {});
+        assert.equal(event.source, 'ui');
+    });
+
+    it('accepts custom source', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        const event = ctx.emitBillingEvent('BILL_CREATED', {}, '', 'migration');
+        assert.equal(event.source, 'migration');
+    });
+
+    it('accepts optional note', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+
+        const event = ctx.emitBillingEvent('BILL_UPDATED', {}, 'Manual correction');
+        assert.equal(event.note, 'Manual correction');
+    });
+});
+
+describe('BILLING_EVENT_LABELS', () => {
+    it('has labels for all event types', () => {
+        const ctx = createContext();
+        const labels = ctx._get('BILLING_EVENT_LABELS');
+        assert.ok(labels.BILL_CREATED);
+        assert.ok(labels.BILL_UPDATED);
+        assert.ok(labels.BILL_DELETED);
+        assert.ok(labels.MEMBER_ADDED_TO_BILL);
+        assert.ok(labels.MEMBER_REMOVED_FROM_BILL);
+        assert.ok(labels.PAYMENT_RECORDED);
+        assert.ok(labels.PAYMENT_REVERSED);
+        assert.ok(labels.YEAR_STATUS_CHANGED);
+    });
+});
+
+describe('getBillingEventsForBill', () => {
+    it('filters events by billId', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', [
+            { id: 'e1', timestamp: '2026-01-01T00:00:00Z', eventType: 'BILL_CREATED', payload: { billId: 1 }, actor: {} },
+            { id: 'e2', timestamp: '2026-01-02T00:00:00Z', eventType: 'BILL_UPDATED', payload: { billId: 2 }, actor: {} },
+            { id: 'e3', timestamp: '2026-01-03T00:00:00Z', eventType: 'MEMBER_ADDED_TO_BILL', payload: { billId: 1 }, actor: {} },
+        ]);
+
+        const result = ctx.getBillingEventsForBill(1);
+        assert.equal(result.length, 2);
+        assert.ok(result.every(e => e.payload.billId === 1));
+    });
+
+    it('returns events sorted newest first', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', [
+            { id: 'e1', timestamp: '2026-01-01T00:00:00Z', eventType: 'BILL_CREATED', payload: { billId: 1 }, actor: {} },
+            { id: 'e2', timestamp: '2026-01-15T00:00:00Z', eventType: 'BILL_UPDATED', payload: { billId: 1 }, actor: {} },
+        ]);
+
+        const result = ctx.getBillingEventsForBill(1);
+        assert.equal(result[0].id, 'e2', 'newest event should be first');
+    });
+
+    it('returns empty array when no events match', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        assert.deepStrictEqual(ctx.getBillingEventsForBill(999), []);
+    });
+});
+
+describe('addBill emits BILL_CREATED event', () => {
+    it('creates a BILL_CREATED event when adding a bill', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+
+        ctx.document.getElementById = (id) => {
+            if (id === 'billName') return { value: 'Netflix' };
+            if (id === 'billAmount') return { value: '15.99' };
+            if (id === 'billWebsite') return { value: '' };
+            if (id === 'billFrequencyToggle') return {
+                querySelectorAll: () => [],
+                querySelector: () => ({ getAttribute: () => 'monthly', classList: { add: () => {}, remove: () => {} } })
+            };
+            return { innerHTML: '', textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {} } };
+        };
+
+        ctx.addBill();
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'BILL_CREATED');
+        assert.equal(events[0].payload.billName, 'Netflix');
+        assert.equal(events[0].payload.amount, 15.99);
+    });
+});
+
+describe('editBillAmount emits BILL_UPDATED event', () => {
+    it('records before/after values', () => {
+        const ctx = createContext({
+            prompt: () => '25.00',
+            alert: () => {},
+        });
+        ctx._set('billingEvents', []);
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [] },
+        ]);
+
+        ctx.editBillAmount(1);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'BILL_UPDATED');
+        assert.equal(events[0].payload.previousValue, 15);
+        assert.equal(events[0].payload.newValue, 25);
+        assert.equal(events[0].payload.field, 'amount');
+    });
+});
+
+describe('removeBill emits BILL_DELETED event', () => {
+    it('records bill details before deletion', () => {
+        const ctx = createContext({ confirm: () => true });
+        ctx._set('billingEvents', []);
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2] },
+        ]);
+
+        ctx.removeBill(1);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'BILL_DELETED');
+        assert.equal(events[0].payload.billName, 'Netflix');
+        assert.equal(events[0].payload.memberCount, 2);
+    });
+});
+
+describe('toggleMember emits membership events', () => {
+    it('emits MEMBER_ADDED_TO_BILL when adding', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [] },
+        ]);
+
+        ctx.toggleMember(100, 1);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'MEMBER_ADDED_TO_BILL');
+        assert.equal(events[0].payload.memberName, 'Alice');
+        assert.equal(events[0].payload.billName, 'Netflix');
+    });
+
+    it('emits MEMBER_REMOVED_FROM_BILL when removing', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+
+        ctx.toggleMember(100, 1);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'MEMBER_REMOVED_FROM_BILL');
+    });
+});
+
+describe('recordPayment emits PAYMENT_RECORDED event', () => {
+    it('emits event for a standard payment', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+
+        ctx.recordPayment(1, 100, 'zelle', 'January payment', false);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'PAYMENT_RECORDED');
+        assert.equal(events[0].payload.amount, 100);
+        assert.equal(events[0].payload.memberName, 'Alice');
+        assert.equal(events[0].payload.method, 'zelle');
+        assert.equal(events[0].payload.distributed, false);
+    });
+
+    it('emits multiple events for distributed payments', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Parent', email: '', avatar: '', paymentReceived: 0, linkedMembers: [2] },
+            { id: 2, name: 'Child', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2] },
+        ]);
+
+        ctx.recordPayment(1, 100, 'cash', '', true);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 2, 'should emit events for parent and child');
+        assert.ok(events.every(e => e.eventType === 'PAYMENT_RECORDED'));
+        assert.ok(events.some(e => e.payload.distributed === true));
+    });
+});
+
+describe('deletePaymentEntry (payment reversal)', () => {
+    it('creates a reversal entry instead of deleting', () => {
+        const ctx = createContext({ confirm: () => true });
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('payments', [
+            { id: 'pay_1', memberId: 1, amount: 100, receivedAt: '2026-01-15T00:00:00Z', note: 'Test', method: 'zelle' },
+        ]);
+
+        ctx.deletePaymentEntry('pay_1', 1);
+
+        const payments = ctx._get('payments');
+        assert.equal(payments.length, 2, 'should have original + reversal');
+
+        const original = payments.find(p => p.id === 'pay_1');
+        assert.equal(original.reversed, true, 'original should be marked reversed');
+
+        const reversal = payments.find(p => p.type === 'reversal');
+        assert.ok(reversal, 'should have a reversal entry');
+        assert.equal(reversal.amount, -100, 'reversal should have negative amount');
+        assert.equal(reversal.reversesPaymentId, 'pay_1');
+        assert.equal(reversal.memberId, 1);
+    });
+
+    it('emits PAYMENT_REVERSED event', () => {
+        const ctx = createContext({ confirm: () => true });
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('payments', [
+            { id: 'pay_1', memberId: 1, amount: 50, receivedAt: '2026-01-15T00:00:00Z', note: '', method: 'cash' },
+        ]);
+
+        ctx.deletePaymentEntry('pay_1', 1);
+
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'PAYMENT_REVERSED');
+        assert.equal(events[0].payload.paymentId, 'pay_1');
+        assert.equal(events[0].payload.originalAmount, 50);
+    });
+
+    it('net payment total is zero after reversal', () => {
+        const ctx = createContext({ confirm: () => true });
+        ctx._set('billingEvents', []);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('payments', [
+            { id: 'pay_1', memberId: 1, amount: 200, receivedAt: '2026-01-15T00:00:00Z', note: '', method: 'zelle' },
+        ]);
+
+        ctx.deletePaymentEntry('pay_1', 1);
+
+        const total = ctx.getPaymentTotalForMember(1);
+        assert.equal(total, 0, 'reversed payment should net to zero');
+    });
+
+    it('is blocked when year is read-only', () => {
+        const alerts = [];
+        const ctx = createContext({ alert: (msg) => alerts.push(msg), confirm: () => true });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'archived', createdAt: null, archivedAt: null });
+        ctx._set('billingEvents', []);
+        ctx._set('payments', [
+            { id: 'pay_1', memberId: 1, amount: 100, receivedAt: '2026-01-15T00:00:00Z', note: '', method: 'cash' },
+        ]);
+
+        ctx.deletePaymentEntry('pay_1', 1);
+        assert.equal(ctx._get('payments').length, 1, 'should not modify payments');
+        assert.equal(ctx._get('payments')[0].reversed, undefined, 'should not mark as reversed');
+    });
+
+    it('does nothing if payment not found', () => {
+        const ctx = createContext({ confirm: () => true });
+        ctx._set('billingEvents', []);
+        ctx._set('payments', []);
+
+        ctx.deletePaymentEntry('nonexistent', 1);
+        assert.equal(ctx._get('payments').length, 0);
+        assert.equal(ctx._get('billingEvents').length, 0);
+    });
+});
+
+describe('getBillingEventsForMember', () => {
+    it('filters events by memberId', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', [
+            { id: 'e1', timestamp: '2026-01-01T00:00:00Z', eventType: 'PAYMENT_RECORDED', payload: { memberId: 1 }, actor: {} },
+            { id: 'e2', timestamp: '2026-01-02T00:00:00Z', eventType: 'PAYMENT_RECORDED', payload: { memberId: 2 }, actor: {} },
+            { id: 'e3', timestamp: '2026-01-03T00:00:00Z', eventType: 'PAYMENT_REVERSED', payload: { memberId: 1 }, actor: {} },
+        ]);
+
+        const result = ctx.getBillingEventsForMember(1);
+        assert.equal(result.length, 2);
+    });
+});
+
+describe('getBillingEventsForPayment', () => {
+    it('finds events referencing a payment ID', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', [
+            { id: 'e1', timestamp: '2026-01-01T00:00:00Z', eventType: 'PAYMENT_RECORDED', payload: { paymentId: 'pay_1' }, actor: {} },
+            { id: 'e2', timestamp: '2026-01-02T00:00:00Z', eventType: 'PAYMENT_REVERSED', payload: { reversesPaymentId: 'pay_1' }, actor: {} },
+            { id: 'e3', timestamp: '2026-01-03T00:00:00Z', eventType: 'PAYMENT_RECORDED', payload: { paymentId: 'pay_2' }, actor: {} },
+        ]);
+
+        const result = ctx.getBillingEventsForPayment('pay_1');
+        assert.equal(result.length, 2);
+    });
+});
+
+describe('toggleBillFrequency emits BILL_UPDATED event', () => {
+    it('records frequency change with before/after', () => {
+        const ctx = createContext();
+        ctx._set('billingEvents', []);
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 10, billingFrequency: 'monthly', logo: '', website: '', members: [] },
+        ]);
+
+        ctx.toggleBillFrequency(1);
+        const events = ctx._get('billingEvents');
+        assert.equal(events.length, 1);
+        assert.equal(events[0].eventType, 'BILL_UPDATED');
+        assert.equal(events[0].payload.field, 'billingFrequency');
+        assert.equal(events[0].payload.previousValue, 'monthly');
+        assert.equal(events[0].payload.newValue, 'annual');
+        assert.equal(events[0].payload.previousAmount, 10);
+        assert.equal(events[0].payload.newAmount, 120);
     });
 });
 

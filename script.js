@@ -2,6 +2,7 @@
 let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, linkedMembers: [memberIds]}
 let bills = []; // Array of {id, name, amount, billingFrequency, logo, website, members: [memberIds]}
 let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
+let billingEvents = []; // Append-only event ledger for audit trail
 let settings = {
     emailMessage: 'Your annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
     paymentLinks: [],
@@ -264,6 +265,7 @@ function saveData() {
                 familyMembers: familyMembers,
                 bills: bills,
                 payments: payments,
+                billingEvents: billingEvents,
                 settings: settings,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -328,9 +330,16 @@ async function setBillingYearStatus(newStatus) {
     if (!currentBillingYear || !currentUser) return;
     if (currentBillingYear.status === newStatus) return;
 
+    var previousStatus = currentBillingYear.status;
     const updates = { status: newStatus };
     if (newStatus === 'closed') updates.closedAt = firebase.firestore.FieldValue.serverTimestamp();
     if (newStatus === 'archived') updates.archivedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+    emitBillingEvent('YEAR_STATUS_CHANGED', {
+        previousStatus: previousStatus, newStatus: newStatus,
+        yearLabel: currentBillingYear.label
+    });
+    updates.billingEvents = billingEvents;
 
     try {
         const yearDocRef = db.collection('users').doc(currentUser.uid)
@@ -441,6 +450,7 @@ async function loadBillingYearData(yearId) {
         });
 
         payments = yearData.payments || [];
+        billingEvents = yearData.billingEvents || [];
 
         if (yearData.settings) {
             settings = yearData.settings;
@@ -547,6 +557,7 @@ async function startNewYear() {
             familyMembers: clonedMembers,
             bills: clonedBills,
             payments: [],
+            billingEvents: [],
             settings: {
                 emailMessage: settings.emailMessage,
                 paymentLinks: (settings.paymentLinks || []).map(l => ({...l}))
@@ -1068,6 +1079,62 @@ function renderFamilyMembers() {
     `}).join('');
 }
 
+// ──────────────── Money Integrity Layer — Event Ledger ─────────────────────
+
+function generateEventId() {
+    return 'evt_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+}
+
+function emitBillingEvent(eventType, payload, note, source) {
+    var event = {
+        id: generateEventId(),
+        timestamp: new Date().toISOString(),
+        actor: {
+            type: 'admin',
+            userId: currentUser ? currentUser.uid : null
+        },
+        eventType: eventType,
+        payload: payload || {},
+        note: note || '',
+        source: source || 'ui'
+    };
+    billingEvents.push(event);
+    return event;
+}
+
+function getBillingEventsForBill(billId) {
+    return billingEvents.filter(function(e) {
+        return e.payload && e.payload.billId === billId;
+    }).sort(function(a, b) {
+        return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+}
+
+function getBillingEventsForMember(memberId) {
+    return billingEvents.filter(function(e) {
+        return e.payload && e.payload.memberId === memberId;
+    }).sort(function(a, b) {
+        return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+}
+
+function getBillingEventsForPayment(paymentId) {
+    return billingEvents.filter(function(e) {
+        return e.payload && (e.payload.paymentId === paymentId || e.payload.reversesPaymentId === paymentId);
+    });
+}
+
+var BILLING_EVENT_LABELS = {
+    BILL_CREATED: 'Bill created',
+    BILL_UPDATED: 'Bill updated',
+    BILL_DELETED: 'Bill removed',
+    MEMBER_ADDED_TO_BILL: 'Member added',
+    MEMBER_REMOVED_FROM_BILL: 'Member removed',
+    PAYMENT_RECORDED: 'Payment recorded',
+    PAYMENT_REVERSED: 'Payment reversed',
+    YEAR_STATUS_CHANGED: 'Year status changed'
+};
+
 // ──────────────── Billing Frequency Helpers ─────────────────────
 
 function getBillAnnualAmount(bill) {
@@ -1148,6 +1215,10 @@ function addBill() {
     };
 
     bills.push(bill);
+    emitBillingEvent('BILL_CREATED', {
+        billId: bill.id, billName: name, amount: amount,
+        billingFrequency: billingFrequency, website: website
+    });
 
     nameInput.value = '';
     amountInput.value = '';
@@ -1180,7 +1251,12 @@ function editBillName(id) {
     const newName = prompt('Enter new bill name:', bill.name);
     if (!newName || newName.trim() === '') return;
 
+    const previousName = bill.name;
     bill.name = newName.trim();
+    emitBillingEvent('BILL_UPDATED', {
+        billId: id, field: 'name',
+        previousValue: previousName, newValue: bill.name
+    });
 
     saveData();
     renderBills();
@@ -1202,7 +1278,13 @@ function editBillAmount(id) {
         return;
     }
 
+    const previousAmount = bill.amount;
     bill.amount = amount;
+    emitBillingEvent('BILL_UPDATED', {
+        billId: id, billName: bill.name, field: 'amount',
+        previousValue: previousAmount, newValue: amount,
+        billingFrequency: bill.billingFrequency
+    });
 
     saveData();
     renderBills();
@@ -1216,6 +1298,9 @@ function toggleBillFrequency(id) {
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
+    const previousFrequency = bill.billingFrequency || 'monthly';
+    const previousAmount = bill.amount;
+
     if (bill.billingFrequency === 'annual') {
         bill.amount = Math.round((bill.amount / 12) * 100) / 100;
         bill.billingFrequency = 'monthly';
@@ -1223,6 +1308,12 @@ function toggleBillFrequency(id) {
         bill.amount = Math.round((bill.amount * 12) * 100) / 100;
         bill.billingFrequency = 'annual';
     }
+
+    emitBillingEvent('BILL_UPDATED', {
+        billId: id, billName: bill.name, field: 'billingFrequency',
+        previousValue: previousFrequency, newValue: bill.billingFrequency,
+        previousAmount: previousAmount, newAmount: bill.amount
+    });
 
     saveData();
     renderBills();
@@ -1244,10 +1335,75 @@ function editBillWebsite(id) {
         return;
     }
 
+    const previousWebsite = bill.website;
     bill.website = trimmed;
+    emitBillingEvent('BILL_UPDATED', {
+        billId: id, billName: bill.name, field: 'website',
+        previousValue: previousWebsite, newValue: trimmed
+    });
 
     saveData();
     renderBills();
+}
+
+// Show audit history for a bill
+function showBillAuditHistory(billId) {
+    var bill = bills.find(function(b) { return b.id === billId; });
+    var billName = bill ? escapeHtml(bill.name) : 'Deleted bill';
+
+    ensureDialogContainer();
+    var overlay = document.getElementById('payment-dialog-overlay');
+    var dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    var events = getBillingEventsForBill(billId);
+
+    var rows = events.length > 0
+        ? events.map(function(evt) {
+            var date = new Date(evt.timestamp).toLocaleString();
+            var label = BILLING_EVENT_LABELS[evt.eventType] || evt.eventType;
+            var detail = '';
+            if (evt.payload) {
+                if (evt.eventType === 'BILL_CREATED') {
+                    var freq = evt.payload.billingFrequency === 'annual' ? '/yr' : '/mo';
+                    detail = '$' + (evt.payload.amount || 0).toFixed(2) + freq;
+                } else if (evt.eventType === 'BILL_UPDATED' && evt.payload.field === 'amount') {
+                    detail = '$' + (evt.payload.previousValue || 0).toFixed(2) + ' → $' + (evt.payload.newValue || 0).toFixed(2);
+                } else if (evt.eventType === 'BILL_UPDATED' && evt.payload.field === 'name') {
+                    detail = escapeHtml(evt.payload.previousValue || '') + ' → ' + escapeHtml(evt.payload.newValue || '');
+                } else if (evt.eventType === 'BILL_UPDATED' && evt.payload.field === 'billingFrequency') {
+                    detail = (evt.payload.previousValue || '') + ' → ' + (evt.payload.newValue || '');
+                } else if (evt.eventType === 'MEMBER_ADDED_TO_BILL') {
+                    detail = escapeHtml(evt.payload.memberName || '') + ' joined';
+                } else if (evt.eventType === 'MEMBER_REMOVED_FROM_BILL') {
+                    detail = escapeHtml(evt.payload.memberName || '') + ' left';
+                } else if (evt.eventType === 'BILL_DELETED') {
+                    detail = 'Bill removed';
+                }
+            }
+            return '<div class="audit-event-item">'
+                + '<div class="audit-event-header">'
+                + '<span class="audit-event-label">' + label + '</span>'
+                + '<span class="audit-event-date">' + escapeHtml(date) + '</span>'
+                + '</div>'
+                + (detail ? '<div class="audit-event-detail">' + detail + '</div>' : '')
+                + (evt.note ? '<div class="audit-event-note">' + escapeHtml(evt.note) + '</div>' : '')
+                + '</div>';
+        }).join('')
+        : '<p class="empty-state-compact">No history recorded yet</p>';
+
+    dialog.innerHTML = '<div class="dialog-header">'
+        + '<h3>History: ' + billName + '</h3>'
+        + '<button class="dialog-close" onclick="closePaymentDialog()">&times;</button>'
+        + '</div>'
+        + '<div class="dialog-body">'
+        + '<div class="audit-event-list">' + rows + '</div>'
+        + '</div>'
+        + '<div class="dialog-footer">'
+        + '<button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>'
+        + '</div>';
+
+    overlay.classList.add('visible');
 }
 
 // Upload logo
@@ -1281,6 +1437,12 @@ function removeBill(id) {
     var billName = bill ? bill.name : '';
     if (!confirm('Remove this bill?')) return;
 
+    emitBillingEvent('BILL_DELETED', {
+        billId: id, billName: billName,
+        amount: bill ? bill.amount : 0,
+        billingFrequency: bill ? bill.billingFrequency : 'monthly',
+        memberCount: bill ? bill.members.length : 0
+    });
     bills = bills.filter(b => b.id !== id);
 
     saveData();
@@ -1300,8 +1462,18 @@ function toggleMember(billId, memberId) {
 
     if (index === -1) {
         bill.members.push(memberId);
+        emitBillingEvent('MEMBER_ADDED_TO_BILL', {
+            billId: billId, billName: bill.name,
+            memberId: memberId, memberName: memberObj ? memberObj.name : '',
+            newMemberCount: bill.members.length
+        });
     } else {
         bill.members.splice(index, 1);
+        emitBillingEvent('MEMBER_REMOVED_FROM_BILL', {
+            billId: billId, billName: bill.name,
+            memberId: memberId, memberName: memberObj ? memberObj.name : '',
+            newMemberCount: bill.members.length
+        });
     }
 
     saveData();
@@ -1373,12 +1545,13 @@ function renderBills() {
                     </div>
                 </div>
 
-                ${archived ? '' : `<div class="bill-actions">
-                    <button class="btn btn-secondary" onclick="uploadLogo(${bill.id})">Upload Logo</button>
+                <div class="bill-actions">
+                    ${archived ? '' : `<button class="btn btn-secondary" onclick="uploadLogo(${bill.id})">Upload Logo</button>
                     ${bill.logo ? `<button class="btn btn-danger btn-sm" onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
                     <button class="btn btn-secondary" onclick="editBillWebsite(${bill.id})">Edit Website</button>
-                    <button class="btn btn-danger" onclick="removeBill(${bill.id})">Remove Bill</button>
-                </div>`}
+                    <button class="btn btn-danger" onclick="removeBill(${bill.id})">Remove Bill</button>`}
+                    <button class="btn btn-secondary btn-sm" onclick="showBillAuditHistory(${bill.id})">View History</button>
+                </div>
             </div>
         `;
     }).join('');
@@ -1768,13 +1941,19 @@ function recordPayment(memberId, amount, method, note, distribute) {
             ? Math.round(validAmount * parentTotal / combinedTotal * 100) / 100
             : validAmount;
 
-        payments.push({
+        var parentPaymentEntry = {
             id: generateUniquePaymentId(),
             memberId: memberId,
             amount: parentShare,
             receivedAt: now,
             note: note || 'Distributed payment',
             method: method || 'other'
+        };
+        payments.push(parentPaymentEntry);
+        emitBillingEvent('PAYMENT_RECORDED', {
+            paymentId: parentPaymentEntry.id, memberId: memberId,
+            memberName: member.name, amount: parentShare,
+            method: method || 'other', distributed: true
         });
 
         let distributed = parentShare;
@@ -1791,24 +1970,38 @@ function recordPayment(memberId, amount, method, note, distribute) {
                 distributed += childShare;
             }
             if (childShare > 0) {
-                payments.push({
+                var childMember = familyMembers.find(m => m.id === linkedId);
+                var childPaymentEntry = {
                     id: generateUniquePaymentId(),
                     memberId: linkedId,
                     amount: childShare,
                     receivedAt: now,
                     note: note || 'Distributed from ' + member.name,
                     method: method || 'other'
+                };
+                payments.push(childPaymentEntry);
+                emitBillingEvent('PAYMENT_RECORDED', {
+                    paymentId: childPaymentEntry.id, memberId: linkedId,
+                    memberName: childMember ? childMember.name : '', amount: childShare,
+                    method: method || 'other', distributed: true,
+                    distributedFrom: memberId
                 });
             }
         });
     } else {
-        payments.push({
+        var paymentEntry = {
             id: generateUniquePaymentId(),
             memberId: memberId,
             amount: validAmount,
             receivedAt: now,
             note: note || '',
             method: method || 'other'
+        };
+        payments.push(paymentEntry);
+        emitBillingEvent('PAYMENT_RECORDED', {
+            paymentId: paymentEntry.id, memberId: memberId,
+            memberName: member.name, amount: validAmount,
+            method: method || 'other', distributed: false
         });
     }
 
@@ -3714,14 +3907,27 @@ function showPaymentHistory(memberId) {
         ? memberPayments.map(function(p) {
             var date = new Date(p.receivedAt).toLocaleDateString();
             var methodLabel = getPaymentMethodLabel(p.method);
-            return '<div class="payment-history-item">'
+            var isReversed = p.reversed === true;
+            var isReversal = p.type === 'reversal';
+            var itemClass = 'payment-history-item';
+            if (isReversed) itemClass += ' payment-reversed';
+            if (isReversal) itemClass += ' payment-reversal';
+            var amountDisplay = isReversal
+                ? '-$' + Math.abs(p.amount).toFixed(2)
+                : '$' + p.amount.toFixed(2);
+            var statusTag = '';
+            if (isReversed) statusTag = '<span class="payment-status-tag reversed">Reversed</span>';
+            if (isReversal) statusTag = '<span class="payment-status-tag reversal">Reversal</span>';
+            var canReverse = !archived && !isReversed && !isReversal;
+            return '<div class="' + itemClass + '">'
                 + '<div class="payment-history-details">'
                 + '<span class="payment-history-date">' + escapeHtml(date) + '</span>'
-                + '<span class="payment-history-amount">$' + p.amount.toFixed(2) + '</span>'
+                + '<span class="payment-history-amount">' + amountDisplay + '</span>'
                 + '<span class="payment-history-method">' + escapeHtml(methodLabel) + '</span>'
+                + statusTag
                 + '</div>'
                 + (p.note ? '<div class="payment-history-note">' + escapeHtml(p.note) + '</div>' : '')
-                + (archived ? '' : '<button class="btn-icon remove" onclick="deletePaymentEntry(\'' + escapeHtml(p.id) + '\', ' + memberId + ')" title="Delete payment">&times;</button>')
+                + (canReverse ? '<button class="btn-icon remove" onclick="deletePaymentEntry(\'' + escapeHtml(p.id) + '\', ' + memberId + ')" title="Reverse payment">&times;</button>' : '')
                 + '</div>';
         }).join('')
         : '<p class="empty-state-compact">No payments recorded</p>';
@@ -3750,12 +3956,37 @@ function showPaymentHistory(memberId) {
 
 function deletePaymentEntry(paymentId, memberId) {
     if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
-    if (!confirm('Delete this payment entry?')) return;
+    if (!confirm('Reverse this payment? A reversal entry will be created to maintain the audit trail.')) return;
 
-    payments = payments.filter(p => p.id !== paymentId);
+    var original = payments.find(function(p) { return p.id === paymentId; });
+    if (!original) return;
+
+    original.reversed = true;
+
+    var reversalEntry = {
+        id: generateUniquePaymentId(),
+        memberId: original.memberId,
+        amount: -original.amount,
+        receivedAt: new Date().toISOString(),
+        note: 'Reversal of $' + original.amount.toFixed(2) + ' payment on ' + new Date(original.receivedAt).toLocaleDateString(),
+        method: original.method || 'other',
+        type: 'reversal',
+        reversesPaymentId: paymentId
+    };
+    payments.push(reversalEntry);
+
+    emitBillingEvent('PAYMENT_REVERSED', {
+        paymentId: paymentId,
+        reversalId: reversalEntry.id,
+        memberId: original.memberId,
+        memberName: (familyMembers.find(function(m) { return m.id === original.memberId; }) || {}).name || '',
+        originalAmount: original.amount,
+        method: original.method || 'other'
+    });
+
     saveData();
     showPaymentHistory(memberId);
     updateSummary();
-    showChangeToast('Payment entry removed. Balances recalculated.');
+    showChangeToast('Payment reversed. Audit trail preserved. Balances recalculated.');
 }
 

@@ -94,7 +94,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   ├── bills: Array<{
   │     id: number,
   │     name: string,
-  │     amount: number,
+  │     amount: number (canonical amount as entered),
+  │     billingFrequency: "monthly"|"annual" (defaults to "monthly"),
   │     logo: string (base64 data URL),
   │     website: string,
   │     members: number[] (member IDs assigned to this bill)
@@ -102,10 +103,22 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   ├── payments: Array<{
   │     id: string (e.g. "pay_1708000000000_12345"),
   │     memberId: number,
-  │     amount: number,
+  │     amount: number (negative for reversals),
   │     receivedAt: string (ISO 8601),
   │     note: string,
-  │     method: string ("cash"|"check"|"venmo"|"zelle"|"paypal"|"bank_transfer"|"other")
+  │     method: string ("cash"|"check"|"venmo"|"zelle"|"paypal"|"bank_transfer"|"other"),
+  │     reversed: boolean|undefined (true when reversed by a later entry),
+  │     type: string|undefined ("reversal" for reversal entries),
+  │     reversesPaymentId: string|undefined (original payment ID for reversals)
+  │   }>
+  ├── billingEvents: Array<{
+  │     id: string (e.g. "evt_1708000000000_12345"),
+  │     timestamp: string (ISO 8601),
+  │     actor: { type: "admin"|"system"|"member", userId?: string },
+  │     eventType: string (BILL_CREATED|BILL_UPDATED|BILL_DELETED|MEMBER_ADDED_TO_BILL|MEMBER_REMOVED_FROM_BILL|PAYMENT_RECORDED|PAYMENT_REVERSED|YEAR_STATUS_CHANGED),
+  │     payload: Record<string, any>,
+  │     note: string,
+  │     source: "ui"|"import"|"migration"|"system"
   │   }>
   ├── settings: {
   │     emailMessage: string,
@@ -235,7 +248,7 @@ Scripts must load in this exact order (all pages):
 
 ### Data Persistence
 - `loadData()` - Fetches user data from Firestore billing year document, initializes defaults for missing fields
-- `saveData()` - Persists `familyMembers`, `bills`, `payments`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived). Also calls `refreshPublicShares()`.
+- `saveData()` - Persists `familyMembers`, `bills`, `payments`, `billingEvents`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived). Also calls `refreshPublicShares()`.
 - `logout()` - Signs out the current user and redirects to login page
 
 ### Version Checking
@@ -273,23 +286,31 @@ Scripts must load in this exact order (all pages):
 - `isLinkedToAnyone(memberId)` - Checks if a member is linked as a child to any parent
 - `getParentMember(memberId)` - Returns the parent member for a linked child
 
+### Billing Frequency Helpers
+- `getBillAnnualAmount(bill)` - Returns canonical annual amount (amount for annual bills, amount*12 for monthly)
+- `getBillMonthlyAmount(bill)` - Returns derived monthly amount (amount/12 for annual bills, amount for monthly)
+- `getBillFrequencyLabel(bill)` - Returns display suffix: `/yr` or `/mo`
+- `setAddBillFrequency(frequency)` / `getAddBillFrequency()` - Manage the Add Bill form frequency toggle state
+- `toggleBillFrequency(id)` - Switches a bill between monthly and annual, converting the canonical amount
+
 ### Bill Management
-- `addBill()` - Creates bill with unique ID, amount, optional website. Shows change toast with recalculation message.
-- `editBillName(id)` / `editBillAmount(id)` / `editBillWebsite(id)` - Inline editing. Amount changes show change toast.
-- `removeBill(id)` - Deletes bill, shows change toast
+- `addBill()` - Creates bill with unique ID, amount, billing frequency, optional website. Emits `BILL_CREATED` event.
+- `editBillName(id)` / `editBillAmount(id)` / `editBillWebsite(id)` - Inline editing. Emits `BILL_UPDATED` events with before/after values.
+- `removeBill(id)` - Deletes bill, emits `BILL_DELETED` event with snapshot
 - `uploadLogo(id)` / `removeLogo(id)` - Logo upload with compression
-- `toggleMember(billId, memberId)` - Toggles member participation in a bill, shows change toast
+- `toggleMember(billId, memberId)` - Toggles member participation in a bill, emits `MEMBER_ADDED_TO_BILL` or `MEMBER_REMOVED_FROM_BILL` event
+- `showBillAuditHistory(billId)` - Opens dialog showing the complete event timeline for a bill
 
 ### Calculations & Payments
-- `calculateAnnualSummary()` - Computes monthly/yearly totals per member across all bills. Returns `{ [memberId]: { member, total, bills: [{ bill, monthlyShare, annualShare }] } }`
+- `calculateAnnualSummary()` - Computes monthly/yearly totals per member using canonical amounts (`getBillAnnualAmount`). Returns `{ [memberId]: { member, total, bills: [{ bill, monthlyShare, annualShare }] } }`
 - `calculateSettlementMetrics()` - Derives settlement progress from existing data: `{ totalAnnual, totalPayments, totalOutstanding, paidCount, totalMembers, percentage }`
-- `getCalculationBreakdown(memberSummary)` - Generates expandable HTML showing per-bill calculation formulas (amount x 12 / members = share)
+- `getCalculationBreakdown(memberSummary)` - Generates expandable HTML showing per-bill formulas (frequency-aware: `$X/yr ÷ N` for annual, `$X/mo × 12 ÷ N` for monthly)
 - `toggleCalcBreakdown(memberId)` - Toggles visibility of a member's calculation breakdown panel
 - `getPaymentStatusBadge(total, payment)` - Returns status badge HTML: "Outstanding", "Partial", or "Settled"
-- `recordPayment(memberId, amount, method, note, distribute)` - Creates ledger entry (or distributed entries for linked members)
-- `getPaymentTotalForMember(memberId)` - Derives paid-to-date total from ledger for a member
+- `recordPayment(memberId, amount, method, note, distribute)` - Creates ledger entry (or distributed entries for linked members). Emits `PAYMENT_RECORDED` events.
+- `getPaymentTotalForMember(memberId)` - Derives paid-to-date total from ledger for a member (reversals have negative amounts)
 - `getMemberPayments(memberId)` - Returns sorted payment history for a member
-- `deletePaymentEntry(paymentId, memberId)` - Removes a payment entry from the ledger, shows change toast
+- `deletePaymentEntry(paymentId, memberId)` - Creates a reversal entry (negative amount) instead of deleting. Marks original as `reversed: true`. Emits `PAYMENT_REVERSED` event. Preserves full audit trail.
 - `migratePaymentReceivedToLedger()` - One-time migration of legacy `paymentReceived` values into ledger entries
 
 ### Invoicing
@@ -370,6 +391,15 @@ Scripts must load in this exact order (all pages):
 - `renderEmailSettings()` - Renders email message editor
 - `saveEmailMessage()` - Persists the email message setting
 
+### Money Integrity Layer (Event Ledger)
+- `emitBillingEvent(eventType, payload, note, source)` - Appends an event to the append-only `billingEvents` ledger with timestamp and actor attribution
+- `generateEventId()` - Generates unique `evt_*` IDs for events
+- `getBillingEventsForBill(billId)` - Returns all events for a bill, sorted newest first
+- `getBillingEventsForMember(memberId)` - Returns all events for a member, sorted newest first
+- `getBillingEventsForPayment(paymentId)` - Returns events referencing a payment (including reversals)
+- `showBillAuditHistory(billId)` - Opens dialog showing the complete event timeline for a bill
+- `BILLING_EVENT_LABELS` - Human-readable labels for all event types
+
 ### Helpers
 - `isValidE164(phone)` - Validates E.164 phone number format (+ followed by 1-15 digits, first digit non-zero)
 - `getInitials(name)` - Extracts initials for avatar fallback
@@ -414,7 +444,16 @@ All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`
 
 ## Payment Ledger
 
-Payments are stored as an append-only ledger per billing year. Each entry records `{id, memberId, amount, receivedAt, note, method}`. The per-member "paid to date" total is derived by summing all ledger entries for that member. Legacy `paymentReceived` counters are automatically migrated into a single "migration payment" entry on first load.
+Payments are stored as an append-only ledger per billing year. Each entry records `{id, memberId, amount, receivedAt, note, method}`. The per-member "paid to date" total is derived by summing all ledger entries for that member (including negative reversal amounts). Legacy `paymentReceived` counters are automatically migrated into a single "migration payment" entry on first load.
+
+### Payment Reversals
+
+Payments are never physically deleted. Instead, `deletePaymentEntry()` creates a **reversal**:
+1. The original payment is marked `reversed: true`
+2. A new entry with `type: "reversal"`, `reversesPaymentId`, and a negative `amount` is appended
+3. A `PAYMENT_REVERSED` event is emitted to the billing event ledger
+
+This preserves the full audit trail while correctly adjusting the member's balance.
 
 ### Distributed Payments
 
@@ -454,6 +493,8 @@ All visual primitives are defined in `design-tokens.css` and consumed by `styles
 - **Settlement components:** `.settlement-progress`, `.settlement-progress-bar`, `.settlement-message`, `.settlement-complete-banner`, `.settlement-admin-hint`
 - **Transparency components:** `.calc-breakdown`, `.calc-toggle-btn`, `.payment-timeline`, `.change-toast`, `.privacy-footer`
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`, `.lifecycle-active`, `.lifecycle-complete`
+- **Frequency toggle components:** `.frequency-toggle`, `.frequency-btn`, `.frequency-btn.active`
+- **Audit & reversal components:** `.audit-event`, `.audit-event-header`, `.payment-reversed`, `.payment-reversal`, `.reversal-tag`
 - **Avatar size:** 48x48px circle (32x32px in invoices)
 - **Logo size:** 80x60px rectangle (40x30px in invoices)
 
@@ -467,13 +508,13 @@ npm test
 
 Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
 
-**173 tests across 45 suites.** Covered areas:
+**222 tests across 64 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
-- `calculateAnnualSummary` - bill splitting math across members and multiple bills
-- `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection
-- `getPaymentTotalForMember` - per-member ledger sum derivation
+- `calculateAnnualSummary` - bill splitting math across members and multiple bills, frequency-aware calculations
+- `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection, event emission
+- `getPaymentTotalForMember` - per-member ledger sum derivation (including reversals)
 - `migratePaymentReceivedToLedger` - legacy migration, parent/child split, idempotency, zero-out
-- `deletePaymentEntry` - ledger entry removal
+- `deletePaymentEntry` - payment reversal (marks original reversed, appends negative entry, emits event)
 - `manageLinkMembers` - link preservation and cross-parent isolation
 - `editBillWebsite` - URL validation (rejects non-http schemes)
 - `sanitizeImageSrc` - image URI validation (rejects non-image, javascript:, external URLs)
@@ -496,6 +537,11 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 - `getPaymentStatusBadge labels` - badge text verification ("Settled" not "Paid")
 - `getCalculationBreakdown` - bill breakdown HTML generation and XSS escaping
 - `showChangeToast` - change notification function
+- `billing frequency` - canonical amount helpers, monthly/annual toggle, frequency-aware annual summary
+- `billing event ledger` - event emission, event ID generation, event filtering by bill/member/payment
+- `bill mutations emit events` - BILL_CREATED, BILL_UPDATED, BILL_DELETED, MEMBER_ADDED/REMOVED_TO_BILL events
+- `payment events` - PAYMENT_RECORDED and PAYMENT_REVERSED event emission
+- `showBillAuditHistory` - audit history dialog rendering
 
 ### Local Development
 

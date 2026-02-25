@@ -34,11 +34,13 @@ A cloud-based web application for coordinating and settling annual shared bills 
 - ✅ Proportional payment distribution for linked members
 
 ### 💰 Bill Management
-- ✅ Add/edit/delete bills with monthly amounts
+- ✅ Add/edit/delete bills with monthly or annual amounts
+- ✅ Billing frequency toggle (Monthly ↔ Annual) per bill
+- ✅ Canonical amount strategy prevents rounding drift
 - ✅ Upload service logos (PNG/JPG) with compression
 - ✅ Website URLs for each service
 - ✅ Flexible member selection per bill (checkbox interface)
-- ✅ Automatic annual calculation
+- ✅ Automatic frequency-aware annual calculation
 - ✅ Calculation transparency ("View calculation" expandable breakdowns)
 
 ### 📊 Settlement Progress
@@ -72,6 +74,9 @@ A cloud-based web application for coordinating and settling annual shared bills 
 ### 🛡️ Trust & Transparency
 - ✅ Expandable calculation breakdowns showing per-bill math
 - ✅ Change confirmation toasts for all financial data mutations
+- ✅ Money Integrity Layer: immutable event ledger for all financial mutations
+- ✅ Payment reversal model (no silent deletes — full audit trail preserved)
+- ✅ Per-bill audit history ("View History" timeline)
 - ✅ Privacy footer on main app and share pages
 - ✅ Trust banner on share link pages
 - ✅ Archive integrity messaging for historical years
@@ -208,7 +213,8 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
     {
       id: number,
       name: string,
-      amount: number,             // monthly amount
+      amount: number,             // canonical amount as entered
+      billingFrequency: string,   // "monthly" | "annual"
       website: string,
       logo: string,               // base64 data URL
       members: [number]           // member IDs assigned to bill
@@ -218,10 +224,24 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
     {
       id: string,
       memberId: number,
-      amount: number,
+      amount: number,             // negative for reversals
       receivedAt: string,         // ISO 8601
       note: string,
-      method: string              // "cash" | "zelle" | "venmo" | etc.
+      method: string,             // "cash" | "zelle" | "venmo" | etc.
+      reversed: boolean,          // true if reversed by a later entry
+      type: string,               // "reversal" for reversal entries
+      reversesPaymentId: string   // original payment ID (reversals only)
+    }
+  ],
+  billingEvents: [                // append-only event ledger
+    {
+      id: string,
+      timestamp: string,          // ISO 8601
+      actor: { type, userId },
+      eventType: string,          // BILL_CREATED, PAYMENT_RECORDED, etc.
+      payload: object,
+      note: string,
+      source: string              // "ui" | "system" | "migration"
     }
   ],
   settings: {
@@ -309,6 +329,16 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ## Changelog
 
+### Billing Frequency & Money Integrity (2026-02)
+- ✅ Billing frequency toggle (Monthly ↔ Annual) per bill
+- ✅ Canonical amount strategy prevents rounding drift across conversions
+- ✅ Money Integrity Layer: append-only event ledger for all financial mutations
+- ✅ Payment reversal model (audit-safe deletion preserving full history)
+- ✅ Per-bill audit history dialog ("View History")
+- ✅ 8 event types tracked: bill CRUD, member assignment, payments, reversals, year lifecycle
+- ✅ Frequency-aware calculation breakdowns
+- ✅ 222 automated tests across 64 suites
+
 ### Annual Billing Experience (2026-02)
 - ✅ Billing year lifecycle (Open → Settling → Closed → Archived)
 - ✅ Settlement progress bars and group completion messaging
@@ -321,7 +351,6 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Annual billing messaging alignment across all screens
 - ✅ Login experience optimized for annual billing context
 - ✅ Forgot password flow
-- ✅ 173 automated tests across 45 suites
 
 ### Share Links & Disputes (2026-01)
 - ✅ Token-based share links for member billing summaries

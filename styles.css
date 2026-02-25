@@ -2009,6 +2009,84 @@ textarea:focus {
     margin-top: var(--space-1);
 }
 
+/* ──────────────── Payment Reversal Styling ──────────────── */
+
+.payment-reversed {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+
+.payment-reversal .payment-history-amount {
+    color: var(--color-danger);
+}
+
+.payment-status-tag {
+    display: inline-block;
+    padding: 1px var(--space-1);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-caption);
+    font-weight: var(--font-weight-semi);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.payment-status-tag.reversed {
+    background: var(--color-warning-surface);
+    color: #92400e;
+}
+
+.payment-status-tag.reversal {
+    background: #fef2f2;
+    color: var(--color-danger);
+}
+
+/* ──────────────── Audit Event History ──────────────── */
+
+.audit-event-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.audit-event-item {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-alt);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--color-primary);
+}
+
+.audit-event-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.audit-event-label {
+    font-weight: var(--font-weight-semi);
+    font-size: var(--text-body-sm);
+    color: var(--color-text);
+}
+
+.audit-event-date {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.audit-event-detail {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-secondary);
+    margin-top: var(--space-1);
+}
+
+.audit-event-note {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    margin-top: var(--space-1);
+    font-style: italic;
+}
+
 /* ──────────────── Spacing Utility Classes ──────────────── */
 
 .mt-2 { margin-top: var(--space-2); }
