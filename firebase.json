@@ -2,7 +2,7 @@
   "hosting": {
     "public": ".",
     "predeploy": [
-      "node -e \"require('fs').writeFileSync('version.json', JSON.stringify({ version: new Date().toISOString() }) + '\\n')\""
+      "node stamp-version.js"
     ],
     "ignore": [
       "firebase.json",
@@ -15,7 +15,8 @@
       "README.md",
       "package.json",
       "tests/**",
-      "functions/**"
+      "functions/**",
+      "stamp-version.js"
     ],
     "headers": [
       {
