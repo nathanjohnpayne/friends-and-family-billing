@@ -289,8 +289,9 @@ Scripts must load in this exact order (all pages):
 ### Billing Frequency Helpers
 - `getBillAnnualAmount(bill)` - Returns canonical annual amount (amount for annual bills, amount*12 for monthly)
 - `getBillMonthlyAmount(bill)` - Returns derived monthly amount (amount/12 for annual bills, amount for monthly)
-- `getBillFrequencyLabel(bill)` - Returns display suffix: `/yr` or `/mo`
-- `setAddBillFrequency(frequency)` / `getAddBillFrequency()` - Manage the Add Bill form frequency toggle state
+- `getBillFrequencyLabel(bill)` - Returns display suffix: ` / year` or ` / month`
+- `setAddBillFrequency(frequency)` / `getAddBillFrequency()` - Manage the Add Bill form frequency toggle state and update the amount label dynamically
+- `updateBillAmountPreview()` - Live derived amount preview beneath the bill amount input (shows annual↔monthly equivalent)
 - `toggleBillFrequency(id)` - Switches a bill between monthly and annual, converting the canonical amount
 
 ### Bill Management
@@ -304,7 +305,7 @@ Scripts must load in this exact order (all pages):
 ### Calculations & Payments
 - `calculateAnnualSummary()` - Computes monthly/yearly totals per member using canonical amounts (`getBillAnnualAmount`). Returns `{ [memberId]: { member, total, bills: [{ bill, monthlyShare, annualShare }] } }`
 - `calculateSettlementMetrics()` - Derives settlement progress from existing data: `{ totalAnnual, totalPayments, totalOutstanding, paidCount, totalMembers, percentage }`
-- `getCalculationBreakdown(memberSummary)` - Generates expandable HTML showing per-bill formulas (frequency-aware: `$X/yr ÷ N` for annual, `$X/mo × 12 ÷ N` for monthly)
+- `getCalculationBreakdown(memberSummary)` - Generates expandable HTML showing per-bill formulas (frequency-aware: `$X / year ÷ N` for annual, `$X / month × 12 ÷ N` for monthly)
 - `toggleCalcBreakdown(memberId)` - Toggles visibility of a member's calculation breakdown panel
 - `getPaymentStatusBadge(total, payment)` - Returns status badge HTML: "Outstanding", "Partial", or "Settled"
 - `recordPayment(memberId, amount, method, note, distribute)` - Creates ledger entry (or distributed entries for linked members). Emits `PAYMENT_RECORDED` events.
@@ -493,7 +494,7 @@ All visual primitives are defined in `design-tokens.css` and consumed by `styles
 - **Settlement components:** `.settlement-progress`, `.settlement-progress-bar`, `.settlement-message`, `.settlement-complete-banner`, `.settlement-admin-hint`
 - **Transparency components:** `.calc-breakdown`, `.calc-toggle-btn`, `.payment-timeline`, `.change-toast`, `.privacy-footer`
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`, `.lifecycle-active`, `.lifecycle-complete`
-- **Frequency toggle components:** `.frequency-toggle`, `.frequency-btn`, `.frequency-btn.active`
+- **Frequency toggle components:** `.frequency-toggle`, `.frequency-option`, `.frequency-option.active`, `.bill-frequency-toggle`, `.derived-amount-preview`, `.bill-derived-amount`
 - **Audit & reversal components:** `.audit-event`, `.audit-event-header`, `.payment-reversed`, `.payment-reversal`, `.reversal-tag`
 - **Avatar size:** 48x48px circle (32x32px in invoices)
 - **Logo size:** 80x60px rectangle (40x30px in invoices)
@@ -508,7 +509,7 @@ npm test
 
 Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script.js` in a mock DOM/Firebase environment. Test file: `tests/billing.test.js`.
 
-**222 tests across 64 suites.** Covered areas:
+**232 tests across 66 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
 - `calculateAnnualSummary` - bill splitting math across members and multiple bills, frequency-aware calculations
 - `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection, event emission
@@ -542,6 +543,8 @@ Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox `script
 - `bill mutations emit events` - BILL_CREATED, BILL_UPDATED, BILL_DELETED, MEMBER_ADDED/REMOVED_TO_BILL events
 - `payment events` - PAYMENT_RECORDED and PAYMENT_REVERSED event emission
 - `showBillAuditHistory` - audit history dialog rendering
+- `updateBillAmountPreview` - derived amount preview (monthly↔annual conversion, edge cases, rounding)
+- `setAddBillFrequency updates label` - dynamic form label updates when frequency toggle changes
 
 ### Local Development
 

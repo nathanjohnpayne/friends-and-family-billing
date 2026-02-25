@@ -2283,19 +2283,19 @@ describe('getBillMonthlyAmount', () => {
 });
 
 describe('getBillFrequencyLabel', () => {
-    it('returns /mo for monthly bills', () => {
+    it('returns " / month" for monthly bills', () => {
         const ctx = createContext();
-        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'monthly' }), '/mo');
+        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'monthly' }), ' / month');
     });
 
-    it('returns /yr for annual bills', () => {
+    it('returns " / year" for annual bills', () => {
         const ctx = createContext();
-        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'annual' }), '/yr');
+        assert.equal(ctx.getBillFrequencyLabel({ billingFrequency: 'annual' }), ' / year');
     });
 
-    it('returns /mo when billingFrequency is undefined', () => {
+    it('returns " / month" when billingFrequency is undefined', () => {
         const ctx = createContext();
-        assert.equal(ctx.getBillFrequencyLabel({}), '/mo');
+        assert.equal(ctx.getBillFrequencyLabel({}), ' / month');
     });
 });
 
@@ -2481,7 +2481,7 @@ describe('getCalculationBreakdown with billing frequency', () => {
         const html = ctx.getCalculationBreakdown(summary[1]);
 
         assert.ok(html.includes('&times; 12'), 'Monthly bills should show x12 formula');
-        assert.ok(html.includes('/mo'), 'Monthly bills should show /mo label');
+        assert.ok(html.includes('/ month'), 'Monthly bills should show / month label');
     });
 
     it('shows annual formula for annual bills', () => {
@@ -2497,7 +2497,7 @@ describe('getCalculationBreakdown with billing frequency', () => {
         const summary = ctx.calculateAnnualSummary();
         const html = ctx.getCalculationBreakdown(summary[1]);
 
-        assert.ok(html.includes('/yr'), 'Annual bills should show /yr label');
+        assert.ok(html.includes('/ year'), 'Annual bills should show / year label');
         assert.ok(html.includes('&divide; 2'), 'Should show split count');
         assert.ok(!html.includes('&times; 12'), 'Annual bills should NOT show x12');
     });
@@ -2916,6 +2916,184 @@ describe('toggleBillFrequency emits BILL_UPDATED event', () => {
         assert.equal(events[0].payload.newValue, 'annual');
         assert.equal(events[0].payload.previousAmount, 10);
         assert.equal(events[0].payload.newAmount, 120);
+    });
+});
+
+// ──────────────── updateBillAmountPreview ─────────────────────
+
+describe('updateBillAmountPreview', () => {
+    function createPreviewContext(amountValue, frequency) {
+        const elements = {
+            billAmountPreview: { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' },
+            billAmount: { textContent: '', value: String(amountValue), style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' },
+            billAmountLabel: { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' },
+            billFrequencyToggle: {
+                textContent: '', value: '', style: {}, innerHTML: '',
+                classList: { add: () => {}, remove: () => {}, contains: () => false },
+                querySelectorAll: (sel) => {
+                    const monthly = {
+                        getAttribute: (a) => 'monthly',
+                        classList: {
+                            add: () => {},
+                            remove: () => {},
+                            contains: (c) => frequency === 'monthly' && c === 'active',
+                        },
+                    };
+                    const annual = {
+                        getAttribute: (a) => 'annual',
+                        classList: {
+                            add: () => {},
+                            remove: () => {},
+                            contains: (c) => frequency === 'annual' && c === 'active',
+                        },
+                    };
+                    return [monthly, annual];
+                },
+                querySelector: (sel) => {
+                    if (sel === '.frequency-option.active') {
+                        return { getAttribute: () => frequency };
+                    }
+                    return null;
+                },
+            },
+        };
+
+        return createContext({
+            document: {
+                body: { appendChild: () => {} },
+                addEventListener: () => {},
+                getElementById: (id) => elements[id] || { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '', querySelectorAll: () => [], querySelector: () => null },
+                querySelector: () => ({ style: {} }),
+                querySelectorAll: () => [],
+                createElement: () => ({
+                    type: '', accept: '', click: () => {}, onchange: null,
+                    getContext: () => ({ fillStyle: '', fillRect: () => {}, drawImage: () => {} }),
+                    toDataURL: () => 'data:image/png;base64,stub',
+                    width: 0, height: 0,
+                }),
+            },
+            _previewEl: elements.billAmountPreview,
+            _labelEl: elements.billAmountLabel,
+        });
+    }
+
+    it('shows annual equivalent for monthly input', () => {
+        const ctx = createPreviewContext('50', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '\u2248 $600.00 per year');
+    });
+
+    it('shows monthly equivalent for annual input', () => {
+        const ctx = createPreviewContext('120', 'annual');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '\u2248 $10.00 per month');
+    });
+
+    it('clears preview for empty input', () => {
+        const ctx = createPreviewContext('', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '');
+    });
+
+    it('clears preview for zero value', () => {
+        const ctx = createPreviewContext('0', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '');
+    });
+
+    it('clears preview for negative value', () => {
+        const ctx = createPreviewContext('-10', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '');
+    });
+
+    it('clears preview for non-numeric input', () => {
+        const ctx = createPreviewContext('abc', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '');
+    });
+
+    it('rounds derived amount to 2 decimal places', () => {
+        const ctx = createPreviewContext('37.95', 'monthly');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '\u2248 $455.40 per year');
+    });
+
+    it('rounds monthly derived from annual to 2 decimal places', () => {
+        const ctx = createPreviewContext('100', 'annual');
+        ctx.updateBillAmountPreview();
+        assert.equal(ctx._previewEl.textContent, '\u2248 $8.33 per month');
+    });
+});
+
+// ──────────────── setAddBillFrequency updates label ─────────────
+
+describe('setAddBillFrequency updates label', () => {
+    function createLabelContext() {
+        const labelEl = { textContent: 'Monthly Amount ($)', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' };
+        const previewEl = { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' };
+        let activeFreq = 'monthly';
+        const monthly = {
+            getAttribute: () => 'monthly',
+            classList: {
+                add: (c) => { if (c === 'active') activeFreq = 'monthly'; },
+                remove: () => {},
+            },
+        };
+        const annual = {
+            getAttribute: () => 'annual',
+            classList: {
+                add: (c) => { if (c === 'active') activeFreq = 'annual'; },
+                remove: () => {},
+            },
+        };
+
+        const elements = {
+            billAmountLabel: labelEl,
+            billAmountPreview: previewEl,
+            billAmount: { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '' },
+            billFrequencyToggle: {
+                textContent: '', value: '', style: {}, innerHTML: '',
+                classList: { add: () => {}, remove: () => {}, contains: () => false },
+                querySelectorAll: () => [monthly, annual],
+                querySelector: (sel) => {
+                    if (sel === '.frequency-option.active') {
+                        return { getAttribute: () => activeFreq };
+                    }
+                    return null;
+                },
+            },
+        };
+
+        return createContext({
+            document: {
+                body: { appendChild: () => {} },
+                addEventListener: () => {},
+                getElementById: (id) => elements[id] || { textContent: '', value: '', style: {}, classList: { add: () => {}, remove: () => {}, contains: () => false }, innerHTML: '', querySelectorAll: () => [], querySelector: () => null },
+                querySelector: () => ({ style: {} }),
+                querySelectorAll: () => [],
+                createElement: () => ({
+                    type: '', accept: '', click: () => {}, onchange: null,
+                    getContext: () => ({ fillStyle: '', fillRect: () => {}, drawImage: () => {} }),
+                    toDataURL: () => 'data:image/png;base64,stub',
+                    width: 0, height: 0,
+                }),
+            },
+            _labelEl: labelEl,
+        });
+    }
+
+    it('sets label to Annual Amount when frequency is annual', () => {
+        const ctx = createLabelContext();
+        ctx.setAddBillFrequency('annual');
+        assert.equal(ctx._labelEl.textContent, 'Annual Amount ($)');
+    });
+
+    it('sets label to Monthly Amount when frequency is monthly', () => {
+        const ctx = createLabelContext();
+        ctx.setAddBillFrequency('annual');
+        ctx.setAddBillFrequency('monthly');
+        assert.equal(ctx._labelEl.textContent, 'Monthly Amount ($)');
     });
 });
 

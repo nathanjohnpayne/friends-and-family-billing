@@ -114,6 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPaymentMethodsSettings();
             loadDisputes();
             startUpdateChecker();
+
+            var billAmountInput = document.getElementById('billAmount');
+            if (billAmountInput) {
+                billAmountInput.addEventListener('input', updateBillAmountPreview);
+            }
         }
     });
 });
@@ -1148,7 +1153,7 @@ function getBillMonthlyAmount(bill) {
 }
 
 function getBillFrequencyLabel(bill) {
-    return bill.billingFrequency === 'annual' ? '/yr' : '/mo';
+    return bill.billingFrequency === 'annual' ? ' / year' : ' / month';
 }
 
 function setAddBillFrequency(frequency) {
@@ -1162,6 +1167,11 @@ function setAddBillFrequency(frequency) {
             btn.classList.remove('active');
         }
     });
+    var label = document.getElementById('billAmountLabel');
+    if (label) {
+        label.textContent = frequency === 'annual' ? 'Annual Amount ($)' : 'Monthly Amount ($)';
+    }
+    updateBillAmountPreview();
 }
 
 function getAddBillFrequency() {
@@ -1169,6 +1179,24 @@ function getAddBillFrequency() {
     if (!toggle) return 'monthly';
     var active = toggle.querySelector('.frequency-option.active');
     return active ? active.getAttribute('data-frequency') : 'monthly';
+}
+
+function updateBillAmountPreview() {
+    var preview = document.getElementById('billAmountPreview');
+    if (!preview) return;
+    var amountEl = document.getElementById('billAmount');
+    if (!amountEl) return;
+    var amount = parseFloat(amountEl.value);
+    if (!amount || amount <= 0 || isNaN(amount)) {
+        preview.textContent = '';
+        return;
+    }
+    var frequency = getAddBillFrequency();
+    if (frequency === 'monthly') {
+        preview.textContent = '\u2248 $' + (amount * 12).toFixed(2) + ' per year';
+    } else {
+        preview.textContent = '\u2248 $' + (amount / 12).toFixed(2) + ' per month';
+    }
 }
 
 // Add bill
@@ -1224,11 +1252,13 @@ function addBill() {
     amountInput.value = '';
     websiteInput.value = '';
     setAddBillFrequency('monthly');
+    var preview = document.getElementById('billAmountPreview');
+    if (preview) preview.textContent = '';
 
     saveData();
     renderBills();
     updateSummary();
-    const freqLabel = billingFrequency === 'annual' ? '/yr' : '/mo';
+    const freqLabel = billingFrequency === 'annual' ? ' / year' : ' / month';
     showChangeToast('Bill added: ' + name + ' ($' + amount.toFixed(2) + freqLabel + '). All totals recalculated.');
 
     // Analytics: Track bill added
@@ -1365,7 +1395,7 @@ function showBillAuditHistory(billId) {
             var detail = '';
             if (evt.payload) {
                 if (evt.eventType === 'BILL_CREATED') {
-                    var freq = evt.payload.billingFrequency === 'annual' ? '/yr' : '/mo';
+                    var freq = evt.payload.billingFrequency === 'annual' ? ' / year' : ' / month';
                     detail = '$' + (evt.payload.amount || 0).toFixed(2) + freq;
                 } else if (evt.eventType === 'BILL_UPDATED' && evt.payload.field === 'amount') {
                     detail = '$' + (evt.payload.previousValue || 0).toFixed(2) + ' → $' + (evt.payload.newValue || 0).toFixed(2);
@@ -1499,10 +1529,18 @@ function renderBills() {
 
     container.innerHTML = bills.map(bill => {
         const annualAmount = getBillAnnualAmount(bill);
-        const perPerson = bill.members.length > 0 ? (annualAmount / bill.members.length / 12).toFixed(2) : '0.00';
+        const memberCount = bill.members.length;
+        const isAnnual = bill.billingFrequency === 'annual';
+        const perPersonDisplay = memberCount > 0
+            ? (isAnnual
+                ? '$' + (annualAmount / memberCount).toFixed(2) + ' per person annually'
+                : '$' + (annualAmount / memberCount / 12).toFixed(2) + ' per person monthly')
+            : '';
+        const derivedAmount = isAnnual
+            ? '\u2248 $' + getBillMonthlyAmount(bill).toFixed(2) + ' per month'
+            : '\u2248 $' + getBillAnnualAmount(bill).toFixed(2) + ' per year';
         const safeWebsite = (bill.website && /^https?:\/\//i.test(bill.website)) ? escapeHtml(bill.website) : '';
         const freqLabel = getBillFrequencyLabel(bill);
-        const isAnnual = bill.billingFrequency === 'annual';
 
         return `
             <div class="bill-item" data-bill-id="${bill.id}">
@@ -1515,15 +1553,16 @@ function renderBills() {
                             <div class="bill-title${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillName(${bill.id})" title="Click to edit name"`}>${escapeHtml(bill.name)}</div>
                             ${safeWebsite ? `<div class="bill-website"><a href="${safeWebsite}" target="_blank" rel="noopener noreferrer">${safeWebsite}</a></div>` : ''}
                             <div class="bill-per-person">
-                                ${bill.members.length > 0 ? `$${perPerson}/mo per person (${bill.members.length} members)` : 'No members selected'}
+                                ${memberCount > 0 ? `${perPersonDisplay} (${memberCount} members)` : 'No members selected'}
                             </div>
                         </div>
                         <div>
                             <span class="bill-amount${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillAmount(${bill.id})" title="Click to edit amount"`}>$${bill.amount.toFixed(2)}${freqLabel}</span>
                             ${archived ? '' : `<div class="bill-frequency-toggle">
-                                <button type="button" class="frequency-option${isAnnual ? '' : ' active'}" onclick="toggleBillFrequency(${bill.id})">Mo</button>
-                                <button type="button" class="frequency-option${isAnnual ? ' active' : ''}" onclick="toggleBillFrequency(${bill.id})">Yr</button>
+                                <button type="button" class="frequency-option${isAnnual ? '' : ' active'}" onclick="toggleBillFrequency(${bill.id})">Monthly</button>
+                                <button type="button" class="frequency-option${isAnnual ? ' active' : ''}" onclick="toggleBillFrequency(${bill.id})">Annual</button>
                             </div>`}
+                            <div class="bill-derived-amount">${derivedAmount}</div>
                         </div>
                     </div>
                 </div>
@@ -1602,9 +1641,9 @@ function getCalculationBreakdown(memberSummary) {
         var isAnnual = b.bill.billingFrequency === 'annual';
         var formula;
         if (isAnnual) {
-            formula = amount + '/yr &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2);
+            formula = amount + ' / year &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2);
         } else {
-            formula = amount + '/mo &times; 12 &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2);
+            formula = amount + ' / month &times; 12 &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2);
         }
         return '<div class="calc-breakdown-line">'
             + '<span class="calc-breakdown-name">' + billName + '</span>'
@@ -3312,10 +3351,10 @@ function sendIndividualInvoice(memberId) {
             const billName = billData.bill.name.padEnd(25).substring(0, 25);
             const isAnnual = billData.bill.billingFrequency === 'annual';
             const billAmount = isAnnual
-                ? `$${billData.bill.amount.toFixed(2)}/yr`.padEnd(14)
-                : `$${billData.bill.amount.toFixed(2)}/mo`.padEnd(14);
+                ? `$${billData.bill.amount.toFixed(2)} / year`.padEnd(18)
+                : `$${billData.bill.amount.toFixed(2)} / month`.padEnd(18);
             const splitWith = `${billData.bill.members.length} ppl`.padEnd(8);
-            const yourShare = `$${billData.monthlyShare.toFixed(2)}/mo`.padEnd(14);
+            const yourShare = `$${billData.monthlyShare.toFixed(2)} / month`.padEnd(18);
             const annual = `$${billData.annualShare.toFixed(2)}`;
 
             invoiceText += `${billName} ${billAmount} ${splitWith} ${yourShare} ${annual}\n`;
@@ -3323,7 +3362,7 @@ function sendIndividualInvoice(memberId) {
         });
 
         invoiceText += `${'-'.repeat(80)}\n`;
-        invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)}/mo = $${memberData.total.toFixed(2)}/year\n`;
+        invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)} / month = $${memberData.total.toFixed(2)} / year\n`;
         invoiceText += `${'='.repeat(80)}\n\n`;
     }
 
@@ -3340,10 +3379,10 @@ function sendIndividualInvoice(memberId) {
                 const billName = billData.bill.name.padEnd(25).substring(0, 25);
                 const isAnnual = billData.bill.billingFrequency === 'annual';
                 const billAmount = isAnnual
-                    ? `$${billData.bill.amount.toFixed(2)}/yr`.padEnd(14)
-                    : `$${billData.bill.amount.toFixed(2)}/mo`.padEnd(14);
+                    ? `$${billData.bill.amount.toFixed(2)} / year`.padEnd(18)
+                    : `$${billData.bill.amount.toFixed(2)} / month`.padEnd(18);
                 const splitWith = `${billData.bill.members.length} ppl`.padEnd(8);
-                const theirShare = `$${billData.monthlyShare.toFixed(2)}/mo`.padEnd(14);
+                const theirShare = `$${billData.monthlyShare.toFixed(2)} / month`.padEnd(18);
                 const annual = `$${billData.annualShare.toFixed(2)}`;
 
                 invoiceText += `${billName} ${billAmount} ${splitWith} ${theirShare} ${annual}\n`;
@@ -3351,7 +3390,7 @@ function sendIndividualInvoice(memberId) {
             });
 
             invoiceText += `${'-'.repeat(80)}\n`;
-            invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)}/mo = $${linkedData.total.toFixed(2)}/year\n`;
+            invoiceText += `SUBTOTAL: $${monthlyTotal.toFixed(2)} / month = $${linkedData.total.toFixed(2)} / year\n`;
             invoiceText += `${'='.repeat(80)}\n\n`;
         }
     });
@@ -3569,7 +3608,7 @@ function generateInvoiceHTML(summary, currentYear) {
                 ? `<img src="${safeLogoSrc}" class="logo" alt="${safeBillName}" />`
                 : `<div class="logo-text">${safeBillName}</div>`;
             const isAnnual = billData.bill.billingFrequency === 'annual';
-            const billAmountDisplay = `$${billData.bill.amount.toFixed(2)}${isAnnual ? '/yr' : '/mo'}`;
+            const billAmountDisplay = `$${billData.bill.amount.toFixed(2)}${isAnnual ? ' / year' : ' / month'}`;
 
             html += `
                         <tr>
