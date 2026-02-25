@@ -689,6 +689,97 @@ textarea:focus {
     gap: 4px;
 }
 
+/* ──────────────── Payment Methods Settings ──────────────── */
+
+.payment-methods-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.payment-method-item {
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    transition: opacity 0.2s;
+}
+
+.payment-method-item.disabled {
+    opacity: 0.5;
+}
+
+.payment-method-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.payment-method-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.payment-method-detail {
+    color: #667eea;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.payment-method-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.toggle-label {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    cursor: pointer;
+}
+
+.toggle-label input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #cbd5e0;
+    border-radius: 22px;
+    transition: background 0.2s;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.toggle-label input:checked + .toggle-slider {
+    background: #667eea;
+}
+
+.toggle-label input:checked + .toggle-slider::before {
+    transform: translateX(18px);
+}
+
 /* ──────────────── Share Link Button ──────────────── */
 
 .btn-share {

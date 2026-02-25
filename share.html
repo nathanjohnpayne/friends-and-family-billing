@@ -129,6 +129,63 @@
             transform: translateY(-2px);
         }
 
+        .payment-method-card {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 18px;
+        }
+
+        .payment-method-card .pm-label {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #333;
+            margin-bottom: 6px;
+        }
+
+        .payment-method-card .pm-detail {
+            color: #555;
+            font-size: 0.95rem;
+            margin: 4px 0;
+        }
+
+        .payment-method-card .pm-detail strong {
+            color: #333;
+        }
+
+        .payment-method-card a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .payment-method-card a:hover {
+            text-decoration: underline;
+        }
+
+        .payment-method-card .pm-instructions {
+            color: #888;
+            font-size: 0.85rem;
+            font-style: italic;
+            margin-top: 6px;
+        }
+
+        .pm-copy-btn {
+            background: none;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.8rem;
+            color: #667eea;
+            cursor: pointer;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        .pm-copy-btn:hover {
+            background: #edf2f7;
+        }
+
         .loading-state, .error-state {
             text-align: center;
             padding: 60px 20px;
@@ -470,6 +527,17 @@
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
+        }
+
+        function copyToClipboard(text) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(function() {
+                    var btn = event.target;
+                    var orig = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(function() { btn.textContent = orig; }, 1500);
+                });
+            }
         }
 
         function showError(message) {
@@ -817,7 +885,48 @@
                         + '<div class="value ' + balClass + '">$' + ps.balanceRemaining.toFixed(2) + '</div></div>';
                 }
 
-                if (data.paymentLinks && data.paymentLinks.length > 0) {
+                if (data.paymentMethods && data.paymentMethods.length > 0) {
+                    var linksCard = document.getElementById('paymentLinksCard');
+                    linksCard.style.display = 'block';
+                    var linksGrid = document.getElementById('paymentLinksGrid');
+                    linksGrid.innerHTML = '';
+
+                    data.paymentMethods.forEach(function(pm) {
+                        var card = document.createElement('div');
+                        card.className = 'payment-method-card';
+                        var html = '<div class="pm-label">' + escapeHtml(pm.label) + '</div>';
+
+                        if (pm.type === 'zelle') {
+                            var contacts = [pm.email, pm.phone].filter(Boolean);
+                            if (contacts.length > 0) {
+                                html += '<p class="pm-detail">Send via Zelle to: <strong>'
+                                    + contacts.map(function(c) { return escapeHtml(c) + '<button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(c) + '\')">Copy</button>'; }).join(' or ')
+                                    + '</strong></p>';
+                            }
+                        } else if (pm.type === 'apple_cash') {
+                            var contacts = [pm.phone, pm.email].filter(Boolean);
+                            if (contacts.length > 0) {
+                                html += '<p class="pm-detail">Send via Messages or Wallet to: <strong>'
+                                    + contacts.map(function(c) { return escapeHtml(c) + '<button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(c) + '\')">Copy</button>'; }).join(' or ')
+                                    + '</strong></p>';
+                            }
+                        } else {
+                            if (pm.handle) {
+                                html += '<p class="pm-detail">' + escapeHtml(pm.handle) + '<button class="pm-copy-btn" onclick="copyToClipboard(\'' + escapeHtml(pm.handle) + '\')">Copy</button></p>';
+                            }
+                            if (pm.url) {
+                                html += '<p class="pm-detail"><a href="' + escapeHtml(pm.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(pm.url) + '</a></p>';
+                            }
+                        }
+
+                        if (pm.instructions) {
+                            html += '<p class="pm-instructions">' + escapeHtml(pm.instructions) + '</p>';
+                        }
+
+                        card.innerHTML = html;
+                        linksGrid.appendChild(card);
+                    });
+                } else if (data.paymentLinks && data.paymentLinks.length > 0) {
                     var linksCard = document.getElementById('paymentLinksCard');
                     linksCard.style.display = 'block';
                     var linksGrid = document.getElementById('paymentLinksGrid');

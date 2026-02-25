@@ -4,7 +4,8 @@ let bills = []; // Array of {id, name, amount, logo, website, members: [memberId
 let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
 let settings = {
     emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.',
-    paymentLinks: []
+    paymentLinks: [],
+    paymentMethods: []
 };
 
 let currentUser = null;
@@ -12,6 +13,23 @@ let currentBillingYear = null;
 let billingYears = [];
 
 const CURRENT_MIGRATION_VERSION = 1;
+
+const PAYMENT_METHOD_LABELS = {
+    cash: 'Cash',
+    check: 'Check',
+    venmo: 'Venmo',
+    zelle: 'Zelle',
+    paypal: 'PayPal',
+    cashapp: 'Cash App',
+    apple_cash: 'Apple Cash',
+    bank_transfer: 'Bank Transfer',
+    other: 'Other'
+};
+
+function getPaymentMethodLabel(method) {
+    if (!method) return 'Other';
+    return PAYMENT_METHOD_LABELS[method] || method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ');
+}
 
 // Version checking — polls version.json to detect deploys while the page is open
 let _knownVersion = null;
@@ -71,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderBills();
             updateSummary();
             renderEmailSettings();
-            renderPaymentLinksSettings();
+            renderPaymentMethodsSettings();
             loadDisputes();
             startUpdateChecker();
         }
@@ -340,6 +358,9 @@ async function loadBillingYearData(yearId) {
         if (yearData.settings) {
             settings = yearData.settings;
             if (!settings.paymentLinks) settings.paymentLinks = [];
+            if (!settings.paymentMethods) {
+                settings.paymentMethods = migratePaymentLinksToMethods(settings.paymentLinks);
+            }
         }
 
         if (!isArchivedYear() && familyMembers.length > 0) {
@@ -370,7 +391,7 @@ async function switchBillingYear(yearId) {
         renderBills();
         updateSummary();
         renderEmailSettings();
-        renderPaymentLinksSettings();
+        renderPaymentMethodsSettings();
         loadDisputes();
     } catch (error) {
         console.error('Error switching billing year:', error);
@@ -406,7 +427,7 @@ async function archiveCurrentYear() {
         renderBills();
         updateSummary();
         renderEmailSettings();
-        renderPaymentLinksSettings();
+        renderPaymentMethodsSettings();
         loadDisputes();
 
         if (confirm('Year archived successfully. Would you like to start a new billing year?')) {
@@ -481,7 +502,7 @@ async function startNewYear() {
         renderBills();
         updateSummary();
         renderEmailSettings();
-        renderPaymentLinksSettings();
+        renderPaymentMethodsSettings();
         loadDisputes();
 
         alert('Billing year ' + yearId + ' created successfully!');
@@ -1421,9 +1442,341 @@ function saveEmailMessage() {
     alert('Email message saved!');
 }
 
-// ──────────────── Payment Links Settings ────────────────
+// ──────────────── Payment Methods Migration ────────────────
 
-function renderPaymentLinksSettings() {
+function migratePaymentLinksToMethods(paymentLinks) {
+    if (!paymentLinks || paymentLinks.length === 0) return [];
+    return paymentLinks.map(link => {
+        const lower = (link.name || '').toLowerCase();
+        let type = 'other';
+        if (lower.includes('venmo')) type = 'venmo';
+        else if (lower.includes('zelle')) type = 'zelle';
+        else if (lower.includes('paypal')) type = 'paypal';
+        else if (lower.includes('cash app') || lower.includes('cashapp')) type = 'cashapp';
+        else if (lower.includes('apple')) type = 'apple_cash';
+
+        return {
+            id: link.id || ('pm_' + Date.now() + '_' + Math.floor(Math.random() * 10000)),
+            type: type,
+            label: link.name,
+            enabled: true,
+            url: link.url || '',
+            email: '',
+            phone: '',
+            handle: '',
+            instructions: ''
+        };
+    });
+}
+
+// ──────────────── Payment Methods Settings ────────────────
+
+const PAYMENT_METHOD_TYPES = {
+    zelle: { label: 'Zelle', fields: ['email', 'phone', 'instructions'] },
+    apple_cash: { label: 'Apple Cash', fields: ['email', 'phone', 'instructions'] },
+    cashapp: { label: 'Cash App', fields: ['handle', 'url', 'instructions'] },
+    venmo: { label: 'Venmo', fields: ['handle', 'url', 'instructions'] },
+    paypal: { label: 'PayPal', fields: ['handle', 'url', 'instructions'] },
+    other: { label: 'Other', fields: ['url', 'instructions'] }
+};
+
+function renderPaymentMethodsSettings() {
+    const container = document.getElementById('paymentLinksSettings');
+    if (!container) return;
+    const archived = isArchivedYear();
+    const methods = settings.paymentMethods || [];
+
+    let html = '';
+
+    if (methods.length > 0) {
+        html += '<div class="payment-methods-list">';
+        methods.forEach(method => {
+            const typeInfo = PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other;
+            const detail = getPaymentMethodDetail(method);
+            html += `<div class="payment-method-item${method.enabled ? '' : ' disabled'}">
+                <div class="payment-method-header">
+                    <div class="payment-method-info">
+                        <strong>${escapeHtml(method.label || typeInfo.label)}</strong>
+                        ${detail ? `<span class="payment-method-detail">${escapeHtml(detail)}</span>` : ''}
+                    </div>
+                    <div class="payment-method-actions">
+                        ${archived ? '' : `<label class="toggle-label" title="${method.enabled ? 'Disable' : 'Enable'}">
+                            <input type="checkbox" ${method.enabled ? 'checked' : ''} onchange="togglePaymentMethodEnabled('${escapeHtml(method.id)}')" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button class="btn-icon" onclick="editPaymentMethod('${escapeHtml(method.id)}')" title="Edit">✏️</button>
+                        <button class="btn-icon remove" onclick="removePaymentMethod('${escapeHtml(method.id)}')" title="Remove">&times;</button>`}
+                    </div>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    } else {
+        html += '<p class="empty-state" style="padding: 20px;">No payment methods configured yet</p>';
+    }
+
+    if (!archived) {
+        let typeOptions = Object.entries(PAYMENT_METHOD_TYPES)
+            .map(([value, info]) => `<option value="${value}">${escapeHtml(info.label)}</option>`)
+            .join('');
+
+        html += `<div class="payment-method-add" style="margin-top: 16px;">
+            <div style="display: flex; gap: 10px; align-items: end;">
+                <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                    <label for="newPaymentMethodType">Add Payment Method</label>
+                    <select id="newPaymentMethodType">
+                        ${typeOptions}
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="addPaymentMethod()">Add</button>
+            </div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function getPaymentMethodDetail(method) {
+    const parts = [];
+    if (method.email) parts.push(method.email);
+    if (method.phone) parts.push(method.phone);
+    if (method.handle) parts.push(method.handle);
+    if (method.url) parts.push(method.url);
+    return parts.join(' · ');
+}
+
+function addPaymentMethod() {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const typeSelect = document.getElementById('newPaymentMethodType');
+    const type = typeSelect ? typeSelect.value : 'other';
+    const typeInfo = PAYMENT_METHOD_TYPES[type] || PAYMENT_METHOD_TYPES.other;
+
+    if (!settings.paymentMethods) settings.paymentMethods = [];
+
+    const newMethod = {
+        id: 'pm_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+        type: type,
+        label: typeInfo.label,
+        enabled: true,
+        email: '',
+        phone: '',
+        handle: '',
+        url: '',
+        instructions: ''
+    };
+
+    settings.paymentMethods.push(newMethod);
+    saveData();
+    renderPaymentMethodsSettings();
+
+    setTimeout(() => editPaymentMethod(newMethod.id), 100);
+}
+
+function editPaymentMethod(methodId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const method = (settings.paymentMethods || []).find(m => m.id === methodId);
+    if (!method) return;
+    const typeInfo = PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    let fieldsHTML = '';
+    if (typeInfo.fields.includes('email')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditEmail">Email</label>
+            <input type="email" id="pmEditEmail" value="${escapeHtml(method.email || '')}" placeholder="e.g., name@email.com" />
+        </div>`;
+    }
+    if (typeInfo.fields.includes('phone')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditPhone">Phone</label>
+            <input type="tel" id="pmEditPhone" value="${escapeHtml(method.phone || '')}" placeholder="e.g., +14155551212" />
+        </div>`;
+    }
+    if (typeInfo.fields.includes('handle')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditHandle">Handle / Username</label>
+            <input type="text" id="pmEditHandle" value="${escapeHtml(method.handle || '')}" placeholder="e.g., @YourHandle" />
+        </div>`;
+    }
+    if (typeInfo.fields.includes('url')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditUrl">URL (optional)</label>
+            <input type="url" id="pmEditUrl" value="${escapeHtml(method.url || '')}" placeholder="e.g., https://venmo.com/YourHandle" />
+        </div>`;
+    }
+    if (typeInfo.fields.includes('instructions')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditInstructions">Instructions (optional)</label>
+            <input type="text" id="pmEditInstructions" value="${escapeHtml(method.instructions || '')}" placeholder="e.g., Include your name in the memo" />
+        </div>`;
+    }
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Edit ${escapeHtml(typeInfo.label)} Payment Method</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div class="form-group">
+                <label for="pmEditLabel">Display Name</label>
+                <input type="text" id="pmEditLabel" value="${escapeHtml(method.label || '')}" placeholder="${escapeHtml(typeInfo.label)}" />
+            </div>
+            ${fieldsHTML}
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-primary" onclick="savePaymentMethodEdit('${escapeHtml(methodId)}')">Save</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+}
+
+function savePaymentMethodEdit(methodId) {
+    const method = (settings.paymentMethods || []).find(m => m.id === methodId);
+    if (!method) return;
+
+    const labelEl = document.getElementById('pmEditLabel');
+    const emailEl = document.getElementById('pmEditEmail');
+    const phoneEl = document.getElementById('pmEditPhone');
+    const handleEl = document.getElementById('pmEditHandle');
+    const urlEl = document.getElementById('pmEditUrl');
+    const instructionsEl = document.getElementById('pmEditInstructions');
+
+    if (labelEl) method.label = labelEl.value.trim() || (PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other).label;
+    if (emailEl) method.email = emailEl.value.trim();
+    if (phoneEl) {
+        const phone = phoneEl.value.trim();
+        if (phone && !isValidE164(phone)) {
+            alert('Phone must be in E.164 format (e.g., +14155551212)');
+            return;
+        }
+        method.phone = phone;
+    }
+    if (handleEl) method.handle = handleEl.value.trim();
+    if (urlEl) {
+        const url = urlEl.value.trim();
+        if (url && !url.match(/^https?:\/\//i)) {
+            alert('URL must start with http:// or https://');
+            return;
+        }
+        method.url = url;
+    }
+    if (instructionsEl) method.instructions = instructionsEl.value.trim();
+
+    saveData();
+    renderPaymentMethodsSettings();
+    closePaymentDialog();
+}
+
+function togglePaymentMethodEnabled(methodId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    const method = (settings.paymentMethods || []).find(m => m.id === methodId);
+    if (!method) return;
+
+    method.enabled = !method.enabled;
+    saveData();
+    renderPaymentMethodsSettings();
+}
+
+function removePaymentMethod(methodId) {
+    if (isArchivedYear()) { alert('This billing year is archived and read-only.'); return; }
+    if (!confirm('Remove this payment method?')) return;
+
+    settings.paymentMethods = (settings.paymentMethods || []).filter(m => m.id !== methodId);
+    saveData();
+    renderPaymentMethodsSettings();
+}
+
+// ──────────────── Payment Options Formatters ────────────────
+
+function getEnabledPaymentMethods() {
+    return (settings.paymentMethods || []).filter(m => m.enabled);
+}
+
+function formatPaymentOptionsHTML() {
+    const methods = getEnabledPaymentMethods();
+    if (methods.length === 0) return '';
+
+    let html = '<div class="payment-options-section" style="margin-top: 30px; page-break-inside: avoid;">';
+    html += '<h2 style="color: #555;">Payment Options</h2>';
+    html += '<div style="display: grid; gap: 16px;">';
+
+    methods.forEach(method => {
+        html += '<div style="padding: 16px; background: #f7fafc; border-radius: 8px; border: 1px solid #e0e0e0;">';
+        html += `<strong style="font-size: 1.05em;">${escapeHtml(method.label)}</strong>`;
+
+        if (method.type === 'zelle') {
+            const contacts = [method.email, method.phone].filter(Boolean);
+            if (contacts.length > 0) {
+                html += `<p style="margin: 8px 0 0; color: #555;">Send via Zelle to: <strong>${escapeHtml(contacts.join(' or '))}</strong></p>`;
+            }
+        } else if (method.type === 'apple_cash') {
+            const contacts = [method.phone, method.email].filter(Boolean);
+            if (contacts.length > 0) {
+                html += `<p style="margin: 8px 0 0; color: #555;">Send via Messages or Wallet to: <strong>${escapeHtml(contacts.join(' or '))}</strong></p>`;
+            }
+        } else {
+            if (method.handle) {
+                html += `<p style="margin: 8px 0 0; color: #555;">${escapeHtml(method.handle)}</p>`;
+            }
+            if (method.url) {
+                html += `<p style="margin: 4px 0 0;"><a href="${escapeHtml(method.url)}" style="color: #667eea;">${escapeHtml(method.url)}</a></p>`;
+            }
+        }
+
+        if (method.instructions) {
+            html += `<p style="margin: 8px 0 0; color: #888; font-size: 0.9em; font-style: italic;">${escapeHtml(method.instructions)}</p>`;
+        }
+
+        html += '</div>';
+    });
+
+    html += '</div></div>';
+    return html;
+}
+
+function formatPaymentOptionsText() {
+    const methods = getEnabledPaymentMethods();
+    if (methods.length === 0) return '';
+
+    let text = '\nPAYMENT OPTIONS:\n';
+    text += '='.repeat(80) + '\n';
+
+    methods.forEach(method => {
+        text += `\n${method.label}:\n`;
+
+        if (method.type === 'zelle') {
+            const contacts = [method.email, method.phone].filter(Boolean);
+            if (contacts.length > 0) {
+                text += `  Send via Zelle to: ${contacts.join(' or ')}\n`;
+            }
+        } else if (method.type === 'apple_cash') {
+            const contacts = [method.phone, method.email].filter(Boolean);
+            if (contacts.length > 0) {
+                text += `  Send via Messages or Wallet to: ${contacts.join(' or ')}\n`;
+            }
+        } else {
+            if (method.handle) text += `  ${method.handle}\n`;
+            if (method.url) text += `  ${method.url}\n`;
+        }
+
+        if (method.instructions) {
+            text += `  Note: ${method.instructions}\n`;
+        }
+    });
+
+    text += '='.repeat(80) + '\n';
+    return text;
+}
+
+// ──────────────── Payment Links Settings (Legacy) ────────────────
+
+function renderPaymentMethodsSettings() {
     const container = document.getElementById('paymentLinksSettings');
     if (!container) return;
     const archived = isArchivedYear();
@@ -1488,7 +1841,7 @@ function addPaymentLink() {
     });
 
     saveData();
-    renderPaymentLinksSettings();
+    renderPaymentMethodsSettings();
 }
 
 function editPaymentLink(linkId) {
@@ -1508,7 +1861,7 @@ function editPaymentLink(linkId) {
     link.url = newUrl.trim();
 
     saveData();
-    renderPaymentLinksSettings();
+    renderPaymentMethodsSettings();
 }
 
 function removePaymentLink(linkId) {
@@ -1517,7 +1870,7 @@ function removePaymentLink(linkId) {
 
     settings.paymentLinks = (settings.paymentLinks || []).filter(l => l.id !== linkId);
     saveData();
-    renderPaymentLinksSettings();
+    renderPaymentMethodsSettings();
 }
 
 // ──────────────── Review Requests (Disputes) ────────────────
@@ -2340,6 +2693,11 @@ function sendIndividualInvoice(memberId) {
     }
     invoiceText += `${'='.repeat(80)}\n`;
 
+    const paymentOptionsText = formatPaymentOptionsText();
+    if (paymentOptionsText) {
+        invoiceText += paymentOptionsText;
+    }
+
     invoiceText += `\n\nThank you for your prompt payment!\n`;
 
     // Create mailto link with plain text invoice
@@ -2556,6 +2914,8 @@ function generateInvoiceHTML(summary, currentYear) {
         `;
     });
 
+    html += formatPaymentOptionsHTML();
+
     html += `
         </body>
         </html>
@@ -2719,6 +3079,8 @@ function showAddPaymentDialog(memberId) {
                     <option value="venmo">Venmo</option>
                     <option value="zelle">Zelle</option>
                     <option value="paypal">PayPal</option>
+                    <option value="cashapp">Cash App</option>
+                    <option value="apple_cash">Apple Cash</option>
                     <option value="bank_transfer">Bank Transfer</option>
                     <option value="other">Other</option>
                 </select>
@@ -2788,9 +3150,7 @@ function showPaymentHistory(memberId) {
     var paymentRows = memberPayments.length > 0
         ? memberPayments.map(function(p) {
             var date = new Date(p.receivedAt).toLocaleDateString();
-            var methodLabel = p.method
-                ? p.method.charAt(0).toUpperCase() + p.method.slice(1).replace(/_/g, ' ')
-                : 'Other';
+            var methodLabel = getPaymentMethodLabel(p.method);
             return '<div class="payment-history-item">'
                 + '<div class="payment-history-details">'
                 + '<span class="payment-history-date">' + escapeHtml(date) + '</span>'

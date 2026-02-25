@@ -174,6 +174,9 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
 
     if (scopes.includes("paymentLinks:read")) {
       result.paymentLinks = yearSettings.paymentLinks || [];
+      result.paymentMethods = (yearSettings.paymentMethods || []).filter(
+        (m) => m.enabled
+      );
     }
 
     if (scopes.includes("disputes:read")) {
