@@ -923,10 +923,10 @@ function renderFamilyMembers() {
             <div class="member-info">
                 <div class="member-name" ${archived ? '' : `onclick="editFamilyMember(${member.id})" title="Click to edit name"`}>${escapeHtml(member.name)}</div>
                 <div class="member-email" ${archived ? '' : `onclick="editMemberEmail(${member.id})" title="Click to edit email"`}>
-                    ${escapeHtml(member.email) || 'No email'}
+                    ${escapeHtml(member.email) || '<span class="placeholder-text">Email not provided</span>'}
                 </div>
                 <div class="member-phone" ${archived ? '' : `onclick="editMemberPhone(${member.id})" title="Click to edit phone"`}>
-                    ${escapeHtml(member.phone) || 'No phone'}
+                    ${escapeHtml(member.phone) || '<span class="placeholder-text">Phone not provided</span>'}
                 </div>
                 ${linkedNames ? `<div class="linked-members">Linked: ${linkedNames}</div>` : ''}
             </div>
@@ -1211,6 +1211,27 @@ function calculateAnnualSummary() {
     return summary;
 }
 
+function getPaymentStatusBadge(total, payment) {
+    if (total <= 0) return '';
+    if (payment <= 0) return '<span class="payment-status-badge outstanding">Outstanding</span>';
+    if (payment >= total) return '<span class="payment-status-badge paid">Paid</span>';
+    return '<span class="payment-status-badge partial">Partial</span>';
+}
+
+function toggleActionMenu(event) {
+    event.stopPropagation();
+    const menu = event.currentTarget.nextElementSibling;
+    const wasOpen = menu.classList.contains('open');
+    closeAllActionMenus();
+    if (!wasOpen) menu.classList.add('open');
+}
+
+function closeAllActionMenus() {
+    document.querySelectorAll('.actions-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+}
+
+document.addEventListener('click', closeAllActionMenus);
+
 // Update summary display
 function updateSummary() {
     const container = document.getElementById('annualSummary');
@@ -1255,6 +1276,8 @@ function updateSummary() {
             const balance = combinedTotal - payment;
             totalPayments += payment;
 
+            const statusBadge = getPaymentStatusBadge(combinedTotal, payment);
+
             let rows = `
             <tr class="parent-row">
                 <td>
@@ -1268,28 +1291,30 @@ function updateSummary() {
                 <td><strong>$${combinedTotal.toFixed(2)}</strong></td>
                 <td class="payment-cell">
                     $${payment.toFixed(2)}
-                    ${archived ? '' : `<button class="btn-icon payment-add-btn" onclick="showAddPaymentDialog(${data.member.id})" title="Record payment">+</button>`}
                     <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${data.member.id})" title="View payment history">📋</button>
                 </td>
-                <td class="${balance > 0 ? 'balance-owed' : 'balance-paid'}">
+                <td class="balance-cell ${balance > 0 ? 'balance-owed' : 'balance-paid'}${balance > 0 ? ' balance-highlight' : ''}">
                     <strong>$${balance.toFixed(2)}</strong>
+                    ${statusBadge}
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-primary" onclick="sendIndividualInvoice(${data.member.id})">
-                        Email Invoice
-                    </button>
-                    <button class="btn btn-sm btn-share" onclick="generateShareLink(${data.member.id})" title="Generate share link">
-                        Share
-                    </button>
-                    <button class="btn-icon" onclick="showShareLinks(${data.member.id})" title="Manage share links" style="font-size:0.9rem;">🔗</button>
+                    <div class="actions-dropdown">
+                        <button class="actions-dropdown-btn" onclick="toggleActionMenu(event)">Actions ▾</button>
+                        <div class="actions-dropdown-menu">
+                            ${archived ? '' : `<button onclick="showAddPaymentDialog(${data.member.id}); closeAllActionMenus();">Record Payment</button>`}
+                            <button onclick="sendIndividualInvoice(${data.member.id}); closeAllActionMenus();">Email Invoice</button>
+                            <button onclick="generateShareLink(${data.member.id}); closeAllActionMenus();">Share Billing Link</button>
+                            <button onclick="showShareLinks(${data.member.id}); closeAllActionMenus();">Manage Share Links</button>
+                        </div>
+                    </div>
                 </td>
             </tr>
             `;
 
-            // Add child rows
             linkedData.forEach(linkedSummary => {
                 const childPayment = getPaymentTotalForMember(linkedSummary.member.id);
                 const childBalance = linkedSummary.total - childPayment;
+                const childStatusBadge = getPaymentStatusBadge(linkedSummary.total, childPayment);
                 rows += `
                 <tr class="child-row">
                     <td>
@@ -1303,11 +1328,11 @@ function updateSummary() {
                     <td>$${linkedSummary.total.toFixed(2)}</td>
                     <td class="payment-cell">
                         $${childPayment.toFixed(2)}
-                        ${archived ? '' : `<button class="btn-icon payment-add-btn" onclick="showAddPaymentDialog(${linkedSummary.member.id})" title="Record payment">+</button>`}
                         <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${linkedSummary.member.id})" title="View payment history">📋</button>
                     </td>
-                    <td class="${childBalance > 0 ? 'balance-owed' : 'balance-paid'}">
+                    <td class="balance-cell ${childBalance > 0 ? 'balance-owed' : 'balance-paid'}${childBalance > 0 ? ' balance-highlight' : ''}">
                         $${childBalance.toFixed(2)}
+                        ${childStatusBadge}
                     </td>
                     <td></td>
                 </tr>
@@ -1343,6 +1368,53 @@ function updateSummary() {
                 </tr>
             </tbody>
         </table>
+    `;
+
+    renderDashboardStatus();
+}
+
+function renderDashboardStatus() {
+    const container = document.getElementById('dashboardStatus');
+    if (!container) return;
+
+    if (!currentBillingYear || familyMembers.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const summary = calculateAnnualSummary();
+    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
+    let totalOutstanding = 0;
+    let paidCount = 0;
+
+    mainMembers.forEach(member => {
+        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
+        (member.linkedMembers || []).forEach(id => {
+            if (summary[id]) combinedTotal += summary[id].total;
+        });
+        const payment = getPaymentTotalForMember(member.id) +
+            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
+        const balance = combinedTotal - payment;
+        if (balance > 0) totalOutstanding += balance;
+        if (combinedTotal > 0 && balance <= 0) paidCount++;
+    });
+
+    const yearLabel = currentBillingYear.label || currentBillingYear.id;
+    const statusLabel = isArchivedYear() ? 'Archived' : 'Open';
+
+    container.innerHTML = `
+        <div class="dashboard-stat">
+            <span class="dashboard-stat-label">Billing Year</span>
+            <span class="dashboard-stat-value">${escapeHtml(yearLabel)} (${statusLabel})</span>
+        </div>
+        <div class="dashboard-stat">
+            <span class="dashboard-stat-label">Outstanding Balance</span>
+            <span class="dashboard-stat-value ${totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${totalOutstanding.toFixed(2)}</span>
+        </div>
+        <div class="dashboard-stat">
+            <span class="dashboard-stat-label">Members Paid</span>
+            <span class="dashboard-stat-value">${paidCount} / ${mainMembers.length}</span>
+        </div>
     `;
 }
 
@@ -1425,7 +1497,8 @@ function renderEmailSettings() {
         <div class="form-group">
             <label for="emailMessage">Email Message (sent with all invoices)</label>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 8px;">
-                Use <strong>%total</strong> to insert the combined annual total (e.g., "payment of %total")
+                Use <strong>%total</strong> to insert the combined annual total.
+                Use <strong>%payment_methods%</strong> to insert configured payment instructions.
             </p>
             <textarea id="emailMessageInput" rows="4" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
             ${archived ? '' : '<button class="btn btn-primary" onclick="saveEmailMessage()" style="margin-top: 10px;">Save Message</button>'}
@@ -1970,10 +2043,15 @@ function renderDisputes(disputes) {
         : disputes.filter(d => d.status === _disputeStatusFilter);
 
     if (filtered.length === 0) {
-        const msg = _disputeStatusFilter === 'all'
-            ? 'No review requests yet.'
-            : 'No ' + (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase() + ' review requests.';
-        container.innerHTML = '<p class="empty-state">' + escapeHtml(msg) + '</p>';
+        if (_disputeStatusFilter === 'all') {
+            container.innerHTML = '<div class="empty-state">'
+                + '<p>No review requests yet.</p>'
+                + '<p class="empty-state-hint">Members can flag bill items from their share links.<br>You\'ll review and approve them here.</p>'
+                + '</div>';
+        } else {
+            const statusLabel = (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase();
+            container.innerHTML = '<p class="empty-state">No ' + escapeHtml(statusLabel) + ' review requests.</p>';
+        }
         return;
     }
 
@@ -2614,8 +2692,9 @@ function sendIndividualInvoice(memberId) {
     });
     const paymentPerPerson = payment / numMembers;
 
-    // Generate plain text invoice with %total placeholder replacement
-    const emailMessage = settings.emailMessage.replace(/%total/g, `$${combinedTotal.toFixed(2)}`);
+    const emailMessage = settings.emailMessage
+        .replace(/%total/g, `$${combinedTotal.toFixed(2)}`)
+        .replace(/%payment_methods%/g, formatPaymentOptionsText());
     let invoiceText = `Hello ${firstName},\n\n${emailMessage}\n\n`;
     invoiceText += `======================================\n`;
     invoiceText += `ANNUAL BILL INVOICE - ${currentYear}\n`;
@@ -3029,10 +3108,10 @@ function showAddPaymentDialog(memberId) {
     if (!overlay || !dialog) return;
 
     const hasLinked = member.linkedMembers && member.linkedMembers.length > 0;
-    const summary = hasLinked ? calculateAnnualSummary() : null;
 
     let distributeSection = '';
     if (hasLinked) {
+        const summary = calculateAnnualSummary();
         let totalOwed = summary[member.id] ? summary[member.id].total : 0;
         const linkedInfo = member.linkedMembers.map(id => {
             const m = familyMembers.find(fm => fm.id === id);
@@ -3045,7 +3124,7 @@ function showAddPaymentDialog(memberId) {
         distributeSection = `
             <div class="form-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" id="distributePayment" checked onchange="toggleDistributePreview()" />
+                    <input type="checkbox" id="distributePayment" checked onchange="toggleDistributePreview(); updatePaymentPreview(${member.id});" />
                     Distribute proportionally to linked members
                 </label>
                 <div id="distributePreview" class="distribute-preview">
@@ -3066,29 +3145,30 @@ function showAddPaymentDialog(memberId) {
         </div>
         <div class="dialog-body">
             <p>For: <strong>${escapeHtml(member.name)}</strong></p>
-            ${distributeSection}
             <div class="form-group">
                 <label for="paymentAmount">Amount ($)</label>
-                <input type="number" id="paymentAmount" step="0.01" min="0.01" placeholder="0.00" />
+                <input type="number" id="paymentAmount" step="0.01" min="0.01" placeholder="0.00" oninput="updatePaymentPreview(${member.id})" />
             </div>
             <div class="form-group">
                 <label for="paymentMethod">Method</label>
-                <select id="paymentMethod">
-                    <option value="cash">Cash</option>
-                    <option value="check">Check</option>
-                    <option value="venmo">Venmo</option>
-                    <option value="zelle">Zelle</option>
-                    <option value="paypal">PayPal</option>
-                    <option value="cashapp">Cash App</option>
-                    <option value="apple_cash">Apple Cash</option>
-                    <option value="bank_transfer">Bank Transfer</option>
-                    <option value="other">Other</option>
+                <select id="paymentMethod" onchange="updatePaymentPreview(${member.id})">
+                    <option value="cash">\u{1F4B5} Cash</option>
+                    <option value="check">\u{1F4DD} Check</option>
+                    <option value="venmo">\u{1F4F1} Venmo</option>
+                    <option value="zelle">\u{1F4F2} Zelle</option>
+                    <option value="paypal">\u{1F17F}\uFE0F PayPal</option>
+                    <option value="cashapp">\u{1F7E9} Cash App</option>
+                    <option value="apple_cash">\u{1F34E} Apple Cash</option>
+                    <option value="bank_transfer">\u{1F3E6} Bank Transfer</option>
+                    <option value="other">\u{2709}\uFE0F Other</option>
                 </select>
             </div>
+            ${distributeSection}
             <div class="form-group">
                 <label for="paymentNote">Note (optional)</label>
                 <input type="text" id="paymentNote" placeholder="e.g., Q1 payment" />
             </div>
+            <div id="paymentPreview" class="payment-preview"></div>
         </div>
         <div class="dialog-footer">
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
@@ -3099,6 +3179,66 @@ function showAddPaymentDialog(memberId) {
     overlay.classList.add('visible');
     var amountInput = document.getElementById('paymentAmount');
     if (amountInput && amountInput.focus) amountInput.focus();
+}
+
+function updatePaymentPreview(memberId) {
+    var previewEl = document.getElementById('paymentPreview');
+    if (!previewEl) return;
+
+    var amountEl = document.getElementById('paymentAmount');
+    var methodEl = document.getElementById('paymentMethod');
+    var distributeEl = document.getElementById('distributePayment');
+
+    var amount = parseFloat(amountEl ? amountEl.value : '');
+    if (!amount || amount <= 0) {
+        previewEl.innerHTML = '';
+        return;
+    }
+
+    var method = methodEl ? methodEl.value : 'other';
+    var methodLabel = getPaymentMethodLabel(method);
+    var distribute = distributeEl ? distributeEl.checked : false;
+
+    var member = familyMembers.find(function(m) { return m.id === memberId; });
+    if (!member) return;
+
+    var html = '<div class="payment-preview-header">You are recording:</div>';
+    html += '<div class="payment-preview-amount">$' + amount.toFixed(2) + ' via ' + escapeHtml(methodLabel) + '</div>';
+
+    var hasLinked = member.linkedMembers && member.linkedMembers.length > 0;
+    if (hasLinked && distribute) {
+        var summary = calculateAnnualSummary();
+        var parentTotal = summary[member.id] ? summary[member.id].total : 0;
+        var combinedTotal = parentTotal;
+        var linkedItems = [];
+
+        member.linkedMembers.forEach(function(id) {
+            var lm = familyMembers.find(function(fm) { return fm.id === id; });
+            var owed = summary[id] ? summary[id].total : 0;
+            combinedTotal += owed;
+            linkedItems.push({ name: lm ? lm.name : 'Unknown', owed: owed });
+        });
+
+        html += '<div class="payment-preview-dist-label">Distribution:</div><ul class="payment-preview-dist">';
+        if (combinedTotal > 0) {
+            var parentShare = Math.round((amount * (parentTotal / combinedTotal)) * 100) / 100;
+            html += '<li>' + escapeHtml(member.name) + ' — $' + parentShare.toFixed(2) + '</li>';
+            var allocated = parentShare;
+            linkedItems.forEach(function(item, i) {
+                var share;
+                if (i === linkedItems.length - 1) {
+                    share = Math.round((amount - allocated) * 100) / 100;
+                } else {
+                    share = Math.round((amount * (item.owed / combinedTotal)) * 100) / 100;
+                    allocated += share;
+                }
+                html += '<li>' + escapeHtml(item.name) + ' — $' + share.toFixed(2) + '</li>';
+            });
+        }
+        html += '</ul>';
+    }
+
+    previewEl.innerHTML = html;
 }
 
 function toggleDistributePreview() {

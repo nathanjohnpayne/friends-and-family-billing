@@ -32,6 +32,51 @@ header h1 {
     opacity: 0.9;
 }
 
+/* ──────────────── Dashboard Status Bar ──────────────── */
+
+.dashboard-status {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 12px;
+    padding: 10px 20px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(4px);
+    border-radius: 10px;
+}
+
+.dashboard-status:empty {
+    display: none;
+}
+
+.dashboard-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.dashboard-stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.dashboard-stat-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: white;
+}
+
+.dashboard-stat-value.outstanding {
+    color: #fed7d7;
+}
+
+.dashboard-stat-value.all-clear {
+    color: #c6f6d5;
+}
+
 .main-content {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -142,7 +187,8 @@ input[type="tel"]:focus {
 }
 
 .member-card {
-    display: flex;
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
     align-items: center;
     gap: 12px;
     background: #f7fafc;
@@ -153,6 +199,11 @@ input[type="tel"]:focus {
 
 .member-avatar-container {
     flex-shrink: 0;
+}
+
+.placeholder-text {
+    color: #a0aec0;
+    font-style: italic;
 }
 
 .avatar {
@@ -482,11 +533,119 @@ textarea:focus {
     font-weight: 600;
 }
 
+.balance-cell {
+    white-space: nowrap;
+}
+
+.balance-highlight {
+    background: rgba(245, 101, 101, 0.06);
+}
+
+/* ──────────────── Payment Status Badges ──────────────── */
+
+.payment-status-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.payment-status-badge.paid {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.payment-status-badge.partial {
+    background: #fefcbf;
+    color: #975a16;
+}
+
+.payment-status-badge.outstanding {
+    background: #fed7d7;
+    color: #9b2c2c;
+}
+
+/* ──────────────── Actions Dropdown ──────────────── */
+
+.actions-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.actions-dropdown-btn {
+    padding: 6px 14px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.actions-dropdown-btn:hover {
+    background: #5568d3;
+}
+
+.actions-dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    z-index: 100;
+    min-width: 180px;
+    overflow: hidden;
+}
+
+.actions-dropdown-menu.open {
+    display: block;
+}
+
+.actions-dropdown-menu button {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #333;
+    transition: background 0.15s;
+}
+
+.actions-dropdown-menu button:hover {
+    background: #f7fafc;
+}
+
+.actions-dropdown-menu button:not(:last-child) {
+    border-bottom: 1px solid #f0f0f0;
+}
+
 .empty-state {
     text-align: center;
     color: #999;
     padding: 40px;
     font-style: italic;
+}
+
+.empty-state-hint {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: #a0aec0;
+    font-style: normal;
+    line-height: 1.5;
 }
 
 .linked-members {
@@ -647,6 +806,17 @@ textarea:focus {
 
     .member-checkboxes {
         grid-template-columns: 1fr;
+    }
+
+    .dashboard-status {
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 8px 14px;
+    }
+
+    .actions-dropdown-menu {
+        right: auto;
+        left: 0;
     }
 }
 
@@ -971,6 +1141,50 @@ textarea:focus {
 
 .distribute-preview li {
     margin-bottom: 4px;
+}
+
+/* ──────────────── Payment Preview ──────────────── */
+
+.payment-preview {
+    margin-top: 12px;
+    padding: 14px;
+    background: #edf2f7;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.payment-preview:empty {
+    display: none;
+}
+
+.payment-preview-header {
+    font-size: 0.85rem;
+    color: #718096;
+    margin-bottom: 4px;
+}
+
+.payment-preview-amount {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+.payment-preview-dist-label {
+    font-size: 0.85rem;
+    color: #718096;
+    margin-top: 10px;
+    margin-bottom: 4px;
+}
+
+.payment-preview-dist {
+    margin: 0 0 0 18px;
+    padding: 0;
+    font-size: 0.95rem;
+    color: #4a5568;
+}
+
+.payment-preview-dist li {
+    margin-bottom: 2px;
 }
 
 /* ──────────────── Payment Cell & History ──────────────── */
