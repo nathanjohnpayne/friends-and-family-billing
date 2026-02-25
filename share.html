@@ -446,6 +446,18 @@
         .sd-user-decision.approved { background: #d1fae5; color: #065f46; }
         .sd-user-decision.rejected { background: #fee2e2; color: #991b1b; }
 
+        .share-trust-banner {
+            text-align: center;
+            color: rgba(255,255,255,0.85);
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+
+        .share-trust-banner .trust-lock {
+            margin-right: 4px;
+        }
+
         .settlement-callout {
             border-radius: 12px;
             padding: 20px 25px;
@@ -530,6 +542,8 @@
                 <p class="subtitle" id="headerSubtitle"></p>
             </header>
 
+            <div id="shareTrustBanner" class="share-trust-banner" style="display:none;"></div>
+
             <div id="settlementCallout" style="display:none;"></div>
 
             <div class="card">
@@ -571,7 +585,7 @@
                 </button>
             </div>
 
-            <div class="powered-by">Friends &amp; Family Billing</div>
+            <div class="powered-by">Your billing data is private and encrypted.<br>Friends &amp; Family Billing</div>
         </div>
     </div>
 
@@ -884,6 +898,12 @@
                     data.memberName + "'s Annual Billing Summary";
                 document.getElementById('headerSubtitle').textContent =
                     'You are viewing your annual shared billing summary for ' + data.year + '.';
+
+                var trustBanner = document.getElementById('shareTrustBanner');
+                if (trustBanner) {
+                    trustBanner.innerHTML = '<span class="trust-lock">&#128274;</span>This is a secure annual billing summary shared by ' + escapeHtml(data.ownerName || 'the account owner') + '.<br>No payment credentials are stored by this app.';
+                    trustBanner.style.display = 'block';
+                }
 
                 if (data.summary) {
                     document.getElementById('billBreakdownTitle').textContent =

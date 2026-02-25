@@ -63,6 +63,27 @@ function dismissUpdateToast() {
     if (toast) toast.classList.remove('visible');
 }
 
+var _changeToastTimer = null;
+function showChangeToast(message) {
+    var el = document.getElementById('change-toast');
+    if (!el) {
+        try {
+            el = document.createElement('div');
+            el.id = 'change-toast';
+            el.className = 'change-toast';
+            document.body.appendChild(el);
+        } catch (e) { return; }
+    }
+    if (!el || !el.classList) return;
+    el.textContent = message;
+    el.classList.add('visible');
+    if (_changeToastTimer) clearTimeout(_changeToastTimer);
+    _changeToastTimer = setTimeout(function() {
+        if (el && el.classList) el.classList.remove('visible');
+        _changeToastTimer = null;
+    }, 3000);
+}
+
 function startUpdateChecker() {
     checkForUpdate();
     _updateCheckInterval = setInterval(checkForUpdate, 60000);
@@ -603,7 +624,7 @@ function renderStatusBanner() {
         banner.innerHTML = '\u2705 All balances settled for ' + escapeHtml(currentBillingYear.label || '') + '. This billing year is complete.';
     } else if (status === 'archived') {
         banner.className = 'archived-banner';
-        banner.textContent = 'This billing year is archived and read-only.';
+        banner.innerHTML = 'This billing year is archived. Records are preserved and cannot be modified.';
     }
 }
 
@@ -816,6 +837,7 @@ function addFamilyMember() {
     renderFamilyMembers();
     renderBills();
     updateSummary();
+    showChangeToast('Member added: ' + name);
 
     // Analytics: Track family member added
     if (analytics) {
@@ -991,6 +1013,7 @@ function removeFamilyMember(id) {
     renderFamilyMembers();
     renderBills();
     updateSummary();
+    showChangeToast('Member removed: ' + member.name);
 }
 
 // Render family members
@@ -1091,6 +1114,7 @@ function addBill() {
     saveData();
     renderBills();
     updateSummary();
+    showChangeToast('Bill added: ' + name + ' ($' + amount.toFixed(2) + '/mo). All totals recalculated.');
 
     // Analytics: Track bill added
     if (analytics) {
@@ -1137,6 +1161,7 @@ function editBillAmount(id) {
     saveData();
     renderBills();
     updateSummary();
+    showChangeToast('Bill updated: ' + bill.name + ' now $' + amount.toFixed(2) + '/mo. All totals recalculated.');
 }
 
 function editBillWebsite(id) {
@@ -1186,6 +1211,8 @@ function removeLogo(id) {
 // Remove bill
 function removeBill(id) {
     if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
+    var bill = bills.find(function(b) { return b.id === id; });
+    var billName = bill ? bill.name : '';
     if (!confirm('Remove this bill?')) return;
 
     bills = bills.filter(b => b.id !== id);
@@ -1193,6 +1220,7 @@ function removeBill(id) {
     saveData();
     renderBills();
     updateSummary();
+    if (billName) showChangeToast('Bill removed: ' + billName + '. All totals recalculated.');
 }
 
 // Toggle member for a bill
@@ -1201,6 +1229,7 @@ function toggleMember(billId, memberId) {
     const bill = bills.find(b => b.id === billId);
     if (!bill) return;
 
+    const memberObj = familyMembers.find(m => m.id === memberId);
     const index = bill.members.indexOf(memberId);
 
     if (index === -1) {
@@ -1211,6 +1240,8 @@ function toggleMember(billId, memberId) {
 
     saveData();
     updateSummary();
+    var action = index === -1 ? 'added to' : 'removed from';
+    showChangeToast((memberObj ? memberObj.name : 'Member') + ' ' + action + ' ' + bill.name + '. Totals recalculated.');
 }
 
 // Render bills
@@ -1313,6 +1344,25 @@ function calculateAnnualSummary() {
     return summary;
 }
 
+function getCalculationBreakdown(memberSummary) {
+    if (!memberSummary || !memberSummary.bills || memberSummary.bills.length === 0) return '';
+    var lines = memberSummary.bills.map(function(b) {
+        var billName = escapeHtml(b.bill.name);
+        var amount = '$' + b.bill.amount.toFixed(2);
+        var splitCount = b.bill.members.length;
+        return '<div class="calc-breakdown-line">'
+            + '<span class="calc-breakdown-name">' + billName + '</span>'
+            + '<span class="calc-breakdown-math">' + amount + ' &times; 12 &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2) + '</span>'
+            + '</div>';
+    });
+    return '<div class="calc-breakdown">' + lines.join('') + '</div>';
+}
+
+function toggleCalcBreakdown(memberId) {
+    var el = document.getElementById('calc-breakdown-' + memberId);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
 function getPaymentStatusBadge(total, payment) {
     if (total <= 0) return '';
     if (payment <= 0) return '<span class="payment-status-badge outstanding">Outstanding</span>';
@@ -1413,6 +1463,8 @@ function updateSummary() {
 
             const statusBadge = getPaymentStatusBadge(combinedTotal, payment);
 
+            const breakdownHtml = getCalculationBreakdown(data);
+
             let rows = `
             <tr class="parent-row">
                 <td>
@@ -1423,7 +1475,11 @@ function updateSummary() {
                     </div>
                 </td>
                 <td>$${(combinedTotal / 12).toFixed(2)}</td>
-                <td><strong>$${combinedTotal.toFixed(2)}</strong></td>
+                <td>
+                    <strong>$${combinedTotal.toFixed(2)}</strong>
+                    ${breakdownHtml ? `<button class="calc-toggle-btn" onclick="toggleCalcBreakdown(${data.member.id})">View calculation</button>
+                    <div id="calc-breakdown-${data.member.id}" style="display:none;">${breakdownHtml}</div>` : ''}
+                </td>
                 <td class="payment-cell">
                     $${payment.toFixed(2)}
                     <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${data.member.id})" title="View payment history">📋</button>
@@ -1450,6 +1506,7 @@ function updateSummary() {
                 const childPayment = getPaymentTotalForMember(linkedSummary.member.id);
                 const childBalance = linkedSummary.total - childPayment;
                 const childStatusBadge = getPaymentStatusBadge(linkedSummary.total, childPayment);
+                const childBreakdown = getCalculationBreakdown(linkedSummary);
                 rows += `
                 <tr class="child-row">
                     <td>
@@ -1460,7 +1517,11 @@ function updateSummary() {
                         </div>
                     </td>
                     <td>$${(linkedSummary.total / 12).toFixed(2)}</td>
-                    <td>$${linkedSummary.total.toFixed(2)}</td>
+                    <td>
+                        $${linkedSummary.total.toFixed(2)}
+                        ${childBreakdown ? `<button class="calc-toggle-btn" onclick="toggleCalcBreakdown(${linkedSummary.member.id})">View calculation</button>
+                        <div id="calc-breakdown-${linkedSummary.member.id}" style="display:none;">${childBreakdown}</div>` : ''}
+                    </td>
                     <td class="payment-cell">
                         $${childPayment.toFixed(2)}
                         <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${linkedSummary.member.id})" title="View payment history">📋</button>
@@ -3495,13 +3556,20 @@ function showPaymentHistory(memberId) {
         }).join('')
         : '<p class="empty-state-compact">No payments recorded</p>';
 
+    var summaryData = calculateAnnualSummary();
+    var memberAnnual = summaryData[memberId] ? summaryData[memberId].total : 0;
+    var remainingBalance = Math.max(0, memberAnnual - total);
+
     dialog.innerHTML = '<div class="dialog-header">'
         + '<h3>Payment History: ' + escapeHtml(member.name) + '</h3>'
         + '<button class="dialog-close" onclick="closePaymentDialog()">&times;</button>'
         + '</div>'
         + '<div class="dialog-body">'
+        + '<div class="payment-history-summary">'
         + '<div class="payment-history-total">Total Paid: <strong>$' + total.toFixed(2) + '</strong></div>'
-        + '<div class="payment-history-list">' + paymentRows + '</div>'
+        + '<div class="payment-history-remaining">Remaining Balance: <strong class="' + (remainingBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + remainingBalance.toFixed(2) + '</strong></div>'
+        + '</div>'
+        + '<div class="payment-history-list payment-timeline">' + paymentRows + '</div>'
         + '</div>'
         + '<div class="dialog-footer">'
         + '<button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>'
@@ -3518,5 +3586,6 @@ function deletePaymentEntry(paymentId, memberId) {
     saveData();
     showPaymentHistory(memberId);
     updateSummary();
+    showChangeToast('Payment entry removed. Balances recalculated.');
 }
 

@@ -1794,6 +1794,117 @@ textarea:focus {
     margin-right: auto;
 }
 
+/* ──────────────── Trust & Transparency ──────────────── */
+
+.calc-toggle-btn {
+    display: block;
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    font-size: var(--text-caption);
+    cursor: pointer;
+    padding: 2px 0;
+    font-family: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
+.calc-toggle-btn:hover {
+    color: var(--color-primary-hover);
+}
+
+.calc-breakdown {
+    margin-top: var(--space-1);
+    padding: var(--space-2);
+    background: var(--color-surface-alt);
+    border: var(--border-thin) solid var(--color-border-light);
+    border-radius: var(--radius-md);
+    font-size: var(--text-caption);
+}
+
+.calc-breakdown-line {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 2px 0;
+    color: var(--color-text-secondary);
+}
+
+.calc-breakdown-name {
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text);
+}
+
+.calc-breakdown-math {
+    white-space: nowrap;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.payment-history-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-2);
+    border-bottom: var(--border-thin) solid var(--color-border-light);
+}
+
+.payment-history-remaining {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+}
+
+.payment-timeline .payment-history-item {
+    position: relative;
+    padding-left: 18px;
+    border-left: 2px solid var(--color-border-subtle);
+    margin-left: 6px;
+}
+
+.payment-timeline .payment-history-item::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-primary);
+}
+
+.change-toast {
+    position: fixed;
+    bottom: var(--space-4);
+    left: 50%;
+    transform: translateX(-50%) translateY(120px);
+    background: var(--color-success-fg);
+    color: var(--color-text-inverse);
+    padding: 12px var(--space-4);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-toast);
+    font-size: var(--text-body-sm);
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    max-width: calc(100vw - var(--space-5));
+    text-align: center;
+    pointer-events: none;
+}
+
+.change-toast.visible {
+    transform: translateX(-50%) translateY(0);
+}
+
+.privacy-footer {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: var(--text-caption);
+    margin-top: var(--space-5);
+    padding: var(--space-3) 0;
+    line-height: var(--line-height-relaxed);
+}
+
 /* ──────────────── Text Utility Classes ──────────────── */
 
 .text-muted {

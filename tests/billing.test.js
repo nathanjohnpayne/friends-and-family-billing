@@ -2026,3 +2026,66 @@ describe('getPaymentStatusBadge labels', () => {
     });
 });
 
+// ──────────────── getCalculationBreakdown ─────────────────────
+
+describe('getCalculationBreakdown', () => {
+    it('returns empty string when no bills exist', () => {
+        const ctx = createContext();
+        const result = ctx.getCalculationBreakdown({ bills: [] });
+        assert.equal(result, '');
+    });
+
+    it('returns empty string for null input', () => {
+        const ctx = createContext();
+        assert.equal(ctx.getCalculationBreakdown(null), '');
+        assert.equal(ctx.getCalculationBreakdown(undefined), '');
+    });
+
+    it('generates breakdown HTML for a member with bills', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Netflix', amount: 19.99, logo: '', website: '', members: [1, 2] },
+            { id: 2, name: 'Spotify', amount: 9.99, logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const html = ctx.getCalculationBreakdown(summary[1]);
+
+        assert.ok(html.includes('calc-breakdown'), 'should contain breakdown container');
+        assert.ok(html.includes('Netflix'), 'should list Netflix');
+        assert.ok(html.includes('Spotify'), 'should list Spotify');
+        assert.ok(html.includes('$19.99'), 'should show bill amount');
+        assert.ok(html.includes('&divide; 2'), 'should show split count for Netflix');
+        assert.ok(html.includes('&divide; 1'), 'should show split count for Spotify');
+    });
+
+    it('escapes bill names in the output', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: '<script>XSS</script>', amount: 10, logo: '', website: '', members: [1] },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const html = ctx.getCalculationBreakdown(summary[1]);
+
+        assert.ok(!html.includes('<script>'), 'should escape script tags');
+        assert.ok(html.includes('&lt;script&gt;'), 'should contain escaped version');
+    });
+});
+
+// ──────────────── showChangeToast ─────────────────────────────
+
+describe('showChangeToast', () => {
+    it('is a callable function', () => {
+        const ctx = createContext();
+        assert.equal(typeof ctx.showChangeToast, 'function');
+    });
+});
+
