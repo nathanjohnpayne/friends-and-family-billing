@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Friends & Family Billing</title>
+    <link rel="stylesheet" href="design-tokens.css">
     <link rel="stylesheet" href="styles.css">
     <style>
         body {
@@ -17,15 +18,15 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: var(--space-4);
             width: 100%;
         }
 
         .login-card {
-            background: white;
+            background: var(--color-surface);
             border-radius: 16px;
-            padding: 48px 40px 40px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            padding: var(--space-6) 40px 40px;
+            box-shadow: var(--shadow-xl);
             max-width: 420px;
             width: 100%;
         }
@@ -38,32 +39,32 @@
         .login-header .app-icon {
             width: 56px;
             height: 56px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
             border-radius: 14px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 20px;
+            margin-bottom: var(--space-4);
         }
 
         .login-header .app-icon svg {
             width: 28px;
             height: 28px;
-            fill: white;
+            fill: var(--color-text-inverse);
         }
 
         .login-header h1 {
             color: #1a1a2e;
             font-size: 1.6rem;
-            font-weight: 700;
-            margin-bottom: 8px;
+            font-weight: var(--font-weight-bold);
+            margin-bottom: var(--space-2);
             letter-spacing: -0.02em;
         }
 
         .login-header p {
             color: #8b8fa3;
             font-size: 0.95rem;
-            line-height: 1.5;
+            line-height: var(--line-height-relaxed);
         }
 
         .google-btn {
@@ -71,21 +72,21 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 12px;
-            padding: 14px 20px;
-            background: white;
-            border: 2px solid #e2e5f1;
-            border-radius: 10px;
+            gap: var(--space-2);
+            padding: 14px var(--space-4);
+            background: var(--color-surface);
+            border: var(--border-width) solid #e2e5f1;
+            border-radius: var(--radius-xl);
             cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
+            font-size: var(--text-body);
+            font-weight: var(--font-weight-semi);
             color: #1a1a2e;
-            transition: all 0.2s ease;
+            transition: all var(--transition-base);
             font-family: inherit;
         }
 
         .google-btn:hover {
-            border-color: #667eea;
+            border-color: var(--color-primary);
             background: #f8f9ff;
             box-shadow: 0 2px 12px rgba(102, 126, 234, 0.15);
         }
@@ -97,11 +98,11 @@
         .divider {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: var(--space-3);
             margin: 28px 0;
             color: #b0b4c8;
-            font-size: 0.85rem;
-            font-weight: 500;
+            font-size: var(--text-body-xs);
+            font-weight: var(--font-weight-medium);
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
@@ -120,28 +121,28 @@
 
         .form-group label {
             display: block;
-            font-size: 0.875rem;
-            font-weight: 600;
+            font-size: var(--text-label);
+            font-weight: var(--font-weight-semi);
             color: #4a4d65;
-            margin-bottom: 6px;
+            margin-bottom: var(--space-1);
         }
 
         .form-group input {
             width: 100%;
-            padding: 12px 14px;
-            border: 2px solid #e2e5f1;
-            border-radius: 10px;
+            padding: var(--space-2) 14px;
+            border: var(--border-width) solid #e2e5f1;
+            border-radius: var(--radius-xl);
             font-size: 0.95rem;
             color: #1a1a2e;
-            transition: all 0.2s ease;
+            transition: all var(--transition-base);
             font-family: inherit;
             background: #fafbff;
         }
 
         .form-group input:focus {
             outline: none;
-            border-color: #667eea;
-            background: white;
+            border-color: var(--color-primary);
+            background: var(--color-surface);
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
         }
 
@@ -152,52 +153,52 @@
         .error-message {
             background: #fef2f2;
             color: #dc2626;
-            padding: 12px 16px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--radius-xl);
+            margin-bottom: var(--space-4);
             display: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-            border: 1px solid #fecaca;
+            font-size: var(--text-body-sm);
+            font-weight: var(--font-weight-medium);
+            border: var(--border-thin) solid #fecaca;
         }
 
         .success-message {
             background: #f0fdf4;
             color: #16a34a;
-            padding: 12px 16px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--radius-xl);
+            margin-bottom: var(--space-4);
             display: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-            border: 1px solid #bbf7d0;
+            font-size: var(--text-body-sm);
+            font-weight: var(--font-weight-medium);
+            border: var(--border-thin) solid #bbf7d0;
         }
 
         .login-tabs {
             display: flex;
-            gap: 4px;
-            margin-bottom: 24px;
+            gap: var(--space-1);
+            margin-bottom: var(--space-4);
             background: #f1f3f9;
-            border-radius: 10px;
-            padding: 4px;
+            border-radius: var(--radius-xl);
+            padding: var(--space-1);
         }
 
         .tab-btn {
             flex: 1;
-            padding: 10px;
+            padding: var(--space-2);
             border: none;
             background: transparent;
             color: #8b8fa3;
-            border-radius: 8px;
+            border-radius: var(--radius-lg);
             cursor: pointer;
-            font-weight: 600;
-            font-size: 0.9rem;
-            transition: all 0.2s ease;
+            font-weight: var(--font-weight-semi);
+            font-size: var(--text-body-sm);
+            transition: all var(--transition-base);
             font-family: inherit;
         }
 
         .tab-btn.active {
-            background: white;
+            background: var(--color-surface);
             color: #1a1a2e;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
         }
@@ -216,17 +217,17 @@
 
         .submit-btn {
             width: 100%;
-            padding: 14px 20px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
+            padding: 14px var(--space-4);
+            background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
+            color: var(--color-text-inverse);
             border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            font-weight: 600;
+            border-radius: var(--radius-xl);
+            font-size: var(--text-body);
+            font-weight: var(--font-weight-semi);
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all var(--transition-base);
             font-family: inherit;
-            margin-top: 4px;
+            margin-top: var(--space-1);
         }
 
         .submit-btn:hover {
@@ -240,8 +241,8 @@
 
         @media (max-width: 480px) {
             .login-card {
-                padding: 36px 24px 32px;
-                border-radius: 12px;
+                padding: 36px var(--space-4) var(--space-5);
+                border-radius: var(--radius-2xl);
             }
 
             .login-header h1 {

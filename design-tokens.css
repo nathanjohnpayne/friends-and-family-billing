@@ -1,0 +1,148 @@
+/* ═══════════════════════════════════════════════════════════
+   Design Tokens — Friends & Family Billing
+   v1 · Lightweight foundation to prevent UI drift.
+   All visual primitives live here; styles.css consumes them.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+
+    /* ── Spacing (8‑pt scale) ─────────────────────────────── */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 16px;
+    --space-4: 24px;
+    --space-5: 32px;
+    --space-6: 48px;
+
+    /* ── Semantic Colors ──────────────────────────────────── */
+    --color-primary:       #667eea;
+    --color-primary-hover: #5568d3;
+    --color-primary-light: rgba(102, 126, 234, 0.10);
+    --color-primary-bg:    rgba(102, 126, 234, 0.06);
+
+    --color-secondary:       #718096;
+    --color-secondary-hover: #4a5568;
+
+    --color-success:       #48bb78;
+    --color-success-hover: #38a169;
+    --color-success-light: rgba(72, 187, 120, 0.10);
+    --color-success-bg:    #c6f6d5;
+    --color-success-fg:    #22543d;
+
+    --color-warning-bg:    #fefcbf;
+    --color-warning-fg:    #975a16;
+    --color-warning-border:#facc15;
+    --color-warning-surface:#fefce8;
+
+    --color-danger:        #f56565;
+    --color-danger-hover:  #e53e3e;
+    --color-danger-light:  rgba(245, 101, 101, 0.10);
+    --color-danger-bg:     #fed7d7;
+    --color-danger-fg:     #9b2c2c;
+
+    --color-surface:       #ffffff;
+    --color-surface-alt:   #f7fafc;
+    --color-surface-dim:   #f9fafb;
+    --color-surface-inset: #edf2f7;
+
+    --color-border:        #e0e0e0;
+    --color-border-light:  #f0f0f0;
+    --color-border-subtle: #e2e8f0;
+    --color-border-strong: #cbd5e0;
+
+    --color-text:          #333333;
+    --color-text-secondary:#555555;
+    --color-text-muted:    #666666;
+    --color-text-faint:    #999999;
+    --color-text-placeholder:#a0aec0;
+    --color-text-inverse:  #ffffff;
+
+    --color-gradient-start: #667eea;
+    --color-gradient-end:   #764ba2;
+
+    /* ── Dispute / status-specific ────────────────────────── */
+    --color-open-bg:       #fefcbf;
+    --color-open-fg:       #975a16;
+    --color-open-border:   #ecc94b;
+    --color-review-bg:     #ebf4ff;
+    --color-review-fg:     #3c5a99;
+    --color-resolved-bg:   #f0fff4;
+    --color-resolved-fg:   #276749;
+    --color-rejected-bg:   #fff5f5;
+    --color-rejected-fg:   #c53030;
+
+    --color-ur-requested-bg:  #fef3c7;
+    --color-ur-requested-fg:  #92400e;
+    --color-ur-approved-bg:   #d1fae5;
+    --color-ur-approved-fg:   #065f46;
+    --color-ur-rejected-bg:   #fee2e2;
+    --color-ur-rejected-fg:   #991b1b;
+
+    /* ── Typography ───────────────────────────────────────── */
+    --font-family:        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+
+    --text-heading-xl:    2.5rem;
+    --text-heading-lg:    1.5rem;
+    --text-heading-md:    1.2rem;
+    --text-body:          1rem;
+    --text-body-sm:       0.9rem;
+    --text-body-xs:       0.85rem;
+    --text-caption:       0.8rem;
+    --text-label:         0.875rem;
+    --text-numeric:       1.1rem;
+    --text-badge:         0.75rem;
+    --text-badge-sm:      0.7rem;
+
+    --font-weight-normal:  400;
+    --font-weight-medium:  500;
+    --font-weight-semi:    600;
+    --font-weight-bold:    700;
+
+    --line-height-tight:   1.2;
+    --line-height-normal:  1.4;
+    --line-height-relaxed: 1.5;
+
+    /* ── Borders & Radii ──────────────────────────────────── */
+    --radius-sm:  4px;
+    --radius-md:  6px;
+    --radius-lg:  8px;
+    --radius-xl:  10px;
+    --radius-2xl: 12px;
+    --radius-pill: 9999px;
+
+    --border-width:  2px;
+    --border-thin:   1px;
+
+    /* ── Shadows ──────────────────────────────────────────── */
+    --shadow-sm:   0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-md:   0 4px 6px rgba(0, 0, 0, 0.10);
+    --shadow-lg:   0 8px 30px rgba(0, 0, 0, 0.25);
+    --shadow-xl:   0 20px 60px rgba(0, 0, 0, 0.15);
+    --shadow-dialog:0 20px 60px rgba(0, 0, 0, 0.30);
+    --shadow-dropdown:0 4px 16px rgba(0, 0, 0, 0.12);
+
+    /* ── Transitions ──────────────────────────────────────── */
+    --transition-fast: 0.15s ease;
+    --transition-base: 0.2s ease;
+    --transition-slow: 0.3s ease;
+
+    /* ── Layout ────────────────────────────────────────────── */
+    --container-max-width: 1200px;
+    --breakpoint-mobile: 768px;
+
+    /* ── Component: Avatar / Logo ─────────────────────────── */
+    --avatar-size:    48px;
+    --avatar-size-sm: 32px;
+    --logo-width:     80px;
+    --logo-height:    60px;
+
+    /* ── Component: Toast ─────────────────────────────────── */
+    --toast-bg: #1a1a2e;
+    --toast-text: #ffffff;
+    --toast-dismiss: #8b8fa3;
+
+    /* ── Z-index scale ────────────────────────────────────── */
+    --z-dropdown: 100;
+    --z-dialog:   9999;
+    --z-toast:    10000;
+}

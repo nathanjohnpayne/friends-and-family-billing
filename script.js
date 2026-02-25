@@ -1140,7 +1140,7 @@ function renderBills() {
                         <div>
                             <div class="bill-title${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillName(${bill.id})" title="Click to edit name"`}>${escapeHtml(bill.name)}</div>
                             ${safeWebsite ? `<div class="bill-website"><a href="${safeWebsite}" target="_blank" rel="noopener noreferrer">${safeWebsite}</a></div>` : ''}
-                            <div style="color: #666; font-size: 0.9rem; margin-top: 5px;">
+                            <div class="bill-per-person">
                                 ${bill.members.length > 0 ? `$${perPerson} per person (${bill.members.length} members)` : 'No members selected'}
                             </div>
                         </div>
@@ -1167,7 +1167,7 @@ function renderBills() {
 
                 ${archived ? '' : `<div class="bill-actions">
                     <button class="btn btn-secondary" onclick="uploadLogo(${bill.id})">Upload Logo</button>
-                    ${bill.logo ? `<button class="btn btn-secondary" onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
+                    ${bill.logo ? `<button class="btn btn-danger btn-sm" onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
                     <button class="btn btn-secondary" onclick="editBillWebsite(${bill.id})">Edit Website</button>
                     <button class="btn btn-danger" onclick="removeBill(${bill.id})">Remove Bill</button>
                 </div>`}
@@ -1496,12 +1496,12 @@ function renderEmailSettings() {
     container.innerHTML = `
         <div class="form-group">
             <label for="emailMessage">Email Message (sent with all invoices)</label>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 8px;">
+            <p class="section-desc">
                 Use <strong>%total</strong> to insert the combined annual total.
                 Use <strong>%payment_methods%</strong> to insert configured payment instructions.
             </p>
             <textarea id="emailMessageInput" rows="4" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
-            ${archived ? '' : '<button class="btn btn-primary" onclick="saveEmailMessage()" style="margin-top: 10px;">Save Message</button>'}
+            ${archived ? '' : '<button class="btn btn-primary mt-2" onclick="saveEmailMessage()">Save Message</button>'}
         </div>
     `;
 }
@@ -1585,7 +1585,7 @@ function renderPaymentMethodsSettings() {
         });
         html += '</div>';
     } else {
-        html += '<p class="empty-state" style="padding: 20px;">No payment methods configured yet</p>';
+        html += '<p class="empty-state-compact">No payment methods configured yet</p>';
     }
 
     if (!archived) {
@@ -1593,9 +1593,9 @@ function renderPaymentMethodsSettings() {
             .map(([value, info]) => `<option value="${value}">${escapeHtml(info.label)}</option>`)
             .join('');
 
-        html += `<div class="payment-method-add" style="margin-top: 16px;">
-            <div style="display: flex; gap: 10px; align-items: end;">
-                <div class="form-group" style="margin-bottom: 0; flex: 1;">
+        html += `<div class="payment-method-add mt-3">
+            <div class="form-inline">
+                <div class="form-group mb-0">
                     <label for="newPaymentMethodType">Add Payment Method</label>
                     <select id="newPaymentMethodType">
                         ${typeOptions}
@@ -1701,7 +1701,7 @@ function editPaymentMethod(methodId) {
             ${fieldsHTML}
         </div>
         <div class="dialog-footer">
-            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-tertiary" onclick="closePaymentDialog()">Cancel</button>
             <button class="btn btn-primary" onclick="savePaymentMethodEdit('${escapeHtml(methodId)}')">Save</button>
         </div>
     `;
@@ -1873,17 +1873,17 @@ function renderPaymentMethodsSettings() {
         });
         html += '</div>';
     } else {
-        html += '<p class="empty-state" style="padding: 20px;">No payment links configured yet</p>';
+        html += '<p class="empty-state-compact">No payment links configured yet</p>';
     }
 
     if (!archived) {
-        html += `<div class="payment-link-add" style="margin-top: 16px;">
-            <div style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 10px; align-items: end;">
-                <div class="form-group" style="margin-bottom: 0;">
+        html += `<div class="payment-link-add mt-3">
+            <div class="form-inline">
+                <div class="form-group mb-0">
                     <label for="paymentLinkName">Name</label>
                     <input type="text" id="paymentLinkName" placeholder="e.g., Venmo" />
                 </div>
-                <div class="form-group" style="margin-bottom: 0;">
+                <div class="form-group mb-0">
                     <label for="paymentLinkUrl">URL</label>
                     <input type="text" id="paymentLinkUrl" placeholder="https://venmo.com/YourHandle" />
                 </div>
@@ -2010,7 +2010,7 @@ async function loadDisputes() {
         renderDisputes(disputes);
     } catch (error) {
         console.error('Error loading disputes:', error);
-        container.innerHTML = '<p style="color: #f56565;">Error loading review requests.</p>';
+        container.innerHTML = '<p class="text-error">Error loading review requests.</p>';
     }
 }
 
@@ -2066,7 +2066,7 @@ function renderDisputes(disputes) {
         const evidenceCount = (d.evidence || []).length;
         const userReviewState = d.userReview ? d.userReview.state : null;
 
-        html += `<div class="dispute-item ${sClass}" onclick="showDisputeDetail('${escapeHtml(d.id)}')" style="cursor:pointer;">
+        html += `<div class="dispute-item ${sClass}" onclick="showDisputeDetail('${escapeHtml(d.id)}')">
             <div class="dispute-item-header">
                 <strong>${escapeHtml(d.billName)}</strong>
                 <div class="dispute-item-badges">
@@ -2147,12 +2147,12 @@ function showDisputeDetail(disputeId) {
     const userReviewState = d.userReview ? d.userReview.state : null;
     let userReviewSection = '';
     if (!isTerminal) {
-        userReviewSection = `<div class="form-group" style="margin-top:12px;">
+        userReviewSection = `<div class="form-group mt-2">
             <label class="checkbox-label">
                 <input type="checkbox" id="disputeUserReview" ${userReviewState === 'requested' ? 'checked' : ''} onchange="toggleUserReview('${escapeHtml(d.id)}', this.checked)" />
                 Request user approval
             </label>
-            <p style="color:#888;font-size:0.8rem;margin-top:4px;">Sends approve/reject decision to the member via their share link.</p>
+            <p class="text-help">Sends approve/reject decision to the member via their share link.</p>
         </div>`;
     } else if (userReviewState) {
         const urLabel = userReviewState === 'approved_by_user' ? 'Approved by user'
@@ -2177,10 +2177,10 @@ function showDisputeDetail(disputeId) {
         });
         evidenceHtml += '</div>';
     } else {
-        evidenceHtml += '<p style="color:#999;font-size:0.9rem;">No evidence attached.</p>';
+        evidenceHtml += '<p class="text-muted">No evidence attached.</p>';
     }
     if (!isTerminal && evidenceList.length < 10) {
-        evidenceHtml += `<button class="btn btn-sm btn-secondary" onclick="uploadEvidence('${escapeHtml(d.id)}')" style="margin-top:8px;">Upload Evidence</button>`;
+        evidenceHtml += `<button class="btn btn-sm btn-secondary mt-2" onclick="uploadEvidence('${escapeHtml(d.id)}')">Upload Evidence</button>`;
     }
     evidenceHtml += '</div>';
 
@@ -2196,7 +2196,7 @@ function showDisputeDetail(disputeId) {
 
     dialog.innerHTML = `
         <div class="dialog-header">
-            <h3>${escapeHtml(d.billName)} <span class="dispute-status-badge ${sClass}" style="font-size:0.7rem;vertical-align:middle;">${escapeHtml(statusLabel)}</span></h3>
+            <h3>${escapeHtml(d.billName)} <span class="dispute-status-badge ${sClass}">${escapeHtml(statusLabel)}</span></h3>
             <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
         </div>
         <div class="dialog-body">
@@ -2210,7 +2210,7 @@ function showDisputeDetail(disputeId) {
                 <p>${escapeHtml(d.message)}</p>
             </div>
             ${d.proposedCorrection ? `<div class="dispute-detail-correction"><h4>Suggested Correction</h4><p>${escapeHtml(d.proposedCorrection)}</p></div>` : ''}
-            <div class="form-group" style="margin-top:16px;">
+            <div class="form-group mt-3">
                 <label for="disputeResolutionNote">Resolution Note</label>
                 <textarea id="disputeResolutionNote" rows="3" placeholder="Add a resolution note..." ${isTerminal ? 'disabled' : ''}>${escapeHtml(d.resolutionNote || '')}</textarea>
             </div>
@@ -2307,7 +2307,7 @@ function uploadEvidence(disputeId) {
 
         const progressEl = document.createElement('div');
         progressEl.className = 'dispute-evidence-progress';
-        progressEl.innerHTML = '<div class="dispute-evidence-progress-bar"><div class="dispute-evidence-progress-fill" style="width:0%"></div></div><p style="font-size:0.8rem;color:#666;margin-top:4px;">Uploading ' + escapeHtml(file.name) + '...</p>';
+        progressEl.innerHTML = '<div class="dispute-evidence-progress-bar"><div class="dispute-evidence-progress-fill" style="width:0%"></div></div><p class="text-help mt-2">Uploading ' + escapeHtml(file.name) + '...</p>';
         const section = document.querySelector('.dispute-evidence-section');
         if (section) section.appendChild(progressEl);
 
@@ -2427,7 +2427,7 @@ async function generateShareLink(memberId) {
         </div>
         <div class="dialog-body">
             <p>Create a shareable link for <strong>${escapeHtml(member.name)}</strong> to view their ${escapeHtml(yearLabel)} billing summary.</p>
-            <div class="form-group" style="margin-top: 16px;">
+            <div class="form-group mt-3">
                 <label for="shareLinkExpiry">Link Expiry (optional)</label>
                 <select id="shareLinkExpiry">
                     <option value="">No expiry</option>
@@ -2437,27 +2437,27 @@ async function generateShareLink(memberId) {
                     <option value="365">1 year</option>
                 </select>
             </div>
-            <div class="form-group" style="margin-top: 12px;">
-                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <div class="form-group mt-2">
+                <label class="checkbox-label">
                     <input type="checkbox" id="shareLinkDisputes" />
                     Allow member to request bill reviews
                 </label>
-                <p style="color:#888;font-size:0.8rem;margin-top:4px;">
+                <p class="text-help">
                     Adds <code>disputes:create</code> scope so the member can flag bill line items for review.
                 </p>
             </div>
-            <div class="form-group" style="margin-top: 12px;">
-                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <div class="form-group mt-2">
+                <label class="checkbox-label">
                     <input type="checkbox" id="shareLinkDisputesRead" />
                     Allow member to view review requests &amp; evidence
                 </label>
-                <p style="color:#888;font-size:0.8rem;margin-top:4px;">
+                <p class="text-help">
                     Adds <code>disputes:read</code> scope so the member can see their disputes, evidence, and approve/reject resolutions.
                 </p>
             </div>
         </div>
         <div class="dialog-footer">
-            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-tertiary" onclick="closePaymentDialog()">Cancel</button>
             <button class="btn btn-primary" id="generateShareBtn" onclick="doGenerateShareLink(${memberId})">Generate &amp; Copy Link</button>
         </div>
     `;
@@ -2545,7 +2545,7 @@ async function showShareLinks(memberId) {
             <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
         </div>
         <div class="dialog-body">
-            <p style="color: #666;">Loading share links...</p>
+            <p class="text-muted">Loading share links...</p>
         </div>
         <div class="dialog-footer">
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
@@ -2573,9 +2573,9 @@ async function showShareLinks(memberId) {
 
         let html = '';
         if (links.length === 0) {
-            html = '<p class="empty-state" style="padding: 20px;">No share links generated yet for this member.</p>';
+            html = '<p class="empty-state-compact">No share links generated yet for this member.</p>';
         } else {
-            html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
+            html = '<div class="share-links-list">';
             links.forEach(link => {
                 const created = link.createdAt
                     ? (link.createdAt.toDate ? link.createdAt.toDate() : new Date(link.createdAt)).toLocaleDateString()
@@ -2622,7 +2622,7 @@ async function showShareLinks(memberId) {
     } catch (error) {
         console.error('Error loading share links:', error);
         const body = dialog.querySelector('.dialog-body');
-        if (body) body.innerHTML = '<p style="color: #f56565;">Error loading share links.</p>';
+        if (body) body.innerHTML = '<p class="text-error">Error loading share links.</p>';
     }
 }
 
@@ -3171,7 +3171,7 @@ function showAddPaymentDialog(memberId) {
             <div id="paymentPreview" class="payment-preview"></div>
         </div>
         <div class="dialog-footer">
-            <button class="btn btn-secondary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-tertiary" onclick="closePaymentDialog()">Cancel</button>
             <button class="btn btn-primary" onclick="submitPayment(${member.id})">Save Payment</button>
         </div>
     `;
@@ -3301,7 +3301,7 @@ function showPaymentHistory(memberId) {
                 + (archived ? '' : '<button class="btn-icon remove" onclick="deletePaymentEntry(\'' + escapeHtml(p.id) + '\', ' + memberId + ')" title="Delete payment">&times;</button>')
                 + '</div>';
         }).join('')
-        : '<p class="empty-state" style="padding:20px;">No payments recorded</p>';
+        : '<p class="empty-state-compact">No payments recorded</p>';
 
     dialog.innerHTML = '<div class="dialog-header">'
         + '<h3>Payment History: ' + escapeHtml(member.name) + '</h3>'

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Friends & Family Billing</title>
+    <link rel="stylesheet" href="design-tokens.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,9 +14,9 @@
             <p class="subtitle">Split bills effortlessly with the people who matter most</p>
             <div id="billingYearControls" class="billing-year-controls"></div>
             <div id="dashboardStatus" class="dashboard-status"></div>
-            <div style="text-align: right; margin-top: 10px;">
-                <span id="user-email" style="color: white; margin-right: 15px;"></span>
-                <button onclick="logout()" class="btn btn-secondary" style="padding: 8px 16px;">Logout</button>
+            <div class="header-actions">
+                <span id="user-email" class="header-user-email"></span>
+                <button onclick="logout()" class="btn btn-secondary">Logout</button>
             </div>
         </header>
         <div id="archivedBanner" class="archived-banner" style="display:none;">
@@ -72,7 +73,7 @@
             <!-- Payment Methods Section -->
             <section class="card summary-card">
                 <h2>Payment Methods</h2>
-                <p style="color: #666; font-size: 0.9rem; margin-bottom: 16px;">
+                <p class="section-desc">
                     Configure payment methods (Zelle, Apple Cash, Cash App, etc.) that appear on invoices and shared billing summaries.
                 </p>
                 <div id="paymentLinksSettings"></div>
@@ -81,7 +82,7 @@
             <!-- Review Requests Section -->
             <section class="card summary-card">
                 <h2>Review Requests</h2>
-                <p style="color: #666; font-size: 0.9rem; margin-bottom: 16px;">
+                <p class="section-desc">
                     Bill line items flagged by members via their share links.
                 </p>
                 <div id="disputeFilterBar" class="dispute-filter-bar"></div>
