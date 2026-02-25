@@ -1652,6 +1652,14 @@ function renderDashboardStatus() {
         contextBanner.textContent = contextMessages[currentStatus] || '';
         contextBanner.style.display = '';
     }
+
+    const headerLogo = document.getElementById('headerLogo');
+    if (headerLogo) {
+        headerLogo.className = 'header-logo';
+        if (currentStatus === 'settling') headerLogo.classList.add('header-logo--settling');
+        else if (currentStatus === 'closed') headerLogo.classList.add('header-logo--closed');
+        else if (currentStatus === 'archived') headerLogo.classList.add('header-logo--archived');
+    }
 }
 
 // Record a payment in the ledger for a member (or distributed across linked members)
@@ -2013,11 +2021,11 @@ function formatPaymentOptionsHTML() {
     if (methods.length === 0) return '';
 
     let html = '<div class="payment-options-section" style="margin-top: 30px; page-break-inside: avoid;">';
-    html += '<h2 style="color: #555;">Payment Options</h2>';
+    html += '<h2 style="color: #5B6475;">Payment Options</h2>';
     html += '<div style="display: grid; gap: 16px;">';
 
     methods.forEach(method => {
-        html += '<div style="padding: 16px; background: #f7fafc; border-radius: 8px; border: 1px solid #e0e0e0;">';
+        html += '<div style="padding: 16px; background: #F7F8FB; border-radius: 8px; border: 1px solid #e0e0e0;">';
         html += `<strong style="font-size: 1.05em;">${escapeHtml(method.label)}</strong>`;
 
         if (method.type === 'zelle') {
@@ -2035,7 +2043,7 @@ function formatPaymentOptionsHTML() {
                 html += `<p style="margin: 8px 0 0; color: #555;">${escapeHtml(method.handle)}</p>`;
             }
             if (method.url) {
-                html += `<p style="margin: 4px 0 0;"><a href="${escapeHtml(method.url)}" style="color: #667eea;">${escapeHtml(method.url)}</a></p>`;
+                html += `<p style="margin: 4px 0 0;"><a href="${escapeHtml(method.url)}" style="color: #6E78D6;">${escapeHtml(method.url)}</a></p>`;
             }
         }
 
@@ -2394,12 +2402,12 @@ async function toggleUserReview(disputeId, checked) {
 
 function scrollToBill(billId) {
     const el = document.querySelector(`#bill-${billId}, [data-bill-id="${billId}"]`);
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #667eea'; setTimeout(() => { el.style.outline = ''; }, 2000); }
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #6E78D6'; setTimeout(() => { el.style.outline = ''; }, 2000); }
 }
 
 function scrollToMember(memberId) {
     const el = document.querySelector(`[data-member-id="${memberId}"]`);
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #667eea'; setTimeout(() => { el.style.outline = ''; }, 2000); }
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '3px solid #6E78D6'; setTimeout(() => { el.style.outline = ''; }, 2000); }
 }
 
 function formatFileSize(bytes) {
@@ -2650,10 +2658,13 @@ async function doGenerateShareLink(memberId) {
 
         const shareUrl = window.location.origin + '/share.html?token=' + rawToken;
 
-        await navigator.clipboard.writeText(shareUrl);
+        let copied = false;
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            copied = true;
+        } catch (_) {}
 
-        closePaymentDialog();
-        alert('Share link copied to clipboard!\n\n' + member.name + ' can open this link to view their billing summary without logging in.');
+        showShareLinkSuccess(shareUrl, member.name, copied);
 
         if (analytics) {
             analytics.logEvent('share_link_generated', {
@@ -2665,6 +2676,57 @@ async function doGenerateShareLink(memberId) {
         console.error('Error generating share link:', error);
         alert('Error generating share link. Please try again.');
         if (btn) { btn.disabled = false; btn.textContent = 'Generate & Copy Link'; }
+    }
+}
+
+function showShareLinkSuccess(shareUrl, memberName, autoCopied) {
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Share Link Created</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <p style="margin-bottom:12px;">${autoCopied ? '&#10003; Link copied to clipboard! ' : ''}${escapeHtml(memberName)} can open this link to view their billing summary without logging in.</p>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" id="shareLinkUrlInput" value="${escapeHtml(shareUrl)}" readonly
+                    style="flex:1;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;background:#f9fafb;color:#333;font-family:monospace;" />
+                <button class="btn btn-primary" id="copyShareLinkBtn" onclick="copyShareLinkUrl()">Copy</button>
+            </div>
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-secondary" onclick="closePaymentDialog()">Done</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+
+    const input = document.getElementById('shareLinkUrlInput');
+    if (input) { input.focus(); input.select(); }
+}
+
+function copyShareLinkUrl() {
+    const input = document.getElementById('shareLinkUrlInput');
+    const btn = document.getElementById('copyShareLinkBtn');
+    if (!input) return;
+
+    input.select();
+    input.setSelectionRange(0, 99999);
+
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(input.value).then(() => {
+            if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+        }).catch(() => {
+            try { document.execCommand('copy'); } catch (_) {}
+            if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+        });
+    } else {
+        try { document.execCommand('copy'); } catch (_) {}
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
     }
 }
 
@@ -2955,12 +3017,12 @@ function generateInvoiceHTML(summary, currentYear) {
                     padding: 20px;
                 }
                 h1 {
-                    color: #333;
-                    border-bottom: 3px solid #667eea;
+                    color: #1F2430;
+                    border-bottom: 3px solid #6E78D6;
                     padding-bottom: 10px;
                 }
                 h2 {
-                    color: #555;
+                    color: #5B6475;
                     margin-top: 30px;
                 }
                 table {
@@ -2974,12 +3036,12 @@ function generateInvoiceHTML(summary, currentYear) {
                     border-bottom: 1px solid #ddd;
                 }
                 th {
-                    background: #f7fafc;
+                    background: #F7F8FB;
                     font-weight: bold;
                 }
                 .total-row {
                     font-weight: bold;
-                    background: #f0f0f0;
+                    background: #E6E8EE;
                     font-size: 1.1em;
                 }
                 .member-section {
@@ -2998,7 +3060,7 @@ function generateInvoiceHTML(summary, currentYear) {
                     width: 32px;
                     height: 32px;
                     border-radius: 50%;
-                    background: #667eea;
+                    background: #6E78D6;
                     color: white;
                     display: inline-flex;
                     align-items: center;
@@ -3018,11 +3080,11 @@ function generateInvoiceHTML(summary, currentYear) {
                 .logo-text {
                     display: inline-block;
                     padding: 4px 8px;
-                    background: #f0f0f0;
+                    background: #E6E8EE;
                     border-radius: 4px;
                     font-size: 12px;
                     font-weight: bold;
-                    color: #333;
+                    color: #1F2430;
                     vertical-align: middle;
                     margin-right: 8px;
                 }
@@ -3037,7 +3099,7 @@ function generateInvoiceHTML(summary, currentYear) {
             <h1>Annual Billing Summary - ${currentYear}</h1>
             <p>Billing Year: ${currentYear} &middot; Generated on: ${new Date().toLocaleDateString()}</p>
 
-            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px 0;">Print Summary</button>
+            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; background: #6E78D6; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px 0;">Print Summary</button>
 
             <h2>Annual Summary</h2>
             <table>
