@@ -3,7 +3,7 @@ let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, l
 let bills = []; // Array of {id, name, amount, logo, website, members: [memberIds]}
 let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
 let settings = {
-    emailMessage: 'I have attached your annual bill summary. Thank you for your prompt payment of %total via any of the payment services below.',
+    emailMessage: 'Your annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
     paymentLinks: [],
     paymentMethods: []
 };
@@ -1239,7 +1239,7 @@ function updateSummary() {
     const archived = isArchivedYear();
 
     if (familyMembers.length === 0) {
-        container.innerHTML = '<p class="empty-state">Add family members and bills to see the summary</p>';
+        container.innerHTML = '<p class="empty-state">Add family members and bills to see the annual summary.</p>';
         return;
     }
 
@@ -1301,7 +1301,7 @@ function updateSummary() {
                     <div class="actions-dropdown">
                         <button class="actions-dropdown-btn" onclick="toggleActionMenu(event)">Actions ▾</button>
                         <div class="actions-dropdown-menu">
-                            ${archived ? '' : `<button onclick="showAddPaymentDialog(${data.member.id}); closeAllActionMenus();">Record Payment</button>`}
+                            ${archived ? '' : `<button onclick="showAddPaymentDialog(${data.member.id}); closeAllActionMenus();">Record Annual Payment</button>`}
                             <button onclick="sendIndividualInvoice(${data.member.id}); closeAllActionMenus();">Email Invoice</button>
                             <button onclick="generateShareLink(${data.member.id}); closeAllActionMenus();">Share Billing Link</button>
                             <button onclick="showShareLinks(${data.member.id}); closeAllActionMenus();">Manage Share Links</button>
@@ -1346,6 +1346,7 @@ function updateSummary() {
     const totalBalance = totalAnnual - totalPayments;
 
     container.innerHTML = `
+        <p class="section-desc mb-0" style="margin-bottom: 12px;">Each member's total responsibility for this billing year.</p>
         <table class="summary-table">
             <thead>
                 <tr>
@@ -1416,6 +1417,11 @@ function renderDashboardStatus() {
             <span class="dashboard-stat-value">${paidCount} / ${mainMembers.length}</span>
         </div>
     `;
+    const contextBanner = document.getElementById('dashboardContextBanner');
+    if (contextBanner) {
+        contextBanner.textContent = 'Review annual totals and record payments below.';
+        contextBanner.style.display = '';
+    }
 }
 
 // Record a payment in the ledger for a member (or distributed across linked members)
@@ -1495,10 +1501,11 @@ function renderEmailSettings() {
     const archived = isArchivedYear();
     container.innerHTML = `
         <div class="form-group">
-            <label for="emailMessage">Email Message (sent with all invoices)</label>
+            <label for="emailMessage">Email Message (sent with annual invoices)</label>
             <p class="section-desc">
-                Use <strong>%total</strong> to insert the combined annual total.
-                Use <strong>%payment_methods%</strong> to insert configured payment instructions.
+                Use <strong>%billing_year%</strong> to insert the billing year,
+                <strong>%annual_total%</strong> or <strong>%total</strong> to insert the combined annual total,
+                and <strong>%payment_methods%</strong> to insert configured payment instructions.
             </p>
             <textarea id="emailMessageInput" rows="4" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
             ${archived ? '' : '<button class="btn btn-primary mt-2" onclick="saveEmailMessage()">Save Message</button>'}
@@ -2046,7 +2053,7 @@ function renderDisputes(disputes) {
         if (_disputeStatusFilter === 'all') {
             container.innerHTML = '<div class="empty-state">'
                 + '<p>No review requests yet.</p>'
-                + '<p class="empty-state-hint">Members can flag bill items from their share links.<br>You\'ll review and approve them here.</p>'
+                + '<p class="empty-state-hint">Members can flag items while reviewing their annual billing summary.<br>You\'ll review and approve them here.</p>'
                 + '</div>';
         } else {
             const statusLabel = (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase();
@@ -2693,11 +2700,13 @@ function sendIndividualInvoice(memberId) {
     const paymentPerPerson = payment / numMembers;
 
     const emailMessage = settings.emailMessage
+        .replace(/%billing_year%/g, currentYear)
+        .replace(/%annual_total%/g, `$${combinedTotal.toFixed(2)}`)
         .replace(/%total/g, `$${combinedTotal.toFixed(2)}`)
         .replace(/%payment_methods%/g, formatPaymentOptionsText());
     let invoiceText = `Hello ${firstName},\n\n${emailMessage}\n\n`;
     invoiceText += `======================================\n`;
-    invoiceText += `ANNUAL BILL INVOICE - ${currentYear}\n`;
+    invoiceText += `ANNUAL BILLING SUMMARY - ${currentYear}\n`;
     invoiceText += `======================================\n\n`;
     invoiceText += `Primary: ${member.name}\n`;
 
@@ -2756,10 +2765,9 @@ function sendIndividualInvoice(memberId) {
         }
     });
 
-    // Combined payment summary
     const balance = combinedTotal - payment;
 
-    invoiceText += `PAYMENT SUMMARY:\n`;
+    invoiceText += `ANNUAL PAYMENT SUMMARY:\n`;
     invoiceText += `${'='.repeat(80)}\n`;
     invoiceText += `  Combined Annual Total:         $${combinedTotal.toFixed(2)}\n`;
     if (payment > 0) {
@@ -2780,7 +2788,7 @@ function sendIndividualInvoice(memberId) {
     invoiceText += `\n\nThank you for your prompt payment!\n`;
 
     // Create mailto link with plain text invoice
-    const subject = `Annual Bill Invoice ${currentYear}`;
+    const subject = `Annual Billing Summary ${currentYear}`;
     const mailtoLink = `mailto:${member.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(invoiceText)}`;
 
     // Open email client
@@ -2807,7 +2815,7 @@ function generateInvoiceHTML(summary, currentYear) {
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Annual Bill Invoice - ${currentYear}</title>
+            <title>Annual Billing Summary - ${currentYear}</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -2895,12 +2903,12 @@ function generateInvoiceHTML(summary, currentYear) {
             </style>
         </head>
         <body>
-            <h1>Annual Bill Invoice - ${currentYear}</h1>
-            <p>Generated on: ${new Date().toLocaleDateString()}</p>
+            <h1>Annual Billing Summary - ${currentYear}</h1>
+            <p>Billing Year: ${currentYear} &middot; Generated on: ${new Date().toLocaleDateString()}</p>
 
-            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px 0;">Print Invoice</button>
+            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px 0;">Print Summary</button>
 
-            <h2>Summary</h2>
+            <h2>Annual Summary</h2>
             <table>
                 <thead>
                     <tr>
@@ -3140,11 +3148,12 @@ function showAddPaymentDialog(memberId) {
 
     dialog.innerHTML = `
         <div class="dialog-header">
-            <h3>Record Payment</h3>
+            <h3>Record Annual Payment</h3>
             <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
         </div>
         <div class="dialog-body">
             <p>For: <strong>${escapeHtml(member.name)}</strong></p>
+            <p class="text-muted" style="margin-bottom: 14px;">Payments apply toward this billing year's balance.</p>
             <div class="form-group">
                 <label for="paymentAmount">Amount ($)</label>
                 <input type="number" id="paymentAmount" step="0.01" min="0.01" placeholder="0.00" oninput="updatePaymentPreview(${member.id})" />

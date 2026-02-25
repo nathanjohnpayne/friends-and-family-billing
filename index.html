@@ -11,9 +11,10 @@
     <div class="container">
         <header>
             <h1>Friends & Family Billing</h1>
-            <p class="subtitle">Split bills effortlessly with the people who matter most</p>
+            <p class="subtitle">Review and settle shared bills for the current billing year.</p>
             <div id="billingYearControls" class="billing-year-controls"></div>
             <div id="dashboardStatus" class="dashboard-status"></div>
+            <p id="dashboardContextBanner" class="subtitle" style="display:none; margin-top: 8px; font-size: 0.95rem; opacity: 0.85;"></p>
             <div class="header-actions">
                 <span id="user-email" class="header-user-email"></span>
                 <button onclick="logout()" class="btn btn-secondary">Logout</button>
@@ -83,7 +84,7 @@
             <section class="card summary-card">
                 <h2>Review Requests</h2>
                 <p class="section-desc">
-                    Bill line items flagged by members via their share links.
+                    Bill items flagged during annual review.
                 </p>
                 <div id="disputeFilterBar" class="dispute-filter-bar"></div>
                 <div id="disputesList"></div>

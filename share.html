@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Billing Summary</title>
+    <title>Annual Billing Summary</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -457,14 +457,14 @@
     <div class="container">
         <div id="loading" class="loading-state">
             <div class="spinner"></div>
-            <p>Loading your billing summary&hellip;</p>
+            <p>Loading your annual billing summary&hellip;</p>
         </div>
 
         <div id="error" class="error-state card" style="display:none;"></div>
 
         <div id="content">
             <header>
-                <h1 id="headerTitle">Billing Summary</h1>
+                <h1 id="headerTitle">Annual Billing Summary</h1>
                 <p class="subtitle" id="headerSubtitle"></p>
             </header>
 
@@ -486,12 +486,13 @@
             </div>
 
             <div class="card">
-                <h2>Payment Summary</h2>
+                <h2>Annual Payment Summary</h2>
                 <div class="payment-summary-grid" id="paymentSummaryGrid"></div>
             </div>
 
             <div id="paymentLinksCard" class="card" style="display:none;">
-                <h2>Payment Options</h2>
+                <h2>Submit Payment</h2>
+                <p style="color:#666; font-size:0.9rem; margin-bottom:12px;">Please review your balance and submit payment using the methods below.</p>
                 <div class="payment-links-grid" id="paymentLinksGrid"></div>
             </div>
 
@@ -814,11 +815,11 @@
                 var scopes = data.scopes || [];
                 _canDispute = scopes.includes('disputes:create');
 
-                document.title = data.memberName + ' — Billing Summary ' + data.year;
+                document.title = data.memberName + ' — Annual Billing Summary ' + data.year;
                 document.getElementById('headerTitle').textContent =
-                    data.memberName + "'s Billing Summary";
+                    data.memberName + "'s Annual Billing Summary";
                 document.getElementById('headerSubtitle').textContent =
-                    'Billing Year ' + data.year;
+                    'You are viewing your annual shared billing summary for ' + data.year + '.';
 
                 if (data.summary) {
                     document.getElementById('billBreakdownTitle').textContent =
