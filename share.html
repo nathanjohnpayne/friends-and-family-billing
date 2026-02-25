@@ -4,12 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Annual Billing Summary</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='fg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236E78D6'/%3E%3Cstop offset='100%25' stop-color='%237B5FAF'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='12' fill='url(%23fg)'/%3E%3Ccircle cx='24' cy='25' r='10' fill='none' stroke='%23fff' stroke-width='3'/%3E%3Ccircle cx='24' cy='15' r='2.5' fill='%23fff'/%3E%3C/svg%3E">
+    <meta property="og:title" content="Friends & Family Billing">
+    <meta property="og:description" content="Review and settle shared annual bills with friends and family.">
+    <meta property="og:image" content="https://friends-and-family-billing.web.app/og-image.png">
+    <meta property="og:url" content="https://friends-and-family-billing.web.app">
+    <meta property="og:type" content="website">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #6E78D6 0%, #7B5FAF 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -37,7 +43,7 @@
         }
 
         h2 {
-            color: #333;
+            color: #1F2430;
             margin-bottom: 16px;
             font-size: 1.3rem;
         }
@@ -55,9 +61,9 @@
         }
 
         .summary-table th {
-            background: #f7fafc;
+            background: #F7F8FB;
             font-weight: 600;
-            color: #333;
+            color: #1F2430;
             font-size: 0.9rem;
         }
 
@@ -65,14 +71,14 @@
 
         .total-row {
             font-weight: 600;
-            color: #667eea;
+            color: #6E78D6;
             font-size: 1.05rem;
         }
 
         .child-section { margin-top: 20px; }
         .child-section h3 {
             font-size: 1.1rem;
-            color: #555;
+            color: #5B6475;
             margin-bottom: 10px;
         }
 
@@ -84,7 +90,7 @@
         }
 
         .payment-stat {
-            background: #f7fafc;
+            background: #F7F8FB;
             border-radius: 8px;
             padding: 16px;
             text-align: center;
@@ -99,11 +105,11 @@
         .payment-stat .value {
             font-size: 1.4rem;
             font-weight: 700;
-            color: #333;
+            color: #1F2430;
         }
 
-        .payment-stat .value.owed { color: #f56565; }
-        .payment-stat .value.paid { color: #48bb78; }
+        .payment-stat .value.owed { color: #C65A5A; }
+        .payment-stat .value.paid { color: #3FA37C; }
 
         .payment-links-grid {
             display: grid;
@@ -113,7 +119,7 @@
 
         .payment-link-card {
             display: block;
-            background: #667eea;
+            background: #6E78D6;
             color: white;
             text-decoration: none;
             padding: 16px;
@@ -125,12 +131,12 @@
         }
 
         .payment-link-card:hover {
-            background: #5568d3;
+            background: #5F6BC2;
             transform: translateY(-2px);
         }
 
         .payment-method-card {
-            background: #f7fafc;
+            background: #F7F8FB;
             border: 1px solid #e2e8f0;
             border-radius: 10px;
             padding: 18px;
@@ -139,22 +145,22 @@
         .payment-method-card .pm-label {
             font-weight: 700;
             font-size: 1.05rem;
-            color: #333;
+            color: #1F2430;
             margin-bottom: 6px;
         }
 
         .payment-method-card .pm-detail {
-            color: #555;
+            color: #5B6475;
             font-size: 0.95rem;
             margin: 4px 0;
         }
 
         .payment-method-card .pm-detail strong {
-            color: #333;
+            color: #1F2430;
         }
 
         .payment-method-card a {
-            color: #667eea;
+            color: #6E78D6;
             text-decoration: none;
             font-weight: 600;
         }
@@ -176,7 +182,7 @@
             border-radius: 4px;
             padding: 2px 8px;
             font-size: 0.8rem;
-            color: #667eea;
+            color: #6E78D6;
             cursor: pointer;
             margin-left: 6px;
             vertical-align: middle;
@@ -210,7 +216,7 @@
             margin-bottom: 12px;
         }
 
-        .error-state h2 { color: #333; margin-bottom: 8px; }
+        .error-state h2 { color: #1F2430; margin-bottom: 8px; }
         .error-state p { color: #666; }
 
         #content { display: none; }
@@ -225,7 +231,7 @@
         .review-btn {
             background: none;
             border: 1px solid #e2e8f0;
-            color: #667eea;
+            color: #6E78D6;
             font-size: 0.75rem;
             padding: 3px 8px;
             border-radius: 4px;
@@ -236,7 +242,7 @@
         }
         .review-btn:hover {
             background: #f0f0ff;
-            border-color: #667eea;
+            border-color: #6E78D6;
         }
 
         .dispute-overlay {
@@ -267,7 +273,7 @@
             padding: 16px 20px;
             border-bottom: 1px solid #e0e0e0;
         }
-        .dispute-dialog-header h3 { color: #333; font-size: 1.1rem; margin: 0; }
+        .dispute-dialog-header h3 { color: #1F2430; font-size: 1.1rem; margin: 0; }
         .dispute-dialog-close {
             background: none;
             border: none;
@@ -282,7 +288,7 @@
         .dispute-dialog-body label {
             display: block;
             font-weight: 600;
-            color: #333;
+            color: #1F2430;
             margin-bottom: 6px;
             font-size: 0.9rem;
         }
@@ -300,8 +306,8 @@
         .dispute-dialog-body textarea:focus,
         .dispute-dialog-body input[type="text"]:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+            border-color: #6E78D6;
+            box-shadow: 0 0 0 3px rgba(110,120,214,0.15);
         }
         .dispute-field { margin-bottom: 16px; }
         .dispute-field .hint { color: #888; font-size: 0.8rem; margin-top: 4px; }
@@ -323,10 +329,10 @@
         }
         .dispute-btn-cancel {
             background: #e2e8f0;
-            color: #555;
+            color: #5B6475;
         }
         .dispute-btn-submit {
-            background: #667eea;
+            background: #6E78D6;
             color: white;
         }
         .dispute-btn-submit:disabled {
@@ -337,15 +343,15 @@
         .dispute-success {
             text-align: center;
             padding: 30px 20px;
-            color: #48bb78;
+            color: #3FA37C;
         }
         .dispute-success .check-icon { font-size: 2.5rem; margin-bottom: 8px; }
 
         @media print {
             body { background: white; padding: 0; }
             .card { box-shadow: none; border: 1px solid #ddd; }
-            header { color: #333; }
-            .payment-link-card { background: #eee; color: #333; }
+            header { color: #1F2430; }
+            .payment-link-card { background: #eee; color: #1F2430; }
             .no-print { display: none; }
         }
 
@@ -357,9 +363,9 @@
             margin-bottom: 10px;
         }
         .share-dispute-item.sd-open { border-left-color: #ecc94b; }
-        .share-dispute-item.sd-in-review { border-left-color: #667eea; }
-        .share-dispute-item.sd-resolved { border-left-color: #48bb78; }
-        .share-dispute-item.sd-rejected { border-left-color: #f56565; }
+        .share-dispute-item.sd-in-review { border-left-color: #6E78D6; }
+        .share-dispute-item.sd-resolved { border-left-color: #3FA37C; }
+        .share-dispute-item.sd-rejected { border-left-color: #C65A5A; }
 
         .sd-header {
             display: flex;
@@ -367,7 +373,7 @@
             align-items: center;
             margin-bottom: 6px;
         }
-        .sd-header strong { font-size: 1rem; color: #333; }
+        .sd-header strong { font-size: 1rem; color: #1F2430; }
         .sd-badge {
             font-size: 0.75rem;
             font-weight: 600;
@@ -384,8 +390,8 @@
         .sd-message { font-size: 0.95rem; color: #444; line-height: 1.5; margin-bottom: 6px; }
         .sd-correction {
             font-size: 0.9rem;
-            color: #667eea;
-            background: rgba(102,126,234,0.06);
+            color: #6E78D6;
+            background: rgba(110,120,214,0.06);
             padding: 6px 10px;
             border-radius: 4px;
             margin-bottom: 8px;
@@ -406,13 +412,13 @@
             align-items: center;
             gap: 8px;
             padding: 6px 10px;
-            background: #f7fafc;
+            background: #F7F8FB;
             border-radius: 4px;
             margin-bottom: 4px;
             font-size: 0.9rem;
         }
         .sd-evidence-item a {
-            color: #667eea;
+            color: #6E78D6;
             text-decoration: none;
         }
         .sd-evidence-item a:hover { text-decoration: underline; }
@@ -431,10 +437,10 @@
             cursor: pointer;
             font-weight: 500;
         }
-        .sd-btn-approve { background: #48bb78; color: white; }
-        .sd-btn-approve:hover { background: #38a169; }
-        .sd-btn-reject { background: #f56565; color: white; }
-        .sd-btn-reject:hover { background: #e53e3e; }
+        .sd-btn-approve { background: #3FA37C; color: white; }
+        .sd-btn-approve:hover { background: #358D6B; }
+        .sd-btn-reject { background: #C65A5A; color: white; }
+        .sd-btn-reject:hover { background: #B34E4E; }
         .sd-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .sd-user-decision {
@@ -468,17 +474,17 @@
         }
 
         .settlement-callout.outstanding {
-            border-left-color: #f56565;
+            border-left-color: #C65A5A;
         }
 
         .settlement-callout.settled {
-            border-left-color: #48bb78;
+            border-left-color: #3FA37C;
         }
 
         .settlement-callout-title {
             font-size: 1.05rem;
             font-weight: 600;
-            color: #333;
+            color: #1F2430;
             margin-bottom: 6px;
         }
 
@@ -488,8 +494,8 @@
             margin-top: 4px;
         }
 
-        .settlement-callout-amount.owed { color: #f56565; }
-        .settlement-callout-amount.clear { color: #48bb78; }
+        .settlement-callout-amount.owed { color: #C65A5A; }
+        .settlement-callout-amount.clear { color: #3FA37C; }
 
         .settlement-callout-desc {
             font-size: 0.9rem;
@@ -508,7 +514,7 @@
 
         .share-settlement-progress-bar {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #48bb78);
+            background: linear-gradient(90deg, #6E78D6, #3FA37C);
             border-radius: 5px;
             transition: width 0.4s ease;
         }
@@ -538,6 +544,9 @@
 
         <div id="content">
             <header>
+                <div style="display:inline-block;margin-bottom:8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="40" height="40"><defs><linearGradient id="shareGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#shareGrad)"/><path d="M34.12 18.55A12 12 0 1 1 30.45 14.88" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="13" r="2" fill="#fff"/></svg>
+                </div>
                 <h1 id="headerTitle">Annual Billing Summary</h1>
                 <p class="subtitle" id="headerSubtitle"></p>
             </header>
@@ -665,7 +674,7 @@
                 + '<button class="dispute-dialog-close" onclick="closeDispute()">&times;</button>'
                 + '</div>'
                 + '<div class="dispute-dialog-body">'
-                + '<p style="color:#555;margin-bottom:16px;">Flagging <strong>' + escapeHtml(billName) + '</strong> for review.</p>'
+                + '<p style="color:#5B6475;margin-bottom:16px;">Flagging <strong>' + escapeHtml(billName) + '</strong> for review.</p>'
                 + '<div class="dispute-field">'
                 + '<label for="disputeMessage">What looks wrong?</label>'
                 + '<textarea id="disputeMessage" rows="4" placeholder="Describe the issue..."></textarea>'
@@ -696,7 +705,7 @@
             var correction = (corrEl.value || '').trim();
 
             if (!message) {
-                msgEl.style.borderColor = '#f56565';
+                msgEl.style.borderColor = '#C65A5A';
                 msgEl.focus();
                 return;
             }
@@ -733,7 +742,7 @@
                     + '</div>'
                     + '<div class="dispute-success">'
                     + '<div class="check-icon">&#10003;</div>'
-                    + '<h3 style="color:#333;margin-bottom:8px;">Review Request Submitted</h3>'
+                    + '<h3 style="color:#1F2430;margin-bottom:8px;">Review Request Submitted</h3>'
                     + '<p style="color:#666;">The account owner will be notified of your request.</p>'
                     + '</div>'
                     + '<div class="dispute-dialog-footer">'

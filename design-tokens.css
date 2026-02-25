@@ -14,51 +14,60 @@
     --space-5: 32px;
     --space-6: 48px;
 
+    /* ── Brand ───────────────────────────────────────────── */
+    --brand-primary-top:    #6E78D6;
+    --brand-primary-bottom: #7B5FAF;
+    --color-ink:            #1F2430;
+    --color-body:           #5B6475;
+
     /* ── Semantic Colors ──────────────────────────────────── */
-    --color-primary:       #667eea;
-    --color-primary-hover: #5568d3;
-    --color-primary-light: rgba(102, 126, 234, 0.10);
-    --color-primary-bg:    rgba(102, 126, 234, 0.06);
+    --color-primary:       #6E78D6;
+    --color-primary-hover: #5F6BC2;
+    --color-primary-light: rgba(110, 120, 214, 0.10);
+    --color-primary-bg:    rgba(110, 120, 214, 0.06);
 
     --color-secondary:       #718096;
     --color-secondary-hover: #4a5568;
 
-    --color-success:       #48bb78;
-    --color-success-hover: #38a169;
-    --color-success-light: rgba(72, 187, 120, 0.10);
+    --color-success:       #3FA37C;
+    --color-success-hover: #358D6B;
+    --color-success-light: rgba(63, 163, 124, 0.10);
     --color-success-bg:    #c6f6d5;
     --color-success-fg:    #22543d;
 
+    --color-warning:       #D6A24A;
     --color-warning-bg:    #fefcbf;
     --color-warning-fg:    #975a16;
     --color-warning-border:#facc15;
     --color-warning-surface:#fefce8;
 
-    --color-danger:        #f56565;
-    --color-danger-hover:  #e53e3e;
-    --color-danger-light:  rgba(245, 101, 101, 0.10);
+    --color-danger:        #C65A5A;
+    --color-danger-hover:  #B34E4E;
+    --color-danger-light:  rgba(198, 90, 90, 0.10);
     --color-danger-bg:     #fed7d7;
     --color-danger-fg:     #9b2c2c;
 
+    --color-info:          #5F86C9;
+
     --color-surface:       #ffffff;
-    --color-surface-alt:   #f7fafc;
+    --color-surface-alt:   #F7F8FB;
     --color-surface-dim:   #f9fafb;
-    --color-surface-inset: #edf2f7;
+    --color-surface-inset: #E6E8EE;
 
     --color-border:        #e0e0e0;
     --color-border-light:  #f0f0f0;
     --color-border-subtle: #e2e8f0;
     --color-border-strong: #cbd5e0;
 
-    --color-text:          #333333;
-    --color-text-secondary:#555555;
+    --color-text:          #1F2430;
+    --color-text-secondary:#5B6475;
     --color-text-muted:    #666666;
     --color-text-faint:    #999999;
     --color-text-placeholder:#a0aec0;
     --color-text-inverse:  #ffffff;
 
-    --color-gradient-start: #667eea;
-    --color-gradient-end:   #764ba2;
+    --color-gradient-start: #6E78D6;
+    --color-gradient-end:   #7B5FAF;
 
     /* ── Dispute / status-specific ────────────────────────── */
     --color-open-bg:       #fefcbf;

@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Friends & Family Billing</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='fg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236E78D6'/%3E%3Cstop offset='100%25' stop-color='%237B5FAF'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='12' fill='url(%23fg)'/%3E%3Ccircle cx='24' cy='25' r='10' fill='none' stroke='%23fff' stroke-width='3'/%3E%3Ccircle cx='24' cy='15' r='2.5' fill='%23fff'/%3E%3C/svg%3E">
+    <meta property="og:title" content="Friends & Family Billing">
+    <meta property="og:description" content="Review and settle shared annual bills with friends and family.">
+    <meta property="og:image" content="https://friends-and-family-billing.web.app/og-image.png">
+    <meta property="og:url" content="https://friends-and-family-billing.web.app">
+    <meta property="og:type" content="website">
     <link rel="stylesheet" href="design-tokens.css">
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -37,20 +43,23 @@
         }
 
         .login-header .app-icon {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
-            border-radius: 12px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
+            display: inline-block;
             margin-bottom: var(--space-3);
         }
 
         .login-header .app-icon svg {
-            width: 24px;
-            height: 24px;
-            fill: var(--color-text-inverse);
+            width: 48px;
+            height: 48px;
+            display: block;
+        }
+
+        @keyframes logo-complete {
+            0%   { transform: rotate(0deg); }
+            50%  { transform: rotate(15deg); }
+            100% { transform: rotate(0deg); }
+        }
+        .app-icon.logo-success {
+            animation: logo-complete 200ms ease-out;
         }
 
         .login-header h1 {
@@ -87,7 +96,7 @@
             text-align: center;
             padding: var(--space-3);
             background: var(--color-primary-bg);
-            border: var(--border-thin) solid rgba(102, 126, 234, 0.2);
+            border: var(--border-thin) solid rgba(110, 120, 214, 0.2);
             border-radius: var(--radius-xl);
             margin-bottom: var(--space-4);
             font-size: var(--text-body-sm);
@@ -120,17 +129,17 @@
             color: var(--color-text-inverse);
             transition: all var(--transition-base);
             font-family: inherit;
-            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 2px 12px rgba(110, 120, 214, 0.3);
         }
 
         .google-btn:hover {
-            box-shadow: 0 4px 18px rgba(102, 126, 234, 0.45);
+            box-shadow: 0 4px 18px rgba(110, 120, 214, 0.45);
             transform: translateY(-1px);
         }
 
         .google-btn:active {
             transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 2px 8px rgba(110, 120, 214, 0.3);
         }
 
         .google-btn svg {
@@ -187,7 +196,7 @@
             outline: none;
             border-color: var(--color-primary);
             background: var(--color-surface);
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+            box-shadow: 0 0 0 3px rgba(110, 120, 214, 0.12);
         }
 
         .form-group input::placeholder {
@@ -254,7 +263,7 @@
         .submit-btn:hover {
             border-color: var(--color-primary);
             background: #f8f9ff;
-            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.12);
+            box-shadow: 0 2px 12px rgba(110, 120, 214, 0.12);
         }
 
         .submit-btn:active {
@@ -333,7 +342,7 @@
         <div class="login-card">
             <div class="login-header">
                 <div class="app-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95.49-7.4-2.97-6.93-6.93.3-2.55 2.31-4.56 4.86-4.86 3.95-.49 7.4 2.97 6.93 6.93-.3 2.55-2.31 4.56-4.86 4.86zM8.5 8a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-3.5 3c0 .55-.45 1-1 1s-1-.45-1-1h-1c0 1.1.9 2 2 2s2-.9 2-2h-1z"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="loginGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#loginGrad)"/><path d="M34.12 18.55A12 12 0 1 1 30.45 14.88" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="13" r="2" fill="#fff"/></svg>
                 </div>
                 <h1>Friends & Family Billing</h1>
                 <p>Review and manage your annual shared bills securely.</p>

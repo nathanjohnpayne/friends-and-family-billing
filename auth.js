@@ -1,5 +1,10 @@
 // Authentication handling
 
+function triggerLogoSuccess() {
+    const icon = document.querySelector('.app-icon');
+    if (icon) icon.classList.add('logo-success');
+}
+
 function showAuthForm(form) {
     document.getElementById('login-form-container').classList.toggle('active', form === 'login');
     document.getElementById('signup-form-container').classList.toggle('active', form === 'signup');
@@ -39,6 +44,8 @@ async function handleLogin(event) {
             analytics.logEvent('login', { method: 'email' });
         }
 
+        triggerLogoSuccess();
+        await new Promise(r => setTimeout(r, 250));
         window.location.href = 'index.html';
     } catch (error) {
         console.error('Login error details:', error);
@@ -69,6 +76,7 @@ async function handleSignup(event) {
         }
 
         showSuccess('Account created successfully! Redirecting...');
+        triggerLogoSuccess();
         setTimeout(() => {
             window.location.href = 'index.html';
         }, 1000);
@@ -113,7 +121,7 @@ function getErrorMessage(errorCode) {
         case 'auth/user-not-found':
             return 'No account found with this email. This account may have been created using Google Sign\u2011In.';
         case 'auth/wrong-password':
-            return 'Incorrect password. <a onclick="handleForgotPassword()" style="color:#dc2626;text-decoration:underline;cursor:pointer">Reset it?</a>';
+            return 'Incorrect password. <a onclick="handleForgotPassword()" style="color:#C65A5A;text-decoration:underline;cursor:pointer">Reset it?</a>';
         case 'auth/weak-password':
             return 'Password should be at least 6 characters.';
         case 'auth/network-request-failed':
@@ -137,6 +145,8 @@ async function handleGoogleSignIn() {
             analytics.logEvent(isNewUser ? 'sign_up' : 'login', { method: 'google' });
         }
 
+        triggerLogoSuccess();
+        await new Promise(r => setTimeout(r, 250));
         window.location.href = 'index.html';
     } catch (error) {
         console.error('Google sign-in error details:', error);
