@@ -1,4 +1,4 @@
-const { onRequest } = require("firebase-functions/v2/https");
+const functions = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
@@ -47,7 +47,7 @@ function appendAuditLog(ownerId, entry) {
     .catch((err) => console.error("Audit log write failed:", err));
 }
 
-exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res) => {
+exports.resolveShareToken = functions.region("us-central1").https.onRequest(async (req, res) => {
   setCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -277,7 +277,7 @@ async function resolveAndValidateToken(token, requiredScope) {
   return { ok: true, tokenData, tokenHash: hash, tokenDoc };
 }
 
-exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) => {
+exports.submitDispute = functions.region("us-central1").https.onRequest(async (req, res) => {
   setCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -361,7 +361,7 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
   }
 });
 
-exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) => {
+exports.getEvidenceUrl = functions.region("us-central1").https.onRequest(async (req, res) => {
   setCors(req, res);
 
   if (req.method === "OPTIONS") {
@@ -452,7 +452,7 @@ exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) =
   }
 });
 
-exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req, res) => {
+exports.submitDisputeDecision = functions.region("us-central1").https.onRequest(async (req, res) => {
   setCors(req, res);
 
   if (req.method === "OPTIONS") {
