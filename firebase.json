@@ -1,6 +1,9 @@
 {
   "hosting": {
     "public": ".",
+    "predeploy": [
+      "node -e \"require('fs').writeFileSync('version.json', JSON.stringify({ version: new Date().toISOString() }) + '\\n')\""
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",
