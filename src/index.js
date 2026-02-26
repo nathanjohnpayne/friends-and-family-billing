@@ -188,6 +188,7 @@ import {
     sendIndividualInvoice,
     showTextInvoiceDialog,
     generateShareLinkForInvoiceDialog,
+    doGenerateShareLinkForInvoice,
     copyTextInvoiceMessage,
     copyTextInvoiceLink,
     showEmailInvoiceDialog,
@@ -393,6 +394,7 @@ window.updateInvoiceVariant = updateInvoiceVariant;
 window.sendIndividualInvoice = sendIndividualInvoice;
 window.showTextInvoiceDialog = showTextInvoiceDialog;
 window.generateShareLinkForInvoiceDialog = generateShareLinkForInvoiceDialog;
+window.doGenerateShareLinkForInvoice = doGenerateShareLinkForInvoice;
 window.copyTextInvoiceMessage = copyTextInvoiceMessage;
 window.copyTextInvoiceLink = copyTextInvoiceLink;
 window.showEmailInvoiceDialog = showEmailInvoiceDialog;

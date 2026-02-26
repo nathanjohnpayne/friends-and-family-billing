@@ -3463,6 +3463,9 @@ function buildFullInvoiceText(ctx, shareUrl) {
         .replace(/%total/g, '$' + combinedTotal.toFixed(2))
         .replace(/%payment_methods%/g, formatPaymentOptionsText());
     let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
+    if (shareUrl) {
+        text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
+    }
     text += '======================================\n';
     text += 'ANNUAL BILLING SUMMARY - ' + currentYear + '\n';
     text += '======================================\n\n';
@@ -3541,10 +3544,6 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const paymentOptionsText = formatPaymentOptionsText();
     if (paymentOptionsText) {
         text += paymentOptionsText;
-    }
-
-    if (shareUrl) {
-        text += '\nView your billing summary online: ' + shareUrl + '\n';
     }
 
     text += '\n\nThank you for your prompt payment!\n';
@@ -3684,15 +3683,92 @@ async function generateShareLinkForInvoiceDialog(memberId, dialogFn) {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member || !currentUser || !currentBillingYear) return;
 
-    const row = document.getElementById('textInvoiceShareRow') || document.getElementById('emailInvoiceShareRow');
-    if (row) {
-        row.querySelector('.value').innerHTML = '<em>Generating link\u2026</em>';
-    }
+    const yearLabel = currentBillingYear.label;
+
+    ensureDialogContainer();
+    const overlay = document.getElementById('payment-dialog-overlay');
+    const dialog = document.getElementById('payment-dialog');
+    if (!overlay || !dialog) return;
+
+    window._invoiceDialogFn = dialogFn;
+    window._invoiceDialogMemberId = memberId;
+
+    dialog.innerHTML = `
+        <div class="dialog-header">
+            <h3>Generate Share Link</h3>
+            <button class="dialog-close" onclick="closePaymentDialog()">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <p>Create a shareable link for <strong>${escapeHtml(member.name)}</strong> to view their ${escapeHtml(yearLabel)} billing summary.</p>
+            <div class="form-group mt-3">
+                <label for="shareLinkExpiry">Link Expiry (optional)</label>
+                <select id="shareLinkExpiry">
+                    <option value="">No expiry</option>
+                    <option value="7">7 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="365">1 year</option>
+                </select>
+            </div>
+            <div class="form-group mt-2">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="shareLinkDisputes" />
+                    Allow member to request bill reviews
+                </label>
+                <p class="text-help">
+                    Adds <code>disputes:create</code> scope so the member can flag bill line items for review.
+                </p>
+            </div>
+            <div class="form-group mt-2">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="shareLinkDisputesRead" />
+                    Allow member to view review requests &amp; evidence
+                </label>
+                <p class="text-help">
+                    Adds <code>disputes:read</code> scope so the member can see their disputes, evidence, and approve/reject resolutions.
+                </p>
+            </div>
+        </div>
+        <div class="dialog-footer">
+            <button class="btn btn-tertiary" onclick="closePaymentDialog()">Cancel</button>
+            <button class="btn btn-primary" id="generateShareBtn" onclick="doGenerateShareLinkForInvoice()">Generate &amp; Copy Link</button>
+        </div>
+    `;
+
+    overlay.classList.add('visible');
+}
+
+async function doGenerateShareLinkForInvoice() {
+    const memberId = window._invoiceDialogMemberId;
+    const dialogFn = window._invoiceDialogFn;
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member || !currentUser || !currentBillingYear) return;
+
+    const btn = document.getElementById('generateShareBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
 
     try {
         const rawToken = generateRawToken();
         const tokenHash = await hashToken(rawToken);
+
+        const expirySelect = document.getElementById('shareLinkExpiry');
+        const expiryDays = expirySelect ? parseInt(expirySelect.value) : 0;
+        let expiresAt = null;
+        if (expiryDays > 0) {
+            const d = new Date();
+            d.setDate(d.getDate() + expiryDays);
+            expiresAt = d;
+        }
+
+        const disputeCheckbox = document.getElementById('shareLinkDisputes');
+        const disputeReadCheckbox = document.getElementById('shareLinkDisputesRead');
         const scopes = ['summary:read', 'paymentMethods:read'];
+        if (disputeCheckbox && disputeCheckbox.checked) {
+            scopes.push('disputes:create');
+        }
+        if (disputeReadCheckbox && disputeReadCheckbox.checked) {
+            scopes.push('disputes:read');
+        }
 
         const tokenDoc = {
             ownerId: currentUser.uid,
@@ -3700,7 +3776,7 @@ async function generateShareLinkForInvoiceDialog(memberId, dialogFn) {
             billingYearId: currentBillingYear.id,
             scopes: scopes,
             revoked: false,
-            expiresAt: null,
+            expiresAt: expiresAt ? Timestamp.fromDate(expiresAt) : null,
             createdAt: FieldValue.serverTimestamp(),
             lastAccessedAt: null,
             accessCount: 0,
@@ -3718,7 +3794,7 @@ async function generateShareLinkForInvoiceDialog(memberId, dialogFn) {
 
         if (analytics) {
             analytics.logEvent('share_link_generated', {
-                has_expiry: false,
+                has_expiry: !!expiresAt,
                 billing_year: currentBillingYear.label,
                 source: 'invoice_dialog'
             });
@@ -3727,9 +3803,8 @@ async function generateShareLinkForInvoiceDialog(memberId, dialogFn) {
         dialogFn(memberId, shareUrl);
     } catch (error) {
         console.error('Error generating share link for invoice:', error);
-        if (row) {
-            row.querySelector('.value').innerHTML = 'Error \u2014 please close and try again';
-        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Generate & Copy Link'; }
+        alert('Error generating share link. Please try again.');
     }
 }
 
@@ -4673,6 +4748,7 @@ export {
     sendIndividualInvoice,
     showTextInvoiceDialog,
     generateShareLinkForInvoiceDialog,
+    doGenerateShareLinkForInvoice,
     copyTextInvoiceMessage,
     copyTextInvoiceLink,
     showEmailInvoiceDialog,
