@@ -10,9 +10,30 @@ service cloud.firestore {
       match /billingYears/{yearId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
 
-        // Disputes — owner only (Cloud Functions use Admin SDK for share-link writes)
+        // Disputes — owner can read/write; unauthenticated users can create/update
+        // via share token (validated against publicShares collection)
         match /disputes/{disputeId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
+
+          // Allow dispute creation from share page (no auth) if token is valid
+          allow create: if request.auth == null
+            && request.resource.data.keys().hasAll(['tokenHash', 'memberId', 'memberName', 'billId', 'billName', 'message', 'status', 'createdAt'])
+            && request.resource.data.status == 'open'
+            && request.resource.data.message is string
+            && request.resource.data.message.size() > 0
+            && request.resource.data.message.size() <= 2000
+            && exists(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash))
+            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.ownerId == userId
+            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.billingYearId == yearId
+            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.scopes.hasAny(['disputes:create']);
+
+          // Allow dispute decision updates from share page (no auth)
+          allow update: if request.auth == null
+            && resource.data.tokenHash is string
+            && exists(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash))
+            && get(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash)).data.ownerId == userId
+            && get(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash)).data.scopes.hasAny(['disputes:read'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'userReview', 'resolvedAt']);
         }
       }
 

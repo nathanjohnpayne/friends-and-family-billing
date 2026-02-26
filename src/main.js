@@ -2998,6 +2998,8 @@ function buildPublicShareData(memberId, scopes) {
 
     const data = {
         memberName: primarySummary.name,
+        memberId: memberId,
+        billingYearId: currentBillingYear ? currentBillingYear.id : '',
         year: currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '',
         scopes: scopes,
         ownerId: currentUser ? currentUser.uid : '',

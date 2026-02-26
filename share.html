@@ -702,7 +702,13 @@
     <script>
         var FUNCTION_BASE = '';
         var _shareToken = null;
+        var _tokenHash = null;
+        var _ownerId = null;
+        var _billingYearId = null;
+        var _memberId = null;
+        var _memberName = null;
         var _canDispute = false;
+        var _canDisputeRead = false;
 
         var PAYMENT_METHOD_ICONS = {
             zelle: '<svg viewBox="18 15 70 70" fill="currentColor" fill-rule="evenodd"><path d="M30.78 84.24C28.57 83.69 27.19 83.08 25.4 81.84C23.27 80.36 22.68 79.79 21.45 77.94C18.36 73.31 18.45 74.14 18.46 50.31C18.46 33.51 18.54 29.64 18.89 28.14C19.96 23.6 23.23 19.63 27.7 17.45L30.34 16.16L51.76 16.07C67.28 16 73.63 16.07 74.8 16.32C79.97 17.41 84.78 21.79 86.47 26.95C87.12 28.93 87.12 29.02 87.12 50.43C87.12 71.32 87.1 71.96 86.52 73.49C85.41 76.43 84.52 77.83 82.5 79.87C80.18 82.21 77.21 83.86 74.37 84.37C71.62 84.86 32.86 84.75 30.78 84.24ZM57.03 76.11C57.37 75.62 57.48 74.69 57.48 72.44V69.42H62.61C67.37 69.42 67.75 69.38 68.04 68.85C68.2 68.54 68.34 66.95 68.34 65.31C68.34 63.68 68.2 62.08 68.04 61.77C67.75 61.23 67.33 61.21 59.09 61.21C53.5 61.21 50.44 61.1 50.44 60.91C50.44 60.75 53.77 56.36 57.83 51.15C61.9 45.95 65.93 40.79 66.78 39.68L68.34 37.67V34.78C68.34 30.89 68.49 30.98 62.26 30.98H57.48V28.03C57.48 23.82 57.6 23.94 53.39 23.94C51.47 23.94 49.69 24.02 49.44 24.12C49.05 24.26 48.97 24.86 48.97 27.64V30.98H44.08C37.84 30.98 38.11 30.78 38.11 35.26C38.11 37.88 38.21 38.66 38.58 39.03C38.97 39.43 40.16 39.49 47.09 39.49C51.51 39.49 55.13 39.59 55.13 39.71C55.13 39.83 54.29 40.99 53.27 42.28C52.25 43.57 48.21 48.71 44.3 53.7L37.18 62.78L37.28 65.78C37.34 67.44 37.49 68.9 37.62 69.03C37.76 69.17 40.33 69.34 43.35 69.42L48.83 69.57L48.91 72.78C48.96 74.54 49.14 76.16 49.31 76.37C49.54 76.65 50.6 76.76 53.1 76.76C56.35 76.76 56.6 76.72 57.03 76.11Z"/></svg>',
@@ -819,30 +825,30 @@
                 return;
             }
 
+            if (!_ownerId || !_billingYearId || !_tokenHash || !_memberId) {
+                alert('Missing share data. Please reload the page and try again.');
+                return;
+            }
+
             btn.disabled = true;
             btn.textContent = 'Submitting...';
 
             try {
-                var resp = await fetch(FUNCTION_BASE + '/submitDispute', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        token: _shareToken,
-                        billId: billId,
-                        billName: billName,
-                        message: message,
-                        proposedCorrection: correction || null
-                    })
-                });
+                var dispute = {
+                    memberId: _memberId,
+                    memberName: _memberName || '',
+                    billId: billId,
+                    billName: billName.trim(),
+                    message: message,
+                    proposedCorrection: correction || null,
+                    status: 'open',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    tokenHash: _tokenHash
+                };
 
-                var data = await resp.json();
-
-                if (!resp.ok) {
-                    alert(data.error || 'Could not submit. Please try again.');
-                    btn.disabled = false;
-                    btn.textContent = 'Submit';
-                    return;
-                }
+                await db.collection('users').doc(_ownerId)
+                    .collection('billingYears').doc(_billingYearId)
+                    .collection('disputes').add(dispute);
 
                 var dialog = document.getElementById('disputeDialog');
                 dialog.innerHTML = '<div class="dispute-dialog-header">'
@@ -859,7 +865,7 @@
                     + '</div>';
             } catch (err) {
                 console.error('Dispute submission error:', err);
-                alert('Could not connect to the server. Please try again later.');
+                alert('Could not submit review request. Please try again later.');
                 btn.disabled = false;
                 btn.textContent = 'Submit';
             }
@@ -943,22 +949,34 @@
                 actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
             }
 
+            if (!_ownerId || !_billingYearId || !_tokenHash) {
+                alert('Missing share data. Please reload the page and try again.');
+                return;
+            }
+
             try {
-                var body = { token: _shareToken, disputeId: disputeId, decision: decision };
-                if (note) body.note = note;
+                var disputeRef = db.collection('users').doc(_ownerId)
+                    .collection('billingYears').doc(_billingYearId)
+                    .collection('disputes').doc(disputeId);
 
-                var resp = await fetch(FUNCTION_BASE + '/submitDisputeDecision', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                var data = await resp.json();
-
-                if (!resp.ok) {
-                    alert(data.error || 'Could not submit decision.');
-                    if (actionsEl) actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
-                    return;
+                var updates = {};
+                if (decision === 'approve') {
+                    updates.status = 'resolved';
+                    updates['userReview'] = {
+                        state: 'approved_by_user',
+                        decidedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    updates.resolvedAt = firebase.firestore.FieldValue.serverTimestamp();
+                } else {
+                    updates.status = 'open';
+                    updates['userReview'] = {
+                        state: 'rejected_by_user',
+                        rejectionNote: (note || '').trim(),
+                        decidedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
                 }
+
+                await disputeRef.update(updates);
 
                 if (actionsEl) {
                     var cls = decision === 'approve' ? 'approved' : 'rejected';
@@ -967,7 +985,7 @@
                 }
             } catch (err) {
                 console.error('Decision error:', err);
-                alert('Could not connect to the server. Please try again.');
+                alert('Could not submit decision. Please try again.');
                 if (actionsEl) actionsEl.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
             }
         }
@@ -1000,6 +1018,7 @@
             try {
                 var data = null;
                 var tokenHash = await hashToken(token);
+                _tokenHash = tokenHash;
                 var doc = await db.collection('publicShares').doc(tokenHash).get();
 
                 if (doc.exists) {
@@ -1023,6 +1042,11 @@
 
                 var scopes = data.scopes || [];
                 _canDispute = scopes.includes('disputes:create');
+                _canDisputeRead = scopes.includes('disputes:read');
+                _ownerId = data.ownerId || null;
+                _billingYearId = data.billingYearId || null;
+                _memberId = data.memberId || (data.summary && data.summary.memberId) || null;
+                _memberName = data.memberName || '';
 
                 document.title = data.memberName + ' — Annual Billing Summary ' + data.year;
                 document.getElementById('headerTitle').textContent =
