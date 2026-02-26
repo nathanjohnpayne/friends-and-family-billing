@@ -3509,21 +3509,12 @@ describe('buildInvoiceBody', () => {
         assert.ok(!body.includes('View & pay'));
     });
 
-    it('link-cta variant is compact with link', () => {
+    it('unknown variant falls through to text-link', () => {
         const ctx = makeCtx();
         const summary = ctx.getInvoiceSummaryContext(1);
         const body = ctx.buildInvoiceBody(summary, 'link-cta', 'https://example.com/share', 'sms');
         assert.ok(body.includes('https://example.com/share'));
-        assert.ok(body.includes('ready'));
-        assert.ok(!body.includes('Alice'));
-    });
-
-    it('link-cta variant without shareUrl falls back gracefully', () => {
-        const ctx = makeCtx();
-        const summary = ctx.getInvoiceSummaryContext(1);
-        const body = ctx.buildInvoiceBody(summary, 'link-cta', '', 'sms');
-        assert.ok(body.includes('$180.00'));
-        assert.ok(!body.includes('undefined'));
+        assert.ok(body.includes('Alice'));
     });
 
     it('full variant produces detailed invoice text', () => {
@@ -3569,7 +3560,7 @@ describe('buildSmsDeepLink', () => {
         assert.ok(result.includes(encodeURIComponent('Hello')));
     });
 
-    it('returns null for desktop user agent', () => {
+    it('returns iOS format for macOS user agent', () => {
         const ctx = createContext({
             navigator: {
                 userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -3577,7 +3568,8 @@ describe('buildSmsDeepLink', () => {
             },
         });
         const result = ctx.buildSmsDeepLink('+15551234567', 'Hello');
-        assert.equal(result, null);
+        assert.ok(result.startsWith('sms:+15551234567&body='));
+        assert.ok(result.includes(encodeURIComponent('Hello')));
     });
 
     it('handles missing phone number on iOS', () => {
@@ -3625,11 +3617,11 @@ describe('openSmsComposer', () => {
         assert.ok(ctx.window.location.href.startsWith('sms:'));
     });
 
-    it('copies to clipboard on desktop fallback', async () => {
+    it('copies to clipboard on unsupported platform fallback', async () => {
         let copiedText = '';
         const ctx = createContext({
             navigator: {
-                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)',
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 clipboard: { writeText: (text) => { copiedText = text; return Promise.resolve(); } },
             },
         });

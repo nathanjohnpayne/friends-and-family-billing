@@ -2703,7 +2703,7 @@ function showDisputeDetail(disputeId) {
         const urLabel = userReviewState === 'approved_by_user' ? 'Approved by user'
             : userReviewState === 'rejected_by_user' ? 'Rejected by user'
             : userReviewState;
-        userReviewSection = `<div class="dispute-detail-user-review"><strong>User Decision:</strong> ${escapeHtml(urLabel)}${d.userReview.rejectionNote ? ' — ' + escapeHtml(d.userReview.rejectionNote) : ''}</div>`;
+        userReviewSection = `<div class="dispute-detail-user-review"><strong>User Decision:</strong> ${escapeHtml(urLabel)}${d.userReview.rejectionNote ? '—' + escapeHtml(d.userReview.rejectionNote) : ''}</div>`;
     }
 
     const evidenceList = (d.evidence || []);
@@ -3182,7 +3182,8 @@ async function doGenerateShareLink(memberId) {
             createdAt: FieldValue.serverTimestamp(),
             lastAccessedAt: null,
             accessCount: 0,
-            memberName: member.name
+            memberName: member.name,
+            rawToken: rawToken
         };
 
         await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
@@ -3301,6 +3302,18 @@ async function showShareLinks(memberId) {
             links.push({ id: doc.id, ...data });
         });
 
+        const activeHashes = links.filter(l => !l.revoked).map(l => l.id);
+        const accessCounts = {};
+        await Promise.all(activeHashes.map(async hash => {
+            try {
+                const psDoc = await db.collection('publicShares').doc(hash).get();
+                if (psDoc.exists) {
+                    const psData = psDoc.data();
+                    accessCounts[hash] = psData.accessCount || 0;
+                }
+            } catch (_) {}
+        }));
+
         links.sort((a, b) => {
             const aTime = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
             const bTime = b.createdAt ? (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)) : new Date(0);
@@ -3333,9 +3346,16 @@ async function showShareLinks(memberId) {
                     }
                 }
 
-                const accessInfo = link.accessCount > 0
-                    ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '')
+                const count = accessCounts[link.id] !== undefined ? accessCounts[link.id] : (link.accessCount || 0);
+                const accessInfo = count > 0
+                    ? count + ' view' + (count !== 1 ? 's' : '')
                     : 'Never viewed';
+
+                let linkUrlHtml = '';
+                if (!link.revoked && link.rawToken) {
+                    const url = window.location.origin + '/share.html?token=' + link.rawToken;
+                    linkUrlHtml = `<div class="share-link-url"><input type="text" value="${escapeHtml(url)}" readonly onclick="this.select()" /><button class="btn btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(function(){showChangeToast('Link copied')})">Copy</button></div>`;
+                }
 
                 html += `<div class="share-link-item">
                     <div class="share-link-meta">
@@ -3343,6 +3363,7 @@ async function showShareLinks(memberId) {
                         <span class="share-link-date">Created: ${escapeHtml(created)}</span>
                         <span class="share-link-status ${statusClass}">${escapeHtml(statusLabel)}</span>
                         <span class="share-link-access">${escapeHtml(accessInfo)}</span>
+                        ${linkUrlHtml}
                     </div>
                     <div class="share-link-actions">
                         ${!link.revoked ? `<button class="btn btn-danger btn-sm" onclick="revokeShareLink('${escapeHtml(link.id)}', ${memberId})">Revoke</button>` : ''}
@@ -3430,11 +3451,6 @@ function buildInvoiceSubject(year, member) {
 function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
-
-    if (variant === 'link-cta') {
-        if (!shareUrl) return 'Your ' + currentYear + ' billing summary is ready. Total: ' + amountStr + '.';
-        return 'Your ' + currentYear + ' billing summary is ready: ' + shareUrl;
-    }
 
     if (variant === 'text-only') {
         const greeting = isEmail ? 'Hello' : 'Hey';
@@ -3556,7 +3572,7 @@ function buildSmsDeepLink(phone, body) {
     const encodedBody = encodeURIComponent(body);
     const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
     const recipient = phone || '';
-    if (/iPhone|iPad|iPod/.test(ua)) return 'sms:' + recipient + '&body=' + encodedBody;
+    if (/iPhone|iPad|iPod|Macintosh/.test(ua)) return 'sms:' + recipient + '&body=' + encodedBody;
     if (/Android/.test(ua)) return 'sms:' + recipient + '?body=' + encodedBody;
     return null;
 }
@@ -3627,13 +3643,12 @@ async function showTextInvoiceDialog(memberId, shareUrl) {
     if (shareUrl) {
         shareLinkHtml = `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-invoice-link">${escapeHtml(shareUrl)}</span></div>`;
     } else {
-        shareLinkHtml = `<div class="text-invoice-stat" id="textInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" id="textInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
+        shareLinkHtml = `<div class="text-invoice-stat" id="textInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None—<a href="#" id="textInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
     }
 
     const variants = [
         { value: 'text-only', label: 'Text only' },
         { value: 'text-link', label: 'Text + link' },
-        { value: 'link-cta', label: 'Link + CTA' },
     ];
     let variantHtml = '<div class="invoice-variant-selector">';
     variants.forEach(opt => {
@@ -3854,13 +3869,12 @@ async function showEmailInvoiceDialog(memberId, shareUrl) {
     if (shareUrl) {
         shareLinkHtml = `<div class="text-invoice-stat"><span class="label">Share Link</span><span class="value text-invoice-link">${escapeHtml(shareUrl)}</span></div>`;
     } else {
-        shareLinkHtml = `<div class="text-invoice-stat" id="emailInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None — <a href="#" id="emailInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
+        shareLinkHtml = `<div class="text-invoice-stat" id="emailInvoiceShareRow"><span class="label">Share Link</span><span class="value text-muted">None—<a href="#" id="emailInvoiceGenerateLink" data-member-id="${memberId}">generate one</a></span></div>`;
     }
 
     const variants = [
         { value: 'text-only', label: 'Text only' },
         { value: 'text-link', label: 'Text + link' },
-        { value: 'link-cta', label: 'Link + CTA' },
         { value: 'full', label: 'Full invoice' },
     ];
     let variantHtml = '<div class="invoice-variant-selector">';
@@ -4349,7 +4363,7 @@ function updatePaymentPreview(memberId) {
         html += '<div class="payment-preview-dist-label">Distribution:</div><ul class="payment-preview-dist">';
         if (combinedTotal > 0) {
             var parentShare = Math.round((amount * (parentTotal / combinedTotal)) * 100) / 100;
-            html += '<li>' + escapeHtml(member.name) + ' — $' + parentShare.toFixed(2) + '</li>';
+            html += '<li>' + escapeHtml(member.name) + '—$' + parentShare.toFixed(2) + '</li>';
             var allocated = parentShare;
             linkedItems.forEach(function(item, i) {
                 var share;
@@ -4359,7 +4373,7 @@ function updatePaymentPreview(memberId) {
                     share = Math.round((amount * (item.owed / combinedTotal)) * 100) / 100;
                     allocated += share;
                 }
-                html += '<li>' + escapeHtml(item.name) + ' — $' + share.toFixed(2) + '</li>';
+                html += '<li>' + escapeHtml(item.name) + '—$' + share.toFixed(2) + '</li>';
             });
         }
         html += '</ul>';

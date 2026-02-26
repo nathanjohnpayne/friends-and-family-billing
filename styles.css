@@ -1472,6 +1472,25 @@ textarea:focus {
     color: var(--color-text-faint);
 }
 
+.share-link-url {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.share-link-url input {
+    flex: 1;
+    padding: 4px 8px;
+    border: var(--border-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-caption);
+    font-family: monospace;
+    background: var(--color-bg-alt);
+    color: var(--color-text);
+    min-width: 0;
+}
+
 /* ──────────────── Payment Dialog (Modal) ──────────────── */
 
 .dialog-overlay {

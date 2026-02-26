@@ -915,7 +915,7 @@
                 } else if (ur && ur.state === 'approved_by_user') {
                     html += '<div class="sd-user-decision approved">You approved this resolution.</div>';
                 } else if (ur && ur.state === 'rejected_by_user') {
-                    html += '<div class="sd-user-decision rejected">You rejected this resolution.' + (ur.rejectionNote ? ' — ' + escapeHtml(ur.rejectionNote) : '') + '</div>';
+                    html += '<div class="sd-user-decision rejected">You rejected this resolution.' + (ur.rejectionNote ? '—' + escapeHtml(ur.rejectionNote) : '') + '</div>';
                 }
 
                 html += '</div>';
@@ -1023,6 +1023,10 @@
 
                 if (doc.exists) {
                     data = doc.data();
+                    db.collection('publicShares').doc(tokenHash).update({
+                        accessCount: firebase.firestore.FieldValue.increment(1),
+                        lastAccessedAt: new Date().toISOString()
+                    }).catch(function() {});
                 } else {
                     var resp = await fetch('/resolveShareToken', {
                         method: 'POST',
@@ -1048,7 +1052,7 @@
                 _memberId = data.memberId || (data.summary && data.summary.memberId) || null;
                 _memberName = data.memberName || '';
 
-                document.title = data.memberName + ' — Annual Billing Summary ' + data.year;
+                document.title = data.memberName + '—Annual Billing Summary ' + data.year;
                 document.getElementById('headerTitle').textContent =
                     data.memberName + "'s Annual Billing Summary";
                 document.getElementById('headerSubtitle').textContent =
