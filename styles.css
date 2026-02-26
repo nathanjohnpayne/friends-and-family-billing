@@ -51,18 +51,17 @@ header {
     margin: 0 auto;
 }
 
-.header-logo--settling .logo-node {
-    transform-origin: 24px 13px;
-    animation: node-pulse 2s ease-in-out infinite;
+.header-logo--settling .logo-dollar {
+    animation: dollar-pulse 2s ease-in-out infinite;
 }
 
-@keyframes node-pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.5); opacity: 0.7; }
+@keyframes dollar-pulse {
+    0%, 100% { opacity: 0.75; }
+    50% { opacity: 1; }
 }
 
-.header-logo--closed .logo-loop { display: none; }
-.header-logo--closed .logo-loop-full { display: inline !important; }
+.header-logo--closed .logo-bill { fill: rgba(255,255,255,0.85); }
+.header-logo--closed .logo-dollar { fill: rgba(255,255,255,1); }
 
 .header-logo--archived { opacity: 0.5; }
 
@@ -1054,12 +1053,20 @@ textarea:focus {
     gap: var(--space-3);
     z-index: var(--z-toast);
     font-size: 0.95rem;
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+                visibility 0.4s;
     max-width: calc(100vw - var(--space-5));
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .update-toast.visible {
     transform: translateX(-50%) translateY(0);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .update-toast-message {
