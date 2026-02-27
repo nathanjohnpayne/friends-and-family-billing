@@ -3102,10 +3102,38 @@ function buildPublicShareData(memberId, scopes) {
     }
 
     if (scopes.includes('paymentMethods:read')) {
-        data.paymentMethods = enabledMethods;
+        data.paymentMethods = enabledMethods.map(m => {
+            const copy = Object.assign({}, m);
+            if (copy.qrCode) {
+                copy.hasQrCode = true;
+                delete copy.qrCode;
+            }
+            return copy;
+        });
     }
 
     return data;
+}
+
+async function writePublicQrCodes() {
+    if (!currentUser || !db) return;
+    const methods = getEnabledPaymentMethods().filter(m => m.qrCode);
+    if (methods.length === 0) return;
+    try {
+        const batch = db.batch();
+        methods.forEach(m => {
+            const docId = currentUser.uid + '_' + m.id;
+            batch.set(db.collection('publicQrCodes').doc(docId), {
+                ownerId: currentUser.uid,
+                methodId: m.id,
+                qrCode: m.qrCode,
+                updatedAt: FieldValue.serverTimestamp()
+            });
+        });
+        await batch.commit();
+    } catch (err) {
+        console.error('Error writing public QR codes:', err);
+    }
 }
 
 async function refreshPublicShares() {
@@ -3149,6 +3177,7 @@ async function refreshPublicShares() {
             if (opCount >= MAX_BATCH_OPS) await flushBatch();
         }
         await flushBatch();
+        writePublicQrCodes();
     } catch (err) {
         console.error('Error refreshing public shares:', err);
     }
@@ -3276,6 +3305,7 @@ async function doGenerateShareLink(memberId) {
         if (publicData) {
             await db.collection('publicShares').doc(tokenHash).set(publicData);
         }
+        writePublicQrCodes();
 
         const shareUrl = window.location.origin + '/share.html?token=' + rawToken;
 

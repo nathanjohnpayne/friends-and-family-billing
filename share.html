@@ -1276,8 +1276,12 @@
                             html += '<p class="pm-instructions">' + escapeHtml(pm.instructions) + '</p>';
                         }
 
-                        if (pm.qrCode) {
-                            html += '<button class="pm-qr-btn" data-action="show-qr" data-qr-src="' + escapeHtml(pm.qrCode) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
+                        if (pm.qrCode || pm.hasQrCode) {
+                            if (pm.qrCode) {
+                                html += '<button class="pm-qr-btn" data-action="show-qr" data-qr-src="' + escapeHtml(pm.qrCode) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
+                            } else {
+                                html += '<button class="pm-qr-btn" data-action="load-qr" data-qr-method-id="' + escapeHtml(pm.id) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
+                            }
                         }
 
                         card.innerHTML = html;
@@ -1344,11 +1348,37 @@
             } else if (action === 'show-qr') {
                 e.preventDefault();
                 showQrModal(target.getAttribute('data-qr-src'), target.getAttribute('data-qr-label'));
+            } else if (action === 'load-qr') {
+                e.preventDefault();
+                loadAndShowQr(target.getAttribute('data-qr-method-id'), target.getAttribute('data-qr-label'), target);
             } else if (action === 'close-qr') {
                 e.preventDefault();
                 closeQrModal();
             }
         });
+
+        function loadAndShowQr(methodId, label, btn) {
+            if (!_ownerId || !methodId) return;
+            var origText = btn.textContent;
+            btn.textContent = 'Loading...';
+            btn.disabled = true;
+            var docId = _ownerId + '_' + methodId;
+            db.collection('publicQrCodes').doc(docId).get().then(function(doc) {
+                if (doc.exists && doc.data().qrCode) {
+                    btn.setAttribute('data-action', 'show-qr');
+                    btn.setAttribute('data-qr-src', doc.data().qrCode);
+                    btn.textContent = origText;
+                    btn.disabled = false;
+                    showQrModal(doc.data().qrCode, label);
+                } else {
+                    btn.textContent = 'QR Code unavailable';
+                    btn.disabled = true;
+                }
+            }).catch(function() {
+                btn.textContent = origText;
+                btn.disabled = false;
+            });
+        }
 
         function showQrModal(src, label) {
             var existing = document.getElementById('qrModalOverlay');
