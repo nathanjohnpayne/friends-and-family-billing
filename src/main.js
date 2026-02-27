@@ -2896,7 +2896,7 @@ function showDisputeDetail(disputeId) {
     overlay.classList.add('visible');
 }
 
-function buildDisputeResolutionText(d) {
+function buildDisputeResolutionText(d, shareUrl) {
     const member = familyMembers.find(m => m.id === d.memberId);
     const year = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
     const statusWord = d.status === 'resolved' ? 'resolved' : 'reviewed';
@@ -2907,43 +2907,100 @@ function buildDisputeResolutionText(d) {
         text += `Your suggestion: ${d.proposedCorrection}\n`;
     }
     text += `\nIf you have questions, please reach out.\n\nThanks!`;
+    if (shareUrl) {
+        text += `\n\n${shareUrl}`;
+    }
     return text;
 }
 
-function emailDisputeResolution(disputeId) {
+async function generateResolutionShareLink(memberId) {
+    const rawToken = generateRawToken();
+    const tokenHash = await hashToken(rawToken);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    const scopes = ['summary:read', 'paymentMethods:read', 'disputes:read'];
+
+    const member = familyMembers.find(m => m.id === memberId);
+    const tokenDoc = {
+        ownerId: currentUser.uid,
+        memberId: memberId,
+        billingYearId: currentBillingYear.id,
+        scopes: scopes,
+        revoked: false,
+        expiresAt: Timestamp.fromDate(expiresAt),
+        createdAt: FieldValue.serverTimestamp(),
+        lastAccessedAt: null,
+        accessCount: 0,
+        memberName: member ? member.name : '',
+        rawToken: rawToken
+    };
+
+    await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
+
+    const publicData = buildPublicShareData(memberId, scopes);
+    if (publicData) {
+        publicData.disputes = buildDisputesForShare(memberId, scopes);
+        await db.collection('publicShares').doc(tokenHash).set(publicData);
+    }
+
+    return window.location.origin + '/share.html?token=' + rawToken;
+}
+
+async function emailDisputeResolution(disputeId) {
     const d = _loadedDisputes.find(x => x.id === disputeId);
     if (!d) return;
     const member = familyMembers.find(m => m.id === d.memberId);
     if (!member || !member.email) return;
-    const year = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
-    const subject = `Review Request Update\u2014${d.billName} (${year})`;
-    const body = buildDisputeResolutionText(d);
-    const mailto = 'mailto:' + encodeURIComponent(member.email)
-        + '?subject=' + encodeURIComponent(subject)
-        + '&body=' + encodeURIComponent(body);
-    window.open(mailto, '_blank');
+
+    showChangeToast('Generating share link\u2026');
+    try {
+        const shareUrl = await generateResolutionShareLink(d.memberId);
+        const year = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
+        const subject = `Review Request Update\u2014${d.billName} (${year})`;
+        const body = buildDisputeResolutionText(d, shareUrl);
+        const mailto = 'mailto:' + encodeURIComponent(member.email)
+            + '?subject=' + encodeURIComponent(subject)
+            + '&body=' + encodeURIComponent(body);
+        window.open(mailto, '_blank');
+    } catch (err) {
+        console.error('Error generating resolution link:', err);
+        alert('Could not generate share link. Please try again.');
+    }
 }
 
-function textDisputeResolution(disputeId) {
+async function textDisputeResolution(disputeId) {
     const d = _loadedDisputes.find(x => x.id === disputeId);
     if (!d) return;
     const member = familyMembers.find(m => m.id === d.memberId);
     if (!member || !member.phone) return;
-    const body = buildDisputeResolutionText(d);
-    const smsLink = buildSmsDeepLink(member.phone, body);
-    openSmsComposer(smsLink, body);
+
+    showChangeToast('Generating share link\u2026');
+    try {
+        const shareUrl = await generateResolutionShareLink(d.memberId);
+        const body = buildDisputeResolutionText(d, shareUrl);
+        const smsLink = buildSmsDeepLink(member.phone, body);
+        openSmsComposer(smsLink, body);
+    } catch (err) {
+        console.error('Error generating resolution link:', err);
+        alert('Could not generate share link. Please try again.');
+    }
 }
 
-function copyDisputeResolution(disputeId) {
+async function copyDisputeResolution(disputeId) {
     const d = _loadedDisputes.find(x => x.id === disputeId);
     if (!d) return;
-    const text = buildDisputeResolutionText(d);
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(() => {
-            showChangeToast('Resolution copied to clipboard');
-        }).catch(() => {
-            showChangeToast('Could not copy');
-        });
+
+    showChangeToast('Generating share link\u2026');
+    try {
+        const shareUrl = await generateResolutionShareLink(d.memberId);
+        const text = buildDisputeResolutionText(d, shareUrl);
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            showChangeToast('Resolution with link copied');
+        }
+    } catch (err) {
+        console.error('Error generating resolution link:', err);
+        alert('Could not generate share link. Please try again.');
     }
 }
 
