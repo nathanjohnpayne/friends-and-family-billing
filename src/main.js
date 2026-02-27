@@ -3436,9 +3436,12 @@ async function showShareLinks(memberId) {
                     : 'Never viewed';
 
                 let linkUrlHtml = '';
-                if (!link.revoked && link.rawToken) {
+                const isActive = !link.revoked && !(link.expiresAt && ((link.expiresAt.toDate ? link.expiresAt.toDate() : new Date(link.expiresAt)) < new Date()));
+                if (isActive && link.rawToken) {
                     const url = window.location.origin + '/share.html?token=' + link.rawToken;
-                    linkUrlHtml = `<div class="share-link-url"><input type="text" value="${escapeHtml(url)}" readonly onclick="this.select()" /><button class="btn btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(function(){showChangeToast('Link copied')})">Copy</button></div>`;
+                    const displayUrl = url.replace(/^https?:\/\//, '');
+                    const truncated = displayUrl.length > 40 ? displayUrl.substring(0, 37) + '...' : displayUrl;
+                    linkUrlHtml = `<div class="share-link-url-row"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="share-link-url-text" title="${escapeHtml(displayUrl)}">${escapeHtml(truncated)}</a><button class="btn btn-sm share-link-copy-btn" onclick="navigator.clipboard.writeText('${escapeHtml(url)}').then(function(){showChangeToast('Link copied')})">Copy</button></div>`;
                 }
 
                 html += `<div class="share-link-item">

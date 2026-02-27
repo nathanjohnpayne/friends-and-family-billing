@@ -1485,23 +1485,43 @@ textarea:focus {
     color: var(--color-text-faint);
 }
 
-.share-link-url {
+.share-link-url-row {
     display: flex;
-    gap: 4px;
     align-items: center;
-    margin-top: 4px;
+    gap: 8px;
+    margin-top: 6px;
+    min-width: 0;
 }
 
-.share-link-url input {
-    flex: 1;
-    padding: 4px 8px;
-    border: var(--border-thin) solid var(--color-border);
-    border-radius: var(--radius-sm);
+.share-link-url-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+    display: inline-block;
+    color: var(--color-primary);
     font-size: var(--text-caption);
-    font-family: monospace;
+    text-decoration: none;
+}
+
+.share-link-url-text:hover {
+    text-decoration: underline;
+}
+
+.share-link-copy-btn {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    font-size: var(--text-caption);
+    color: var(--color-primary);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.share-link-copy-btn:hover {
     background: var(--color-bg-alt);
-    color: var(--color-text);
-    min-width: 0;
 }
 
 /* ──────────────── Payment Dialog (Modal) ──────────────── */
