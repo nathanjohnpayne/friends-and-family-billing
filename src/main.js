@@ -3017,11 +3017,54 @@ async function viewEvidence(disputeId, index) {
     const ev = d.evidence[index];
     try {
         const url = await storage.ref(ev.storagePath).getDownloadURL();
-        window.open(url, '_blank', 'noopener,noreferrer');
+        const isImage = /^image\//i.test(ev.contentType || '');
+        const isPdf = /^application\/pdf$/i.test(ev.contentType || '');
+        showEvidenceModal(url, ev.name, isImage, isPdf);
     } catch (error) {
         console.error('Error getting evidence URL:', error);
         alert('Could not load evidence. It may have been deleted.');
     }
+}
+
+function showEvidenceModal(url, name, isImage, isPdf) {
+    let existing = document.getElementById('evidenceModalOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'evidenceModalOverlay';
+    overlay.className = 'evidence-modal-overlay';
+
+    let contentHtml;
+    if (isImage) {
+        contentHtml = '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" />';
+    } else if (isPdf) {
+        contentHtml = '<iframe src="' + escapeHtml(url) + '" title="' + escapeHtml(name) + '"></iframe>';
+    } else {
+        contentHtml = '<p>This file type cannot be previewed.</p>'
+            + '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Download File</a>';
+    }
+
+    overlay.innerHTML = '<div class="evidence-modal">'
+        + '<div class="evidence-modal-header">'
+        + '<h3>' + escapeHtml(name) + '</h3>'
+        + '<button class="dialog-close" onclick="closeEvidenceModal()">&times;</button>'
+        + '</div>'
+        + '<div class="evidence-modal-body">' + contentHtml + '</div>'
+        + '<div class="evidence-modal-footer">'
+        + '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Open in New Tab</a>'
+        + '<button class="btn btn-primary btn-sm" onclick="closeEvidenceModal()">Close</button>'
+        + '</div>'
+        + '</div>';
+
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeEvidenceModal();
+    });
+    document.body.appendChild(overlay);
+}
+
+function closeEvidenceModal() {
+    const overlay = document.getElementById('evidenceModalOverlay');
+    if (overlay) overlay.remove();
 }
 
 async function removeEvidence(disputeId, index) {
@@ -4903,6 +4946,8 @@ export {
     formatFileSize,
     uploadEvidence,
     viewEvidence,
+    showEvidenceModal,
+    closeEvidenceModal,
     removeEvidence,
 
     // Share links

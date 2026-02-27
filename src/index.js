@@ -163,6 +163,8 @@ import {
     formatFileSize,
     uploadEvidence,
     viewEvidence,
+    showEvidenceModal,
+    closeEvidenceModal,
     removeEvidence,
 
     // Share links
@@ -371,6 +373,8 @@ window.scrollToMember = scrollToMember;
 window.formatFileSize = formatFileSize;
 window.uploadEvidence = uploadEvidence;
 window.viewEvidence = viewEvidence;
+window.showEvidenceModal = showEvidenceModal;
+window.closeEvidenceModal = closeEvidenceModal;
 window.removeEvidence = removeEvidence;
 
 // Share links
