@@ -2088,6 +2088,22 @@ textarea:focus {
     border-top: var(--border-thin) solid var(--color-border);
 }
 
+.dispute-share-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: var(--border-thin) solid var(--color-border);
+}
+
+.dispute-share-label {
+    font-size: var(--text-body-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+
 .dispute-detail-user-review {
     font-size: var(--text-body-sm);
     color: var(--color-text-secondary);

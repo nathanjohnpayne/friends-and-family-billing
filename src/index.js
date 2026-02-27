@@ -157,6 +157,9 @@ import {
     updateDispute,
     showDisputeDetail,
     doDisputeAction,
+    emailDisputeResolution,
+    textDisputeResolution,
+    copyDisputeResolution,
     toggleUserReview,
     scrollToBill,
     scrollToMember,
@@ -367,6 +370,9 @@ window.getDisputeRef = getDisputeRef;
 window.updateDispute = updateDispute;
 window.showDisputeDetail = showDisputeDetail;
 window.doDisputeAction = doDisputeAction;
+window.emailDisputeResolution = emailDisputeResolution;
+window.textDisputeResolution = textDisputeResolution;
+window.copyDisputeResolution = copyDisputeResolution;
 window.toggleUserReview = toggleUserReview;
 window.scrollToBill = scrollToBill;
 window.scrollToMember = scrollToMember;

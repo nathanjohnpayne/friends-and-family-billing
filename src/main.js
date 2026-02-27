@@ -2853,6 +2853,16 @@ function showDisputeDetail(disputeId) {
         resolvedInfo = `<div class="dispute-detail-timestamp">Rejected: ${escapeHtml(rejectedDate)}</div>`;
     }
 
+    let shareActions = '';
+    if (isTerminal && d.resolutionNote && member) {
+        shareActions = `<div class="dispute-share-actions">
+            <span class="dispute-share-label">Share Resolution:</span>
+            ${member.email ? `<button class="btn btn-sm btn-secondary" onclick="emailDisputeResolution('${escapeHtml(d.id)}')">Email</button>` : ''}
+            ${member.phone ? `<button class="btn btn-sm btn-secondary" onclick="textDisputeResolution('${escapeHtml(d.id)}')">Text</button>` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="copyDisputeResolution('${escapeHtml(d.id)}')">Copy</button>
+        </div>`;
+    }
+
     dialog.innerHTML = `
         <div class="dialog-header">
             <h3>${escapeHtml(d.billName)} <span class="dispute-status-badge ${sClass}">${escapeHtml(statusLabel)}</span></h3>
@@ -2876,6 +2886,7 @@ function showDisputeDetail(disputeId) {
             ${userReviewSection}
             ${evidenceHtml}
             ${statusActions}
+            ${shareActions}
         </div>
         <div class="dialog-footer">
             <button class="btn btn-secondary" onclick="closePaymentDialog()">Close</button>
@@ -2883,6 +2894,57 @@ function showDisputeDetail(disputeId) {
     `;
 
     overlay.classList.add('visible');
+}
+
+function buildDisputeResolutionText(d) {
+    const member = familyMembers.find(m => m.id === d.memberId);
+    const year = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
+    const statusWord = d.status === 'resolved' ? 'resolved' : 'reviewed';
+    let text = `Hi ${member ? member.name : 'there'},\n\n`;
+    text += `Your review request for ${d.billName} (${year}) has been ${statusWord}.\n\n`;
+    text += `Resolution: ${d.resolutionNote}\n`;
+    if (d.proposedCorrection) {
+        text += `Your suggestion: ${d.proposedCorrection}\n`;
+    }
+    text += `\nIf you have questions, please reach out.\n\nThanks!`;
+    return text;
+}
+
+function emailDisputeResolution(disputeId) {
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d) return;
+    const member = familyMembers.find(m => m.id === d.memberId);
+    if (!member || !member.email) return;
+    const year = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : '';
+    const subject = `Review Request Update\u2014${d.billName} (${year})`;
+    const body = buildDisputeResolutionText(d);
+    const mailto = 'mailto:' + encodeURIComponent(member.email)
+        + '?subject=' + encodeURIComponent(subject)
+        + '&body=' + encodeURIComponent(body);
+    window.open(mailto, '_blank');
+}
+
+function textDisputeResolution(disputeId) {
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d) return;
+    const member = familyMembers.find(m => m.id === d.memberId);
+    if (!member || !member.phone) return;
+    const body = buildDisputeResolutionText(d);
+    const smsLink = buildSmsDeepLink(member.phone, body);
+    openSmsComposer(smsLink, body);
+}
+
+function copyDisputeResolution(disputeId) {
+    const d = _loadedDisputes.find(x => x.id === disputeId);
+    if (!d) return;
+    const text = buildDisputeResolutionText(d);
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            showChangeToast('Resolution copied to clipboard');
+        }).catch(() => {
+            showChangeToast('Could not copy');
+        });
+    }
 }
 
 function doDisputeAction(disputeId, newStatus) {
@@ -3188,6 +3250,31 @@ function buildPublicShareData(memberId, scopes) {
     return data;
 }
 
+function buildDisputesForShare(memberId, scopes) {
+    if (!scopes.includes('disputes:read')) return [];
+    return _loadedDisputes
+        .filter(d => d.memberId === memberId)
+        .map(d => ({
+            id: d.id,
+            billId: d.billId,
+            billName: d.billName,
+            message: d.message,
+            proposedCorrection: d.proposedCorrection || null,
+            status: normalizeDisputeStatus(d.status),
+            resolutionNote: d.resolutionNote || null,
+            createdAt: d.createdAt ? (d.createdAt.toDate ? d.createdAt.toDate().toISOString() : new Date(d.createdAt).toISOString()) : null,
+            resolvedAt: d.resolvedAt ? (d.resolvedAt.toDate ? d.resolvedAt.toDate().toISOString() : new Date(d.resolvedAt).toISOString()) : null,
+            rejectedAt: d.rejectedAt ? (d.rejectedAt.toDate ? d.rejectedAt.toDate().toISOString() : new Date(d.rejectedAt).toISOString()) : null,
+            evidence: (d.evidence || []).map((ev, idx) => ({
+                index: idx,
+                name: ev.name,
+                contentType: ev.contentType,
+                size: ev.size,
+            })),
+            userReview: d.userReview || null,
+        }));
+}
+
 async function loadQrCodesFromFirestore() {
     if (!currentUser || !db || !settings.paymentMethods) return;
     const methodsWithQr = settings.paymentMethods.filter(m => m.hasQrCode && !m.qrCode);
@@ -3246,6 +3333,23 @@ async function refreshPublicShares() {
             }
         }
 
+        const hasDisputeScopes = snapshot.docs.some(d => {
+            const td = d.data();
+            return !td.revoked && (td.scopes || []).includes('disputes:read');
+        });
+        if (hasDisputeScopes && _loadedDisputes.length === 0) {
+            try {
+                const dSnap = await db.collection('users').doc(currentUser.uid)
+                    .collection('billingYears').doc(currentBillingYear.id)
+                    .collection('disputes').get();
+                dSnap.docs.forEach(d => {
+                    const dd = d.data();
+                    dd.status = normalizeDisputeStatus(dd.status);
+                    _loadedDisputes.push({ id: d.id, ...dd });
+                });
+            } catch (_) {}
+        }
+
         const now = new Date();
         for (const doc of snapshot.docs) {
             const tokenData = doc.data();
@@ -3257,8 +3361,10 @@ async function refreshPublicShares() {
                 batch.delete(db.collection('publicShares').doc(doc.id));
                 opCount++;
             } else {
-                const shareData = buildPublicShareData(tokenData.memberId, tokenData.scopes || ['summary:read', 'paymentMethods:read']);
+                const scopes = tokenData.scopes || ['summary:read', 'paymentMethods:read'];
+                const shareData = buildPublicShareData(tokenData.memberId, scopes);
                 if (shareData) {
+                    shareData.disputes = buildDisputesForShare(tokenData.memberId, scopes);
                     batch.set(db.collection('publicShares').doc(doc.id), shareData);
                     opCount++;
                 }
@@ -4940,6 +5046,9 @@ export {
     updateDispute,
     showDisputeDetail,
     doDisputeAction,
+    emailDisputeResolution,
+    textDisputeResolution,
+    copyDisputeResolution,
     toggleUserReview,
     scrollToBill,
     scrollToMember,
