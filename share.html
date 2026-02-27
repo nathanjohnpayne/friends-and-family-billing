@@ -972,10 +972,17 @@
                     html += '<div class="sd-evidence-list">';
                     d.evidence.forEach(function(ev) {
                         var icon = ev.contentType && ev.contentType.startsWith('image/') ? '&#128247;' : '&#128196;';
-                        html += '<div class="sd-evidence-item">'
-                            + '<span>' + icon + '</span>'
-                            + '<a href="#" data-action="fetch-evidence" data-dispute-id="' + escapeHtml(d.id) + '" data-evidence-index="' + ev.index + '">' + escapeHtml(ev.name) + '</a>'
-                            + '</div>';
+                        if (ev.downloadUrl) {
+                            html += '<div class="sd-evidence-item">'
+                                + '<span>' + icon + '</span>'
+                                + '<a href="' + escapeHtml(ev.downloadUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(ev.name) + '</a>'
+                                + '</div>';
+                        } else {
+                            html += '<div class="sd-evidence-item">'
+                                + '<span>' + icon + '</span>'
+                                + '<a href="#" data-action="fetch-evidence" data-dispute-id="' + escapeHtml(d.id) + '" data-evidence-index="' + ev.index + '">' + escapeHtml(ev.name) + '</a>'
+                                + '</div>';
+                        }
                     });
                     html += '</div>';
                 }

@@ -3052,6 +3052,24 @@ const EVIDENCE_MAX_SIZE = 20 * 1024 * 1024;
 const EVIDENCE_MAX_COUNT = 10;
 const EVIDENCE_ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
 
+async function backfillEvidenceUrls() {
+    const toFix = [];
+    _loadedDisputes.forEach(d => {
+        (d.evidence || []).forEach(ev => {
+            if (ev.storagePath && !ev.downloadUrl) {
+                toFix.push({ dispute: d, ev: ev });
+            }
+        });
+    });
+    if (toFix.length === 0) return;
+    await Promise.all(toFix.map(async ({ dispute, ev }) => {
+        try {
+            ev.downloadUrl = await storage.ref(ev.storagePath).getDownloadURL();
+            await getDisputeRef(dispute.id).update({ evidence: dispute.evidence });
+        } catch (_) {}
+    }));
+}
+
 function uploadEvidence(disputeId) {
     if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     if (!storage) { alert('Storage is not available.'); return; }
@@ -3104,12 +3122,16 @@ function uploadEvidence(disputeId) {
             async () => {
                 if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
 
+                let downloadUrl = '';
+                try { downloadUrl = await ref.getDownloadURL(); } catch (_) {}
+
                 const evidenceEntry = {
                     name: file.name,
                     storagePath: storagePath,
                     contentType: file.type,
                     size: file.size,
-                    uploadedAt: new Date().toISOString()
+                    uploadedAt: new Date().toISOString(),
+                    downloadUrl: downloadUrl
                 };
 
                 try {
@@ -3327,6 +3349,7 @@ function buildDisputesForShare(memberId, scopes) {
                 name: ev.name,
                 contentType: ev.contentType,
                 size: ev.size,
+                downloadUrl: ev.downloadUrl || null,
             })),
             userReview: d.userReview || null,
         }));
@@ -3405,6 +3428,9 @@ async function refreshPublicShares() {
                     _loadedDisputes.push({ id: d.id, ...dd });
                 });
             } catch (_) {}
+        }
+        if (hasDisputeScopes && storage) {
+            await backfillEvidenceUrls();
         }
 
         const now = new Date();
