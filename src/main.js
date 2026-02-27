@@ -264,6 +264,18 @@ function saveData() {
         try {
             const yearDocRef = db.collection('users').doc(currentUser.uid)
                 .collection('billingYears').doc(currentBillingYear.id);
+            const settingsForSave = Object.assign({}, settings);
+            if (settingsForSave.paymentMethods) {
+                settingsForSave.paymentMethods = settingsForSave.paymentMethods.map(m => {
+                    if (m.qrCode) {
+                        const copy = Object.assign({}, m);
+                        copy.hasQrCode = true;
+                        delete copy.qrCode;
+                        return copy;
+                    }
+                    return m;
+                });
+            }
             await yearDocRef.set({
                 label: currentBillingYear.label,
                 status: currentBillingYear.status,
@@ -273,7 +285,7 @@ function saveData() {
                 bills: bills,
                 payments: payments,
                 billingEvents: billingEvents,
-                settings: settings,
+                settings: settingsForSave,
                 updatedAt: FieldValue.serverTimestamp()
             });
             console.log('Data saved successfully');
@@ -466,6 +478,8 @@ async function loadBillingYearData(yearId) {
                 settings.paymentMethods = migratePaymentLinksToMethods(settings.paymentLinks);
             }
         }
+
+        await loadQrCodesFromFirestore();
 
         if (!isYearReadOnly() && familyMembers.length > 0) {
             repairDuplicateIds();
@@ -2420,6 +2434,16 @@ function uploadPaymentMethodQr(methodId) {
     if (!method) return;
     uploadQrCode((base64) => {
         method.qrCode = base64;
+        method.hasQrCode = true;
+        if (currentUser && db) {
+            const docId = currentUser.uid + '_' + methodId;
+            db.collection('publicQrCodes').doc(docId).set({
+                ownerId: currentUser.uid,
+                methodId: methodId,
+                qrCode: base64,
+                updatedAt: FieldValue.serverTimestamp()
+            }).catch(err => console.error('Error writing QR code:', err));
+        }
         saveData();
         editPaymentMethod(methodId);
     });
@@ -2429,6 +2453,12 @@ function removePaymentMethodQr(methodId) {
     const method = (settings.paymentMethods || []).find(m => m.id === methodId);
     if (!method) return;
     method.qrCode = '';
+    method.hasQrCode = false;
+    if (currentUser && db) {
+        const docId = currentUser.uid + '_' + methodId;
+        db.collection('publicQrCodes').doc(docId).delete()
+            .catch(err => console.error('Error removing QR code:', err));
+    }
     saveData();
     editPaymentMethod(methodId);
 }
@@ -3115,9 +3145,26 @@ function buildPublicShareData(memberId, scopes) {
     return data;
 }
 
+async function loadQrCodesFromFirestore() {
+    if (!currentUser || !db || !settings.paymentMethods) return;
+    const methodsWithQr = settings.paymentMethods.filter(m => m.hasQrCode && !m.qrCode);
+    if (methodsWithQr.length === 0) return;
+    try {
+        await Promise.all(methodsWithQr.map(async (m) => {
+            const docId = currentUser.uid + '_' + m.id;
+            const doc = await db.collection('publicQrCodes').doc(docId).get();
+            if (doc.exists && doc.data().qrCode) {
+                m.qrCode = doc.data().qrCode;
+            }
+        }));
+    } catch (err) {
+        console.error('Error loading QR codes:', err);
+    }
+}
+
 async function writePublicQrCodes() {
     if (!currentUser || !db) return;
-    const methods = getEnabledPaymentMethods().filter(m => m.qrCode);
+    const methods = (settings.paymentMethods || []).filter(m => m.qrCode);
     if (methods.length === 0) return;
     try {
         const batch = db.batch();

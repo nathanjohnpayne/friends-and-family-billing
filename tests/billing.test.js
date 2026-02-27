@@ -16,6 +16,7 @@ function makeMockDoc(saved) {
     return {
         set: (...args) => { saved.push(args); return Promise.resolve(); },
         get: () => Promise.resolve({ exists: false }),
+        delete: () => Promise.resolve(),
         collection: () => ({
             doc: () => makeMockDoc(saved),
             get: () => Promise.resolve({ docs: [] }),
