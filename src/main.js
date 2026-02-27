@@ -2978,8 +2978,7 @@ async function textDisputeResolution(disputeId) {
     try {
         const shareUrl = await generateResolutionShareLink(d.memberId);
         const body = buildDisputeResolutionText(d, shareUrl);
-        const smsLink = buildSmsDeepLink(member.phone, body);
-        openSmsComposer(smsLink, body);
+        openSmsComposer(member.phone, body);
     } catch (err) {
         console.error('Error generating resolution link:', err);
         alert('Could not generate share link. Please try again.');
