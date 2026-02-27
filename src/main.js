@@ -640,7 +640,7 @@ function renderStatusBanner() {
 
     if (status === 'settling') {
         banner.className = 'archived-banner settling-banner';
-        banner.textContent = 'Invoices issued \u2014 collecting payments for ' + (currentBillingYear.label || '') + '.';
+        banner.textContent = 'Invoices issued\u2014collecting payments for ' + (currentBillingYear.label || '') + '.';
     } else if (status === 'closed') {
         banner.className = 'archived-banner closed-banner';
         banner.innerHTML = '\u2705 All balances settled for ' + escapeHtml(currentBillingYear.label || '') + '. This billing year is complete.';
@@ -775,6 +775,42 @@ function uploadImage(callback) {
                     // Use PNG format to preserve transparency (slightly larger but no black backgrounds)
                     const compressedBase64 = canvas.toDataURL('image/png');
                     callback(compressedBase64);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    input.click();
+}
+
+function uploadQrCode(callback) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png, image/jpeg, image/jpg';
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const maxDim = 600;
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > height) {
+                        if (width > maxDim) { height *= maxDim / width; width = maxDim; }
+                    } else {
+                        if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                    callback(canvas.toDataURL('image/png'));
                 };
                 img.src = event.target.result;
             };
@@ -1967,7 +2003,7 @@ function renderDashboardStatus() {
     } else if (metrics.percentage === 0) {
         settlementMessage = 'No payments received yet.';
     } else if (metrics.percentage > 50) {
-        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled. Almost done \u2014 only ' + remaining + ' remaining.';
+        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled. Almost done\u2014only ' + remaining + ' remaining.';
     } else {
         settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled.';
     }
@@ -2002,7 +2038,7 @@ function renderDashboardStatus() {
     if (contextBanner) {
         const contextMessages = {
             open: 'Review annual totals and record payments below.',
-            settling: 'Collecting payments \u2014 share billing links and track incoming payments.',
+            settling: 'Collecting payments\u2014share billing links and track incoming payments.',
             closed: 'All balances settled. This billing year is complete.',
             archived: 'Viewing archived billing year. All records are read-only.'
         };
@@ -2208,7 +2244,7 @@ function renderPaymentMethodsSettings() {
                 <div class="payment-method-header">
                     <span class="payment-method-icon">${getPaymentMethodIcon(method.type)}</span>
                     <div class="payment-method-info">
-                        <strong>${escapeHtml(method.label || typeInfo.label)}</strong>
+                        <strong>${escapeHtml(method.label || typeInfo.label)}</strong>${method.qrCode ? '<span class="pm-qr-badge" title="QR code uploaded">QR</span>' : ''}
                         ${detail ? `<span class="payment-method-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>` : ''}
                     </div>
                     <div class="payment-method-actions">
@@ -2275,7 +2311,8 @@ function addPaymentMethod() {
         phone: '',
         handle: '',
         url: '',
-        instructions: ''
+        instructions: '',
+        qrCode: ''
     };
 
     settings.paymentMethods.push(newMethod);
@@ -2328,6 +2365,18 @@ function editPaymentMethod(methodId) {
         </div>`;
     }
 
+    let qrHtml = '<div class="form-group"><label>QR Code (optional)</label><div id="pmQrCodeSection">';
+    if (method.qrCode) {
+        qrHtml += `<div class="pm-qr-preview"><img src="${sanitizeImageSrc(method.qrCode)}" alt="QR Code" style="max-width:150px;max-height:150px;border:1px solid #ddd;border-radius:6px;" /></div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn btn-secondary btn-sm" type="button" onclick="uploadPaymentMethodQr('${escapeHtml(methodId)}')">Replace</button>
+                <button class="btn btn-sm btn-pm-remove" type="button" onclick="removePaymentMethodQr('${escapeHtml(methodId)}')">Remove</button>
+            </div>`;
+    } else {
+        qrHtml += `<button class="btn btn-secondary btn-sm" type="button" onclick="uploadPaymentMethodQr('${escapeHtml(methodId)}')">Upload QR Code</button>`;
+    }
+    qrHtml += '</div></div>';
+
     dialog.innerHTML = `
         <div class="dialog-header">
             <h3>Edit ${escapeHtml(typeInfo.label)} Payment Method</h3>
@@ -2339,6 +2388,7 @@ function editPaymentMethod(methodId) {
                 <input type="text" id="pmEditLabel" value="${escapeHtml(method.label || '')}" placeholder="${escapeHtml(typeInfo.label)}" />
             </div>
             ${fieldsHTML}
+            ${qrHtml}
         </div>
         <div class="dialog-footer">
             <button class="btn btn-tertiary" onclick="closePaymentDialog()">Cancel</button>
@@ -2347,6 +2397,24 @@ function editPaymentMethod(methodId) {
     `;
 
     overlay.classList.add('visible');
+}
+
+function uploadPaymentMethodQr(methodId) {
+    const method = (settings.paymentMethods || []).find(m => m.id === methodId);
+    if (!method) return;
+    uploadQrCode((base64) => {
+        method.qrCode = base64;
+        saveData();
+        editPaymentMethod(methodId);
+    });
+}
+
+function removePaymentMethodQr(methodId) {
+    const method = (settings.paymentMethods || []).find(m => m.id === methodId);
+    if (!method) return;
+    method.qrCode = '';
+    saveData();
+    editPaymentMethod(methodId);
 }
 
 function savePaymentMethodEdit(methodId) {
@@ -3445,7 +3513,7 @@ function getInvoiceSummaryContext(memberId) {
 }
 
 function buildInvoiceSubject(year, member) {
-    return 'Annual Billing Summary ' + year + ' \u2014 ' + member.name;
+    return 'Annual Billing Summary ' + year + '\u2014' + member.name;
 }
 
 function buildInvoiceBody(ctx, variant, shareUrl, channel) {
@@ -3454,7 +3522,7 @@ function buildInvoiceBody(ctx, variant, shareUrl, channel) {
 
     if (variant === 'text-only') {
         const greeting = isEmail ? 'Hello' : 'Hey';
-        return greeting + ' ' + firstName + ' \u2014 your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
+        return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
     }
 
     if (variant === 'full') {
@@ -3463,11 +3531,10 @@ function buildInvoiceBody(ctx, variant, shareUrl, channel) {
 
     // Default: text-link
     const greeting = isEmail ? 'Hello' : 'Hey';
-    let msg = greeting + ' ' + firstName + ' \u2014 your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.';
+    let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!';
     if (shareUrl) {
-        msg += '\n\nView & pay here: ' + shareUrl;
+        msg += '\n\n' + shareUrl;
     }
-    msg += '\n\nThanks!';
     return msg;
 }
 
@@ -3583,7 +3650,7 @@ function openSmsComposer(phone, body) {
         window.location.href = link;
     } else {
         navigator.clipboard.writeText(body).then(function() {
-            showChangeToast('Message copied \u2014 paste into your messaging app');
+            showChangeToast('Message copied\u2014paste into your messaging app');
         });
     }
 }
@@ -4629,6 +4696,7 @@ export {
     generateAvatar,
     generateLogo,
     uploadImage,
+    uploadQrCode,
     generateUniqueId,
     generateUniqueBillId,
     getPaymentMethodLabel,
@@ -4713,6 +4781,8 @@ export {
     getPaymentMethodDetail,
     addPaymentMethod,
     editPaymentMethod,
+    uploadPaymentMethodQr,
+    removePaymentMethodQr,
     savePaymentMethodEdit,
     togglePaymentMethodEnabled,
     removePaymentMethod,

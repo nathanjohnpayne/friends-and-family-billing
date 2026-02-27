@@ -248,6 +248,80 @@
             background: #edf2f7;
         }
 
+        .pm-qr-btn {
+            display: block;
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px;
+            background: #6E78D6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .pm-qr-btn:hover {
+            background: #5F6BC2;
+        }
+
+        .qr-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 20px;
+        }
+
+        .qr-modal {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .qr-modal h3 {
+            margin: 0 0 16px;
+            font-size: 1.2rem;
+            color: #1F2430;
+        }
+
+        .qr-modal img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .qr-modal-close {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 10px 32px;
+            background: #6E78D6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .qr-modal-close:hover {
+            background: #5F6BC2;
+        }
+
         .pm-contact-chip {
             display: inline-flex;
             align-items: center;
@@ -1202,6 +1276,10 @@
                             html += '<p class="pm-instructions">' + escapeHtml(pm.instructions) + '</p>';
                         }
 
+                        if (pm.qrCode) {
+                            html += '<button class="pm-qr-btn" data-action="show-qr" data-qr-src="' + escapeHtml(pm.qrCode) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
+                        }
+
                         card.innerHTML = html;
                         linksGrid.appendChild(card);
                     });
@@ -1263,8 +1341,32 @@
             } else if (action === 'reject-decision') {
                 e.preventDefault();
                 promptRejectDecision(target.getAttribute('data-dispute-id'));
+            } else if (action === 'show-qr') {
+                e.preventDefault();
+                showQrModal(target.getAttribute('data-qr-src'), target.getAttribute('data-qr-label'));
+            } else if (action === 'close-qr') {
+                e.preventDefault();
+                closeQrModal();
             }
         });
+
+        function showQrModal(src, label) {
+            var existing = document.getElementById('qrModalOverlay');
+            if (existing) existing.remove();
+            var overlay = document.createElement('div');
+            overlay.id = 'qrModalOverlay';
+            overlay.className = 'qr-modal-overlay';
+            overlay.innerHTML = '<div class="qr-modal"><h3>' + escapeHtml(label) + '</h3><img src="' + escapeHtml(src) + '" alt="QR Code for ' + escapeHtml(label) + '" /><br><button class="qr-modal-close" data-action="close-qr">Close</button></div>';
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeQrModal();
+            });
+            document.body.appendChild(overlay);
+        }
+
+        function closeQrModal() {
+            var overlay = document.getElementById('qrModalOverlay');
+            if (overlay) overlay.remove();
+        }
 
         load();
     </script>

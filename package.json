@@ -3,7 +3,10 @@
   "scripts": {
     "build": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
     "build:watch": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap --watch",
-    "test": "npm run build && node --test 'tests/**/*.test.js'"
+    "test": "npm run build && node --test 'tests/**/*.test.js'",
+    "deploy": "firebase deploy --only hosting,firestore:rules,storage",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:all": "firebase deploy --only hosting,firestore:rules,storage,functions"
   },
   "dependencies": {
     "puppeteer": "^24.37.5"

@@ -137,6 +137,8 @@ import {
     getPaymentMethodDetail,
     addPaymentMethod,
     editPaymentMethod,
+    uploadPaymentMethodQr,
+    removePaymentMethodQr,
     savePaymentMethodEdit,
     togglePaymentMethodEnabled,
     removePaymentMethod,
@@ -343,6 +345,8 @@ window.renderPaymentMethodsSettings = renderPaymentMethodsSettings;
 window.getPaymentMethodDetail = getPaymentMethodDetail;
 window.addPaymentMethod = addPaymentMethod;
 window.editPaymentMethod = editPaymentMethod;
+window.uploadPaymentMethodQr = uploadPaymentMethodQr;
+window.removePaymentMethodQr = removePaymentMethodQr;
 window.savePaymentMethodEdit = savePaymentMethodEdit;
 window.togglePaymentMethodEnabled = togglePaymentMethodEnabled;
 window.removePaymentMethod = removePaymentMethod;

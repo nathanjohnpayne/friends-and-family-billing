@@ -1476,6 +1476,51 @@ describe('payment methods settings', () => {
         assert.equal(enabled.length, 0);
     });
 
+    it('getEnabledPaymentMethods includes qrCode field', () => {
+        const ctx = createContext();
+        ctx._set('settings', {
+            emailMessage: 'test',
+            paymentLinks: [],
+            paymentMethods: [
+                { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, qrCode: 'data:image/png;base64,abc123' },
+                { id: 'pm_2', type: 'zelle', label: 'Zelle', enabled: true, qrCode: '' },
+            ]
+        });
+
+        const enabled = ctx.getEnabledPaymentMethods();
+        assert.equal(enabled.length, 2);
+        assert.equal(enabled[0].qrCode, 'data:image/png;base64,abc123');
+        assert.equal(enabled[1].qrCode, '');
+    });
+
+    it('addPaymentMethod initializes qrCode as empty string', () => {
+        const ctx = createContext();
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [] });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        ctx.addPaymentMethod();
+        const methods = ctx._get('settings').paymentMethods;
+        assert.equal(methods.length, 1);
+        assert.equal(methods[0].qrCode, '');
+    });
+
+    it('uploadPaymentMethodQr sets qrCode on method', () => {
+        const ctx = createContext();
+        const method = { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, qrCode: '' };
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [method] });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        method.qrCode = 'data:image/png;base64,newqr';
+        assert.equal(ctx._get('settings').paymentMethods[0].qrCode, 'data:image/png;base64,newqr');
+    });
+
+    it('removePaymentMethodQr clears qrCode on method', () => {
+        const ctx = createContext();
+        const method = { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, qrCode: 'data:image/png;base64,existing' };
+        ctx._set('settings', { emailMessage: 'test', paymentLinks: [], paymentMethods: [method] });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open' });
+        ctx.removePaymentMethodQr('pm_1');
+        assert.equal(ctx._get('settings').paymentMethods[0].qrCode, '');
+    });
+
     it('migratePaymentLinksToMethods infers type from name', () => {
         const ctx = createContext();
         const legacy = [

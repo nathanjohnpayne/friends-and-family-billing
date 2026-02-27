@@ -1325,6 +1325,19 @@ textarea:focus {
     max-width: 260px;
 }
 
+.pm-qr-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    margin-left: 6px;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
+
 .payment-method-actions {
     display: flex;
     align-items: center;
