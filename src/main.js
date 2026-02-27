@@ -807,9 +807,25 @@ function uploadQrCode(callback) {
                     }
                     canvas.width = width;
                     canvas.height = height;
+                    ctx.imageSmoothingEnabled = false;
                     ctx.fillStyle = '#FFFFFF';
                     ctx.fillRect(0, 0, width, height);
                     ctx.drawImage(img, 0, 0, width, height);
+                    const imageData = ctx.getImageData(0, 0, width, height);
+                    const px = imageData.data;
+                    for (let i = 0; i < px.length; i += 4) {
+                        const avg = (px[i] + px[i + 1] + px[i + 2]) / 3;
+                        if (avg > 210) {
+                            px[i] = px[i + 1] = px[i + 2] = 255;
+                        } else if (avg < 45) {
+                            px[i] = px[i + 1] = px[i + 2] = 0;
+                        } else {
+                            px[i] = Math.round(px[i] / 51) * 51;
+                            px[i + 1] = Math.round(px[i + 1] / 51) * 51;
+                            px[i + 2] = Math.round(px[i + 2] / 51) * 51;
+                        }
+                    }
+                    ctx.putImageData(imageData, 0, 0);
                     callback(canvas.toDataURL('image/png'));
                 };
                 img.src = event.target.result;
