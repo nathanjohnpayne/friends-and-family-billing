@@ -2274,7 +2274,7 @@ function renderPaymentMethodsSettings() {
                 <div class="payment-method-header">
                     <span class="payment-method-icon">${getPaymentMethodIcon(method.type)}</span>
                     <div class="payment-method-info">
-                        <strong>${escapeHtml(method.label || typeInfo.label)}</strong>${method.qrCode ? '<span class="pm-qr-badge" title="QR code uploaded">QR</span>' : ''}
+                        <strong>${escapeHtml(method.label || typeInfo.label)}</strong>${method.qrCode ? '<span class="pm-qr-badge" title="QR code uploaded"><img src="qr-code.svg" alt="QR" class="pm-qr-icon" /></span>' : ''}
                         ${detail ? `<span class="payment-method-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>` : ''}
                     </div>
                     <div class="payment-method-actions">
