@@ -642,18 +642,23 @@ firebase serve
 
 ### Deployment
 
+All deploys use `op-firebase-deploy` (global script on PATH) for non-interactive 1Password auth. No `firebase login` or browser prompts needed.
+
 ```bash
-# Full deployment (hosting + Firestore rules + Storage rules + functions)
-firebase deploy
+npm run deploy              # hosting + Firestore rules + Storage rules
+npm run deploy:functions    # Cloud Functions only
+npm run deploy:all          # everything
+op-firebase-deploy --only firestore:rules   # any target combo
+```
 
-# Hosting only (runs stamp-version.js predeploy hook automatically)
-firebase deploy --only hosting
+The script reads ADC credentials from 1Password (`Private/GCP ADC`), auto-detects the project from `.firebaserc`, and cleans up credentials on exit.
 
-# Firestore rules only
-firebase deploy --only firestore:rules
+**Token renewal:** The ADC refresh token has no fixed expiry but is revoked on Google password change, explicit revocation, or 6 months of inactivity. If deploys fail with `invalid_grant`, renew:
 
-# Cloud Functions only (may show IAM errors due to org policy — functions still deploy)
-firebase deploy --only functions
+```bash
+gcloud auth application-default login --project=friends-and-family-billing
+op item edit "GCP ADC" --vault Private \
+  "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"
 ```
 
 ### Firebase Hosting Configuration
