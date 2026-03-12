@@ -1,14 +1,14 @@
-# Family Bill Splitter - AI Agent Instructions
+# AGENTS.md — Friends & Family Billing
 
-## Project Overview
+## 1. Repository Overview
 
+### Project Overview
 Family Bill Splitter is a cloud-based web application for coordinating and settling annual shared bills among friends and family. It features multi-user authentication, flexible bill splitting, parent-child account linking, a billing year lifecycle (open/settling/closed/archived), payment tracking with settlement progress, share links for member billing summaries, dispute resolution, calculation transparency, and email invoicing.
 
 **Live URL:** https://friends-and-family-billing.web.app
 **Firebase Project ID:** `friends-and-family-billing`
 
-## Tech Stack
-
+### Tech Stack
 - **Frontend:** HTML5, CSS3, Vanilla JavaScript (esbuild bundler, no frameworks)
 - **Backend/Infrastructure:** Firebase
   - Firebase Authentication (Email/Password + Google Sign-In)
@@ -21,8 +21,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 - **Build:** esbuild (IIFE bundle from `src/` → `script.js`)
 - **Dependencies:** Firebase SDK v10.7.1 loaded via CDN (compat libraries); esbuild (dev)
 
-## Project Structure
-
+### Project Structure
 ```
 .
 ├── src/                       # Application source (ES modules, bundled by esbuild)
@@ -38,6 +37,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── check_data.html            # Firebase data verification/debugging tool
 ├── auth.js                    # Authentication handling (~170 lines)
 ├── firebase-config.js         # Firebase init, assigns auth/db/storage/analytics to window.*
+├── firebase-config.local.js   # Real Firebase web config (gitignored locally, deployed with Hosting)
 ├── design-tokens.css          # Design system tokens (colors, spacing, typography)
 ├── styles.css                 # Application styles (~2,470 lines, consumes design-tokens.css)
 ├── version.json               # App version for update checking (stamped on deploy)
@@ -54,30 +54,46 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   └── package.json           # Cloud Functions dependencies
 ├── tests/
 │   └── billing.test.js        # Automated tests (~3,690 lines, Node built-in test runner)
-├── enhancements/              # Engineering epics, tickets, and bug reports (markdown)
-├── .gitignore                 # Git ignore rules
-├── .gitattributes             # Git line-ending normalization
-├── AGENTS.md                  # AI agent instructions (this file)
+├── specs/                     # Feature specifications and acceptance criteria
+├── scripts/
+│   ├── check-no-public-secrets.mjs  # Secret scanning (runs as part of npm test)
+│   └── ci/                    # CI enforcement scripts
+├── rules/                     # Repository-level binding constraints
+├── plans/                     # Feature rollout and migration plans
+├── docs/                      # Extended documentation
+├── AGENTS.md                  # This file
 ├── README.md                  # User-facing project documentation
 ├── DEPLOYMENT.md              # Step-by-step Firebase deployment guide
+├── CONTRIBUTING.md            # Contribution guidelines
+├── .ai_context.md             # Supplemental AI agent context
 ├── QUICKSTART.md              # 10-minute setup guide
 └── FIREBASE_IMPLEMENTATION.md # Firebase migration reference
 ```
 
-## Architecture
+### Application Pages
 
-### Authentication Flow
+| Page | Auth Required | Purpose |
+|------|:------------:|---------|
+| `index.html` | Yes | Main app with all bill-splitting functionality |
+| `login.html` | No | Email/Password and Google Sign-In authentication |
+| `share.html` | No | Public billing summary via Firestore `publicShares` collection |
+| `check_data.html` | Yes | Debug tool to inspect raw Firestore data |
 
-1. User visits `index.html` -> `auth.onAuthStateChanged()` checks login state
-2. If unauthenticated -> redirect to `login.html`
+---
+
+## 2. Agent Operating Rules
+
+### Architecture
+
+#### Authentication Flow
+1. User visits `index.html` → `auth.onAuthStateChanged()` checks login state
+2. If unauthenticated → redirect to `login.html`
 3. User logs in via Email/Password or Google Sign-In
-4. On success -> redirect to `index.html`, load user data from Firestore
+4. On success → redirect to `index.html`, load user data from Firestore
 5. All data operations scoped to `/users/{userId}/billingYears/{yearId}`
 
-### Data Architecture
-
+#### Data Architecture
 **Firestore document structure:**
-
 ```
 /users/{userId}
   ├── activeBillingYear: string (e.g. "2026")
@@ -208,7 +224,6 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 **Storage path:** `users/{userId}/disputes/{disputeId}/{timestamp}_{filename}`
 
 **Security rules:**
-
 ```javascript
 // Owner-only access for user data
 match /users/{userId} {
@@ -231,39 +246,21 @@ match /publicShares/{tokenHash} {
 }
 ```
 
-### Application Pages
-
-| Page | Auth Required | Purpose |
-|------|:------------:|---------|
-| `index.html` | Yes | Main app with all bill-splitting functionality |
-| `login.html` | No | Email/Password and Google Sign-In authentication |
-| `share.html` | No | Public billing summary via Firestore `publicShares` collection |
-| `check_data.html` | Yes | Debug tool to inspect raw Firestore data |
-
-### Firebase SDK Loading Order
-
+#### Firebase SDK Loading Order
 Scripts must load in this exact order (all pages):
 
-1. `firebase-app-compat.js` - Core Firebase
-2. `firebase-auth-compat.js` - Authentication (index.html, login.html, check_data.html)
-3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html, share.html)
-4. `firebase-storage-compat.js` - Storage (index.html only)
-5. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
-6. `firebase-config.local.js` - Real Firebase web config (gitignored locally, deployed with Hosting)
-7. `firebase-config.js` - Initializes Firebase from the local config, assigns `auth`, `db`, `storage`, `analytics` to `window.*` (`null` for SDKs not loaded on the current page)
-8. `script.js` (esbuild IIFE bundle from `src/`) or `auth.js` - Application logic
+1. `firebase-app-compat.js` — Core Firebase
+2. `firebase-auth-compat.js` — Authentication (index.html, login.html, check_data.html)
+3. `firebase-firestore-compat.js` — Firestore (index.html, check_data.html, share.html)
+4. `firebase-storage-compat.js` — Storage (index.html only)
+5. `firebase-analytics-compat.js` — Analytics (index.html, login.html only)
+6. `firebase-config.local.js` — Real Firebase web config (gitignored locally, deployed with Hosting)
+7. `firebase-config.js` — Initializes Firebase from the local config, assigns `auth`, `db`, `storage`, `analytics` to `window.*` (`null` for SDKs not loaded on the current page)
+8. `script.js` (esbuild IIFE bundle from `src/`) or `auth.js` — Application logic
 
 Do not reintroduce `__/firebase/init.js`. Production config is owned by `firebase-config.local.js`, and stale Hosting init output can keep deleted keys alive.
 
-### Credential Hygiene And Rotation
-
-- Real Firebase web config belongs in `firebase-config.local.js`. `firebase-config.js` must keep placeholders only.
-- Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
-- If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
-- If deploy auth in `Private/GCP ADC` is exposed, renew the ADC credential, overwrite the 1Password item, and revoke the old credential.
-
-## Build System
-
+### Build System
 The application source lives in `src/` as ES modules bundled by **esbuild** into a single IIFE (`script.js`):
 
 ```bash
@@ -290,223 +287,221 @@ export const FieldValue = window.firebase.firestore.FieldValue;
 
 **Inline handler compatibility:** During the modularization transition, all functions called by inline `onclick` handlers are assigned to `window.*` in `src/index.js`. When adding a new function that needs to be callable from HTML, add the export in both `src/main.js` (barrel export) and `src/index.js` (`window.*` assignment).
 
-## Key Functions (src/main.js)
+### Key Functions (src/main.js)
 
-### Data Persistence
-- `loadData()` - Fetches user data from Firestore billing year document, initializes defaults for missing fields
-- `saveData()` - Persists `familyMembers`, `bills`, `payments`, `billingEvents`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived). Also calls `refreshPublicShares()`.
-- `logout()` - Signs out the current user and redirects to login page
+#### Data Persistence
+- `loadData()` — Fetches user data from Firestore billing year document, initializes defaults for missing fields
+- `saveData()` — Persists `familyMembers`, `bills`, `payments`, `billingEvents`, `settings` to the active billing year document with timestamp. Blocked when year is read-only (closed/archived). Also calls `refreshPublicShares()`.
+- `logout()` — Signs out the current user and redirects to login page
 
-### Version Checking
-- `checkForUpdate()` - Fetches `version.json` and compares against the running version to detect new deployments
-- `showUpdateToast()` - Displays an "Update available" toast notification with reload action
-- `dismissUpdateToast()` - Dismisses the update toast
-- `startUpdateChecker()` - Starts periodic update checking (every 5 minutes)
+#### Version Checking
+- `checkForUpdate()` — Fetches `version.json` and compares against the running version to detect new deployments
+- `showUpdateToast()` — Displays an "Update available" toast notification with reload action
+- `dismissUpdateToast()` — Dismisses the update toast
+- `startUpdateChecker()` — Starts periodic update checking (every 5 minutes)
 
-### Billing Year Lifecycle
-- `BILLING_YEAR_STATUSES` - Constant defining the four lifecycle states with labels, colors, and sort order
-- `isArchivedYear()` - Returns true when current billing year status is `archived`
-- `isClosedYear()` - Returns true when current billing year status is `closed`
-- `isSettlingYear()` - Returns true when current billing year status is `settling`
-- `isYearReadOnly()` - Returns true when year is `closed` or `archived` (mutations blocked)
-- `yearReadOnlyMessage()` - Returns user-facing message explaining why edits are blocked
-- `getBillingYearStatusLabel(status)` - Returns display label for a lifecycle status
-- `setBillingYearStatus(newStatus)` - Writes new status to the billing year document
-- `renderBillingYearSelector()` - Renders year dropdown with status badges and lifecycle transition buttons
-- `renderStatusBanner()` - Displays status-specific banner (settling, closed with completion message, archived with integrity message)
-- `renderArchivedBanner()` - Renders the archived year read-only banner
-- `loadBillingYearsList()` - Loads all billing year documents for the current user
-- `loadBillingYearData(yearId)` - Loads a specific billing year's data from Firestore
-- `switchBillingYear(yearId)` - Switches the active billing year in the UI
-- `startNewYear()` - Clones members and bills into a new billing year with fresh payment state
-- `archiveCurrentYear()` - Sets year status to `archived` with confirmation
-- `closeCurrentYear()` - Sets year status to `closed` with outstanding balance warning
-- `migrateLegacyData(userDocRef, userData)` - Migrates flat user document data into year-scoped subcollections
+#### Billing Year Lifecycle
+- `BILLING_YEAR_STATUSES` — Constant defining the four lifecycle states with labels, colors, and sort order
+- `isArchivedYear()` — Returns true when current billing year status is `archived`
+- `isClosedYear()` — Returns true when current billing year status is `closed`
+- `isSettlingYear()` — Returns true when current billing year status is `settling`
+- `isYearReadOnly()` — Returns true when year is `closed` or `archived` (mutations blocked)
+- `yearReadOnlyMessage()` — Returns user-facing message explaining why edits are blocked
+- `getBillingYearStatusLabel(status)` — Returns display label for a lifecycle status
+- `setBillingYearStatus(newStatus)` — Writes new status to the billing year document
+- `renderBillingYearSelector()` — Renders year dropdown with status badges and lifecycle transition buttons
+- `renderStatusBanner()` — Displays status-specific banner (settling, closed with completion message, archived with integrity message)
+- `renderArchivedBanner()` — Renders the archived year read-only banner
+- `loadBillingYearsList()` — Loads all billing year documents for the current user
+- `loadBillingYearData(yearId)` — Loads a specific billing year's data from Firestore
+- `switchBillingYear(yearId)` — Switches the active billing year in the UI
+- `startNewYear()` — Clones members and bills into a new billing year with fresh payment state
+- `archiveCurrentYear()` — Sets year status to `archived` with confirmation
+- `closeCurrentYear()` — Sets year status to `closed` with outstanding balance warning
+- `migrateLegacyData(userDocRef, userData)` — Migrates flat user document data into year-scoped subcollections
 
-### Family Member Management
-- `addFamilyMember()` - Creates member with unique ID, optional email and phone. Shows change toast on success.
-- `editFamilyMember(id)` / `editMemberEmail(id)` / `editMemberPhone(id)` - Inline editing via prompt
-- `removeFamilyMember(id)` - Deletes member, cleans up bill references, shows change toast
-- `uploadAvatar(id)` / `removeAvatar(id)` - Image upload with 200x200px PNG compression
-- `manageLinkMembers(parentId)` - Opens dialog to link child members to a parent
-- `isLinkedToAnyone(memberId)` - Checks if a member is linked as a child to any parent
-- `getParentMember(memberId)` - Returns the parent member for a linked child
+#### Family Member Management
+- `addFamilyMember()` — Creates member with unique ID, optional email and phone. Shows change toast on success.
+- `editFamilyMember(id)` / `editMemberEmail(id)` / `editMemberPhone(id)` — Inline editing via prompt
+- `removeFamilyMember(id)` — Deletes member, cleans up bill references, shows change toast
+- `uploadAvatar(id)` / `removeAvatar(id)` — Image upload with 200x200px PNG compression
+- `manageLinkMembers(parentId)` — Opens dialog to link child members to a parent
+- `isLinkedToAnyone(memberId)` — Checks if a member is linked as a child to any parent
+- `getParentMember(memberId)` — Returns the parent member for a linked child
 
-### Billing Frequency Helpers
-- `getBillAnnualAmount(bill)` - Returns canonical annual amount (amount for annual bills, amount*12 for monthly)
-- `getBillMonthlyAmount(bill)` - Returns derived monthly amount (amount/12 for annual bills, amount for monthly)
-- `getBillFrequencyLabel(bill)` - Returns display suffix: ` / year` or ` / month`
-- `setAddBillFrequency(frequency)` / `getAddBillFrequency()` - Manage the Add Bill form frequency toggle state and update the amount label dynamically
-- `updateBillAmountPreview()` - Live derived amount preview beneath the bill amount input (shows annual↔monthly equivalent)
-- `toggleBillFrequency(id)` - Switches a bill between monthly and annual, converting the canonical amount
+#### Billing Frequency Helpers
+- `getBillAnnualAmount(bill)` — Returns canonical annual amount (amount for annual bills, amount×12 for monthly)
+- `getBillMonthlyAmount(bill)` — Returns derived monthly amount (amount/12 for annual bills, amount for monthly)
+- `getBillFrequencyLabel(bill)` — Returns display suffix: ` / year` or ` / month`
+- `setAddBillFrequency(frequency)` / `getAddBillFrequency()` — Manage the Add Bill form frequency toggle state and update the amount label dynamically
+- `updateBillAmountPreview()` — Live derived amount preview beneath the bill amount input (shows annual↔monthly equivalent)
+- `toggleBillFrequency(id)` — Switches a bill between monthly and annual, converting the canonical amount
 
-### Bill Management
-- `addBill()` - Creates bill with unique ID, amount, billing frequency, optional website. Emits `BILL_CREATED` event.
-- `editBillName(id)` / `editBillAmount(id)` / `editBillWebsite(id)` - Inline editing. Emits `BILL_UPDATED` events with before/after values.
-- `removeBill(id)` - Deletes bill, emits `BILL_DELETED` event with snapshot
-- `uploadLogo(id)` / `removeLogo(id)` - Logo upload with compression
-- `toggleMember(billId, memberId)` - Toggles member participation in a bill, emits `MEMBER_ADDED_TO_BILL` or `MEMBER_REMOVED_FROM_BILL` event
-- `showBillAuditHistory(billId)` - Opens dialog showing the complete event timeline for a bill
+#### Bill Management
+- `addBill()` — Creates bill with unique ID, amount, billing frequency, optional website. Emits `BILL_CREATED` event.
+- `editBillName(id)` / `editBillAmount(id)` / `editBillWebsite(id)` — Inline editing. Emits `BILL_UPDATED` events with before/after values.
+- `removeBill(id)` — Deletes bill, emits `BILL_DELETED` event with snapshot
+- `uploadLogo(id)` / `removeLogo(id)` — Logo upload with compression
+- `toggleMember(billId, memberId)` — Toggles member participation in a bill, emits `MEMBER_ADDED_TO_BILL` or `MEMBER_REMOVED_FROM_BILL` event
+- `showBillAuditHistory(billId)` — Opens dialog showing the complete event timeline for a bill
 
-### Calculations & Payments
-- `calculateAnnualSummary()` - Computes monthly/yearly totals per member using canonical amounts (`getBillAnnualAmount`). Returns `{ [memberId]: { member, total, bills: [{ bill, monthlyShare, annualShare }] } }`
-- `calculateSettlementMetrics()` - Derives settlement progress from existing data: `{ totalAnnual, totalPayments, totalOutstanding, paidCount, totalMembers, percentage }`
-- `getCalculationBreakdown(memberSummary)` - Generates expandable HTML showing per-bill formulas (frequency-aware: `$X / year ÷ N` for annual, `$X / month × 12 ÷ N` for monthly)
-- `toggleCalcBreakdown(memberId)` - Toggles visibility of a member's calculation breakdown panel
-- `getPaymentStatusBadge(total, payment)` - Returns status badge HTML: "Outstanding", "Partial", or "Settled"
-- `recordPayment(memberId, amount, method, note, distribute)` - Creates ledger entry (or distributed entries for linked members). Emits `PAYMENT_RECORDED` events.
-- `getPaymentTotalForMember(memberId)` - Derives paid-to-date total from ledger for a member (reversals have negative amounts)
-- `getMemberPayments(memberId)` - Returns sorted payment history for a member
-- `deletePaymentEntry(paymentId, memberId)` - Creates a reversal entry (negative amount) instead of deleting. Marks original as `reversed: true`. Emits `PAYMENT_REVERSED` event. Preserves full audit trail.
-- `migratePaymentReceivedToLedger()` - One-time migration of legacy `paymentReceived` values into ledger entries
+#### Calculations & Payments
+- `calculateAnnualSummary()` — Computes monthly/yearly totals per member using canonical amounts (`getBillAnnualAmount`). Returns `{ [memberId]: { member, total, bills: [{ bill, monthlyShare, annualShare }] } }`
+- `calculateSettlementMetrics()` — Derives settlement progress from existing data: `{ totalAnnual, totalPayments, totalOutstanding, paidCount, totalMembers, percentage }`
+- `getCalculationBreakdown(memberSummary)` — Generates expandable HTML showing per-bill formulas (frequency-aware: `$X / year ÷ N` for annual, `$X / month × 12 ÷ N` for monthly)
+- `toggleCalcBreakdown(memberId)` — Toggles visibility of a member's calculation breakdown panel
+- `getPaymentStatusBadge(total, payment)` — Returns status badge HTML: "Outstanding", "Partial", or "Settled"
+- `recordPayment(memberId, amount, method, note, distribute)` — Creates ledger entry (or distributed entries for linked members). Emits `PAYMENT_RECORDED` events.
+- `getPaymentTotalForMember(memberId)` — Derives paid-to-date total from ledger for a member (reversals have negative amounts)
+- `getMemberPayments(memberId)` — Returns sorted payment history for a member
+- `deletePaymentEntry(paymentId, memberId)` — Creates a reversal entry (negative amount) instead of deleting. Marks original as `reversed: true`. Emits `PAYMENT_REVERSED` event. Preserves full audit trail.
+- `migratePaymentReceivedToLedger()` — One-time migration of legacy `paymentReceived` values into ledger entries
 
-### Invoice Composer Helpers
-- `_invoiceDialogState` - Shared state object for invoice dialog variant selection
-- `getInvoiceSummaryContext(memberId)` - Extracts member billing context (totals, balance, linked members) for invoice composition
-- `buildInvoiceSubject(year, member)` - Returns formatted email subject line for a billing invoice
-- `buildInvoiceBody(ctx, variant, shareUrl, channel)` - Builds invoice body text for a given variant (`link-cta`, `text-only`, `full`, `text-link`) and channel (`email` or `sms`)
-- `buildFullInvoiceText(ctx, shareUrl)` - Generates detailed plain-text invoice with bill breakdown tables, payment summary, and payment methods
-- `buildSmsDeepLink(phone, body)` - Creates platform-specific `sms:` deep link (iOS vs Android format)
-- `openSmsComposer(phone, body)` - Opens native SMS composer via deep link, falls back to clipboard copy
-- `updateInvoiceVariant(variant, channel)` - Updates the active invoice dialog textarea when the user switches variant
+#### Invoice Composer Helpers
+- `_invoiceDialogState` — Shared state object for invoice dialog variant selection
+- `getInvoiceSummaryContext(memberId)` — Extracts member billing context (totals, balance, linked members) for invoice composition
+- `buildInvoiceSubject(year, member)` — Returns formatted email subject line for a billing invoice
+- `buildInvoiceBody(ctx, variant, shareUrl, channel)` — Builds invoice body text for a given variant (`link-cta`, `text-only`, `full`, `text-link`) and channel (`email` or `sms`)
+- `buildFullInvoiceText(ctx, shareUrl)` — Generates detailed plain-text invoice with bill breakdown tables, payment summary, and payment methods
+- `buildSmsDeepLink(phone, body)` — Creates platform-specific `sms:` deep link (iOS vs Android format)
+- `openSmsComposer(phone, body)` — Opens native SMS composer via deep link, falls back to clipboard copy
+- `updateInvoiceVariant(variant, channel)` — Updates the active invoice dialog textarea when the user switches variant
 
-### Invoicing
-- `generateInvoice()` - Full annual invoice in a new window (printable)
-- `showEmailInvoiceDialog(memberId, shareUrl)` - Opens email invoice dialog with variant selector (link CTA, text + link, text only, full detailed), subject editing, and mailto integration
-- `sendIndividualInvoice(memberId)` - Sends email invoice using selected variant via mailto link
-- `copyEmailInvoiceMessage()` - Copies email invoice message textarea to clipboard
-- `generateInvoiceHTML(summary, year)` - Renders printable HTML invoice
-- `generateShareLinkForInvoiceDialog(memberId, dialogFn)` - Generates a share link and re-opens the invoice dialog with the share URL
+#### Invoicing
+- `generateInvoice()` — Full annual invoice in a new window (printable)
+- `showEmailInvoiceDialog(memberId, shareUrl)` — Opens email invoice dialog with variant selector (link CTA, text + link, text only, full detailed), subject editing, and mailto integration
+- `sendIndividualInvoice(memberId)` — Sends email invoice using selected variant via mailto link
+- `copyEmailInvoiceMessage()` — Copies email invoice message textarea to clipboard
+- `generateInvoiceHTML(summary, year)` — Renders printable HTML invoice
+- `generateShareLinkForInvoiceDialog(memberId, dialogFn)` — Generates a share link and re-opens the invoice dialog with the share URL
 
-### Share Links
-- `generateShareLink(memberId)` - Opens scope selection dialog for share link generation
-- `doGenerateShareLink(memberId)` - Creates a cryptographic share token, writes to `shareTokens` and `publicShares` collections
-- `showShareLinkSuccess(shareUrl, memberName, autoCopied)` - Renders success dialog with copy-to-clipboard UI
-- `copyShareLinkUrl()` - Copies the share link URL from the success dialog input field
-- `showShareLinks(memberId)` - Dialog listing all active share links for a member with copy/revoke controls
-- `revokeShareLink(tokenHash, memberId)` - Marks a share token as revoked in Firestore
-- `generateRawToken()` - Generates a 64-character hex token via Web Crypto API
-- `hashToken(token)` - SHA-256 hashes a token for storage
-- `computeMemberSummaryForShare(targetMemberId)` - Computes a member's bill breakdown for share data
-- `buildPublicShareData(memberId, scopes)` - Constructs the denormalized `publicShares` document
-- `refreshPublicShares()` - Refreshes all active `publicShares` documents for the current billing year (called by `saveData()`)
+#### Share Links
+- `generateShareLink(memberId)` — Opens scope selection dialog for share link generation
+- `doGenerateShareLink(memberId)` — Creates a cryptographic share token, writes to `shareTokens` and `publicShares` collections
+- `showShareLinkSuccess(shareUrl, memberName, autoCopied)` — Renders success dialog with copy-to-clipboard UI
+- `copyShareLinkUrl()` — Copies the share link URL from the success dialog input field
+- `showShareLinks(memberId)` — Dialog listing all active share links for a member with copy/revoke controls
+- `revokeShareLink(tokenHash, memberId)` — Marks a share token as revoked in Firestore
+- `generateRawToken()` — Generates a 64-character hex token via Web Crypto API
+- `hashToken(token)` — SHA-256 hashes a token for storage
+- `computeMemberSummaryForShare(targetMemberId)` — Computes a member's bill breakdown for share data
+- `buildPublicShareData(memberId, scopes)` — Constructs the denormalized `publicShares` document
+- `refreshPublicShares()` — Refreshes all active `publicShares` documents for the current billing year (called by `saveData()`)
 
-### Payment Method Icons
-- `PAYMENT_METHOD_ICONS` - Constant mapping payment method types to inline SVG icon strings (zelle, cashapp, venmo, paypal, apple_cash, other)
-- `getPaymentMethodIcon(type)` - Returns the SVG icon string for a payment method type
+#### Payment Method Icons
+- `PAYMENT_METHOD_ICONS` — Constant mapping payment method types to inline SVG icon strings (zelle, cashapp, venmo, paypal, apple_cash, other)
+- `getPaymentMethodIcon(type)` — Returns the SVG icon string for a payment method type
 
-### Payment Methods
-- `PAYMENT_METHOD_TYPES` - Constant defining supported types ordered by popularity (venmo, zelle, cashapp, paypal, apple_cash, other) with per-type field lists
-- `getPaymentMethodLabel(method)` - Returns display label for a payment method type
-- `addPaymentMethod()` - Adds a payment method by type, opens edit dialog for field entry
-- `editPaymentMethod(id)` - Opens dialog with type-specific fields (email, phone, handle, url, instructions)
-- `savePaymentMethodEdit(id)` - Persists edits from the payment method dialog with validation
-- `removePaymentMethod(id)` - Removes a payment method
-- `togglePaymentMethodEnabled(id)` - Toggles a payment method's enabled state
-- `getEnabledPaymentMethods()` - Returns enabled payment methods from settings
-- `getPaymentMethodDetail(method)` - Returns a summary string of a method's identifiers
-- `renderPaymentMethodsSettings()` - Renders the payment methods configuration UI with type-aware cards
-- `migratePaymentLinksToMethods(paymentLinks)` - Migrates legacy `{name, url}` links to structured payment methods, inferring type from name
-- `formatPaymentOptionsHTML()` - Renders enabled payment methods as HTML for invoices (type-aware: Zelle shows email/phone, Apple Cash shows contact, others show URL)
-- `formatPaymentOptionsText()` - Renders enabled payment methods as plain text for email invoices
+#### Payment Methods
+- `PAYMENT_METHOD_TYPES` — Constant defining supported types ordered by popularity (venmo, zelle, cashapp, paypal, apple_cash, other) with per-type field lists
+- `getPaymentMethodLabel(method)` — Returns display label for a payment method type
+- `addPaymentMethod()` — Adds a payment method by type, opens edit dialog for field entry
+- `editPaymentMethod(id)` — Opens dialog with type-specific fields (email, phone, handle, url, instructions)
+- `savePaymentMethodEdit(id)` — Persists edits from the payment method dialog with validation
+- `removePaymentMethod(id)` — Removes a payment method
+- `togglePaymentMethodEnabled(id)` — Toggles a payment method's enabled state
+- `getEnabledPaymentMethods()` — Returns enabled payment methods from settings
+- `getPaymentMethodDetail(method)` — Returns a summary string of a method's identifiers
+- `renderPaymentMethodsSettings()` — Renders the payment methods configuration UI with type-aware cards
+- `migratePaymentLinksToMethods(paymentLinks)` — Migrates legacy `{name, url}` links to structured payment methods, inferring type from name
+- `formatPaymentOptionsHTML()` — Renders enabled payment methods as HTML for invoices (type-aware: Zelle shows email/phone, Apple Cash shows contact, others show URL)
+- `formatPaymentOptionsText()` — Renders enabled payment methods as plain text for email invoices
 
-### Payment UI
-- `showAddPaymentDialog(memberId)` - Modal dialog to record a payment with amount, method, and note
-- `submitPayment(memberId)` - Records payment, then shows confirmation with settlement progress bar for 2 seconds before auto-closing
-- `updatePaymentPreview(memberId)` - Dynamically updates the payment amount preview in the payment dialog
-- `toggleDistributePreview()` - Toggles the distributed payment breakdown preview for linked members
-- `showPaymentHistory(memberId)` - Timeline-style modal showing all ledger entries with remaining balance indicator
-- `closePaymentDialog()` - Closes the payment dialog overlay
-- `ensureDialogContainer()` - Lazily creates the dialog overlay DOM
+#### Payment UI
+- `showAddPaymentDialog(memberId)` — Modal dialog to record a payment with amount, method, and note
+- `submitPayment(memberId)` — Records payment, then shows confirmation with settlement progress bar for 2 seconds before auto-closing
+- `updatePaymentPreview(memberId)` — Dynamically updates the payment amount preview in the payment dialog
+- `toggleDistributePreview()` — Toggles the distributed payment breakdown preview for linked members
+- `showPaymentHistory(memberId)` — Timeline-style modal showing all ledger entries with remaining balance indicator
+- `closePaymentDialog()` — Closes the payment dialog overlay
+- `ensureDialogContainer()` — Lazily creates the dialog overlay DOM
 
-### Text Invoice
-- `showTextInvoiceDialog(memberId, shareUrl)` - Opens text invoice dialog with variant selector and SMS deep link. Supports copy-to-clipboard and platform-aware `sms:` deep link.
-- `copyTextInvoiceMessage()` - Copies the text invoice message textarea to clipboard
-- `copyTextInvoiceLink(url)` - Copies a share link URL to clipboard
+#### Text Invoice
+- `showTextInvoiceDialog(memberId, shareUrl)` — Opens text invoice dialog with variant selector and SMS deep link. Supports copy-to-clipboard and platform-aware `sms:` deep link.
+- `copyTextInvoiceMessage()` — Copies the text invoice message textarea to clipboard
+- `copyTextInvoiceLink(url)` — Copies a share link URL to clipboard
 
-### Bill Card Helpers
-- `toggleBillSplit(billId)` - Toggles the collapsible "Split with" section between collapsed summary and expanded checkbox grid
-- `toggleBillActionsMenu(event, billId)` - Toggles the bill card "Actions" dropdown menu, closing any other open menus
+#### Bill Card Helpers
+- `toggleBillSplit(billId)` — Toggles the collapsible "Split with" section between collapsed summary and expanded checkbox grid
+- `toggleBillActionsMenu(event, billId)` — Toggles the bill card "Actions" dropdown menu, closing any other open menus
 
-### Settlement & Dashboard
-- `renderDashboardStatus()` - Renders lifecycle progress bar, settlement progress bar with percentage, group completion messaging, and admin reminder hints
-- `updateSummary()` - Renders annual summary table with payment tracking, calculation breakdown toggles, and settlement completion banner when all balances are zero
-- `toggleActionMenu(event)` - Toggles visibility of per-member action menu dropdowns
-- `closeAllActionMenus()` - Closes all open action menus
+#### Settlement & Dashboard
+- `renderDashboardStatus()` — Renders lifecycle progress bar, settlement progress bar with percentage, group completion messaging, and admin reminder hints
+- `updateSummary()` — Renders annual summary table with payment tracking, calculation breakdown toggles, and settlement completion banner when all balances are zero
+- `toggleActionMenu(event)` — Toggles visibility of per-member action menu dropdowns
+- `closeAllActionMenus()` — Closes all open action menus
 
-### Trust & Feedback
-- `showChangeToast(message)` - Displays a brief green toast notification (3 seconds) confirming financial data changes
+#### Trust & Feedback
+- `showChangeToast(message)` — Displays a brief green toast notification (3 seconds) confirming financial data changes
 
-### Data Integrity
-- `debugDataIntegrity()` - Logs data state to console for debugging
-- `repairDuplicateIds()` - Fixes duplicate member IDs (runs automatically on load)
-- `cleanupInvalidBillMembers()` - Removes invalid member references from bills (runs automatically on load)
+#### Data Integrity
+- `debugDataIntegrity()` — Logs data state to console for debugging
+- `repairDuplicateIds()` — Fixes duplicate member IDs (runs automatically on load)
+- `cleanupInvalidBillMembers()` — Removes invalid member references from bills (runs automatically on load)
 
-### Dispute Resolution (Admin)
-- `normalizeDisputeStatus(status)` - Maps legacy statuses (`pending`→`open`, `reviewed`→`in_review`)
-- `loadDisputes()` - Loads disputes from Firestore, normalizes statuses, renders filter bar and list
-- `renderDisputeFilterBar(disputes)` - Renders status filter buttons (All/Open/In Review/Resolved/Rejected) with counts
-- `setDisputeFilter(status)` - Applies client-side status filter and re-renders
-- `renderDisputes(disputes)` - Renders filtered dispute cards (clickable to open detail)
-- `showDisputeDetail(disputeId)` - Detail dialog with status actions, resolution note, evidence, user review toggle, quick-jump links
-- `getDisputeRef(disputeId)` - Returns a Firestore document reference for a dispute
-- `doDisputeAction(disputeId, newStatus)` - Changes status with resolution note (required for resolve/reject)
-- `updateDispute(disputeId, updates)` - Writes arbitrary updates to a dispute doc
-- `toggleUserReview(disputeId, checked)` - Sets/clears `userReview.state = 'requested'`
-- `scrollToBill(billId)` / `scrollToMember(memberId)` - Scrolls the view to a specific bill or member card
-- `uploadEvidence(disputeId)` - File picker with validation (PDF/PNG/JPEG, 20MB max, 10 max), uploads to Storage, saves metadata
-- `viewEvidence(disputeId, index)` - Opens evidence file via Storage download URL
-- `removeEvidence(disputeId, index)` - Deletes evidence from Storage and removes metadata
+#### Dispute Resolution (Admin)
+- `normalizeDisputeStatus(status)` — Maps legacy statuses (`pending`→`open`, `reviewed`→`in_review`)
+- `loadDisputes()` — Loads disputes from Firestore, normalizes statuses, renders filter bar and list
+- `renderDisputeFilterBar(disputes)` — Renders status filter buttons (All/Open/In Review/Resolved/Rejected) with counts
+- `setDisputeFilter(status)` — Applies client-side status filter and re-renders
+- `renderDisputes(disputes)` — Renders filtered dispute cards (clickable to open detail)
+- `showDisputeDetail(disputeId)` — Detail dialog with status actions, resolution note, evidence, user review toggle, quick-jump links
+- `getDisputeRef(disputeId)` — Returns a Firestore document reference for a dispute
+- `doDisputeAction(disputeId, newStatus)` — Changes status with resolution note (required for resolve/reject)
+- `updateDispute(disputeId, updates)` — Writes arbitrary updates to a dispute doc
+- `toggleUserReview(disputeId, checked)` — Sets/clears `userReview.state = 'requested'`
+- `scrollToBill(billId)` / `scrollToMember(memberId)` — Scrolls the view to a specific bill or member card
+- `uploadEvidence(disputeId)` — File picker with validation (PDF/PNG/JPEG, 20MB max, 10 max), uploads to Storage, saves metadata
+- `viewEvidence(disputeId, index)` — Opens evidence file via Storage download URL
+- `removeEvidence(disputeId, index)` — Deletes evidence from Storage and removes metadata
 
-### Rendering
-- `renderFamilyMembers()` - Renders member cards with avatars, edit/delete controls
-- `renderBills()` - Renders bill cards with logos, member checkboxes
-- `renderEmailSettings()` - Renders email message editor
-- `saveEmailMessage()` - Persists the email message setting
+#### Rendering
+- `renderFamilyMembers()` — Renders member cards with avatars, edit/delete controls
+- `renderBills()` — Renders bill cards with logos, member checkboxes
+- `renderEmailSettings()` — Renders email message editor
+- `saveEmailMessage()` — Persists the email message setting
 
-### Money Integrity Layer (Event Ledger)
-- `emitBillingEvent(eventType, payload, note, source)` - Appends an event to the append-only `billingEvents` ledger with timestamp and actor attribution
-- `generateEventId()` - Generates unique `evt_*` IDs for events
-- `getBillingEventsForBill(billId)` - Returns all events for a bill, sorted newest first
-- `getBillingEventsForMember(memberId)` - Returns all events for a member, sorted newest first
-- `getBillingEventsForPayment(paymentId)` - Returns events referencing a payment (including reversals)
-- `showBillAuditHistory(billId)` - Opens dialog showing the complete event timeline for a bill
-- `BILLING_EVENT_LABELS` - Human-readable labels for all event types
+#### Money Integrity Layer (Event Ledger)
+- `emitBillingEvent(eventType, payload, note, source)` — Appends an event to the append-only `billingEvents` ledger with timestamp and actor attribution
+- `generateEventId()` — Generates unique `evt_*` IDs for events
+- `getBillingEventsForBill(billId)` — Returns all events for a bill, sorted newest first
+- `getBillingEventsForMember(memberId)` — Returns all events for a member, sorted newest first
+- `getBillingEventsForPayment(paymentId)` — Returns events referencing a payment (including reversals)
+- `showBillAuditHistory(billId)` — Opens dialog showing the complete event timeline for a bill
+- `BILLING_EVENT_LABELS` — Human-readable labels for all event types
 
-### Helpers
-- `isValidE164(phone)` - Validates E.164 phone number format (+ followed by 1-15 digits, first digit non-zero)
-- `getInitials(name)` - Extracts initials for avatar fallback
-- `generateAvatar(member)` / `generateLogo(bill)` - HTML generation for images
-- `uploadImage(callback)` - Shared image upload with Canvas compression
-- `generateUniqueId()` / `generateUniqueBillId()` / `generateUniquePaymentId()` - Unique ID generators
-- `escapeHtml(str)` - XSS prevention by escaping HTML special characters
-- `sanitizeImageSrc(src)` - Validates image data URIs, rejects non-image and external sources
-- `formatFileSize(bytes)` - Human-readable file size formatting
-- `disputeStatusClass(status)` - Maps dispute status to CSS class
+#### Helpers
+- `isValidE164(phone)` — Validates E.164 phone number format (+ followed by 1–15 digits, first digit non-zero)
+- `getInitials(name)` — Extracts initials for avatar fallback
+- `generateAvatar(member)` / `generateLogo(bill)` — HTML generation for images
+- `uploadImage(callback)` — Shared image upload with Canvas compression
+- `generateUniqueId()` / `generateUniqueBillId()` / `generateUniquePaymentId()` — Unique ID generators
+- `escapeHtml(str)` — XSS prevention by escaping HTML special characters
+- `sanitizeImageSrc(src)` — Validates image data URIs, rejects non-image and external sources
+- `formatFileSize(bytes)` — Human-readable file size formatting
+- `disputeStatusClass(status)` — Maps dispute status to CSS class
 
-## Key Functions (auth.js)
+### Key Functions (auth.js)
+- `switchTab(tab)` — Toggles between login/signup forms
+- `handleLogin(event)` — Email/password authentication
+- `handleSignup(event)` — Account creation with password confirmation
+- `handleGoogleSignIn()` — Google OAuth sign-in
+- `handleForgotPassword()` — Sends password reset email via Firebase
+- `getErrorMessage(errorCode)` — Maps Firebase error codes to user-friendly messages
 
-- `switchTab(tab)` - Toggles between login/signup forms
-- `handleLogin(event)` - Email/password authentication
-- `handleSignup(event)` - Account creation with password confirmation
-- `handleGoogleSignIn()` - Google OAuth sign-in
-- `handleForgotPassword()` - Sends password reset email via Firebase
-- `getErrorMessage(errorCode)` - Maps Firebase error codes to user-friendly messages
-
-## Cloud Functions (functions/index.js)
-
+### Cloud Functions (functions/index.js)
 All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`). They are deployed to `us-central1`.
 
 > **Note:** The GCP organization policy blocks granting `allUsers` the Cloud Run invoker role, so these functions cannot be made publicly accessible. The share page reads data directly from the `publicShares` Firestore collection instead of calling `resolveShareToken`. Dispute-related functions are still called from `share.html` via Firebase Hosting rewrites or direct URLs.
 
-- `resolveShareToken` - POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Writes audit log entry on access.
-- `submitDispute` - POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token. Writes audit log entry.
-- `getEvidenceUrl` - POST endpoint: returns a 1-hour signed URL for a dispute evidence file (requires `disputes:read` scope, validates member ownership)
-- `submitDisputeDecision` - POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent). Writes audit log entry.
-- `appendAuditLog(ownerId, entry)` - Internal helper that writes audit entries to `/users/{userId}/auditLog`
-- `_testHelpers` - Test-only export exposing `validateToken`, `validateDisputeInput`, `DISPUTE_RATE_LIMIT`, `EVIDENCE_URL_EXPIRY_MS`
+- `resolveShareToken` — POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Writes audit log entry on access.
+- `submitDispute` — POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token. Writes audit log entry.
+- `getEvidenceUrl` — POST endpoint: returns a 1-hour signed URL for a dispute evidence file (requires `disputes:read` scope, validates member ownership)
+- `submitDisputeDecision` — POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent). Writes audit log entry.
+- `appendAuditLog(ownerId, entry)` — Internal helper that writes audit entries to `/users/{userId}/auditLog`
+- `_testHelpers` — Test-only export exposing `validateToken`, `validateDisputeInput`, `DISPUTE_RATE_LIMIT`, `EVIDENCE_URL_EXPIRY_MS`
 
-### Share Token Scopes
+#### Share Token Scopes
 
 | Scope | Purpose |
 |-------|---------|
@@ -515,33 +510,20 @@ All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`
 | `disputes:create` | Submit new review requests |
 | `disputes:read` | View disputes, evidence, and approve/reject resolutions |
 
-## Payment Ledger
-
+### Payment Ledger
 Payments are stored as an append-only ledger per billing year. Each entry records `{id, memberId, amount, receivedAt, note, method}`. The per-member "paid to date" total is derived by summing all ledger entries for that member (including negative reversal amounts). Legacy `paymentReceived` counters are automatically migrated into a single "migration payment" entry on first load.
 
-### Payment Reversals
-
-Payments are never physically deleted. Instead, `deletePaymentEntry()` creates a **reversal**:
-1. The original payment is marked `reversed: true`
-2. A new entry with `type: "reversal"`, `reversesPaymentId`, and a negative `amount` is appended
-3. A `PAYMENT_REVERSED` event is emitted to the billing event ledger
-
-This preserves the full audit trail while correctly adjusting the member's balance.
-
-### Distributed Payments
-
+#### Distributed Payments
 When recording a payment for a parent with linked child members (with the "distribute" option):
-
 1. Calculate total owed by parent + all linked children
 2. Create individual ledger entries proportional to each person's annual total
 3. Last child receives the rounding remainder to ensure the sum equals the entered amount
 
 Example: Parent owes $1,000, Child owes $500 (total: $1,500). Payment of $900:
-- Parent entry: $900 x ($1,000 / $1,500) = $600
-- Child entry: $900 x ($500 / $1,500) = $300
+- Parent entry: $900 × ($1,000 / $1,500) = $600
+- Child entry: $900 × ($500 / $1,500) = $300
 
-## Billing Year Lifecycle
-
+### Billing Year Lifecycle
 Each billing year progresses through four states:
 
 | State | Order | Behavior | Badge Color |
@@ -553,8 +535,7 @@ Each billing year progresses through four states:
 
 State transitions are managed via `setBillingYearStatus()`. The dashboard displays a lifecycle progress bar showing the current stage.
 
-## UI/CSS Design System
-
+### UI/CSS Design System
 All visual primitives are defined in `design-tokens.css` and consumed by `styles.css`.
 
 - **Primary color:** `#667eea` / `var(--color-primary)`
@@ -572,66 +553,7 @@ All visual primitives are defined in `design-tokens.css` and consumed by `styles
 - **Avatar size:** 48x48px circle (32x32px in invoices)
 - **Logo size:** 80x60px rectangle (40x30px in invoices)
 
-## Development
-
-### Testing
-
-```bash
-npm test
-```
-
-Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox the bundled `script.js` in a mock DOM/Firebase environment. The test script runs `npm run build` first to produce the bundle, then evaluates it via `vm.runInContext()`. A `Proxy` on `ctx.window` bridges `window.*` assignments from the IIFE bundle back onto the VM context so tests can call functions directly as `ctx.functionName()`. Test file: `tests/billing.test.js`.
-`npm test` also runs a tracked-file secret scan so committed API keys, OAuth tokens, and private keys fail the normal test workflow.
-
-**267 tests across 77 suites.** Covered areas:
-- `escapeHtml` - XSS prevention utility
-- `calculateAnnualSummary` - bill splitting math across members and multiple bills, frequency-aware calculations
-- `recordPayment` - ledger entry creation, proportional distribution for linked members, non-positive rejection, event emission
-- `getPaymentTotalForMember` - per-member ledger sum derivation (including reversals)
-- `migratePaymentReceivedToLedger` - legacy migration, parent/child split, idempotency, zero-out
-- `deletePaymentEntry` - payment reversal (marks original reversed, appends negative entry, emits event)
-- `manageLinkMembers` - link preservation and cross-parent isolation
-- `editBillWebsite` - URL validation (rejects non-http schemes)
-- `sanitizeImageSrc` - image URI validation (rejects non-image, javascript:, external URLs)
-- `isValidE164` - E.164 phone validation (format, length, leading zero rejection)
-- `editMemberPhone` - phone editing (set, clear, reject invalid, archived guard)
-- `addFamilyMember` with phone - phone included on create (valid, invalid, blank, missing input)
-- `isArchivedYear` / `isClosedYear` / `isSettlingYear` / `isYearReadOnly` - lifecycle state helpers
-- `yearReadOnlyMessage` / `getBillingYearStatusLabel` / `BILLING_YEAR_STATUSES` - lifecycle constants
-- `closed year guards` / `archived year guards` - mutation prevention by state
-- `startNewYear` / `archiveCurrentYear` - year management operations
-- `saveData archived guard` - write prevention for read-only years
-- `generateRawToken` / `hashToken` - cryptographic token generation and hashing
-- `computeMemberSummary` / `validateToken` / `validateDisputeInput` - share link and dispute utilities (tested via Cloud Functions exports)
-- `payment methods settings` - payment method CRUD, migration, type constants, enable/disable, archived guards
-- `normalizeDisputeStatus` / `disputeStatusClass` - dispute status mapping
-- `formatFileSize` / `Evidence constraints` / `DISPUTE_STATUS_LABELS` - dispute utilities
-- `migrateLegacyData` - flat-to-year-scoped data migration
-- `CURRENT_MIGRATION_VERSION` - migration version constant
-- `calculateSettlementMetrics` - settlement percentage, paid count, edge cases
-- `getPaymentStatusBadge labels` - badge text verification ("Settled" not "Paid")
-- `getCalculationBreakdown` - bill breakdown HTML generation and XSS escaping
-- `showChangeToast` - change notification function
-- `billing frequency` - canonical amount helpers, monthly/annual toggle, frequency-aware annual summary
-- `billing event ledger` - event emission, event ID generation, event filtering by bill/member/payment
-- `bill mutations emit events` - BILL_CREATED, BILL_UPDATED, BILL_DELETED, MEMBER_ADDED/REMOVED_TO_BILL events
-- `payment events` - PAYMENT_RECORDED and PAYMENT_REVERSED event emission
-- `showBillAuditHistory` - audit history dialog rendering
-- `updateBillAmountPreview` - derived amount preview (monthly↔annual conversion, edge cases, rounding)
-- `setAddBillFrequency updates label` - dynamic form label updates when frequency toggle changes
-- `getInvoiceSummaryContext` - invoice context extraction (totals, balance, linked members, edge cases)
-- `buildInvoiceSubject` - email subject line formatting
-- `buildInvoiceBody` - invoice body generation across variants (link-cta, text-only, full, text-link) and channels (email, sms)
-- `buildFullInvoiceText` - detailed plain-text invoice with bill tables and payment summary
-- `buildSmsDeepLink` - platform-specific SMS deep link generation (iOS, Android, fallback)
-- `openSmsComposer` - SMS composer launch with clipboard fallback
-- `updateInvoiceVariant` - invoice dialog variant switching
-- `showEmailInvoiceDialog` - email invoice dialog rendering and interaction
-- `showTextInvoiceDialog` - text invoice dialog rendering with variant support
-- `refreshPublicShares cleanup` - public share refresh and stale token cleanup
-
 ### Local Development
-
 ```bash
 git clone <repository-url>
 cd friends-and-family-billing
@@ -652,9 +574,113 @@ firebase serve
 # Or: python3 -m http.server 8000
 ```
 
-### Deployment
+### Analytics Events
+The app tracks these Firebase Analytics events:
+- `family_member_added` — When a new member is created
+- `bill_added` — When a new bill is created
+- `share_link_generated` — When a share link is created (includes `has_expiry`, `billing_year`)
+- `invoice_sent` — When an individual invoice is emailed
+- `login` / `sign_up` — Authentication events
 
-All deploys use `op-firebase-deploy` (global script on PATH) for non-interactive 1Password auth. No `firebase login` or browser prompts needed.
+### Known Limitations
+- Email invoices use `mailto:` links (requires a desktop email client)
+- Images stored as base64 strings in Firestore (subject to document size limits)
+- No PDF generation (invoices are printable HTML)
+- Single Firestore document per billing year (may hit 1MB limit with many large images)
+- GCP organization policy blocks making Cloud Functions publicly accessible; share page reads from `publicShares` Firestore collection instead
+- Existing share links generated before the `publicShares` migration must be regenerated
+
+### Troubleshooting
+- **Data not loading:** Hard refresh (Cmd+Shift+R / Ctrl+Shift+R), check console, verify Firebase config
+- **Auth issues:** Verify providers are enabled in Firebase Console, check authorized domains
+- **Payment errors:** Data repair runs automatically on load; re-enter payment amounts if needed
+- **Data verification:** Open `check_data.html` while logged in to inspect raw Firestore data
+- **Billing year issues:** Check `currentBillingYear.status` in console; use year selector to switch years
+- **Share links not loading:** Regenerate the share link — older links created before the `publicShares` migration won't have data in Firestore
+- **Cloud Functions 403:** Expected due to GCP org policy; share page reads from Firestore directly, not Cloud Functions
+
+---
+
+## 3. Code Modification Rules
+
+### High-Risk Zones — Payment and Financial Logic
+
+**These areas require explicit human review before any agent-proposed change is accepted.**
+
+- **`calculateAnnualSummary()`** — The core bill-splitting formula. Changes affect real financial amounts for all users.
+- **`recordPayment()`** — Creates ledger entries. Must maintain append-only semantics; partial amounts, method validation, and event emission must all be correct.
+- **`deletePaymentEntry()`** — Payments are never physically deleted. This function creates a reversal entry (negative amount) and marks the original as `reversed: true`. Never change this to a physical delete.
+- **`getPaymentTotalForMember()`** — Derives balance from the ledger. If this is wrong, users see incorrect amounts owed.
+- **`calculateSettlementMetrics()`** — Settlement percentage calculation. Changes affect the progress bar and dashboard.
+- **`functions/billing.js`** — Shared billing utilities used by Cloud Functions. Changes affect both frontend calculations and server-side validation.
+
+### Payment Reversals (Ledger Immutability)
+Payments are never physically deleted. Instead, `deletePaymentEntry()` creates a **reversal**:
+1. The original payment is marked `reversed: true`
+2. A new entry with `type: "reversal"`, `reversesPaymentId`, and a negative `amount` is appended
+3. A `PAYMENT_REVERSED` event is emitted to the billing event ledger
+
+This preserves the full audit trail while correctly adjusting the member's balance. **Do not change this pattern.**
+
+### Credential Hygiene and Rotation
+- Real Firebase web config belongs in `firebase-config.local.js`. `firebase-config.js` must keep placeholders only.
+- Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
+- If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
+- If deploy auth in `Private/GCP ADC` is exposed, renew the ADC credential, overwrite the 1Password item, and revoke the old credential.
+
+### Resolved Bugs (Historical Context)
+1. Duplicate member IDs causing bills to show incorrect member counts
+2. Avatar upload failures due to LocalStorage quota limits (resolved by Firebase migration)
+3. Black backgrounds on logos from JPEG transparency handling (fixed: PNG compression)
+4. Data not loading after refresh (fixed: proper async/await on Firestore reads)
+5. Linked member payment math showing incorrect credits (fixed: proportional distribution)
+
+### Security Rules (firestore.rules, storage.rules)
+These files control data access for all users. Changes require careful manual testing and human review. Never relax security rules without explicit justification. Owner-only access for user data is an invariant.
+
+---
+
+## 4. Documentation Rules
+
+- **`AGENTS.md`:** Update when adding new features, new Cloud Functions, new Firestore collections, or new key functions to `src/main.js`.
+- **`DEPLOYMENT.md`:** Update when the deploy process changes — new targets, credential rotation steps, new environment requirements.
+- **`README.md`:** Update when project description, live URL, or major features change.
+- **`QUICKSTART.md`:** Update when the local development setup process changes.
+- **`FIREBASE_IMPLEMENTATION.md`:** Update when the Firebase architecture changes significantly.
+- **`rules/repo_rules.md`:** Update when directory structure changes or new invariants are needed.
+- **`.ai_context.md`:** Update when high-risk areas change or external dependencies change.
+
+When changing the behavior of any function documented in Section 2, update the corresponding function description before or alongside the code change.
+
+---
+
+## 5. Testing Requirements
+
+The test suite uses Node's built-in test runner. Run with:
+
+```bash
+npm test
+```
+
+This runs `npm run build` first (to produce `script.js`), then evaluates the bundle via `vm.runInContext()` in a mock DOM/Firebase environment. A `Proxy` on `ctx.window` bridges `window.*` assignments back onto the VM context so tests can call functions directly as `ctx.functionName()`.
+
+`npm test` also runs a tracked-file secret scan (`scripts/check-no-public-secrets.mjs`). Failing the secret scan means API keys or tokens are present in tracked files — fix before committing.
+
+**267 tests across 77 suites** — see Section 2 (Testing) for the full coverage list.
+
+**Tests must not be deleted to force a build to pass.**
+
+**When adding new behavior, tests are required for:**
+- Any new calculation logic (billing math, settlement metrics)
+- Any new payment operations (new ledger entry types, new distribution logic)
+- Any security-relevant input validation (phone format, image source, URL validation)
+- New Cloud Functions logic (add to `_testHelpers` exports)
+
+---
+
+## 6. Deployment Process
+
+All deploys use `op-firebase-deploy` for non-interactive 1Password auth.
 
 ```bash
 npm run deploy              # hosting + Firestore rules + Storage rules
@@ -663,60 +689,6 @@ npm run deploy:all          # everything
 op-firebase-deploy --only firestore:rules   # any target combo
 ```
 
-The script auto-detects the project from `.firebaserc`, reads `Private/Firebase Deploy - friends-and-family-billing` first, then falls back to `Private/GCP ADC`, and cleans up credentials on exit.
+The predeploy hook runs `node stamp-version.js && npm run build` automatically — stamps `version.json` and bundles `src/` → `script.js` before hosting deploy.
 
-**First-time setup:** `op-firebase-setup friends-and-family-billing` creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`, grants deploy roles, and stores the key in 1Password.
-
-**Token renewal:** The ADC refresh token has no fixed expiry but is revoked on Google password change, explicit revocation, or 6 months of inactivity. If deploys fail with `invalid_grant`, renew:
-
-```bash
-gcloud auth application-default login --project=friends-and-family-billing
-op item edit "GCP ADC" --vault Private \
-  "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"
-```
-
-**Future API/service secrets:** keep committed template files only, such as `.env.tpl` or `config.runtime.tpl`, with `op://Private/<item>/<field>` references. Resolve them into gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
-
-### Firebase Hosting Configuration
-
-- Public directory: `.` (project root)
-- Predeploy hook: `node stamp-version.js && npm run build` (stamps version, then bundles `src/` → `script.js`)
-- Ignored from deployment: `firebase.json`, dotfiles, `node_modules`, `src/`, markdown docs, `package.json`, `package-lock.json`, `tests/`, `functions/`, `stamp-version.js`, `enhancements/`
-- Cache-control: `no-cache, no-store, must-revalidate` on all `.js` files, `version.json`, and `share.html`
-- Rewrites: `/share` → `share.html`, then SPA catch-all `**` → `index.html`
-
-## Analytics Events
-
-The app tracks these Firebase Analytics events:
-- `family_member_added` - When a new member is created
-- `bill_added` - When a new bill is created
-- `share_link_generated` - When a share link is created (includes `has_expiry`, `billing_year`)
-- `invoice_sent` - When an individual invoice is emailed
-- `login` / `sign_up` - Authentication events
-
-## Known Limitations
-
-- Email invoices use `mailto:` links (requires a desktop email client)
-- Images stored as base64 strings in Firestore (subject to document size limits)
-- No PDF generation (invoices are printable HTML)
-- Single Firestore document per billing year (may hit 1MB limit with many large images)
-- GCP organization policy blocks making Cloud Functions publicly accessible; share page reads from `publicShares` Firestore collection instead
-- Existing share links generated before the `publicShares` migration must be regenerated
-
-## Resolved Bugs (Historical)
-
-1. Duplicate member IDs causing bills to show incorrect member counts
-2. Avatar upload failures due to LocalStorage quota limits (resolved by Firebase migration)
-3. Black backgrounds on logos from JPEG transparency handling (fixed: PNG compression)
-4. Data not loading after refresh (fixed: proper async/await on Firestore reads)
-5. Linked member payment math showing incorrect credits (fixed: proportional distribution)
-
-## Troubleshooting
-
-- **Data not loading:** Hard refresh (Cmd+Shift+R / Ctrl+Shift+R), check console, verify Firebase config
-- **Auth issues:** Verify providers are enabled in Firebase Console, check authorized domains
-- **Payment errors:** Data repair runs automatically on load; re-enter payment amounts if needed
-- **Data verification:** Open `check_data.html` while logged in to inspect raw Firestore data
-- **Billing year issues:** Check `currentBillingYear.status` in console; use year selector to switch years
-- **Share links not loading:** Regenerate the share link — older links created before the `publicShares` migration won't have data in Firestore
-- **Cloud Functions 403:** Expected due to GCP org policy; share page reads from Firestore directly, not Cloud Functions
+See `DEPLOYMENT.md` for full deployment instructions, first-time setup, token renewal, Firebase Hosting configuration, and secrets management.
