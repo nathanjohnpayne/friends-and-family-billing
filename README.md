@@ -112,7 +112,7 @@ A cloud-based web application for coordinating and settling annual shared bills 
 git clone <repository-url>
 cd friends-and-family-billing
 
-# Create a local Firebase web config file (kept out of git)
+# Create a local Firebase web config file (kept out of git, but deployed with Hosting)
 cp firebase-config.local.example.js firebase-config.local.js
 # Then fill in your Firebase web config values in firebase-config.local.js
 
@@ -294,6 +294,13 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - **Share Links:** Cryptographic tokens with SHA-256 hashing; configurable expiry and revocation
 - **Image Compression:** Prevents Firestore document size issues
 - **No Cross-User Access:** Users can only read/write their own data
+
+### Firebase web config hygiene
+
+- Real Firebase config belongs in `firebase-config.local.js`. Keep placeholders in `firebase-config.js`.
+- Production intentionally loads `firebase-config.local.js`; do not switch back to `__/firebase/init.js`.
+- Firebase Web API keys are not auth secrets, but checking them into public source is still a security concern because it triggers Google abuse alerts and invites quota abuse.
+- If a key is exposed: remove it from tracked files/history, create a replacement key in Google Cloud Credentials with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the live file serves the new key only, then delete the old key.
 
 ## Documentation
 

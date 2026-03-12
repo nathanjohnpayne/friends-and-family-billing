@@ -249,8 +249,18 @@ Scripts must load in this exact order (all pages):
 3. `firebase-firestore-compat.js` - Firestore (index.html, check_data.html, share.html)
 4. `firebase-storage-compat.js` - Storage (index.html only)
 5. `firebase-analytics-compat.js` - Analytics (index.html, login.html only)
-6. `firebase-config.js` - Initializes Firebase, assigns `auth`, `db`, `storage`, `analytics` to `window.*` (`null` for SDKs not loaded on the current page)
-7. `script.js` (esbuild IIFE bundle from `src/`) or `auth.js` - Application logic
+6. `firebase-config.local.js` - Real Firebase web config (gitignored locally, deployed with Hosting)
+7. `firebase-config.js` - Initializes Firebase from the local config, assigns `auth`, `db`, `storage`, `analytics` to `window.*` (`null` for SDKs not loaded on the current page)
+8. `script.js` (esbuild IIFE bundle from `src/`) or `auth.js` - Application logic
+
+Do not reintroduce `__/firebase/init.js`. Production config is owned by `firebase-config.local.js`, and stale Hosting init output can keep deleted keys alive.
+
+### Credential Hygiene And Rotation
+
+- Real Firebase web config belongs in `firebase-config.local.js`. `firebase-config.js` must keep placeholders only.
+- Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
+- If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
+- If deploy auth in `Private/GCP ADC` is exposed, renew the ADC credential, overwrite the 1Password item, and revoke the old credential.
 
 ## Build System
 
@@ -268,7 +278,7 @@ npm run build:watch    # rebuild on file change
 - esbuild bundles to `--format=iife`, producing a single classic-script-compatible file
 - `script.js` and `script.js.map` are **build artifacts** (gitignored); source of truth is `src/`
 
-**Firebase globals bridge:** `firebase-config.js` assigns `auth`, `db`, `storage`, `analytics` to `window.*`. The bridge module `src/platform/firebase.js` re-exports these for use inside ES modules:
+**Firebase globals bridge:** `firebase-config.local.js` supplies the real web config, then `firebase-config.js` assigns `auth`, `db`, `storage`, `analytics` to `window.*`. The bridge module `src/platform/firebase.js` re-exports these for use inside ES modules:
 
 ```js
 // src/platform/firebase.js
