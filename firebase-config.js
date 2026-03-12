@@ -13,7 +13,7 @@ if (!hasInitializedApp) {
     };
 
     if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-        throw new Error("Missing Firebase web config. Use Firebase Hosting /__/firebase/init.js or copy firebase-config.local.example.js to firebase-config.local.js for local development.");
+        throw new Error("Missing Firebase web config. Copy firebase-config.local.example.js to firebase-config.local.js before running or deploying.");
     }
 
     firebase.initializeApp(firebaseConfig);

@@ -19,8 +19,7 @@
       "tests/**",
       "functions/**",
       "stamp-version.js",
-      "enhancements/**",
-      "firebase-config.local.js"
+      "enhancements/**"
     ],
     "headers": [
       {
