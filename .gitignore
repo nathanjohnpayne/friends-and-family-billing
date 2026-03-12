@@ -1,6 +1,7 @@
 # Firebase
 .firebase/
 .firebaserc
+firebase-config.local.js
 
 # Dependencies
 node_modules/

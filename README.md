@@ -112,6 +112,11 @@ A cloud-based web application for coordinating and settling annual shared bills 
 git clone <repository-url>
 cd friends-and-family-billing
 
+# Firebase Hosting injects config automatically via /__/firebase/init.js
+# If you need to run outside Hosting, create a local Firebase web config file (kept out of git)
+cp firebase-config.local.example.js firebase-config.local.js
+# Then fill in your Firebase web config values in firebase-config.local.js
+
 # Install Firebase CLI
 npm install -g firebase-tools
 
