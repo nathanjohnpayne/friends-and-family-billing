@@ -581,6 +581,7 @@ npm test
 ```
 
 Tests use Node's built-in test runner (`node:test`) with `vm` to sandbox the bundled `script.js` in a mock DOM/Firebase environment. The test script runs `npm run build` first to produce the bundle, then evaluates it via `vm.runInContext()`. A `Proxy` on `ctx.window` bridges `window.*` assignments from the IIFE bundle back onto the VM context so tests can call functions directly as `ctx.functionName()`. Test file: `tests/billing.test.js`.
+`npm test` also runs a tracked-file secret scan so committed API keys, OAuth tokens, and private keys fail the normal test workflow.
 
 **267 tests across 77 suites.** Covered areas:
 - `escapeHtml` - XSS prevention utility
@@ -636,8 +637,9 @@ git clone <repository-url>
 cd friends-and-family-billing
 npm install
 
-firebase login
-firebase use friends-and-family-billing
+# Optional for local emulator/serve workflows that need a linked project:
+# firebase login
+# firebase use friends-and-family-billing
 
 # Build the bundle (required before serving)
 npm run build
@@ -661,7 +663,9 @@ npm run deploy:all          # everything
 op-firebase-deploy --only firestore:rules   # any target combo
 ```
 
-The script reads ADC credentials from 1Password (`Private/GCP ADC`), auto-detects the project from `.firebaserc`, and cleans up credentials on exit.
+The script auto-detects the project from `.firebaserc`, reads `Private/Firebase Deploy - friends-and-family-billing` first, then falls back to `Private/GCP ADC`, and cleans up credentials on exit.
+
+**First-time setup:** `op-firebase-setup friends-and-family-billing` creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`, grants deploy roles, and stores the key in 1Password.
 
 **Token renewal:** The ADC refresh token has no fixed expiry but is revoked on Google password change, explicit revocation, or 6 months of inactivity. If deploys fail with `invalid_grant`, renew:
 
@@ -670,6 +674,8 @@ gcloud auth application-default login --project=friends-and-family-billing
 op item edit "GCP ADC" --vault Private \
   "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"
 ```
+
+**Future API/service secrets:** keep committed template files only, such as `.env.tpl` or `config.runtime.tpl`, with `op://Private/<item>/<field>` references. Resolve them into gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ### Firebase Hosting Configuration
 

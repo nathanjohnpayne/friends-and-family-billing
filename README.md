@@ -116,21 +116,22 @@ cd friends-and-family-billing
 cp firebase-config.local.example.js firebase-config.local.js
 # Then fill in your Firebase web config values in firebase-config.local.js
 
-# Install Firebase CLI
+# Install deploy tooling
 npm install -g firebase-tools
+# Install Google Cloud SDK if you do not already have gcloud
+# Install and sign in to 1Password CLI / desktop app for deploys
 
-# Login to Firebase
-firebase login
-
-# Link to project
-firebase use friends-and-family-billing
+# One-time per maintainer/project: create and store deploy auth in 1Password
+op-firebase-setup friends-and-family-billing
 
 # Serve locally
 firebase serve
 
 # Deploy to production
-firebase deploy
+npm run deploy
 ```
+
+`npm run deploy` uses `op-firebase-deploy`, which reads deploy auth from 1Password instead of requiring `firebase login`.
 
 ### Uploading Images
 
@@ -301,6 +302,15 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - Production intentionally loads `firebase-config.local.js`; do not switch back to `__/firebase/init.js`.
 - Firebase Web API keys are not auth secrets, but checking them into public source is still a security concern because it triggers Google abuse alerts and invites quota abuse.
 - If a key is exposed: remove it from tracked files/history, create a replacement key in Google Cloud Credentials with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the live file serves the new key only, then delete the old key.
+- `npm test` includes a tracked-file secret scan so committed API keys, OAuth tokens, and private keys fail before deployment.
+
+### 1Password deploy and future-secret flow
+
+- Deploy maintainers need the 1Password desktop app, the 1Password CLI (`op`), `firebase-tools`, `gcloud`, and access to the `Private` vault.
+- `op-firebase-setup friends-and-family-billing` stores the per-project deployer key in `Private/Firebase Deploy - friends-and-family-billing`.
+- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which prefers that per-project item and falls back to `Private/GCP ADC`.
+- If the fallback ADC item expires, refresh it with `gcloud auth application-default login --project=friends-and-family-billing` and update it with `op item edit "GCP ADC" --vault Private "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"`.
+- For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ## Documentation
 

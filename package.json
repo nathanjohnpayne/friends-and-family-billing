@@ -3,7 +3,8 @@
   "scripts": {
     "build": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
     "build:watch": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap --watch",
-    "test": "npm run build && node --test 'tests/**/*.test.js'",
+    "test": "npm run build && node --test 'tests/**/*.test.js' && node scripts/check-no-public-secrets.mjs",
+    "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
     "deploy:functions": "op-firebase-deploy --only functions",
     "deploy:all": "op-firebase-deploy"
