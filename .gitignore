@@ -22,3 +22,10 @@ Thumbs.db
 # Logs
 *.log
 firebase-debug.log
+
+# Public repo hygiene
+.env
+*.key
+service-account.json
+firebase-adminsdk*.json
+RIPCUT_GUIDE.md
