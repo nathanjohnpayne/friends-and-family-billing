@@ -112,6 +112,12 @@ A cloud-based web application for coordinating and settling annual shared bills 
 git clone <repository-url>
 cd friends-and-family-billing
 
+# Install local dependencies (esbuild is used for the browser bundle)
+npm install
+
+# Create a local Firebase web config filegit clone <repository-url>
+cd friends-and-family-billing
+
 # Create a local Firebase web config file (kept out of git, but deployed with Hosting)
 cp firebase-config.local.example.js firebase-config.local.js
 # Then fill in your Firebase web config values in firebase-config.local.js
@@ -124,14 +130,17 @@ npm install -g firebase-tools
 # One-time per maintainer/project: create and store deploy auth in 1Password
 op-firebase-setup friends-and-family-billing
 
-# Serve locally
+# Build the browser bundle once
+npm run build
+
+# Serve locally (or keep `npm run build:watch` running in a second terminal while developing)
 firebase serve
 
 # Deploy to production
 npm run deploy
 ```
 
-`npm run deploy` uses `op-firebase-deploy`, which reads deploy auth from 1Password instead of requiring `firebase login`.
+`npm run deploy` uses `op-firebase-deploy`, and Firebase Hosting runs the configured predeploy hook (`node stamp-version.js && npm run build`) before upload.
 
 ### Uploading Images
 
@@ -308,8 +317,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 - Deploy maintainers need the 1Password desktop app, the 1Password CLI (`op`), `firebase-tools`, `gcloud`, and access to the `Private` vault.
 - `op-firebase-setup friends-and-family-billing` stores the per-project deployer key in `Private/Firebase Deploy - friends-and-family-billing`.
-- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which prefers that per-project item and falls back to `Private/GCP ADC`.
-- If the fallback ADC item expires, refresh it with `gcloud auth application-default login --project=friends-and-family-billing` and update it with `op item edit "GCP ADC" --vault Private "credential=$(cat ~/.config/gcloud/application_default_credentials.json)"`.
+- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which reads `Private/Firebase Deploy - friends-and-family-billing` from 1Password and sets `GOOGLE_APPLICATION_CREDENTIALS`. No browser auth required.
 - For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ## Documentation

@@ -560,8 +560,7 @@ cd friends-and-family-billing
 npm install
 
 # Optional for local emulator/serve workflows that need a linked project:
-# firebase login
-# firebase use friends-and-family-billing
+# No firebase login needed — auth is handled via 1Password (see DEPLOYMENT.md)
 
 # Build the bundle (required before serving)
 npm run build
@@ -626,7 +625,7 @@ This preserves the full audit trail while correctly adjusting the member's balan
 - Real Firebase web config belongs in `firebase-config.local.js`. `firebase-config.js` must keep placeholders only.
 - Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
 - If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
-- If deploy auth in `Private/GCP ADC` is exposed, renew the ADC credential, overwrite the 1Password item, and revoke the old credential.
+- If the deploy service account key (`Private/Firebase Deploy - friends-and-family-billing`) is compromised, rotate it with `op-firebase-setup friends-and-family-billing`.
 
 ### Resolved Bugs (Historical Context)
 1. Duplicate member IDs causing bills to show incorrect member counts

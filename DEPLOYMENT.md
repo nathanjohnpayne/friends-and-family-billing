@@ -1,205 +1,103 @@
-# Firebase Deployment Guide
+# Deployment
 
-Your Family Bill Splitter app is now configured to use Firebase for authentication and cloud storage! Follow these steps to deploy it.
+> This guide covers deploying the existing project. For **new project setup** (create Firebase project, `firebase init`, first-time credential setup), see `ai_agent_repo_template/DEPLOYMENT.md` in the sibling directory.
 
-## Step 1: Create a Firebase Project
+## Prerequisites
 
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Click "Add Project"
-3. Enter a project name (e.g., "family-bill-splitter")
-4. Disable Google Analytics (optional)
-5. Click "Create Project"
+- [Firebase CLI](https://firebase.google.com/docs/cli) (`firebase-tools`) installed globally
+- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) installed and signed in
+- `op-firebase-deploy` script on PATH (see First-Time Setup below)
+- Access to the `Private` vault in 1Password: `Private/Firebase Deploy - friends-and-family-billing`
 
-## Step 2: Set Up Authentication
+## Environments
 
-1. In your Firebase project, click "Authentication" in the left sidebar
-2. Click "Get Started"
-3. Click on "Email/Password" under Sign-in method
-4. Enable "Email/Password"
-5. Click "Save"
-6. Go back to Sign-in method and click "Google"
-7. Enable Google Sign-In
-8. Select a support email address
-9. Click "Save"
-10. Under Settings > Authorized domains, ensure your hosting domain is listed
+| Environment | Firebase Project | URL |
+|-------------|-----------------|-----|
+| Production | `friends-and-family-billing` | https://friends-and-family-billing.web.app |
 
-## Step 3: Set Up Firestore Database
+There is no staging environment. All deploys go directly to production.
 
-1. Click "Firestore Database" in the left sidebar
-2. Click "Create Database"
-3. Start in **Production mode**
-4. Choose a location (e.g., us-central)
-5. Click "Enable"
+## Build Process
 
-### Configure Firestore Security Rules:
-
-1. Click on the "Rules" tab
-2. Replace the rules with the contents of `firestore.rules` from this repository. The rules include:
-   - Owner-only access for user data, billing years, disputes, and audit logs
-   - Owner-scoped CRUD for the `shareTokens` top-level collection
-   - Public read access on `publicShares` (secured by SHA-256 token hashes)
-   - Explicit deny-all catch-all rule
-3. Click "Publish"
-
-Alternatively, deploy rules via CLI: `firebase deploy --only firestore:rules`
-
-### Set Up Firebase Storage (for dispute evidence):
-
-1. Click "Storage" in the left sidebar
-2. Click "Get Started"
-3. Start in Production mode
-4. Choose a location matching your Firestore region
-5. Deploy storage rules: `firebase deploy --only storage`
-
-## Step 4: Get Your Firebase Configuration
-
-1. Click the gear icon (⚙️) next to "Project Overview"
-2. Click "Project Settings"
-3. Scroll down to "Your apps"
-4. Click the web icon `</>`
-5. Enter an app nickname (e.g., "Bill Splitter Web")
-6. Click "Register app"
-7. Copy the `firebaseConfig` object
-
-## Step 5: Update firebase-config.js
-
-Open `firebase-config.js` and replace the placeholder values with your actual Firebase config:
-
-```javascript
-const firebaseConfig = {
-    apiKey: "AIza...", // From Firebase console
-    authDomain: "your-project.firebaseapp.com",
-    projectId: "your-project-id",
-    storageBucket: "your-project.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:abc123"
-};
-```
-
-## Step 6: Deploy to Firebase Hosting
-
-### Install Firebase CLI:
+Firebase Hosting deploys the repository root, but the app bundle is generated from `src/` first.
 
 ```bash
-npm install -g firebase-tools
+# Build the browser bundle locally
+npm run build
 ```
 
-### Login to Firebase:
+`npm run build` runs esbuild and writes `script.js` and `script.js.map` at the repo root.
+During deploys, Firebase also runs the configured hosting predeploy hook: `node stamp-version.js && npm run build`.
+
+## Deployment Steps
+
+All deploys use `op-firebase-deploy` for non-interactive 1Password auth. Never run `firebase deploy` directly.
 
 ```bash
-firebase login
+# Full deploy (hosting + Firestore rules + Storage rules)
+op-firebase-deploy
+
+# Hosting only
+op-firebase-deploy --only hosting
+
+# Rules only
+op-firebase-deploy --only firestore:rules,storage
 ```
 
-### Initialize Firebase in your project:
+The script:
+1. Reads the service account key from 1Password (`Private/Firebase Deploy - friends-and-family-billing`)
+2. Auto-detects the Firebase project from `.firebaserc`
+3. Writes the key to a temp file (`umask 077`), sets `GOOGLE_APPLICATION_CREDENTIALS`
+4. Runs `firebase deploy --non-interactive`
+5. Cleans up credentials on exit
+
+The only interactive step is the 1Password biometric prompt (Touch ID). No `firebase login` or browser prompts needed.
+
+## First-Time Setup
+
+Run once per machine to create the service account key and store it in 1Password:
 
 ```bash
-cd friends-and-family-billing
-firebase init
+op-firebase-setup friends-and-family-billing
 ```
 
-When prompted:
-- Select: **Hosting**, **Firestore**, **Functions**, **Storage**
-- Use existing project: Select your project
-- Public directory: Enter `.` (current directory)
-- Configure as single-page app: **Yes** (the app uses SPA-style rewrites)
-- Set up automatic builds: **No**
-- Overwrite index.html: **No**
+## Rollback Procedure
 
-> **Note:** The repository already includes `firebase.json` with correct hosting configuration, a predeploy hook (`node stamp-version.js`), and `firestore.rules` / `storage.rules`. You should not need to overwrite these during `firebase init`.
-
-### Deploy:
+Firebase Hosting supports instant rollback:
 
 ```bash
-# Full deployment (hosting, rules, functions)
-firebase deploy
+# List recent releases
+firebase hosting:releases:list
 
-# Or hosting only (fastest, runs version stamp automatically)
-firebase deploy --only hosting
+# Roll back via CLI
+firebase hosting:channel:deploy live --release-id <VERSION_ID>
 ```
 
-Your app will be live at: `https://your-project-id.web.app`
+Or use Firebase Console → Hosting → Release History → Roll back.
 
-> **Cloud Functions note:** Deployment may show IAM invoker errors if your GCP organization policy blocks granting `allUsers` access to Cloud Run services. The functions still deploy successfully — they just can't be made publicly accessible. The share page works around this by reading directly from the `publicShares` Firestore collection instead of calling Cloud Functions.
+## Post-Deployment Verification
 
-## Step 7: Test Your App
+1. Open https://friends-and-family-billing.web.app in an incognito window
+2. Create an account or sign in with Google — confirm authentication works
+3. Add a bill and split it between family members — confirm calculations render correctly
+4. Check browser DevTools → Console for any errors
 
-1. Open your deployed URL
-2. Create an account with email/password
-3. Login and test all features
-4. Add family members, bills, etc.
-5. Logout and login again to verify data persistence
+## CI/CD Integration
 
-## Alternative Deployment Options
+No CI/CD pipeline is currently configured. Deploys are manual via `op-firebase-deploy`.
 
-> **Important:** The app uses Firebase Cloud Functions and Firestore for share links, disputes, and data storage. Alternative hosting platforms will serve the frontend but cannot run Cloud Functions. Only Firebase Hosting fully supports all features.
+## Secrets Management
 
-### Option 1: Netlify (Free) — frontend only
+- No API keys or secrets are committed to this repository.
+- Service account credentials are stored exclusively in 1Password (`Private/Firebase Deploy - friends-and-family-billing`).
+- For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
 
-1. Create account at [netlify.com](https://netlify.com)
-2. Drag and drop your project folder
-3. Site will be live at `https://random-name.netlify.app`
+## Key Rotation
 
-### Option 2: Vercel (Free) — frontend only
+The service account key does not expire. To rotate if compromised:
 
-1. Create account at [vercel.com](https://vercel.com)
-2. Import your GitHub repository
-3. Deploy automatically
+```bash
+op-firebase-setup friends-and-family-billing
+```
 
-### Option 3: GitHub Pages (Free) — frontend only
-
-1. Create a GitHub repository
-2. Push your code
-3. Go to Settings > Pages
-4. Select branch and folder
-5. Save and wait for deployment
-
-## Costs
-
-- **Firebase Free Tier**:
-  - 50,000 reads/day
-  - 20,000 writes/day
-  - 20,000 deletes/day
-  - 1 GB storage
-  - Perfect for personal/family use!
-
-- **If you exceed free tier**:
-  - Pay-as-you-go pricing starts at ~$0.06 per 100,000 reads
-  - For 10 active users: ~$0-5/month
-  - For 50 active users: ~$5-25/month
-
-## Security Notes
-
-- Each user can only access their own data
-- Passwords are hashed by Firebase
-- All data transmitted over HTTPS
-- Firebase provides DDoS protection
-
-## Troubleshooting
-
-**Problem**: "Firebase not defined"
-- **Solution**: Make sure firebase-config.js is loaded before script.js
-
-**Problem**: "Permission denied"
-- **Solution**: Check Firestore security rules
-
-**Problem**: "Auth error"
-- **Solution**: Verify email/password is enabled in Firebase Console
-
-**Problem**: Data not saving
-- **Solution**: Check browser console for errors, verify Firestore rules
-
-## Support
-
-For issues, check:
-- [Firebase Documentation](https://firebase.google.com/docs)
-- [Firebase Status](https://status.firebase.google.com)
-- Browser console for error messages
-
-## Next Steps
-
-Potential enhancements:
-- Email verification on signup
-- Facebook/Apple social login
-- Data export to CSV/PDF
-- Monthly email reminders
-- Shared bills between multiple users
+This generates a new key and updates 1Password automatically.
