@@ -391,6 +391,8 @@ async function setBillingYearStatus(newStatus) {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
         renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
@@ -525,6 +527,8 @@ async function switchBillingYear(yearId) {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
         renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
@@ -619,6 +623,8 @@ async function startNewYear() {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
         renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
