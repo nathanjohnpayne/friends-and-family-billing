@@ -15,6 +15,13 @@ let currentUser = null;
 let currentBillingYear = null;
 let billingYears = [];
 
+// UI state
+let _activeWorkspaceTab = 'members';
+let _summaryFilter = 'all';
+let _expandedSettlementIds = new Set();
+let _memberComposerOpen = false;
+let _billComposerOpen = false;
+
 const CURRENT_MIGRATION_VERSION = 1;
 
 const PAYMENT_METHOD_LABELS = {
@@ -109,12 +116,14 @@ document.addEventListener('DOMContentLoaded', () => {
             debugDataIntegrity(); // Debug function to check data
             renderBillingYearSelector();
             renderArchivedBanner();
+            renderWorkspaceTabs();
             renderFamilyMembers();
             renderBills();
             updateSummary();
             renderEmailSettings();
             renderPaymentMethodsSettings();
             loadDisputes();
+            updateComposerVisibility();
             startUpdateChecker();
 
             var billAmountInput = document.getElementById('billAmount');
@@ -373,14 +382,20 @@ async function setBillingYearStatus(newStatus) {
         const yearInList = billingYears.find(y => y.id === currentBillingYear.id);
         if (yearInList) yearInList.status = newStatus;
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderStatusBanner();
+        renderWorkspaceTabs();
         renderFamilyMembers();
         renderBills();
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
+        renderDashboardStatus();
         loadDisputes();
+        updateComposerVisibility();
     } catch (error) {
         console.error('Error updating billing year status:', error);
         alert('Error updating billing year status. Please try again.');
@@ -503,14 +518,20 @@ async function switchBillingYear(yearId) {
 
         await loadBillingYearData(yearId);
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderArchivedBanner();
+        renderWorkspaceTabs();
         renderFamilyMembers();
         renderBills();
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
+        renderDashboardStatus();
         loadDisputes();
+        updateComposerVisibility();
     } catch (error) {
         console.error('Error switching billing year:', error);
         alert('Error switching billing year. Please try again.');
@@ -593,14 +614,20 @@ async function startNewYear() {
         await loadBillingYearsList();
         await loadBillingYearData(yearId);
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderArchivedBanner();
+        renderWorkspaceTabs();
         renderFamilyMembers();
         renderBills();
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDisputeFilterBar([]);
+        renderDisputes([]);
+        renderDashboardStatus();
         loadDisputes();
+        updateComposerVisibility();
 
         alert('Billing year ' + yearId + ' created successfully!');
     } catch (error) {
@@ -920,6 +947,13 @@ function addFamilyMember() {
     input.value = '';
     emailInput.value = '';
     if (phoneInput) phoneInput.value = '';
+
+    // Collapse composer after successful add
+    _memberComposerOpen = false;
+    const composerPanel = document.getElementById('memberComposerPanel');
+    const composerBtn = document.getElementById('memberComposerBtn');
+    if (composerPanel) composerPanel.style.display = 'none';
+    if (composerBtn) composerBtn.textContent = '+ Add Member';
 
     saveData();
     renderFamilyMembers();
@@ -1323,6 +1357,13 @@ function addBill() {
     setAddBillFrequency('monthly');
     var preview = document.getElementById('billAmountPreview');
     if (preview) preview.textContent = '';
+
+    // Collapse composer after successful add
+    _billComposerOpen = false;
+    const billComposerPanel = document.getElementById('billComposerPanel');
+    const billComposerBtn = document.getElementById('billComposerBtn');
+    if (billComposerPanel) billComposerPanel.style.display = 'none';
+    if (billComposerBtn) billComposerBtn.textContent = '+ Add Bill';
 
     saveData();
     renderBills();
@@ -1829,6 +1870,87 @@ function closeAllActionMenus() {
 
 document.addEventListener('click', closeAllActionMenus);
 
+// ──────────────── Settlement Board State ────────────────
+
+function setSummaryFilter(filter) {
+    _summaryFilter = filter;
+    updateSummary();
+}
+
+function toggleSettlementDetail(memberId) {
+    if (_expandedSettlementIds.has(memberId)) {
+        _expandedSettlementIds.delete(memberId);
+    } else {
+        _expandedSettlementIds.add(memberId);
+    }
+    updateSummary();
+}
+
+// ──────────────── Workspace Tabs ────────────────
+
+function switchWorkspaceTab(tabId) {
+    _activeWorkspaceTab = tabId;
+    document.querySelectorAll('.workspace-panel').forEach(p => {
+        p.style.display = p.id === 'panel-' + tabId ? '' : 'none';
+    });
+    document.querySelectorAll('.workspace-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tabId);
+    });
+}
+
+function renderWorkspaceTabs() {
+    const bar = document.getElementById('workspaceTabs');
+    if (!bar) return;
+    const tabs = [
+        { id: 'members', label: 'Members' },
+        { id: 'bills', label: 'Bills' },
+        { id: 'invoicing', label: 'Invoicing' },
+        { id: 'reviews', label: 'Review Requests' }
+    ];
+    bar.innerHTML = tabs.map(t =>
+        '<button class="workspace-tab' + (_activeWorkspaceTab === t.id ? ' active' : '') + '" data-tab="' + t.id + '" onclick="switchWorkspaceTab(\'' + t.id + '\')">' + escapeHtml(t.label) + '</button>'
+    ).join('');
+    // Ensure correct panel visibility
+    switchWorkspaceTab(_activeWorkspaceTab);
+}
+
+// ──────────────── Composer Panels ────────────────
+
+function toggleMemberComposer() {
+    if (isYearReadOnly()) return;
+    _memberComposerOpen = !_memberComposerOpen;
+    const panel = document.getElementById('memberComposerPanel');
+    const btn = document.getElementById('memberComposerBtn');
+    if (panel) panel.style.display = _memberComposerOpen ? '' : 'none';
+    if (btn) btn.textContent = _memberComposerOpen ? '− Cancel' : '+ Add Member';
+}
+
+function toggleBillComposer() {
+    if (isYearReadOnly()) return;
+    _billComposerOpen = !_billComposerOpen;
+    const panel = document.getElementById('billComposerPanel');
+    const btn = document.getElementById('billComposerBtn');
+    if (panel) panel.style.display = _billComposerOpen ? '' : 'none';
+    if (btn) btn.textContent = _billComposerOpen ? '− Cancel' : '+ Add Bill';
+}
+
+function updateComposerVisibility() {
+    const readOnly = isYearReadOnly();
+    const memberToggle = document.getElementById('memberComposerToggle');
+    const billToggle = document.getElementById('billComposerToggle');
+    if (memberToggle) memberToggle.style.display = readOnly ? 'none' : '';
+    if (billToggle) billToggle.style.display = readOnly ? 'none' : '';
+    // Close composers when switching to read-only year
+    if (readOnly) {
+        _memberComposerOpen = false;
+        _billComposerOpen = false;
+        const mp = document.getElementById('memberComposerPanel');
+        const bp = document.getElementById('billComposerPanel');
+        if (mp) mp.style.display = 'none';
+        if (bp) bp.style.display = 'none';
+    }
+}
+
 // Update summary display
 function updateSummary() {
     const container = document.getElementById('annualSummary');
@@ -1850,107 +1972,127 @@ function updateSummary() {
     // Only show parent members and independent members in main rows
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
 
-    const tableRows = mainMembers
-        .map(member => {
-            const data = summary[member.id];
-            if (!data) return '';
+    // Build member data with computed fields for sorting/filtering
+    const memberRows = mainMembers.map(member => {
+        const data = summary[member.id];
+        if (!data) return null;
 
-            // Calculate combined total for parent and linked members
-            let combinedTotal = data.total;
-            const linkedData = [];
+        let combinedTotal = data.total;
+        const linkedData = [];
 
-            member.linkedMembers.forEach(linkedId => {
-                const linkedSummary = summary[linkedId];
-                if (linkedSummary) {
-                    combinedTotal += linkedSummary.total;
-                    linkedData.push(linkedSummary);
-                }
-            });
+        member.linkedMembers.forEach(linkedId => {
+            const linkedSummary = summary[linkedId];
+            if (linkedSummary) {
+                combinedTotal += linkedSummary.total;
+                linkedData.push(linkedSummary);
+            }
+        });
 
-            const payment = getPaymentTotalForMember(member.id) +
-                member.linkedMembers.reduce((sum, id) => sum + getPaymentTotalForMember(id), 0);
+        const payment = getPaymentTotalForMember(member.id) +
+            member.linkedMembers.reduce((sum, id) => sum + getPaymentTotalForMember(id), 0);
 
-            const balance = combinedTotal - payment;
-            totalPayments += payment;
+        const balance = combinedTotal - payment;
+        totalPayments += payment;
 
-            const statusBadge = getPaymentStatusBadge(combinedTotal, payment);
+        let status = 'outstanding';
+        if (balance <= 0) status = 'settled';
+        else if (payment > 0) status = 'partial';
 
+        return { member, data, combinedTotal, linkedData, payment, balance, status };
+    }).filter(Boolean);
+
+    // Sort by urgency: outstanding > partial > settled
+    const sortOrder = { outstanding: 0, partial: 1, settled: 2 };
+    memberRows.sort((a, b) => sortOrder[a.status] - sortOrder[b.status]);
+
+    // Apply filter
+    const filtered = _summaryFilter === 'all'
+        ? memberRows
+        : memberRows.filter(r => r.status === _summaryFilter);
+
+    // Filter chip counts
+    const counts = { all: memberRows.length, outstanding: 0, partial: 0, settled: 0 };
+    memberRows.forEach(r => counts[r.status]++);
+
+    const filterChips = [
+        { key: 'all', label: 'All' },
+        { key: 'outstanding', label: 'Outstanding' },
+        { key: 'partial', label: 'Partial' },
+        { key: 'settled', label: 'Settled' }
+    ].map(f =>
+        '<button class="settlement-filter-chip' + (_summaryFilter === f.key ? ' active' : '') + '" onclick="setSummaryFilter(\'' + f.key + '\')">' + escapeHtml(f.label) + ' <span class="settlement-filter-count">' + counts[f.key] + '</span></button>'
+    ).join('');
+
+    // Build row-cards
+    const cards = filtered.map(row => {
+        const { member, data, combinedTotal, linkedData, payment, balance, status } = row;
+        const statusBadge = getPaymentStatusBadge(combinedTotal, payment);
+        const isExpanded = _expandedSettlementIds.has(member.id);
+
+        // Build expanded detail section
+        let detailHtml = '';
+        if (isExpanded) {
             const breakdownHtml = getCalculationBreakdown(data);
-
-            let rows = `
-            <tr class="parent-row">
-                <td>
-                    <div class="summary-member">
-                        ${generateAvatar(data.member)}
-                        <span>${escapeHtml(data.member.name)}</span>
-                        ${member.linkedMembers.length > 0 ? `<span class="member-count">(+${member.linkedMembers.length})</span>` : ''}
-                    </div>
-                </td>
-                <td>$${(combinedTotal / 12).toFixed(2)}</td>
-                <td>
-                    <strong>$${combinedTotal.toFixed(2)}</strong>
-                    ${breakdownHtml ? `<button class="calc-toggle-btn" onclick="toggleCalcBreakdown(${data.member.id})">View calculation</button>
-                    <div id="calc-breakdown-${data.member.id}" style="display:none;">${breakdownHtml}</div>` : ''}
-                </td>
-                <td class="payment-cell">
-                    $${payment.toFixed(2)}
-                    <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${data.member.id})" title="View payment history">📋</button>
-                </td>
-                <td class="balance-cell ${balance > 0 ? 'balance-owed' : 'balance-paid'}${balance > 0 ? ' balance-highlight' : ''}">
-                    <strong>$${balance.toFixed(2)}</strong>
-                    ${statusBadge}
-                </td>
-                <td>
-                    <div class="actions-dropdown">
-                        <button class="actions-dropdown-btn" onclick="toggleActionMenu(event)">Actions ▾</button>
-                        <div class="actions-dropdown-menu">
-                            ${archived ? '' : `<button onclick="showAddPaymentDialog(${data.member.id}); closeAllActionMenus();">Record Annual Payment</button>`}
-                            <button onclick="showEmailInvoiceDialog(${data.member.id}); closeAllActionMenus();">Email Invoice</button>
-                            <button onclick="showTextInvoiceDialog(${data.member.id}); closeAllActionMenus();">Text Invoice</button>
-                            <button onclick="generateShareLink(${data.member.id}); closeAllActionMenus();">Share Billing Link</button>
-                            <button onclick="showShareLinks(${data.member.id}); closeAllActionMenus();">Manage Share Links</button>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-            `;
-
-            linkedData.forEach(linkedSummary => {
-                const childPayment = getPaymentTotalForMember(linkedSummary.member.id);
-                const childBalance = linkedSummary.total - childPayment;
-                const childStatusBadge = getPaymentStatusBadge(linkedSummary.total, childPayment);
-                const childBreakdown = getCalculationBreakdown(linkedSummary);
-                rows += `
-                <tr class="child-row">
-                    <td>
-                        <div class="summary-member summary-child">
-                            <span class="child-indicator">↳</span>
-                            ${generateAvatar(linkedSummary.member)}
-                            <span>${escapeHtml(linkedSummary.member.name)}</span>
-                        </div>
-                    </td>
-                    <td>$${(linkedSummary.total / 12).toFixed(2)}</td>
-                    <td>
-                        $${linkedSummary.total.toFixed(2)}
-                        ${childBreakdown ? `<button class="calc-toggle-btn" onclick="toggleCalcBreakdown(${linkedSummary.member.id})">View calculation</button>
-                        <div id="calc-breakdown-${linkedSummary.member.id}" style="display:none;">${childBreakdown}</div>` : ''}
-                    </td>
-                    <td class="payment-cell">
-                        $${childPayment.toFixed(2)}
-                        <button class="btn-icon payment-history-btn" onclick="showPaymentHistory(${linkedSummary.member.id})" title="View payment history">📋</button>
-                    </td>
-                    <td class="balance-cell ${childBalance > 0 ? 'balance-owed' : 'balance-paid'}${childBalance > 0 ? ' balance-highlight' : ''}">
-                        $${childBalance.toFixed(2)}
-                        ${childStatusBadge}
-                    </td>
-                    <td></td>
-                </tr>
-                `;
+            let linkedHtml = '';
+            linkedData.forEach(ls => {
+                const childPayment = getPaymentTotalForMember(ls.member.id);
+                const childBalance = ls.total - childPayment;
+                const childBadge = getPaymentStatusBadge(ls.total, childPayment);
+                const childBreakdown = getCalculationBreakdown(ls);
+                linkedHtml += '<div class="settlement-linked-row">'
+                    + '<div class="settlement-linked-member">'
+                    + '<span class="child-indicator">\u21B3</span>'
+                    + generateAvatar(ls.member)
+                    + '<span>' + escapeHtml(ls.member.name) + '</span>'
+                    + '</div>'
+                    + '<div class="settlement-linked-amounts">'
+                    + '<span>$' + ls.total.toFixed(2) + '</span>'
+                    + '<span class="' + (childBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + childBalance.toFixed(2) + '</span>'
+                    + childBadge
+                    + '</div>'
+                    + '<div class="settlement-linked-actions">'
+                    + '<button class="btn-icon payment-history-btn" onclick="showPaymentHistory(' + ls.member.id + ')" title="Payment history">\uD83D\uDCCB History</button>'
+                    + '</div>'
+                    + (childBreakdown ? '<div class="settlement-breakdown">' + childBreakdown + '</div>' : '')
+                    + '</div>';
             });
 
-            return rows;
-        })
-        .join('');
+            detailHtml = '<div class="settlement-row-detail">'
+                + (breakdownHtml ? '<div class="settlement-breakdown">' + breakdownHtml + '</div>' : '')
+                + linkedHtml
+                + '<div class="settlement-detail-actions">'
+                + '<button class="btn-icon payment-history-btn" onclick="showPaymentHistory(' + data.member.id + ')" title="Payment history">\uD83D\uDCCB History</button>'
+                + '<button class="btn btn-sm btn-tertiary" onclick="generateShareLink(' + data.member.id + ')">Share Link</button>'
+                + '<button class="btn btn-sm btn-tertiary" onclick="showShareLinks(' + data.member.id + ')">Manage Links</button>'
+                + '</div>'
+                + '</div>';
+        }
+
+        return '<div class="settlement-row-card settlement-' + status + '">'
+            + '<div class="settlement-row-primary" onclick="toggleSettlementDetail(' + member.id + ')">'
+            + '<div class="settlement-row-member">'
+            + generateAvatar(data.member)
+            + '<div class="settlement-row-name">'
+            + '<strong>' + escapeHtml(data.member.name) + '</strong>'
+            + (member.linkedMembers.length > 0 ? '<span class="member-count-badge">+' + member.linkedMembers.length + '</span>' : '')
+            + '</div>'
+            + '</div>'
+            + '<div class="settlement-row-amounts">'
+            + '<div class="settlement-amount-group"><span class="settlement-amount-label">Annual</span><span class="settlement-amount-value">$' + combinedTotal.toFixed(2) + '</span></div>'
+            + '<div class="settlement-amount-group"><span class="settlement-amount-label">Paid</span><span class="settlement-amount-value">$' + payment.toFixed(2) + '</span></div>'
+            + '<div class="settlement-amount-group"><span class="settlement-amount-label">Balance</span><span class="settlement-amount-value ' + (balance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + balance.toFixed(2) + '</span></div>'
+            + '</div>'
+            + '<div class="settlement-row-status">' + statusBadge + '</div>'
+            + '<div class="settlement-row-actions" onclick="event.stopPropagation()">'
+            + (archived || balance <= 0 ? '' : '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>')
+            + '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>'
+            + (data.member.phone ? '<button class="btn btn-secondary btn-sm" onclick="showTextInvoiceDialog(' + data.member.id + ')">Text Invoice</button>' : '')
+            + '</div>'
+            + '<span class="settlement-expand-icon">' + (isExpanded ? '\u25B2' : '\u25BC') + '</span>'
+            + '</div>'
+            + detailHtml
+            + '</div>';
+    }).join('');
 
     const totalBalance = totalAnnual - totalPayments;
 
@@ -1968,33 +2110,15 @@ function updateSummary() {
         payViaStrip = '<div class="payment-methods-strip"><span class="payment-strip-label">Pay via</span>' + icons + '</div>';
     }
 
-    container.innerHTML = `
-        ${completionBanner}
-        <p class="section-desc mb-0" style="margin-bottom: 12px;">Each member's total responsibility for this billing year.</p>
-        ${payViaStrip}
-        <table class="summary-table">
-            <thead>
-                <tr>
-                    <th>Family Member</th>
-                    <th>Monthly Total</th>
-                    <th>Annual Total</th>
-                    <th>Payment Received</th>
-                    <th>Balance</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${tableRows}
-                <tr class="total-row">
-                    <td>TOTAL</td>
-                    <td>$${(totalAnnual / 12).toFixed(2)}</td>
-                    <td><strong>$${totalAnnual.toFixed(2)}</strong></td>
-                    <td><strong>$${totalPayments.toFixed(2)}</strong></td>
-                    <td colspan="2"><strong>$${totalBalance.toFixed(2)}</strong></td>
-                </tr>
-            </tbody>
-        </table>
-    `;
+    container.innerHTML = completionBanner
+        + payViaStrip
+        + '<div class="settlement-filter-bar">' + filterChips + '</div>'
+        + '<div class="settlement-board">' + cards + '</div>'
+        + '<div class="settlement-totals">'
+        + '<span>Total Annual: <strong>$' + totalAnnual.toFixed(2) + '</strong></span>'
+        + '<span>Total Paid: <strong>$' + totalPayments.toFixed(2) + '</strong></span>'
+        + '<span>Remaining: <strong class="' + (totalBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + totalBalance.toFixed(2) + '</strong></span>'
+        + '</div>';
 
     renderDashboardStatus();
 }
@@ -2043,19 +2167,25 @@ function renderDashboardStatus() {
         adminReminder = '<div class="settlement-admin-hint">' + remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding. Send reminders via share links.</div>';
     }
 
+    const openReviews = _loadedDisputes.filter(d => d.status === 'open' || d.status === 'in_review').length;
+
     container.innerHTML = `
         <div class="lifecycle-bar">${lifecycleSteps}</div>
-        <div class="dashboard-stat">
-            <span class="dashboard-stat-label">Billing Year</span>
-            <span class="dashboard-stat-value">${escapeHtml(yearLabel)}</span>
+        <div class="kpi-card">
+            <span class="kpi-card-label">Outstanding</span>
+            <span class="kpi-card-value ${metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${metrics.totalOutstanding.toFixed(2)}</span>
         </div>
-        <div class="dashboard-stat">
-            <span class="dashboard-stat-label">Outstanding Balance</span>
-            <span class="dashboard-stat-value ${metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${metrics.totalOutstanding.toFixed(2)}</span>
+        <div class="kpi-card">
+            <span class="kpi-card-label">Settled</span>
+            <span class="kpi-card-value">${metrics.paidCount} / ${metrics.totalMembers}</span>
         </div>
-        <div class="dashboard-stat">
-            <span class="dashboard-stat-label">Members Settled</span>
-            <span class="dashboard-stat-value">${metrics.paidCount} / ${metrics.totalMembers}</span>
+        <div class="kpi-card${openReviews > 0 ? ' kpi-card--clickable' : ''}"${openReviews > 0 ? ' onclick="switchWorkspaceTab(\'reviews\'); setDisputeFilter(\'actionable\')"' : ''}>
+            <span class="kpi-card-label">Reviews</span>
+            <span class="kpi-card-value">${openReviews}</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-card-label">Status</span>
+            <span class="kpi-card-value">${escapeHtml((BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label)}</span>
         </div>
         <div class="settlement-progress">
             <div class="settlement-progress-bar" style="width: ${metrics.percentage}%"></div>
@@ -2604,7 +2734,7 @@ function formatPaymentOptionsText() {
 // ──────────────── Review Requests (Disputes) ────────────────
 
 let _loadedDisputes = [];
-let _disputeStatusFilter = 'all';
+let _disputeStatusFilter = 'actionable';
 
 const DISPUTE_STATUS_LABELS = {
     open: 'Open',
@@ -2663,6 +2793,7 @@ async function loadDisputes() {
         _loadedDisputes = disputes;
         renderDisputeFilterBar(disputes);
         renderDisputes(disputes);
+        renderDashboardStatus();
     } catch (error) {
         console.error('Error loading disputes:', error);
         container.innerHTML = '<p class="text-error">Error loading review requests.</p>';
@@ -2673,10 +2804,14 @@ function renderDisputeFilterBar(disputes) {
     const bar = document.getElementById('disputeFilterBar');
     if (!bar) return;
 
-    const counts = { all: disputes.length, open: 0, in_review: 0, resolved: 0, rejected: 0 };
-    disputes.forEach(d => { if (counts[d.status] !== undefined) counts[d.status]++; });
+    const counts = { all: disputes.length, actionable: 0, open: 0, in_review: 0, resolved: 0, rejected: 0 };
+    disputes.forEach(d => {
+        if (counts[d.status] !== undefined) counts[d.status]++;
+        if (d.status === 'open' || d.status === 'in_review') counts.actionable++;
+    });
 
     const filters = [
+        { key: 'actionable', label: 'Actionable' },
         { key: 'all', label: 'All' },
         { key: 'open', label: 'Open' },
         { key: 'in_review', label: 'In Review' },
@@ -2693,9 +2828,18 @@ function renderDisputes(disputes) {
     const container = document.getElementById('disputesList');
     if (!container) return;
 
-    const filtered = _disputeStatusFilter === 'all'
-        ? disputes
-        : disputes.filter(d => d.status === _disputeStatusFilter);
+    let filtered;
+    if (_disputeStatusFilter === 'all') {
+        filtered = disputes;
+    } else if (_disputeStatusFilter === 'actionable') {
+        filtered = disputes.filter(d => d.status === 'open' || d.status === 'in_review');
+    } else {
+        filtered = disputes.filter(d => d.status === _disputeStatusFilter);
+    }
+
+    // Sort: open first, then in_review, then resolved, then rejected
+    const disputeSortOrder = { open: 0, in_review: 1, resolved: 2, rejected: 3 };
+    filtered.sort((a, b) => (disputeSortOrder[a.status] ?? 9) - (disputeSortOrder[b.status] ?? 9));
 
     if (filtered.length === 0) {
         if (_disputeStatusFilter === 'all') {
@@ -4939,6 +5083,11 @@ function _set(key, val) {
         case '_loadedDisputes': _loadedDisputes = val; break;
         case '_disputeStatusFilter': _disputeStatusFilter = val; break;
         case '_invoiceDialogState': _invoiceDialogState = val; break;
+        case '_activeWorkspaceTab': _activeWorkspaceTab = val; break;
+        case '_summaryFilter': _summaryFilter = val; break;
+        case '_expandedSettlementIds': _expandedSettlementIds = val; break;
+        case '_memberComposerOpen': _memberComposerOpen = val; break;
+        case '_billComposerOpen': _billComposerOpen = val; break;
     }
 }
 function _get(key) {
@@ -4954,6 +5103,11 @@ function _get(key) {
         case '_loadedDisputes': return _loadedDisputes;
         case '_disputeStatusFilter': return _disputeStatusFilter;
         case '_invoiceDialogState': return _invoiceDialogState;
+        case '_activeWorkspaceTab': return _activeWorkspaceTab;
+        case '_summaryFilter': return _summaryFilter;
+        case '_expandedSettlementIds': return _expandedSettlementIds;
+        case '_memberComposerOpen': return _memberComposerOpen;
+        case '_billComposerOpen': return _billComposerOpen;
         case 'EVIDENCE_MAX_SIZE': return EVIDENCE_MAX_SIZE;
         case 'EVIDENCE_MAX_COUNT': return EVIDENCE_MAX_COUNT;
         case 'EVIDENCE_ALLOWED_TYPES': return EVIDENCE_ALLOWED_TYPES;
@@ -5079,6 +5233,13 @@ export {
     calculateSettlementMetrics,
     toggleActionMenu,
     closeAllActionMenus,
+    setSummaryFilter,
+    toggleSettlementDetail,
+    switchWorkspaceTab,
+    renderWorkspaceTabs,
+    toggleMemberComposer,
+    toggleBillComposer,
+    updateComposerVisibility,
     updateSummary,
     renderDashboardStatus,
 

@@ -14,8 +14,12 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div class="utility-bar">
+        <span id="user-email" class="header-user-email"></span>
+        <button onclick="logout()" class="btn btn-secondary">Logout</button>
+    </div>
     <div class="container">
-        <header>
+        <header class="app-hero">
             <div class="header-logo" id="headerLogo">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
                     <defs><linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs>
@@ -31,85 +35,98 @@
             <div id="billingYearControls" class="billing-year-controls"></div>
             <div id="dashboardStatus" class="dashboard-status"></div>
             <p id="dashboardContextBanner" class="subtitle" style="display:none; margin-top: 8px; font-size: 0.95rem; opacity: 0.85;"></p>
-            <div class="header-actions">
-                <span id="user-email" class="header-user-email"></span>
-                <button onclick="logout()" class="btn btn-secondary">Logout</button>
-            </div>
         </header>
         <div id="archivedBanner" class="archived-banner" style="display:none;">
             This billing year is archived and read-only.
         </div>
 
         <div class="main-content">
-            <!-- Family Members Section -->
-            <section class="card">
-                <h2>Friends & Family Members</h2>
-                <div class="family-members-input">
-                    <input type="text" id="memberName" placeholder="Enter family member name" />
-                    <input type="email" id="memberEmail" placeholder="Email address (optional)" />
-                    <input type="tel" id="memberPhone" placeholder="Phone (e.g. +14155551212)" />
-                    <button onclick="addFamilyMember()" class="btn btn-primary">Add Member</button>
-                </div>
-                <div id="familyMembersList" class="members-list"></div>
-            </section>
-
-            <!-- Bills Section -->
-            <section class="card">
-                <h2>Bills</h2>
-                <div class="bill-input-section">
-                    <div class="form-group">
-                        <label for="billName">Bill Name</label>
-                        <input type="text" id="billName" placeholder="e.g., T-Mobile" />
-                    </div>
-                    <div class="form-group">
-                        <label for="billAmount" id="billAmountLabel">Monthly Amount ($)</label>
-                        <input type="number" id="billAmount" step="0.01" placeholder="0.00" />
-                        <div class="frequency-toggle" id="billFrequencyToggle">
-                            <button type="button" class="frequency-option active" data-frequency="monthly" onclick="setAddBillFrequency('monthly')">Monthly</button>
-                            <button type="button" class="frequency-option" data-frequency="annual" onclick="setAddBillFrequency('annual')">Annual</button>
-                        </div>
-                        <div id="billAmountPreview" class="derived-amount-preview"></div>
-                    </div>
-                    <div class="form-group">
-                        <label for="billWebsite">Website (optional)</label>
-                        <input type="url" id="billWebsite" placeholder="https://example.com" />
-                    </div>
-                    <button onclick="addBill()" class="btn btn-primary">Add Bill</button>
-                </div>
-                <div id="billsList" class="bills-list"></div>
-            </section>
-
-            <!-- Summary Section -->
-            <section class="card summary-card">
+            <!-- Primary: Settlement Workspace -->
+            <section class="card settlement-workspace">
                 <h2>Annual Summary</h2>
                 <div id="annualSummary" class="summary-content"></div>
                 <button onclick="generateInvoice()" class="btn btn-success">Generate Annual Invoice</button>
             </section>
 
-            <!-- Email Settings Section -->
-            <section class="card summary-card">
-                <h2>Email Settings</h2>
-                <div id="emailSettings"></div>
-            </section>
+            <!-- Secondary: Management Workspace -->
+            <div class="management-workspace">
+                <div id="workspaceTabs" class="workspace-tab-bar"></div>
 
-            <!-- Payment Methods Section -->
-            <section class="card summary-card">
-                <h2>Payment Methods</h2>
-                <p class="section-desc">
-                    Configure payment methods (Zelle, Apple Cash, Cash App, etc.) that appear on invoices and shared billing summaries.
-                </p>
-                <div id="paymentLinksSettings"></div>
-            </section>
+                <!-- Members Tab -->
+                <section class="card workspace-panel" id="panel-members">
+                    <h2>Friends & Family Members</h2>
+                    <div class="composer-toggle" id="memberComposerToggle">
+                        <button onclick="toggleMemberComposer()" class="btn btn-primary btn-sm" id="memberComposerBtn">+ Add Member</button>
+                    </div>
+                    <div class="composer-panel" id="memberComposerPanel" style="display:none;">
+                        <div class="family-members-input">
+                            <input type="text" id="memberName" placeholder="Enter family member name" />
+                            <input type="email" id="memberEmail" placeholder="Email address (optional)" />
+                            <input type="tel" id="memberPhone" placeholder="Phone (e.g. +14155551212)" />
+                            <button onclick="addFamilyMember()" class="btn btn-primary">Add Member</button>
+                        </div>
+                    </div>
+                    <div id="familyMembersList" class="members-list"></div>
+                </section>
 
-            <!-- Review Requests Section -->
-            <section class="card summary-card">
-                <h2>Review Requests</h2>
-                <p class="section-desc">
-                    Bill items flagged during annual review.
-                </p>
-                <div id="disputeFilterBar" class="dispute-filter-bar"></div>
-                <div id="disputesList"></div>
-            </section>
+                <!-- Bills Tab -->
+                <section class="card workspace-panel" id="panel-bills" style="display:none;">
+                    <h2>Bills</h2>
+                    <div class="composer-toggle" id="billComposerToggle">
+                        <button onclick="toggleBillComposer()" class="btn btn-primary btn-sm" id="billComposerBtn">+ Add Bill</button>
+                    </div>
+                    <div class="composer-panel" id="billComposerPanel" style="display:none;">
+                        <div class="bill-input-section">
+                            <div class="form-group">
+                                <label for="billName">Bill Name</label>
+                                <input type="text" id="billName" placeholder="e.g., T-Mobile" />
+                            </div>
+                            <div class="form-group">
+                                <label for="billAmount" id="billAmountLabel">Monthly Amount ($)</label>
+                                <input type="number" id="billAmount" step="0.01" placeholder="0.00" />
+                                <div class="frequency-toggle" id="billFrequencyToggle">
+                                    <button type="button" class="frequency-option active" data-frequency="monthly" onclick="setAddBillFrequency('monthly')">Monthly</button>
+                                    <button type="button" class="frequency-option" data-frequency="annual" onclick="setAddBillFrequency('annual')">Annual</button>
+                                </div>
+                                <div id="billAmountPreview" class="derived-amount-preview"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="billWebsite">Website (optional)</label>
+                                <input type="url" id="billWebsite" placeholder="https://example.com" />
+                            </div>
+                            <button onclick="addBill()" class="btn btn-primary">Add Bill</button>
+                        </div>
+                    </div>
+                    <div id="billsList" class="bills-list"></div>
+                </section>
+
+                <!-- Invoicing Tab -->
+                <section class="card workspace-panel" id="panel-invoicing" style="display:none;">
+                    <h2>Invoicing</h2>
+                    <div class="invoicing-sub-panel">
+                        <h3>Invoice Template</h3>
+                        <div id="emailSettings"></div>
+                    </div>
+                    <hr class="section-divider">
+                    <div class="invoicing-sub-panel">
+                        <h3>Payment Methods</h3>
+                        <p class="section-desc">
+                            Configure payment methods (Zelle, Apple Cash, Cash App, etc.) that appear on invoices and shared billing summaries.
+                        </p>
+                        <div id="paymentLinksSettings"></div>
+                    </div>
+                </section>
+
+                <!-- Review Requests Tab -->
+                <section class="card workspace-panel" id="panel-reviews" style="display:none;">
+                    <h2>Review Requests</h2>
+                    <p class="section-desc">
+                        Bill items flagged during annual review.
+                    </p>
+                    <div id="disputeFilterBar" class="dispute-filter-bar"></div>
+                    <div id="disputesList"></div>
+                </section>
+            </div>
 
         </div>
         <div class="privacy-footer">Your billing data is private and visible only to invited participants. Secure authentication powered by Google &amp; Firebase.</div>
