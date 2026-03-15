@@ -132,7 +132,7 @@ chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-fir
 hash -r
 
 # One-time per maintainer/machine
-gcloud auth application-default login
+# Make sure 1Password CLI can read Private/GCP ADC -> credential
 
 # One-time per maintainer/project: configure impersonation-based deploy auth
 op-firebase-setup friends-and-family-billing
@@ -323,7 +323,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 ### Deploy auth and future-secret flow
 
 - Deploy maintainers need `firebase-tools`, `gcloud`, and the canonical helper scripts from `../ai_agent_repo_template/scripts/`.
-- `gcloud auth application-default login` bootstraps local ADC for the machine.
+- The normal maintainer flow reads the shared `Private/GCP ADC` source credential through the 1Password CLI, so routine deploy work does not need browser login once that item exists.
 - `op-firebase-setup friends-and-family-billing` creates the deployer service account, grants deploy roles, and grants the current maintainer impersonation rights.
 - `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which creates a temporary impersonated credential for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
 - For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
