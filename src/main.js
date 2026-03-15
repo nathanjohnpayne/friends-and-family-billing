@@ -382,6 +382,7 @@ async function setBillingYearStatus(newStatus) {
         const yearInList = billingYears.find(y => y.id === currentBillingYear.id);
         if (yearInList) yearInList.status = newStatus;
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderStatusBanner();
         renderWorkspaceTabs();
@@ -390,6 +391,7 @@ async function setBillingYearStatus(newStatus) {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
     } catch (error) {
@@ -514,6 +516,7 @@ async function switchBillingYear(yearId) {
 
         await loadBillingYearData(yearId);
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderArchivedBanner();
         renderWorkspaceTabs();
@@ -522,6 +525,7 @@ async function switchBillingYear(yearId) {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
     } catch (error) {
@@ -606,6 +610,7 @@ async function startNewYear() {
         await loadBillingYearsList();
         await loadBillingYearData(yearId);
 
+        _loadedDisputes = [];
         renderBillingYearSelector();
         renderArchivedBanner();
         renderWorkspaceTabs();
@@ -614,6 +619,7 @@ async function startNewYear() {
         updateSummary();
         renderEmailSettings();
         renderPaymentMethodsSettings();
+        renderDashboardStatus();
         loadDisputes();
         updateComposerVisibility();
 
