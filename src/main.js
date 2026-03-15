@@ -2038,6 +2038,9 @@ function updateSummary() {
                     + '<span class="' + (childBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + childBalance.toFixed(2) + '</span>'
                     + childBadge
                     + '</div>'
+                    + '<div class="settlement-linked-actions">'
+                    + '<button class="btn-icon payment-history-btn" onclick="showPaymentHistory(' + ls.member.id + ')" title="Payment history">\uD83D\uDCCB History</button>'
+                    + '</div>'
                     + (childBreakdown ? '<div class="settlement-breakdown">' + childBreakdown + '</div>' : '')
                     + '</div>';
             });
@@ -2070,7 +2073,8 @@ function updateSummary() {
             + '<div class="settlement-row-status">' + statusBadge + '</div>'
             + '<div class="settlement-row-actions" onclick="event.stopPropagation()">'
             + (archived || balance <= 0 ? '' : '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>')
-            + '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Send Invoice</button>'
+            + '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>'
+            + (data.member.phone ? '<button class="btn btn-secondary btn-sm" onclick="showTextInvoiceDialog(' + data.member.id + ')">Text Invoice</button>' : '')
             + '</div>'
             + '<span class="settlement-expand-icon">' + (isExpanded ? '\u25B2' : '\u25BC') + '</span>'
             + '</div>'
@@ -2777,6 +2781,7 @@ async function loadDisputes() {
         _loadedDisputes = disputes;
         renderDisputeFilterBar(disputes);
         renderDisputes(disputes);
+        renderDashboardStatus();
     } catch (error) {
         console.error('Error loading disputes:', error);
         container.innerHTML = '<p class="text-error">Error loading review requests.</p>';
@@ -2822,7 +2827,7 @@ function renderDisputes(disputes) {
 
     // Sort: open first, then in_review, then resolved, then rejected
     const disputeSortOrder = { open: 0, in_review: 1, resolved: 2, rejected: 3 };
-    filtered.sort((a, b) => (disputeSortOrder[a.status] || 9) - (disputeSortOrder[b.status] || 9));
+    filtered.sort((a, b) => (disputeSortOrder[a.status] ?? 9) - (disputeSortOrder[b.status] ?? 9));
 
     if (filtered.length === 0) {
         if (_disputeStatusFilter === 'all') {
