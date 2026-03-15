@@ -1,13 +1,15 @@
 # Deployment
 
-> This guide covers deploying the existing project. For **new project setup** (create Firebase project, `firebase init`, first-time credential setup), see `ai_agent_repo_template/DEPLOYMENT.md` in the sibling directory.
+> This guide covers deploying the existing project. For **new project setup** (create Firebase project, `firebase init`, first-time auth bootstrap), see `ai_agent_repo_template/DEPLOYMENT.md` in the sibling directory.
 
 ## Prerequisites
 
 - [Firebase CLI](https://firebase.google.com/docs/cli) (`firebase-tools`) installed globally
-- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) installed and signed in
-- `op-firebase-deploy` script on PATH (see First-Time Setup below)
-- Access to the `Private` vault in 1Password: `Private/Firebase Deploy - friends-and-family-billing`
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) installed
+- Local `gcloud` wrapper installed on PATH (see First-Time Setup below)
+- `op-firebase-deploy` and `op-firebase-setup` on PATH
+- Application Default Credentials (ADC) initialized via `gcloud auth application-default login`
+- Permission to impersonate `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
 
 ## Environments
 
@@ -31,7 +33,7 @@ During deploys, Firebase also runs the configured hosting predeploy hook: `node 
 
 ## Deployment Steps
 
-All deploys use `op-firebase-deploy` for non-interactive 1Password auth. Never run `firebase deploy` directly.
+All deploys use `op-firebase-deploy` for keyless, non-interactive service account impersonation. Never run `firebase deploy` directly.
 
 ```bash
 # Full deploy (hosting + Firestore rules + Storage rules)
@@ -45,21 +47,46 @@ op-firebase-deploy --only firestore:rules,storage
 ```
 
 The script:
-1. Reads the service account key from 1Password (`Private/Firebase Deploy - friends-and-family-billing`)
-2. Auto-detects the Firebase project from `.firebaserc`
-3. Writes the key to a temp file (`umask 077`), sets `GOOGLE_APPLICATION_CREDENTIALS`
-4. Runs `firebase deploy --non-interactive`
+1. Auto-detects the Firebase project from `.firebaserc`
+2. Reads source credentials from `GOOGLE_APPLICATION_CREDENTIALS` or `~/.config/gcloud/application_default_credentials.json`
+3. Generates a temporary `impersonated_service_account` credential file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
+4. Sets `GOOGLE_APPLICATION_CREDENTIALS` to that temp file and runs `firebase deploy --non-interactive`
 5. Cleans up credentials on exit
 
-The only interactive step is the 1Password biometric prompt (Touch ID). No `firebase login` or browser prompts needed.
+No long-lived deploy key is stored locally or in 1Password. The only interactive step is refreshing local ADC if it has expired or been revoked:
+
+```bash
+gcloud auth application-default login
+```
+
+The local `gcloud` wrapper uses the same ADC source so normal `gcloud` commands work without an interactive `gcloud auth login`.
 
 ## First-Time Setup
 
-Run once per machine to create the service account key and store it in 1Password:
+Install the canonical helper scripts from the sibling template repo once per machine:
 
 ```bash
+mkdir -p ~/.local/bin
+cp ../ai_agent_repo_template/scripts/gcloud/gcloud ~/.local/bin/gcloud
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-deploy ~/.local/bin/
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-setup ~/.local/bin/
+chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-firebase-setup
+hash -r
+```
+
+Then bootstrap machine auth and project impersonation:
+
+```bash
+gcloud auth application-default login
 op-firebase-setup friends-and-family-billing
 ```
+
+`op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
+1. Enables the IAM Credentials API
+2. Creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` if needed
+3. Grants deploy roles to that service account
+4. Grants your current principal `roles/iam.serviceAccountTokenCreator` on the deployer
+5. Creates or updates a dedicated `gcloud` configuration named `friends-and-family-billing`
 
 ## Rollback Procedure
 
@@ -86,18 +113,24 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 
 No CI/CD pipeline is currently configured. Deploys are manual via `op-firebase-deploy`.
 
+When connecting CI, prefer Workload Identity Federation or another `external_account` credential as the source ADC. If CI already exposes `GOOGLE_APPLICATION_CREDENTIALS` pointing at an `external_account` file, `op-firebase-deploy` can reuse it to impersonate the deployer service account.
+
 ## Secrets Management
 
 - No API keys or secrets are committed to this repository.
-- Service account credentials are stored exclusively in 1Password (`Private/Firebase Deploy - friends-and-family-billing`).
+- Deploy auth uses short-lived impersonated credentials derived from local ADC or CI-provided external-account credentials.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
 
-## Key Rotation
+## Auth Maintenance
 
-The service account key does not expire. To rotate if compromised:
+If local ADC has expired, been revoked, or is missing:
+
+```bash
+gcloud auth application-default login
+```
+
+If deploy impersonation breaks because IAM bindings or `gcloud` config drifted, rerun:
 
 ```bash
 op-firebase-setup friends-and-family-billing
 ```
-
-This generates a new key and updates 1Password automatically.

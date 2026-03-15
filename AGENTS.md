@@ -625,7 +625,8 @@ This preserves the full audit trail while correctly adjusting the member's balan
 - Real Firebase web config belongs in `firebase-config.local.js`. `firebase-config.js` must keep placeholders only.
 - Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
 - If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
-- If the deploy service account key (`Private/Firebase Deploy - friends-and-family-billing`) is compromised, rotate it with `op-firebase-setup friends-and-family-billing`.
+- Deploy auth is keyless: `op-firebase-deploy` creates short-lived impersonated credentials from local ADC or CI-provided external-account credentials.
+- If local auth expires, rerun `gcloud auth application-default login`. If impersonation bindings drift, rerun `op-firebase-setup friends-and-family-billing`.
 
 ### Resolved Bugs (Historical Context)
 1. Duplicate member IDs causing bills to show incorrect member counts
@@ -679,7 +680,7 @@ This runs `npm run build` first (to produce `script.js`), then evaluates the bun
 
 ## 6. Deployment Process
 
-All deploys use `op-firebase-deploy` for non-interactive 1Password auth.
+All deploys use `op-firebase-deploy` for non-interactive service account impersonation.
 
 ```bash
 npm run deploy              # hosting + Firestore rules + Storage rules
@@ -690,4 +691,4 @@ op-firebase-deploy --only firestore:rules   # any target combo
 
 The predeploy hook runs `node stamp-version.js && npm run build` automatically — stamps `version.json` and bundles `src/` → `script.js` before hosting deploy.
 
-See `DEPLOYMENT.md` for full deployment instructions, first-time setup, token renewal, Firebase Hosting configuration, and secrets management.
+See `DEPLOYMENT.md` for the local ADC bootstrap, `gcloud` wrapper install, first-time impersonation setup, Firebase Hosting configuration, and secrets management.

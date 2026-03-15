@@ -124,10 +124,17 @@ cp firebase-config.local.example.js firebase-config.local.js
 
 # Install deploy tooling
 npm install -g firebase-tools
-# Install Google Cloud SDK if you do not already have gcloud
-# Install and sign in to 1Password CLI / desktop app for deploys
+mkdir -p ~/.local/bin
+cp ../ai_agent_repo_template/scripts/gcloud/gcloud ~/.local/bin/gcloud
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-deploy ~/.local/bin/
+cp ../ai_agent_repo_template/scripts/firebase/op-firebase-setup ~/.local/bin/
+chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-firebase-setup
+hash -r
 
-# One-time per maintainer/project: create and store deploy auth in 1Password
+# One-time per maintainer/machine
+gcloud auth application-default login
+
+# One-time per maintainer/project: configure impersonation-based deploy auth
 op-firebase-setup friends-and-family-billing
 
 # Build the browser bundle once
@@ -313,11 +320,12 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - If a key is exposed: remove it from tracked files/history, create a replacement key in Google Cloud Credentials with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the live file serves the new key only, then delete the old key.
 - `npm test` includes a tracked-file secret scan so committed API keys, OAuth tokens, and private keys fail before deployment.
 
-### 1Password deploy and future-secret flow
+### Deploy auth and future-secret flow
 
-- Deploy maintainers need the 1Password desktop app, the 1Password CLI (`op`), `firebase-tools`, `gcloud`, and access to the `Private` vault.
-- `op-firebase-setup friends-and-family-billing` stores the per-project deployer key in `Private/Firebase Deploy - friends-and-family-billing`.
-- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which reads `Private/Firebase Deploy - friends-and-family-billing` from 1Password and sets `GOOGLE_APPLICATION_CREDENTIALS`. No browser auth required.
+- Deploy maintainers need `firebase-tools`, `gcloud`, and the canonical helper scripts from `../ai_agent_repo_template/scripts/`.
+- `gcloud auth application-default login` bootstraps local ADC for the machine.
+- `op-firebase-setup friends-and-family-billing` creates the deployer service account, grants deploy roles, and grants the current maintainer impersonation rights.
+- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which creates a temporary impersonated credential for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
 - For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ## Documentation
