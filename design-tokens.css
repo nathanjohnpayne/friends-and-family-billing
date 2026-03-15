@@ -13,6 +13,7 @@
     --space-4: 24px;
     --space-5: 32px;
     --space-6: 48px;
+    --space-section: 40px;
 
     /* ── Brand ───────────────────────────────────────────── */
     --brand-primary-top:    #6E78D6;
@@ -66,6 +67,7 @@
     --color-text-placeholder:#a0aec0;
     --color-text-inverse:  #ffffff;
 
+    --color-canvas:         #F4F5F7;
     --color-gradient-start: #6E78D6;
     --color-gradient-end:   #7B5FAF;
 
@@ -123,8 +125,8 @@
     --border-thin:   1px;
 
     /* ── Shadows ──────────────────────────────────────────── */
-    --shadow-sm:   0 2px 8px rgba(0, 0, 0, 0.08);
-    --shadow-md:   0 4px 6px rgba(0, 0, 0, 0.10);
+    --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-md:   0 2px 8px rgba(0, 0, 0, 0.08);
     --shadow-lg:   0 8px 30px rgba(0, 0, 0, 0.25);
     --shadow-xl:   0 20px 60px rgba(0, 0, 0, 0.15);
     --shadow-dialog:0 20px 60px rgba(0, 0, 0, 0.30);

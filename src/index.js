@@ -108,6 +108,13 @@ import {
     calculateSettlementMetrics,
     toggleActionMenu,
     closeAllActionMenus,
+    setSummaryFilter,
+    toggleSettlementDetail,
+    switchWorkspaceTab,
+    renderWorkspaceTabs,
+    toggleMemberComposer,
+    toggleBillComposer,
+    updateComposerVisibility,
     updateSummary,
     renderDashboardStatus,
 
@@ -321,6 +328,13 @@ window.getPaymentStatusBadge = getPaymentStatusBadge;
 window.calculateSettlementMetrics = calculateSettlementMetrics;
 window.toggleActionMenu = toggleActionMenu;
 window.closeAllActionMenus = closeAllActionMenus;
+window.setSummaryFilter = setSummaryFilter;
+window.toggleSettlementDetail = toggleSettlementDetail;
+window.switchWorkspaceTab = switchWorkspaceTab;
+window.renderWorkspaceTabs = renderWorkspaceTabs;
+window.toggleMemberComposer = toggleMemberComposer;
+window.toggleBillComposer = toggleBillComposer;
+window.updateComposerVisibility = updateComposerVisibility;
 window.updateSummary = updateSummary;
 window.renderDashboardStatus = renderDashboardStatus;
 
