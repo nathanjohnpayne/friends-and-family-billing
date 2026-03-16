@@ -16,16 +16,16 @@
     --space-section: 40px;
 
     /* ── Brand ───────────────────────────────────────────── */
-    --brand-primary-top:    #6777D8;
-    --brand-primary-bottom: #7A60AE;
+    --brand-primary-top:    #6E78D6;
+    --brand-primary-bottom: #7B5FAF;
     --color-ink:            #1F2430;
     --color-body:           #5B6475;
 
     /* ── Semantic Colors ──────────────────────────────────── */
-    --color-primary:       #6777D8;
-    --color-primary-hover: #5767C7;
-    --color-primary-light: rgba(103, 119, 216, 0.12);
-    --color-primary-bg:    rgba(103, 119, 216, 0.07);
+    --color-primary:       #6E78D6;
+    --color-primary-hover: #5F6BC2;
+    --color-primary-light: rgba(110, 120, 214, 0.10);
+    --color-primary-bg:    rgba(110, 120, 214, 0.06);
 
     --color-secondary:       #718096;
     --color-secondary-hover: #4a5568;
@@ -67,12 +67,9 @@
     --color-text-placeholder:#a0aec0;
     --color-text-inverse:  #ffffff;
 
-    --color-canvas:         #EEF2F8;
-    --color-canvas-deep:    #E1E8F4;
-    --color-surface-glass:  rgba(255, 255, 255, 0.76);
-    --color-gradient-start: #6677D9;
-    --color-gradient-mid:   #7A61AD;
-    --color-gradient-end:   #5CA091;
+    --color-canvas:         #F4F5F7;
+    --color-gradient-start: #6E78D6;
+    --color-gradient-end:   #7B5FAF;
 
     /* ── Dispute / status-specific ────────────────────────── */
     --color-open-bg:       #fefcbf;
@@ -93,8 +90,7 @@
     --color-ur-rejected-fg:   #991b1b;
 
     /* ── Typography ───────────────────────────────────────── */
-    --font-family:        'Manrope', 'Segoe UI', sans-serif;
-    --font-family-display:'Sora', 'Manrope', sans-serif;
+    --font-family:        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 
     --text-heading-xl:    2.5rem;
     --text-heading-lg:    1.5rem;
@@ -129,10 +125,10 @@
     --border-thin:   1px;
 
     /* ── Shadows ──────────────────────────────────────────── */
-    --shadow-sm:   0 10px 24px rgba(32, 41, 67, 0.06);
-    --shadow-md:   0 18px 40px rgba(46, 54, 86, 0.10);
+    --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-md:   0 2px 8px rgba(0, 0, 0, 0.08);
     --shadow-lg:   0 8px 30px rgba(0, 0, 0, 0.25);
-    --shadow-xl:   0 28px 80px rgba(57, 53, 94, 0.18);
+    --shadow-xl:   0 20px 60px rgba(0, 0, 0, 0.15);
     --shadow-dialog:0 20px 60px rgba(0, 0, 0, 0.30);
     --shadow-dropdown:0 4px 16px rgba(0, 0, 0, 0.12);
 
