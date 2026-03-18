@@ -2056,6 +2056,7 @@ function updateSummary() {
                 const childBadge = getPaymentStatusBadge(ls.total, childPayment);
                 const childBreakdown = getCalculationBreakdown(ls);
                 linkedHtml += '<div class="settlement-linked-row">'
+                    + '<div class="settlement-linked-summary">'
                     + '<div class="settlement-linked-member">'
                     + '<span class="child-indicator">\u21B3</span>'
                     + generateAvatar(ls.member)
@@ -2068,26 +2069,33 @@ function updateSummary() {
                     + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Annual</span><strong>$' + ls.total.toFixed(2) + '</strong></div>'
                     + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Paid</span><strong>$' + childPayment.toFixed(2) + '</strong></div>'
                     + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Balance</span><strong class="' + (childBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + childBalance.toFixed(2) + '</strong></div>'
+                    + '</div>'
+                    + '<div class="settlement-linked-side">'
                     + '<div class="settlement-linked-status">' + childBadge + '</div>'
+                    + '<button class="btn btn-tertiary btn-sm settlement-linked-history" onclick="showPaymentHistory(' + ls.member.id + ')">History</button>'
                     + '</div>'
-                    + '<div class="settlement-linked-actions">'
-                    + '<button class="btn btn-tertiary btn-sm" onclick="showPaymentHistory(' + ls.member.id + ')">History</button>'
                     + '</div>'
-                    + (childBreakdown ? '<div class="settlement-breakdown">' + childBreakdown + '</div>' : '')
+                    + (childBreakdown ? '<div class="settlement-breakdown settlement-linked-breakdown">' + childBreakdown + '</div>' : '')
                     + '</div>';
             });
 
             detailHtml = '<div class="settlement-row-detail">'
                 + (breakdownHtml
                     ? '<div class="settlement-detail-panel">'
+                        + '<div class="settlement-detail-heading">'
                         + '<div class="settlement-detail-title">Primary member calculation</div>'
-                        + '<div class="settlement-breakdown">' + breakdownHtml + '</div>'
+                        + '<p class="settlement-detail-copy">Each bill shows the billing frequency and split formula for this household.</p>'
+                        + '</div>'
+                        + '<div class="settlement-breakdown settlement-breakdown-primary">' + breakdownHtml + '</div>'
                     + '</div>'
                     : '')
                 + (linkedHtml
                     ? '<div class="settlement-detail-panel">'
+                        + '<div class="settlement-detail-heading">'
                         + '<div class="settlement-detail-title">Linked members</div>'
-                        + linkedHtml
+                        + '<p class="settlement-detail-copy">Linked members keep their own totals and payment history inside the household view.</p>'
+                        + '</div>'
+                        + '<div class="settlement-linked-list">' + linkedHtml + '</div>'
                     + '</div>'
                     : '')
                 + '<div class="settlement-detail-actions">'
