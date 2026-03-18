@@ -647,48 +647,51 @@ function renderBillingYearSelector() {
     }).join('');
 
     const status = currentBillingYear.status || 'open';
-    let actions = '';
+    const actions = [];
 
     if (status === 'open') {
-        actions += ' <button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-secondary btn-sm">Mark as Settling</button>';
+        actions.push('<button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-secondary btn-sm">Start Settlement</button>');
     } else if (status === 'settling') {
-        actions += ' <button onclick="closeCurrentYear()" class="btn btn-header-secondary btn-sm">Close Year</button>';
-        actions += ' <button onclick="setBillingYearStatus(\'open\')" class="btn btn-header-tertiary">Reopen</button>';
+        actions.push('<button onclick="closeCurrentYear()" class="btn btn-header-secondary btn-sm">Close Year</button>');
+        actions.push('<button onclick="setBillingYearStatus(\'open\')" class="btn btn-header-tertiary">Back to Open</button>');
     } else if (status === 'closed') {
-        actions += ' <button onclick="archiveCurrentYear()" class="btn btn-header-secondary btn-sm">Archive Year</button>';
-        actions += ' <button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-tertiary">Reopen to Settling</button>';
+        actions.push('<button onclick="archiveCurrentYear()" class="btn btn-header-secondary btn-sm">Archive Year</button>');
+        actions.push('<button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-tertiary">Reopen to Settling</button>');
     }
 
     if (status !== 'archived') {
-        actions += ' <button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>';
+        actions.push('<button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>');
     }
 
-    container.innerHTML = '<select id="billingYearSelect" onchange="switchBillingYear(this.value)">' + options + '</select>' + actions;
+    container.innerHTML =
+        '<div class="billing-year-command-card">'
+        + '<div class="billing-year-command-head">'
+        + '<span class="billing-year-command-kicker">Billing Controls</span>'
+        + '<span class="billing-year-command-note">Switch years or move this one through settlement.</span>'
+        + '</div>'
+        + '<div class="billing-year-select-wrap">'
+        + '<span class="billing-year-control-label">Active Year</span>'
+        + '<select id="billingYearSelect" onchange="switchBillingYear(this.value)">' + options + '</select>'
+        + '</div>'
+        + (actions.length
+            ? '<div class="billing-year-action-group">' + actions.join('') + '</div>'
+            : '')
+        + '</div>';
 }
 
 function renderStatusBanner() {
     const banner = document.getElementById('archivedBanner');
     if (!banner) return;
 
-    if (!currentBillingYear || currentBillingYear.status === 'open') {
+    if (!currentBillingYear || currentBillingYear.status !== 'archived') {
         banner.style.display = 'none';
         banner.className = 'archived-banner';
         return;
     }
 
-    const status = currentBillingYear.status;
     banner.style.display = 'block';
-
-    if (status === 'settling') {
-        banner.className = 'archived-banner settling-banner';
-        banner.textContent = 'Invoices issued\u2014collecting payments for ' + (currentBillingYear.label || '') + '.';
-    } else if (status === 'closed') {
-        banner.className = 'archived-banner closed-banner';
-        banner.innerHTML = '\u2705 All balances settled for ' + escapeHtml(currentBillingYear.label || '') + '. This billing year is complete.';
-    } else if (status === 'archived') {
-        banner.className = 'archived-banner';
-        banner.innerHTML = 'This billing year is archived. Records are preserved and cannot be modified.';
-    }
+    banner.className = 'archived-banner';
+    banner.innerHTML = 'This billing year is archived. Records are preserved and cannot be modified.';
 }
 
 function renderArchivedBanner() {
@@ -2150,16 +2153,24 @@ function renderDashboardStatus() {
 
     let settlementMessage = '';
     const remaining = metrics.totalMembers - metrics.paidCount;
-    if (metrics.totalMembers === 0 || metrics.totalAnnual <= 0) {
-        settlementMessage = '';
-    } else if (metrics.percentage >= 100) {
-        settlementMessage = 'Everyone is settled for ' + escapeHtml(yearLabel) + '!';
-    } else if (metrics.percentage === 0) {
-        settlementMessage = 'No payments received yet.';
-    } else if (metrics.percentage > 50) {
-        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled. Almost done\u2014only ' + remaining + ' remaining.';
+    if (currentStatus === 'archived') {
+        settlementMessage = 'Archived year. Records are preserved for reference and cannot be modified.';
+    } else if (currentStatus === 'closed') {
+        settlementMessage = metrics.totalOutstanding > 0
+            ? 'This billing year is closed and read-only with $' + metrics.totalOutstanding.toFixed(2) + ' still outstanding.'
+            : 'All balances settled. ' + escapeHtml(yearLabel) + ' is complete and now read-only.';
+    } else if (currentStatus === 'settling') {
+        if (metrics.percentage === 0) {
+            settlementMessage = 'Invoices are out. No payments have been recorded yet.';
+        } else if (remaining > 0) {
+            settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members are settled. ' + remaining + ' still need follow-up.';
+        } else {
+            settlementMessage = 'Everyone is settled for ' + escapeHtml(yearLabel) + '. Close the year when you are ready.';
+        }
+    } else if (metrics.totalAnnual > 0) {
+        settlementMessage = 'Review totals, confirm assignments, and move this year into settling when you are ready to invoice.';
     } else {
-        settlementMessage = metrics.paidCount + ' of ' + metrics.totalMembers + ' members settled.';
+        settlementMessage = 'Add members and bills to start building this billing year.';
     }
 
     let adminReminder = '';
@@ -2168,42 +2179,58 @@ function renderDashboardStatus() {
     }
 
     const openReviews = _loadedDisputes.filter(d => d.status === 'open' || d.status === 'in_review').length;
+    const statusLabel = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label;
+    const statusClass = 'dashboard-state-badge dashboard-state-badge--' + currentStatus;
+    const statusHeadline = currentStatus === 'open'
+        ? 'Planning in progress'
+        : currentStatus === 'settling'
+            ? 'Settlement in progress'
+            : currentStatus === 'closed'
+                ? 'Year closed'
+                : 'Archive view';
 
     container.innerHTML = `
-        <div class="lifecycle-bar">${lifecycleSteps}</div>
-        <div class="kpi-card">
-            <span class="kpi-card-label">Outstanding</span>
-            <span class="kpi-card-value ${metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${metrics.totalOutstanding.toFixed(2)}</span>
+        <div class="dashboard-status-shell">
+            <div class="dashboard-status-meta">
+                <span class="dashboard-year-pill">Billing Year ${escapeHtml(yearLabel)}</span>
+                <span class="${statusClass}">${escapeHtml(statusLabel)}</span>
+            </div>
+            <div class="lifecycle-bar">${lifecycleSteps}</div>
+            <div class="dashboard-kpi-grid">
+                <div class="kpi-card">
+                    <span class="kpi-card-label">Outstanding</span>
+                    <span class="kpi-card-value ${metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'}">$${metrics.totalOutstanding.toFixed(2)}</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-card-label">Settled</span>
+                    <span class="kpi-card-value">${metrics.paidCount} / ${metrics.totalMembers}</span>
+                </div>
+                <div class="kpi-card${openReviews > 0 ? ' kpi-card--clickable' : ''}"${openReviews > 0 ? ' onclick="switchWorkspaceTab(\'reviews\'); setDisputeFilter(\'actionable\')"' : ''}>
+                    <span class="kpi-card-label">Open Reviews</span>
+                    <span class="kpi-card-value">${openReviews}</span>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-card-label">Status</span>
+                    <span class="kpi-card-value">${escapeHtml(statusLabel)}</span>
+                </div>
+            </div>
+            <div class="dashboard-progress-block">
+                <div class="settlement-progress-header">
+                    <span class="settlement-progress-title">${statusHeadline}</span>
+                    <span class="settlement-progress-figure">${metrics.percentage}% settled</span>
+                </div>
+                <div class="settlement-progress">
+                    <div class="settlement-progress-bar" style="width: ${metrics.percentage}%"></div>
+                </div>
+                ${settlementMessage ? '<p class="settlement-message">' + settlementMessage + '</p>' : ''}
+            </div>
+            ${adminReminder}
         </div>
-        <div class="kpi-card">
-            <span class="kpi-card-label">Settled</span>
-            <span class="kpi-card-value">${metrics.paidCount} / ${metrics.totalMembers}</span>
-        </div>
-        <div class="kpi-card${openReviews > 0 ? ' kpi-card--clickable' : ''}"${openReviews > 0 ? ' onclick="switchWorkspaceTab(\'reviews\'); setDisputeFilter(\'actionable\')"' : ''}>
-            <span class="kpi-card-label">Reviews</span>
-            <span class="kpi-card-value">${openReviews}</span>
-        </div>
-        <div class="kpi-card">
-            <span class="kpi-card-label">Status</span>
-            <span class="kpi-card-value">${escapeHtml((BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label)}</span>
-        </div>
-        <div class="settlement-progress">
-            <div class="settlement-progress-bar" style="width: ${metrics.percentage}%"></div>
-            <span class="settlement-progress-label">${metrics.percentage}%</span>
-        </div>
-        ${settlementMessage ? '<div class="settlement-message">' + settlementMessage + '</div>' : ''}
-        ${adminReminder}
     `;
     const contextBanner = document.getElementById('dashboardContextBanner');
     if (contextBanner) {
-        const contextMessages = {
-            open: 'Review annual totals and record payments below.',
-            settling: 'Collecting payments\u2014share billing links and track incoming payments.',
-            closed: 'All balances settled. This billing year is complete.',
-            archived: 'Viewing archived billing year. All records are read-only.'
-        };
-        contextBanner.textContent = contextMessages[currentStatus] || '';
-        contextBanner.style.display = '';
+        contextBanner.textContent = '';
+        contextBanner.style.display = 'none';
     }
 
     const headerLogo = document.getElementById('headerLogo');

@@ -12,340 +12,55 @@
     <meta property="og:type" content="website">
     <link rel="stylesheet" href="design-tokens.css">
     <link rel="stylesheet" href="styles.css">
-    <style>
-        body {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .login-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: var(--space-4);
-            width: 100%;
-        }
-
-        .login-card {
-            background: var(--color-surface);
-            border-radius: 16px;
-            padding: var(--space-5) 40px 32px;
-            box-shadow: var(--shadow-xl);
-            max-width: 420px;
-            width: 100%;
-        }
-
-        .login-header {
-            text-align: center;
-            margin-bottom: var(--space-4);
-        }
-
-        .login-header .app-icon {
-            display: inline-block;
-            margin-bottom: var(--space-3);
-        }
-
-        .login-header .app-icon svg {
-            width: 48px;
-            height: 48px;
-            display: block;
-        }
-
-        @keyframes logo-complete {
-            0%   { transform: rotate(0deg); }
-            50%  { transform: rotate(15deg); }
-            100% { transform: rotate(0deg); }
-        }
-        .app-icon.logo-success {
-            animation: logo-complete 200ms ease-out;
-        }
-
-        .login-header h1 {
-            color: #1a1a2e;
-            font-size: 1.75rem;
-            font-weight: var(--font-weight-bold);
-            margin-bottom: var(--space-2);
-            letter-spacing: -0.02em;
-            line-height: var(--line-height-tight);
-        }
-
-        .login-header p {
-            color: #8b8fa3;
-            font-size: 0.95rem;
-            line-height: var(--line-height-relaxed);
-        }
-
-        /* Context banner */
-        .billing-context-banner {
-            text-align: center;
-            color: var(--color-secondary-hover);
-            font-size: var(--text-body-sm);
-            line-height: var(--line-height-relaxed);
-            padding: var(--space-2) var(--space-3);
-            background: var(--color-surface-alt);
-            border-radius: var(--radius-xl);
-            margin-bottom: var(--space-4);
-            border: var(--border-thin) solid var(--color-border-subtle);
-        }
-
-        /* Invite/context message (hidden by default, future share-link flows) */
-        .invite-context {
-            display: none;
-            text-align: center;
-            padding: var(--space-3);
-            background: var(--color-primary-bg);
-            border: var(--border-thin) solid rgba(110, 120, 214, 0.2);
-            border-radius: var(--radius-xl);
-            margin-bottom: var(--space-4);
-            font-size: var(--text-body-sm);
-            color: var(--color-secondary-hover);
-            line-height: var(--line-height-relaxed);
-        }
-
-        .invite-context.visible {
-            display: block;
-        }
-
-        .invite-context strong {
-            color: var(--color-text);
-        }
-
-        /* Google button — primary CTA */
-        .google-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-2);
-            padding: 14px var(--space-4);
-            background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-end));
-            border: none;
-            border-radius: var(--radius-xl);
-            cursor: pointer;
-            font-size: var(--text-body);
-            font-weight: var(--font-weight-semi);
-            color: var(--color-text-inverse);
-            transition: all var(--transition-base);
-            font-family: inherit;
-            box-shadow: 0 2px 12px rgba(110, 120, 214, 0.3);
-        }
-
-        .google-btn:hover {
-            box-shadow: 0 4px 18px rgba(110, 120, 214, 0.45);
-            transform: translateY(-1px);
-        }
-
-        .google-btn:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(110, 120, 214, 0.3);
-        }
-
-        .google-btn svg {
-            background: white;
-            border-radius: var(--radius-sm);
-            padding: 2px;
-        }
-
-        .divider {
-            display: flex;
-            align-items: center;
-            gap: var(--space-3);
-            margin: var(--space-4) 0;
-            color: #b0b4c8;
-            font-size: var(--text-body-xs);
-            font-weight: var(--font-weight-medium);
-            text-transform: lowercase;
-            letter-spacing: 0.02em;
-        }
-
-        .divider::before,
-        .divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: #e8eaf0;
-        }
-
-        .form-group {
-            margin-bottom: 18px;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: var(--text-label);
-            font-weight: var(--font-weight-semi);
-            color: #4a4d65;
-            margin-bottom: var(--space-1);
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: var(--space-2) 14px;
-            border: var(--border-width) solid #e2e5f1;
-            border-radius: var(--radius-xl);
-            font-size: 0.95rem;
-            color: #1a1a2e;
-            transition: all var(--transition-base);
-            font-family: inherit;
-            background: #fafbff;
-        }
-
-        .form-group input:focus {
-            outline: none;
-            border-color: var(--color-primary);
-            background: var(--color-surface);
-            box-shadow: 0 0 0 3px rgba(110, 120, 214, 0.12);
-        }
-
-        .form-group input::placeholder {
-            color: #b0b4c8;
-        }
-
-        .error-message {
-            background: #fef2f2;
-            color: #dc2626;
-            padding: var(--space-2) var(--space-3);
-            border-radius: var(--radius-xl);
-            margin-bottom: var(--space-4);
-            display: none;
-            font-size: var(--text-body-sm);
-            font-weight: var(--font-weight-medium);
-            border: var(--border-thin) solid #fecaca;
-            line-height: var(--line-height-relaxed);
-        }
-
-        .success-message {
-            background: #f0fdf4;
-            color: #16a34a;
-            padding: var(--space-2) var(--space-3);
-            border-radius: var(--radius-xl);
-            margin-bottom: var(--space-4);
-            display: none;
-            font-size: var(--text-body-sm);
-            font-weight: var(--font-weight-medium);
-            border: var(--border-thin) solid #bbf7d0;
-        }
-
-        .forgot-password-link {
-            display: block;
-            text-align: right;
-            margin-top: calc(-1 * var(--space-2));
-            margin-bottom: var(--space-3);
-            font-size: var(--text-body-xs);
-            color: var(--color-primary);
-            text-decoration: none;
-            cursor: pointer;
-            transition: color var(--transition-base);
-        }
-
-        .forgot-password-link:hover {
-            color: var(--color-primary-hover);
-            text-decoration: underline;
-        }
-
-        .submit-btn {
-            width: 100%;
-            padding: 12px var(--space-4);
-            background: var(--color-surface);
-            color: var(--color-text);
-            border: var(--border-width) solid #e2e5f1;
-            border-radius: var(--radius-xl);
-            font-size: var(--text-body);
-            font-weight: var(--font-weight-semi);
-            cursor: pointer;
-            transition: all var(--transition-base);
-            font-family: inherit;
-            margin-top: var(--space-1);
-        }
-
-        .submit-btn:hover {
-            border-color: var(--color-primary);
-            background: #f8f9ff;
-            box-shadow: 0 2px 12px rgba(110, 120, 214, 0.12);
-        }
-
-        .submit-btn:active {
-            transform: scale(0.98);
-        }
-
-        /* Auth mode switcher (sign in ↔ create account) */
-        .auth-switch {
-            text-align: center;
-            margin-top: var(--space-4);
-            font-size: var(--text-body-sm);
-            color: #8b8fa3;
-        }
-
-        .auth-switch a {
-            color: var(--color-primary);
-            text-decoration: none;
-            font-weight: var(--font-weight-semi);
-            cursor: pointer;
-        }
-
-        .auth-switch a:hover {
-            text-decoration: underline;
-        }
-
-        .auth-form {
-            display: none;
-        }
-
-        .auth-form.active {
-            display: block;
-        }
-
-        /* Trust footer */
-        .trust-footer {
-            text-align: center;
-            margin-top: var(--space-4);
-            padding-top: var(--space-3);
-            border-top: var(--border-thin) solid #e8eaf0;
-        }
-
-        .trust-footer p {
-            color: #b0b4c8;
-            font-size: var(--text-body-xs);
-            line-height: var(--line-height-relaxed);
-        }
-
-        .trust-footer .trust-icons {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-2);
-            margin-bottom: var(--space-1);
-        }
-
-        .trust-footer .trust-icon {
-            width: 16px;
-            height: 16px;
-            fill: #b0b4c8;
-        }
-
-        @media (max-width: 480px) {
-            .login-card {
-                padding: var(--space-4) var(--space-4) var(--space-4);
-                border-radius: var(--radius-2xl);
-            }
-
-            .login-header h1 {
-                font-size: 1.5rem;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="login.css">
 </head>
-<body>
-    <div class="login-container">
-        <div class="login-card">
+<body class="login-page">
+    <main class="login-shell">
+        <section class="login-hero" aria-labelledby="login-title">
+            <div class="hero-badge">Annual shared bill management</div>
+            <div class="hero-mark">
+                <svg class="hero-mark-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="loginGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stop-color="#6E78D6"/>
+                            <stop offset="100%" stop-color="#7B5FAF"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="48" height="48" rx="14" fill="url(#loginGrad)"/>
+                    <g transform="translate(6,5) scale(1.5)">
+                        <path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#fff"/>
+                        <path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)"/>
+                    </g>
+                </svg>
+            </div>
+            <h1 id="login-title">Friends &amp; Family Billing</h1>
+            <p class="hero-copy">Review and settle shared bills with a cleaner annual workflow, premium invoice handling, and secure sign-in.</p>
+
+            <div class="hero-points" aria-label="Product highlights">
+                <div class="hero-point">
+                    <span class="hero-point-title">Annual summaries</span>
+                    <span class="hero-point-copy">See what each member owes at a glance.</span>
+                </div>
+                <div class="hero-point">
+                    <span class="hero-point-title">Invoice-ready</span>
+                    <span class="hero-point-copy">Send email or text summaries after sign in.</span>
+                </div>
+                <div class="hero-point">
+                    <span class="hero-point-title">Secure access</span>
+                    <span class="hero-point-copy">Email, password, or Google authentication.</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="login-card" aria-label="Authentication">
             <div class="login-header">
                 <div class="app-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="loginGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#loginGrad)"/><g transform="translate(6,5) scale(1.5)"><path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#fff"/><path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)"/></g></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="loginGradCard" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#loginGradCard)"/><g transform="translate(6,5) scale(1.5)"><path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#fff"/><path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)"/></g></svg>
                 </div>
-                <h1>Friends & Family Billing</h1>
-                <p>Review and manage your annual shared bills securely.</p>
+                <div>
+                    <h2>Welcome back</h2>
+                    <p>Sign in to your billing year workspace.</p>
+                </div>
             </div>
 
             <div class="billing-context-banner">
@@ -359,7 +74,7 @@
             <div id="success-message" class="success-message"></div>
 
             <button onclick="handleGoogleSignIn()" class="google-btn">
-                <svg width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                <svg width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true">
                     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
                     <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
                     <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
@@ -414,12 +129,12 @@
 
             <div class="trust-footer">
                 <div class="trust-icons">
-                    <svg class="trust-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                    <svg class="trust-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
                 </div>
                 <p>Secure authentication powered by Google &amp; Firebase.<br>Your billing information is private and encrypted.</p>
             </div>
-        </div>
-    </div>
+        </section>
+    </main>
 
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>

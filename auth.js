@@ -9,6 +9,13 @@ function showAuthForm(form) {
     document.getElementById('login-form-container').classList.toggle('active', form === 'login');
     document.getElementById('signup-form-container').classList.toggle('active', form === 'signup');
     hideMessages();
+
+    const focusTarget = form === 'login'
+        ? document.getElementById('login-email')
+        : document.getElementById('signup-email');
+    if (focusTarget) {
+        setTimeout(() => focusTarget.focus(), 0);
+    }
 }
 
 function showError(message) {
