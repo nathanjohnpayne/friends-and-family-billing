@@ -1426,8 +1426,9 @@ textarea:focus {
     border-radius: 22px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 255, 0.98));
     transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
-    overflow: hidden;
+    overflow: visible;
     box-shadow: var(--shadow-sm);
+    position: relative;
 }
 
 .settlement-row-card:hover {
@@ -1559,10 +1560,14 @@ textarea:focus {
 
 .settlement-actions-dropdown {
     position: relative;
+    z-index: 4;
 }
 
 .settlement-actions-menu {
-    min-width: 190px;
+    min-width: 220px;
+    top: calc(100% + 10px);
+    right: 0;
+    left: auto;
 }
 
 .settlement-more-btn {
@@ -1601,6 +1606,8 @@ textarea:focus {
     padding: 0 24px 22px;
     border-top: var(--border-thin) solid var(--color-border-light);
     background: linear-gradient(180deg, rgba(110, 120, 214, 0.03), rgba(255, 255, 255, 0.6));
+    border-radius: 0 0 22px 22px;
+    overflow: hidden;
 }
 
 .settlement-detail-panel {
@@ -1654,7 +1661,7 @@ textarea:focus {
 .settlement-linked-amounts {
     display: grid;
     grid-template-columns: repeat(3, minmax(88px, 1fr)) auto;
-    align-items: center;
+    align-items: start;
     gap: var(--space-2);
     font-variant-numeric: tabular-nums;
 }
@@ -1682,6 +1689,11 @@ textarea:focus {
 
 .settlement-breakdown {
     padding: var(--space-2) 0 0;
+}
+
+.settlement-linked-row .settlement-breakdown {
+    grid-column: 1 / -1;
+    padding-top: 10px;
 }
 
 .settlement-detail-actions {
@@ -3211,10 +3223,10 @@ textarea:focus {
 
 .calc-breakdown {
     margin-top: var(--space-1);
-    padding: var(--space-2);
-    background: var(--color-surface-alt);
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.9);
     border: var(--border-thin) solid var(--color-border-light);
-    border-radius: var(--radius-md);
+    border-radius: 16px;
     font-size: var(--text-caption);
 }
 
@@ -3270,31 +3282,34 @@ textarea:focus {
 }
 
 .calc-breakdown-logo {
-    width: 20px;
-    height: 15px;
-    border-radius: 2px;
-    object-fit: contain;
-    flex-shrink: 0;
+    display: none;
 }
 
 .calc-breakdown-line {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    padding: 2px 0;
+    display: grid;
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 18px;
+    padding: 8px 0;
     color: var(--color-text-secondary);
+}
+
+.calc-breakdown-line + .calc-breakdown-line {
+    border-top: var(--border-thin) solid var(--color-border-light);
 }
 
 .calc-breakdown-name {
     font-weight: var(--font-weight-medium);
     color: var(--color-text);
+    line-height: 1.35;
 }
 
 .calc-breakdown-math {
-    white-space: nowrap;
+    white-space: normal;
     color: var(--color-text-muted);
     font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    text-align: right;
 }
 
 .payment-history-summary {
@@ -3653,8 +3668,21 @@ textarea:focus {
         justify-self: start;
     }
 
+    .settlement-linked-row .settlement-breakdown {
+        grid-column: auto;
+    }
+
     .settlement-totals-grid {
         grid-template-columns: 1fr;
+    }
+
+    .calc-breakdown-line {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .calc-breakdown-math {
+        text-align: left;
     }
 
     /* Composer panels */

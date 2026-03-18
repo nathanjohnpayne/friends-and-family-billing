@@ -1801,12 +1801,7 @@ function getCalculationBreakdown(memberSummary) {
         } else {
             formula = amount + ' / month &times; 12 &divide; ' + splitCount + ' = $' + b.annualShare.toFixed(2);
         }
-        var safeSrc = sanitizeImageSrc(b.bill.logo);
-        var logoHtml = safeSrc
-            ? '<img src="' + safeSrc + '" alt="" class="calc-breakdown-logo" />'
-            : '';
         return '<div class="calc-breakdown-line">'
-            + logoHtml
             + '<span class="calc-breakdown-name">' + billName + '</span>'
             + '<span class="calc-breakdown-math">' + formula + '</span>'
             + '</div>';
