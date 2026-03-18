@@ -51,9 +51,15 @@
         <div class="main-content">
             <!-- Primary: Settlement Workspace -->
             <section class="card settlement-workspace">
-                <h2>Annual Summary</h2>
+                <div class="settlement-workspace-head">
+                    <div class="settlement-workspace-copy">
+                        <p class="section-kicker">Annual Invoicing</p>
+                        <h2>Annual Summary</h2>
+                        <p class="section-desc settlement-workspace-desc">Settle by household, send invoices, and expand rows for linked-member details and calculation transparency.</p>
+                    </div>
+                    <button onclick="generateInvoice()" class="btn btn-primary settlement-generate-btn">Generate Annual Invoice</button>
+                </div>
                 <div id="annualSummary" class="summary-content"></div>
-                <button onclick="generateInvoice()" class="btn btn-success">Generate Annual Invoice</button>
             </section>
 
             <!-- Secondary: Management Workspace -->

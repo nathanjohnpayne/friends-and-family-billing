@@ -2008,20 +2008,26 @@ function updateSummary() {
     const sortOrder = { outstanding: 0, partial: 1, settled: 2 };
     memberRows.sort((a, b) => sortOrder[a.status] - sortOrder[b.status]);
 
+    const linkedGroupCount = memberRows.filter(r => r.member.linkedMembers.length > 0).length;
+    const collectionRate = totalAnnual > 0 ? Math.min(100, Math.round((totalPayments / totalAnnual) * 100)) : 0;
+
     // Apply filter
     const filtered = _summaryFilter === 'all'
         ? memberRows
-        : memberRows.filter(r => r.status === _summaryFilter);
+        : _summaryFilter === 'linked'
+            ? memberRows.filter(r => r.member.linkedMembers.length > 0)
+            : memberRows.filter(r => r.status === _summaryFilter);
 
     // Filter chip counts
-    const counts = { all: memberRows.length, outstanding: 0, partial: 0, settled: 0 };
+    const counts = { all: memberRows.length, outstanding: 0, partial: 0, settled: 0, linked: linkedGroupCount };
     memberRows.forEach(r => counts[r.status]++);
 
     const filterChips = [
         { key: 'all', label: 'All' },
         { key: 'outstanding', label: 'Outstanding' },
         { key: 'partial', label: 'Partial' },
-        { key: 'settled', label: 'Settled' }
+        { key: 'settled', label: 'Settled' },
+        { key: 'linked', label: 'Linked Groups' }
     ].map(f =>
         '<button class="settlement-filter-chip' + (_summaryFilter === f.key ? ' active' : '') + '" onclick="setSummaryFilter(\'' + f.key + '\')">' + escapeHtml(f.label) + ' <span class="settlement-filter-count">' + counts[f.key] + '</span></button>'
     ).join('');
@@ -2031,6 +2037,12 @@ function updateSummary() {
         const { member, data, combinedTotal, linkedData, payment, balance, status } = row;
         const statusBadge = getPaymentStatusBadge(combinedTotal, payment);
         const isExpanded = _expandedSettlementIds.has(member.id);
+        const linkedMemberCount = member.linkedMembers.length;
+        const hasLinkedMembers = linkedMemberCount > 0;
+        const householdMeta = hasLinkedMembers
+            ? 'Household includes ' + linkedMemberCount + ' linked member' + (linkedMemberCount === 1 ? '' : 's')
+            : 'Standalone household';
+        const showPaymentAction = !archived && balance > 0;
 
         // Build expanded detail section
         let detailHtml = '';
@@ -2046,38 +2058,62 @@ function updateSummary() {
                     + '<div class="settlement-linked-member">'
                     + '<span class="child-indicator">\u21B3</span>'
                     + generateAvatar(ls.member)
-                    + '<span>' + escapeHtml(ls.member.name) + '</span>'
+                    + '<div class="settlement-linked-copy">'
+                    + '<strong>' + escapeHtml(ls.member.name) + '</strong>'
+                    + '<span class="settlement-linked-meta">Linked member settlement</span>'
+                    + '</div>'
                     + '</div>'
                     + '<div class="settlement-linked-amounts">'
-                    + '<span>$' + ls.total.toFixed(2) + '</span>'
-                    + '<span class="' + (childBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + childBalance.toFixed(2) + '</span>'
-                    + childBadge
+                    + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Annual</span><strong>$' + ls.total.toFixed(2) + '</strong></div>'
+                    + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Paid</span><strong>$' + childPayment.toFixed(2) + '</strong></div>'
+                    + '<div class="settlement-linked-metric"><span class="settlement-linked-label">Balance</span><strong class="' + (childBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + childBalance.toFixed(2) + '</strong></div>'
+                    + '<div class="settlement-linked-status">' + childBadge + '</div>'
                     + '</div>'
                     + '<div class="settlement-linked-actions">'
-                    + '<button class="btn-icon payment-history-btn" onclick="showPaymentHistory(' + ls.member.id + ')" title="Payment history">\uD83D\uDCCB History</button>'
+                    + '<button class="btn btn-tertiary btn-sm" onclick="showPaymentHistory(' + ls.member.id + ')">History</button>'
                     + '</div>'
                     + (childBreakdown ? '<div class="settlement-breakdown">' + childBreakdown + '</div>' : '')
                     + '</div>';
             });
 
             detailHtml = '<div class="settlement-row-detail">'
-                + (breakdownHtml ? '<div class="settlement-breakdown">' + breakdownHtml + '</div>' : '')
-                + linkedHtml
+                + (breakdownHtml
+                    ? '<div class="settlement-detail-panel">'
+                        + '<div class="settlement-detail-title">Primary member calculation</div>'
+                        + '<div class="settlement-breakdown">' + breakdownHtml + '</div>'
+                    + '</div>'
+                    : '')
+                + (linkedHtml
+                    ? '<div class="settlement-detail-panel">'
+                        + '<div class="settlement-detail-title">Linked members</div>'
+                        + linkedHtml
+                    + '</div>'
+                    : '')
                 + '<div class="settlement-detail-actions">'
-                + '<button class="btn-icon payment-history-btn" onclick="showPaymentHistory(' + data.member.id + ')" title="Payment history">\uD83D\uDCCB History</button>'
-                + '<button class="btn btn-sm btn-tertiary" onclick="generateShareLink(' + data.member.id + ')">Share Link</button>'
-                + '<button class="btn btn-sm btn-tertiary" onclick="showShareLinks(' + data.member.id + ')">Manage Links</button>'
+                + '<button class="btn btn-tertiary btn-sm" onclick="showPaymentHistory(' + data.member.id + ')">Payment History</button>'
+                + '<button class="btn btn-tertiary btn-sm" onclick="generateShareLink(' + data.member.id + ')">New Share Link</button>'
+                + '<button class="btn btn-tertiary btn-sm" onclick="showShareLinks(' + data.member.id + ')">Manage Share Links</button>'
                 + '</div>'
                 + '</div>';
         }
 
-        return '<div class="settlement-row-card settlement-' + status + '">'
+        const overflowActions = [
+            !showPaymentAction ? '' : '<button onclick="showPaymentHistory(' + data.member.id + ')">Payment History</button>',
+            data.member.phone ? '<button onclick="showTextInvoiceDialog(' + data.member.id + ')">Text Invoice</button>' : '',
+            '<button onclick="generateShareLink(' + data.member.id + ')">Generate Share Link</button>',
+            '<button onclick="showShareLinks(' + data.member.id + ')">Manage Share Links</button>'
+        ].filter(Boolean).join('');
+
+        return '<div class="settlement-row-card settlement-' + status + (isExpanded ? ' settlement-row-card-expanded' : '') + '">'
             + '<div class="settlement-row-primary" onclick="toggleSettlementDetail(' + member.id + ')">'
             + '<div class="settlement-row-member">'
             + generateAvatar(data.member)
+            + '<div class="settlement-row-identity">'
             + '<div class="settlement-row-name">'
             + '<strong>' + escapeHtml(data.member.name) + '</strong>'
             + (member.linkedMembers.length > 0 ? '<span class="member-count-badge">+' + member.linkedMembers.length + '</span>' : '')
+            + '</div>'
+            + '<div class="settlement-row-meta">' + householdMeta + '</div>'
             + '</div>'
             + '</div>'
             + '<div class="settlement-row-amounts">'
@@ -2085,13 +2121,20 @@ function updateSummary() {
             + '<div class="settlement-amount-group"><span class="settlement-amount-label">Paid</span><span class="settlement-amount-value">$' + payment.toFixed(2) + '</span></div>'
             + '<div class="settlement-amount-group"><span class="settlement-amount-label">Balance</span><span class="settlement-amount-value ' + (balance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + balance.toFixed(2) + '</span></div>'
             + '</div>'
+            + '<div class="settlement-row-side">'
             + '<div class="settlement-row-status">' + statusBadge + '</div>'
             + '<div class="settlement-row-actions" onclick="event.stopPropagation()">'
-            + (archived || balance <= 0 ? '' : '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>')
+            + (showPaymentAction
+                ? '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>'
+                : '<button class="btn btn-tertiary btn-sm settlement-history-action" onclick="showPaymentHistory(' + data.member.id + ')">Payment History</button>')
             + '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>'
-            + (data.member.phone ? '<button class="btn btn-secondary btn-sm" onclick="showTextInvoiceDialog(' + data.member.id + ')">Text Invoice</button>' : '')
+            + '<div class="actions-dropdown settlement-actions-dropdown">'
+            + '<button class="settlement-more-btn" onclick="toggleActionMenu(event)" aria-label="More actions">\u22EF</button>'
+            + '<div class="actions-dropdown-menu settlement-actions-menu">' + overflowActions + '</div>'
             + '</div>'
-            + '<span class="settlement-expand-icon">' + (isExpanded ? '\u25B2' : '\u25BC') + '</span>'
+            + '</div>'
+            + '<span class="settlement-expand-icon">' + (isExpanded ? 'Hide details \u25B2' : 'Details \u25BC') + '</span>'
+            + '</div>'
             + '</div>'
             + detailHtml
             + '</div>';
@@ -2110,17 +2153,35 @@ function updateSummary() {
         const icons = enabledMethods.map(m =>
             '<span class="payment-strip-icon" title="' + escapeHtml(m.label || getPaymentMethodLabel(m.type)) + '">' + getPaymentMethodStripIcon(m.type) + '</span>'
         ).join('');
-        payViaStrip = '<div class="payment-methods-strip"><span class="payment-strip-label">Pay via</span>' + icons + '</div>';
+        payViaStrip = '<div class="payment-methods-strip"><span class="payment-strip-label">Pay via</span><div class="payment-strip-icons">' + icons + '</div></div><p class="payment-strip-note">These enabled payment methods appear on annual invoices and shared billing summaries.</p>';
+    } else {
+        payViaStrip = '<div class="payment-methods-strip payment-methods-strip--empty"><span class="payment-strip-label">Pay via</span><span class="payment-strip-empty">No payment methods configured yet</span></div><p class="payment-strip-note">Add payment methods in the Invoicing tab to show them on invoices and share links.</p>';
     }
 
+    const totalsFooter = '<div class="settlement-totals-grid">'
+        + '<div class="settlement-total-card"><span class="settlement-total-label">Total Annual</span><strong class="settlement-total-value">$' + totalAnnual.toFixed(2) + '</strong></div>'
+        + '<div class="settlement-total-card"><span class="settlement-total-label">Total Paid</span><strong class="settlement-total-value">$' + totalPayments.toFixed(2) + '</strong></div>'
+        + '<div class="settlement-total-card"><span class="settlement-total-label">Remaining</span><strong class="settlement-total-value ' + (totalBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + totalBalance.toFixed(2) + '</strong></div>'
+        + '</div>';
+
+    const boardHtml = filtered.length
+        ? '<div class="settlement-board">' + cards + '</div>'
+        : '<div class="settlement-board-empty"><strong>No households match this filter.</strong><span>Switch filters to review the rest of the settlement board.</span></div>';
+
     container.innerHTML = completionBanner
-        + payViaStrip
+        + '<div class="settlement-summary-shell">'
+        + '<div class="settlement-overview">'
+        + '<div class="settlement-overview-main">' + payViaStrip + '</div>'
+        + '<div class="settlement-overview-stats">'
+        + '<div class="settlement-overview-card"><span class="settlement-overview-label">Households</span><strong class="settlement-overview-value">' + counts.all + '</strong></div>'
+        + '<div class="settlement-overview-card"><span class="settlement-overview-label">Linked Groups</span><strong class="settlement-overview-value">' + linkedGroupCount + '</strong></div>'
+        + '<div class="settlement-overview-card"><span class="settlement-overview-label">Collected</span><strong class="settlement-overview-value">' + collectionRate + '%</strong></div>'
+        + '<div class="settlement-overview-card"><span class="settlement-overview-label">Remaining</span><strong class="settlement-overview-value ' + (totalBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + totalBalance.toFixed(2) + '</strong></div>'
+        + '</div>'
+        + '</div>'
         + '<div class="settlement-filter-bar">' + filterChips + '</div>'
-        + '<div class="settlement-board">' + cards + '</div>'
-        + '<div class="settlement-totals">'
-        + '<span>Total Annual: <strong>$' + totalAnnual.toFixed(2) + '</strong></span>'
-        + '<span>Total Paid: <strong>$' + totalPayments.toFixed(2) + '</strong></span>'
-        + '<span>Remaining: <strong class="' + (totalBalance > 0 ? 'balance-owed' : 'balance-paid') + '">$' + totalBalance.toFixed(2) + '</strong></span>'
+        + boardHtml
+        + totalsFooter
         + '</div>';
 
     renderDashboardStatus();
