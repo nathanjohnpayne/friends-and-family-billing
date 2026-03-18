@@ -69,6 +69,9 @@
                 <!-- Members Tab -->
                 <section class="card workspace-panel" id="panel-members">
                     <h2>Friends & Family Members</h2>
+                    <p class="section-desc">
+                        Organize households here. Linking lets one primary member settle with dependents while each person keeps their own totals and payment history.
+                    </p>
                     <div class="composer-toggle" id="memberComposerToggle">
                         <button onclick="toggleMemberComposer()" class="btn btn-primary btn-sm" id="memberComposerBtn">+ Add Member</button>
                     </div>
@@ -86,6 +89,9 @@
                 <!-- Bills Tab -->
                 <section class="card workspace-panel" id="panel-bills" style="display:none;">
                     <h2>Bills</h2>
+                    <p class="section-desc">
+                        Bills stay labeled with their real billing cadence. Use the conversion controls to switch a bill between monthly and annual billing when needed.
+                    </p>
                     <div class="composer-toggle" id="billComposerToggle">
                         <button onclick="toggleBillComposer()" class="btn btn-primary btn-sm" id="billComposerBtn">+ Add Bill</button>
                     </div>
@@ -117,6 +123,9 @@
                 <!-- Invoicing Tab -->
                 <section class="card workspace-panel" id="panel-invoicing" style="display:none;">
                     <h2>Invoicing</h2>
+                    <p class="section-desc">
+                        Build one annual invoice message, preview it with live billing data, and keep payment instructions ready for every share link and summary.
+                    </p>
                     <div class="invoicing-sub-panel">
                         <h3>Invoice Template</h3>
                         <div id="emailSettings"></div>
@@ -135,7 +144,7 @@
                 <section class="card workspace-panel" id="panel-reviews" style="display:none;">
                     <h2>Review Requests</h2>
                     <p class="section-desc">
-                        Bill items flagged during annual review.
+                        When members flag a bill during annual review, the request appears here for follow-up, resolution, and evidence review.
                     </p>
                     <div id="disputeFilterBar" class="dispute-filter-bar"></div>
                     <div id="disputesList"></div>

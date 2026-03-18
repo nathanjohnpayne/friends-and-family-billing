@@ -587,12 +587,13 @@ textarea:focus {
 .member-card {
     display: grid;
     grid-template-columns: var(--avatar-size) 1fr auto;
-    align-items: center;
-    gap: var(--space-2);
-    background: var(--color-surface-alt);
-    padding: var(--space-2);
-    border-radius: var(--radius-lg);
-    border: var(--border-width) solid var(--color-border);
+    align-items: start;
+    gap: var(--space-3);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 255, 0.92));
+    padding: var(--space-3);
+    border-radius: var(--radius-xl);
+    border: var(--border-thin) solid var(--color-border-light);
+    box-shadow: var(--shadow-sm);
 }
 
 .member-avatar-container {
@@ -626,6 +627,7 @@ textarea:focus {
 
 .member-info {
     flex: 1;
+    min-width: 0;
 }
 
 .member-name {
@@ -671,8 +673,78 @@ textarea:focus {
 
 .member-actions {
     display: flex;
-    gap: var(--space-2);
+    gap: var(--space-1);
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    max-width: 320px;
+}
+
+.member-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: var(--border-thin) solid var(--color-border);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--color-text-secondary);
+    font-size: var(--text-body-xs);
+    font-weight: var(--font-weight-semi);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.member-action-btn:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
+}
+
+.member-action-btn-danger {
+    color: var(--color-danger);
+    border-color: rgba(245, 101, 101, 0.28);
+    background: rgba(245, 101, 101, 0.06);
+}
+
+.member-action-btn-danger:hover {
+    background: rgba(245, 101, 101, 0.12);
+    border-color: rgba(245, 101, 101, 0.4);
+}
+
+.linked-member-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+}
+
+.linked-member-group-label {
+    font-size: var(--text-badge-sm);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+}
+
+.linked-member-pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.linked-member-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    font-size: var(--text-body-xs);
+    font-weight: var(--font-weight-semi);
 }
 
 /* ──────────────── Bills ──────────────── */
@@ -691,7 +763,21 @@ textarea:focus {
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: var(--space-4);
-    background: var(--color-surface-dim);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 255, 0.94));
+    box-shadow: var(--shadow-sm);
+    border-left: 4px solid transparent;
+}
+
+.bill-item-major {
+    border-left-color: rgba(110, 120, 214, 0.95);
+}
+
+.bill-item-medium {
+    border-left-color: rgba(110, 120, 214, 0.45);
+}
+
+.bill-item-light {
+    border-left-color: rgba(160, 174, 192, 0.45);
 }
 
 .bill-header-main {
@@ -747,6 +833,10 @@ textarea:focus {
 .bill-header-right {
     text-align: right;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
 }
 
 .bill-title {
@@ -767,6 +857,51 @@ textarea:focus {
     font-size: var(--text-body-sm);
     margin-top: var(--space-1);
     line-height: var(--line-height-relaxed, 1.6);
+}
+
+.bill-cadence-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.bill-cadence-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(110, 120, 214, 0.08);
+    color: var(--color-primary);
+    font-size: var(--text-badge-sm);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.btn-link.bill-frequency-convert {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid rgba(110, 120, 214, 0.16);
+    background: rgba(110, 120, 214, 0.08);
+    color: var(--color-primary);
+    font-size: var(--text-body-xs);
+    font-weight: var(--font-weight-medium);
+    text-decoration: none;
+    text-decoration-style: solid;
+    white-space: nowrap;
+}
+
+.btn-link.bill-frequency-convert:hover {
+    background: rgba(110, 120, 214, 0.14);
+    border-color: rgba(110, 120, 214, 0.26);
+    color: var(--color-primary-hover);
 }
 
 .frequency-toggle {
@@ -836,7 +971,6 @@ textarea:focus {
 .bill-derived-amount {
     font-size: var(--text-body-xs);
     color: var(--color-text-muted);
-    margin-top: var(--space-1);
     font-variant-numeric: tabular-nums;
 }
 
@@ -946,6 +1080,10 @@ textarea:focus {
     align-items: center;
 }
 
+.bill-actions .btn {
+    min-height: 40px;
+}
+
 .bill-actions-dropdown {
     position: relative;
 }
@@ -992,6 +1130,93 @@ textarea:focus {
 
 .bill-actions-menu button.danger:hover {
     background: var(--color-danger-light, #fff5f5);
+}
+
+/* ──────────────── Invoice Template Builder ──────────────── */
+
+.template-token-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+}
+
+.template-token-label {
+    font-size: var(--text-badge-sm);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+}
+
+.template-token-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.template-token-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: var(--border-thin) solid rgba(110, 120, 214, 0.16);
+    background: rgba(110, 120, 214, 0.06);
+    color: var(--color-primary);
+    font-size: var(--text-body-xs);
+    font-weight: var(--font-weight-semi);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.template-token-chip:hover {
+    background: rgba(110, 120, 214, 0.12);
+    border-color: rgba(110, 120, 214, 0.3);
+}
+
+.template-token-help {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-body-xs);
+    color: var(--color-text-muted);
+}
+
+.invoice-template-preview {
+    margin-top: var(--space-3);
+    border: var(--border-thin) solid var(--color-border-light);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, rgba(110, 120, 214, 0.04), rgba(255, 255, 255, 0.98));
+}
+
+.invoice-template-preview-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 12px 14px;
+    border-bottom: var(--border-thin) solid var(--color-border-light);
+}
+
+.invoice-template-preview-label {
+    font-size: var(--text-badge-sm);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+}
+
+.invoice-template-preview-sample {
+    font-size: var(--text-body-xs);
+    color: var(--color-text-muted);
+}
+
+.invoice-template-preview-body {
+    padding: 14px;
+    font-size: var(--text-body-sm);
+    line-height: 1.65;
+    color: var(--color-text);
 }
 
 /* ──────────────── Summary Table ──────────────── */
@@ -2777,6 +3002,50 @@ textarea:focus {
     flex-wrap: wrap;
 }
 
+.dispute-filter-compact {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    border: var(--border-thin) solid var(--color-border-light);
+    border-radius: var(--radius-xl);
+    background: rgba(110, 120, 214, 0.04);
+}
+
+.dispute-filter-summary {
+    font-size: var(--text-body-sm);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+}
+
+.dispute-filter-compact-actions {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.dispute-filter-select {
+    min-height: 38px;
+    min-width: 170px;
+    padding: 0 12px;
+    border: var(--border-thin) solid var(--color-border-subtle);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    font-size: var(--text-body-xs);
+    font-family: inherit;
+}
+
+.dispute-filter-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(110, 120, 214, 0.14);
+}
+
 .dispute-filter-btn {
     padding: var(--space-1) 14px;
     border: var(--border-thin) solid var(--color-border-subtle);
@@ -2792,6 +3061,18 @@ textarea:focus {
 .dispute-filter-btn:hover {
     background: var(--color-surface-alt);
     border-color: var(--color-border-strong);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .dispute-filter-btn.active {
@@ -2928,6 +3209,10 @@ textarea:focus {
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-1);
+}
+
+.empty-state-action {
+    margin-top: var(--space-2);
 }
 
 /* ──────────────── Dispute Detail Dialog ──────────────── */
@@ -3657,6 +3942,15 @@ textarea:focus {
         grid-template-columns: 1fr;
     }
 
+    .member-card {
+        grid-template-columns: 1fr;
+    }
+
+    .member-actions {
+        justify-content: flex-start;
+        max-width: none;
+    }
+
     .actions-dropdown-menu {
         right: auto;
         left: 0;
@@ -3723,6 +4017,21 @@ textarea:focus {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .bill-header-main,
+    .bill-header {
+        flex-direction: column;
+    }
+
+    .bill-header-right {
+        align-items: flex-start;
+        text-align: left;
+        width: 100%;
+    }
+
+    .bill-cadence-row {
+        justify-content: flex-start;
+    }
+
     .settlement-linked-row {
         padding: var(--space-3);
     }
@@ -3746,6 +4055,20 @@ textarea:focus {
 
     .settlement-totals-grid {
         grid-template-columns: 1fr;
+    }
+
+    .template-token-bar,
+    .invoice-template-preview-head,
+    .dispute-filter-compact {
+        align-items: flex-start;
+    }
+
+    .dispute-filter-select {
+        width: 100%;
+    }
+
+    .invoice-template-preview-head {
+        flex-direction: column;
     }
 
     .calc-breakdown-line {

@@ -16,7 +16,7 @@ let currentBillingYear = null;
 let billingYears = [];
 
 // UI state
-let _activeWorkspaceTab = 'members';
+let _activeWorkspaceTab = 'bills';
 let _summaryFilter = 'all';
 let _expandedSettlementIds = new Set();
 let _memberComposerOpen = false;
@@ -1142,6 +1142,24 @@ function removeFamilyMember(id) {
 }
 
 // Render family members
+function renderLinkedHouseholdPills(member) {
+    const linkedNames = (member.linkedMembers || [])
+        .map(id => {
+            const linked = familyMembers.find(m => m.id === id);
+            return linked ? escapeHtml(linked.name) : null;
+        })
+        .filter(name => name);
+
+    if (linkedNames.length === 0) return '';
+
+    return '<div class="linked-member-group">'
+        + '<span class="linked-member-group-label">Linked household</span>'
+        + '<div class="linked-member-pill-list">'
+        + linkedNames.map(name => '<span class="linked-member-pill">' + name + '</span>').join('')
+        + '</div>'
+        + '</div>';
+}
+
 function renderFamilyMembers() {
     const container = document.getElementById('familyMembersList');
     const archived = isYearReadOnly();
@@ -1157,14 +1175,6 @@ function renderFamilyMembers() {
     }
 
     container.innerHTML = familyMembers.map(member => {
-        const linkedNames = member.linkedMembers
-            .map(id => {
-                const linked = familyMembers.find(m => m.id === id);
-                return linked ? escapeHtml(linked.name) : null;
-            })
-            .filter(name => name)
-            .join(', ');
-
         return `
         <div class="member-card" data-member-id="${member.id}">
             <div class="member-avatar-container">
@@ -1178,13 +1188,13 @@ function renderFamilyMembers() {
                 <div class="member-phone" ${archived ? '' : `onclick="editMemberPhone(${member.id})" title="Click to edit phone"`}>
                     ${escapeHtml(member.phone) || '<span class="placeholder-text">Phone not provided</span>'}
                 </div>
-                ${linkedNames ? `<div class="linked-members">Linked: ${linkedNames}</div>` : ''}
+                ${renderLinkedHouseholdPills(member)}
             </div>
             ${archived ? '' : `<div class="member-actions">
-                <button class="btn-icon" onclick="uploadAvatar(${member.id})" title="Upload avatar">📷</button>
-                ${member.avatar ? `<button class="btn-icon" onclick="removeAvatar(${member.id})" title="Remove avatar">🗑️</button>` : ''}
-                <button class="btn-icon" onclick="manageLinkMembers(${member.id})" title="Link members">🔗</button>
-                <button class="btn-icon remove" onclick="removeFamilyMember(${member.id})" title="Remove member">×</button>
+                <button class="member-action-btn" onclick="uploadAvatar(${member.id})" title="${member.avatar ? 'Change avatar photo' : 'Upload avatar photo'}">${member.avatar ? 'Change Photo' : 'Add Photo'}</button>
+                ${member.avatar ? `<button class="member-action-btn" onclick="removeAvatar(${member.id})" title="Remove avatar photo">Remove Photo</button>` : ''}
+                <button class="member-action-btn" onclick="manageLinkMembers(${member.id})" title="Link dependents or household members to this primary member">Link Household</button>
+                <button class="member-action-btn member-action-btn-danger" onclick="removeFamilyMember(${member.id})" title="Remove member">Delete</button>
             </div>`}
         </div>
     `}).join('');
@@ -1644,19 +1654,26 @@ function renderBills() {
         const annualAmount = getBillAnnualAmount(bill);
         const memberCount = bill.members.length;
         const isAnnual = bill.billingFrequency === 'annual';
+        const billTierClass = annualAmount >= 1000
+            ? ' bill-item-major'
+            : annualAmount >= 300
+                ? ' bill-item-medium'
+                : ' bill-item-light';
         const perPersonDisplay = memberCount > 0
             ? (isAnnual
                 ? '$' + (annualAmount / memberCount).toFixed(2) + ' per person annually'
                 : '$' + (annualAmount / memberCount / 12).toFixed(2) + ' per person monthly')
             : '';
         const derivedAmount = isAnnual
-            ? '\u2248 $' + getBillMonthlyAmount(bill).toFixed(2) + ' per month'
-            : '\u2248 $' + getBillAnnualAmount(bill).toFixed(2) + ' per year';
+            ? 'Monthly equivalent \u2248 $' + getBillMonthlyAmount(bill).toFixed(2) + ' per month'
+            : 'Annual equivalent \u2248 $' + getBillAnnualAmount(bill).toFixed(2) + ' per year';
         const safeWebsite = (bill.website && /^https?:\/\//i.test(bill.website)) ? escapeHtml(bill.website) : '';
         const freqLabel = getBillFrequencyLabel(bill);
+        const cadenceLabel = isAnnual ? 'Billed annually' : 'Billed monthly';
+        const convertLabel = isAnnual ? 'Convert to monthly billing' : 'Convert to annual billing';
 
         return `
-            <div class="bill-item" data-bill-id="${bill.id}">
+            <div class="bill-item${billTierClass}" data-bill-id="${bill.id}">
                 <div class="bill-header-main">
                     <div class="bill-logo-container">
                         ${generateLogo(bill)}
@@ -1671,11 +1688,11 @@ function renderBills() {
                         </div>
                         <div class="bill-header-right">
                             <span class="bill-amount${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillAmount(${bill.id})" title="Click to edit amount"`}>$${bill.amount.toFixed(2)}${freqLabel}</span>
+                            <div class="bill-cadence-row">
+                                <span class="bill-cadence-badge">${cadenceLabel}</span>
+                                ${archived ? '' : `<button class="btn-link bill-frequency-convert" onclick="toggleBillFrequency(${bill.id})">${convertLabel}</button>`}
+                            </div>
                             <div class="bill-derived-amount">${derivedAmount}</div>
-                            ${archived ? '' : `<div class="bill-frequency-toggle">
-                                <button type="button" class="frequency-option${isAnnual ? '' : ' active'}" onclick="toggleBillFrequency(${bill.id})">Monthly</button>
-                                <button type="button" class="frequency-option${isAnnual ? ' active' : ''}" onclick="toggleBillFrequency(${bill.id})">Annual</button>
-                            </div>`}
                         </div>
                     </div>
                 </div>
@@ -1707,12 +1724,12 @@ function renderBills() {
                 </div>
 
                 <div class="bill-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="showBillAuditHistory(${bill.id})">History</button>
                     ${archived
-                        ? `<button class="btn btn-secondary btn-sm" onclick="showBillAuditHistory(${bill.id})">View History</button>`
+                        ? ''
                         : `<div class="bill-actions-dropdown">
-                            <button class="btn btn-secondary btn-sm" onclick="toggleBillActionsMenu(event, ${bill.id})">Actions ▾</button>
+                            <button class="btn btn-secondary btn-sm" onclick="toggleBillActionsMenu(event, ${bill.id})">More ▾</button>
                             <div class="bill-actions-menu" id="bill-actions-menu-${bill.id}">
-                                <button onclick="showBillAuditHistory(${bill.id})">View History</button>
                                 <button onclick="editBillWebsite(${bill.id})">Edit Website</button>
                                 <button onclick="uploadLogo(${bill.id})">Upload Logo</button>
                                 ${bill.logo ? `<button onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
@@ -2404,21 +2421,97 @@ function recordPayment(memberId, amount, method, note, distribute) {
 }
 
 // Render email settings
+const EMAIL_TEMPLATE_FIELDS = [
+    { token: '%billing_year%', label: 'Billing Year' },
+    { token: '%annual_total%', label: 'Annual Total' },
+    { token: '%payment_methods%', label: 'Payment Methods' }
+];
+
+function getInvoiceTemplatePreviewContext() {
+    const billingYearLabel = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : String(new Date().getFullYear());
+    const paymentMethodsText = formatPaymentOptionsText().trim() || 'Add payment methods in the Invoicing tab to include them here.';
+    const sampleMember = familyMembers.find(m => !isLinkedToAnyone(m.id)) || familyMembers[0] || null;
+    const sampleHousehold = sampleMember ? getInvoiceSummaryContext(sampleMember.id) : null;
+    const previewTotal = sampleHousehold ? sampleHousehold.combinedTotal : 0;
+
+    return {
+        billingYear: billingYearLabel,
+        annualTotal: '$' + previewTotal.toFixed(2),
+        paymentMethods: paymentMethodsText,
+        householdName: sampleMember ? sampleMember.name : 'Example household'
+    };
+}
+
+function buildInvoiceTemplatePreviewText(template, ctx) {
+    return (template || '')
+        .replace(/%billing_year%/g, ctx.billingYear)
+        .replace(/%annual_total%/g, ctx.annualTotal)
+        .replace(/%total%/g, ctx.annualTotal)
+        .replace(/%total\b/g, ctx.annualTotal)
+        .replace(/%payment_methods%/g, ctx.paymentMethods);
+}
+
+function renderEmailTemplatePreview() {
+    const preview = document.getElementById('emailTemplatePreview');
+    const textarea = document.getElementById('emailMessageInput');
+    if (!preview || !textarea) return;
+
+    const ctx = getInvoiceTemplatePreviewContext();
+    const previewText = buildInvoiceTemplatePreviewText(textarea.value, ctx);
+    preview.innerHTML = previewText
+        ? escapeHtml(previewText).replace(/\n/g, '<br>')
+        : '<span class="placeholder-text">Your invoice preview will appear here.</span>';
+
+    const sample = document.getElementById('emailTemplatePreviewSample');
+    if (sample) {
+        sample.textContent = 'Previewing for ' + ctx.householdName + ' in ' + ctx.billingYear;
+    }
+}
+
+function insertEmailTemplateToken(token) {
+    const textarea = document.getElementById('emailMessageInput');
+    if (!textarea || textarea.disabled) return;
+
+    const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : textarea.value.length;
+    const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : textarea.value.length;
+    const value = textarea.value || '';
+    textarea.value = value.slice(0, start) + token + value.slice(end);
+    const nextPos = start + token.length;
+    textarea.focus();
+    textarea.setSelectionRange(nextPos, nextPos);
+    renderEmailTemplatePreview();
+}
+
 function renderEmailSettings() {
     const container = document.getElementById('emailSettings');
     const archived = isYearReadOnly();
+    const tokenButtons = EMAIL_TEMPLATE_FIELDS.map(field =>
+        '<button type="button" class="template-token-chip" onclick="insertEmailTemplateToken(\'' + field.token + '\')">' + escapeHtml(field.label) + '</button>'
+    ).join('');
+
     container.innerHTML = `
         <div class="form-group">
             <label for="emailMessage">Email Message (sent with annual invoices)</label>
             <p class="section-desc">
-                Use <strong>%billing_year%</strong> to insert the billing year,
-                <strong>%annual_total%</strong> or <strong>%total</strong> to insert the combined annual total,
-                and <strong>%payment_methods%</strong> to insert configured payment instructions.
+                Build one message for the full billing year. Click a field below to insert it into the template without memorizing the token format.
             </p>
-            <textarea id="emailMessageInput" rows="4" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
-            ${archived ? '' : '<button class="btn btn-primary mt-2" onclick="saveEmailMessage()">Save Message</button>'}
+            <div class="template-token-bar">
+                <span class="template-token-label">Insert fields</span>
+                <div class="template-token-list">${tokenButtons}</div>
+            </div>
+            <p class="template-token-help">Supported fields: <strong>%billing_year%</strong>, <strong>%annual_total%</strong>, <strong>%total%</strong>, and <strong>%payment_methods%</strong>.</p>
+            <textarea id="emailMessageInput" rows="4" oninput="renderEmailTemplatePreview()" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
+            <div class="invoice-template-preview">
+                <div class="invoice-template-preview-head">
+                    <span class="invoice-template-preview-label">Live Preview</span>
+                    <span id="emailTemplatePreviewSample" class="invoice-template-preview-sample"></span>
+                </div>
+                <div id="emailTemplatePreview" class="invoice-template-preview-body"></div>
+            </div>
+            ${archived ? '' : '<button class="btn btn-primary mt-2" onclick="saveEmailMessage()">Save Template</button>'}
         </div>
     `;
+    renderEmailTemplatePreview();
 }
 
 // Save email message
@@ -2427,7 +2520,8 @@ function saveEmailMessage() {
     const input = document.getElementById('emailMessageInput');
     settings.emailMessage = input.value;
     saveData();
-    alert('Email message saved!');
+    renderEmailTemplatePreview();
+    showChangeToast('Invoice template saved.');
 }
 
 // ──────────────── Payment Methods Migration ────────────────
@@ -2548,6 +2642,7 @@ function renderPaymentMethodsSettings() {
     }
 
     container.innerHTML = html;
+    renderEmailTemplatePreview();
 }
 
 function getPaymentMethodDetail(method) {
@@ -2865,6 +2960,10 @@ function setDisputeFilter(status) {
         filterBar.querySelectorAll('.dispute-filter-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.status === status);
         });
+        const select = filterBar.querySelector('.dispute-filter-select');
+        if (select) {
+            select.value = ['open', 'in_review', 'resolved', 'rejected'].includes(status) ? status : '';
+        }
     }
     renderDisputes(_loadedDisputes);
 }
@@ -2909,13 +3008,48 @@ function renderDisputeFilterBar(disputes) {
     const bar = document.getElementById('disputeFilterBar');
     if (!bar) return;
 
+    if (!disputes.length) {
+        bar.innerHTML = '';
+        return;
+    }
+
     const counts = { all: disputes.length, actionable: 0, open: 0, in_review: 0, resolved: 0, rejected: 0 };
     disputes.forEach(d => {
         if (counts[d.status] !== undefined) counts[d.status]++;
         if (d.status === 'open' || d.status === 'in_review') counts.actionable++;
     });
 
-    const filters = [
+    let filters;
+    if (disputes.length <= 3) {
+        filters = [
+            { key: 'actionable', label: 'Actionable' },
+            { key: 'all', label: 'All Requests' }
+        ];
+        const compactStatusOptions = [
+            { key: 'open', label: 'Open' },
+            { key: 'in_review', label: 'In Review' },
+            { key: 'resolved', label: 'Resolved' },
+            { key: 'rejected', label: 'Rejected' }
+        ];
+        bar.innerHTML = '<div class="dispute-filter-compact">'
+            + '<span class="dispute-filter-summary">' + disputes.length + ' request' + (disputes.length === 1 ? '' : 's') + ' on file</span>'
+            + '<div class="dispute-filter-compact-actions">'
+            + filters.map(f =>
+                `<button class="dispute-filter-btn${_disputeStatusFilter === f.key ? ' active' : ''}" data-status="${f.key}" onclick="setDisputeFilter('${f.key}')">${escapeHtml(f.label)} <span class="dispute-filter-count">${counts[f.key] || 0}</span></button>`
+            ).join('')
+            + '<label class="sr-only" for="compactDisputeFilterSelect">Filter review requests by status</label>'
+            + '<select id="compactDisputeFilterSelect" class="dispute-filter-select" onchange="setDisputeFilter(this.value || \'all\')">'
+            + '<option value="">' + escapeHtml(_disputeStatusFilter === 'actionable' ? 'Specific status' : _disputeStatusFilter === 'all' ? 'Filter by status' : (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || 'Filter by status')) + '</option>'
+            + compactStatusOptions.map(option =>
+                `<option value="${option.key}"${_disputeStatusFilter === option.key ? ' selected' : ''}>${escapeHtml(option.label)} (${counts[option.key] || 0})</option>`
+            ).join('')
+            + '</select>'
+            + '</div>'
+            + '</div>';
+        return;
+    }
+
+    filters = [
         { key: 'actionable', label: 'Actionable' },
         { key: 'all', label: 'All' },
         { key: 'open', label: 'Open' },
@@ -2951,6 +3085,12 @@ function renderDisputes(disputes) {
             container.innerHTML = '<div class="empty-state">'
                 + '<p>No review requests yet.</p>'
                 + '<p class="empty-state-hint">Members can flag items while reviewing their annual billing summary.<br>You\'ll review and approve them here.</p>'
+                + '</div>';
+        } else if (_disputeStatusFilter === 'actionable' && disputes.length > 0) {
+            container.innerHTML = '<div class="empty-state review-empty-state">'
+                + '<p>No actionable review requests right now.</p>'
+                + '<p class="empty-state-hint">When members flag a bill during annual review, open and in-review requests appear here. The requests already on file have been resolved or rejected.</p>'
+                + '<button class="btn btn-secondary btn-sm empty-state-action" onclick="setDisputeFilter(\'all\')">Show all requests</button>'
                 + '</div>';
         } else {
             const statusLabel = (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase();
@@ -4121,7 +4261,8 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const emailMessage = settings.emailMessage
         .replace(/%billing_year%/g, currentYear)
         .replace(/%annual_total%/g, '$' + combinedTotal.toFixed(2))
-        .replace(/%total/g, '$' + combinedTotal.toFixed(2))
+        .replace(/%total%/g, '$' + combinedTotal.toFixed(2))
+        .replace(/%total\b/g, '$' + combinedTotal.toFixed(2))
         .replace(/%payment_methods%/g, formatPaymentOptionsText());
     let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
     if (shareUrl) {
@@ -5365,6 +5506,8 @@ export {
 
     // Email settings
     renderEmailSettings,
+    renderEmailTemplatePreview,
+    insertEmailTemplateToken,
     saveEmailMessage,
 
     // Payment methods

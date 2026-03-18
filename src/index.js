@@ -135,6 +135,8 @@ import {
 
     // Email settings
     renderEmailSettings,
+    renderEmailTemplatePreview,
+    insertEmailTemplateToken,
     saveEmailMessage,
 
     // Payment methods
@@ -355,6 +357,8 @@ window.deletePaymentEntry = deletePaymentEntry;
 
 // Email settings
 window.renderEmailSettings = renderEmailSettings;
+window.renderEmailTemplatePreview = renderEmailTemplatePreview;
+window.insertEmailTemplateToken = insertEmailTemplateToken;
 window.saveEmailMessage = saveEmailMessage;
 
 // Payment methods
