@@ -1856,14 +1856,20 @@ function calculateSettlementMetrics() {
 
 function toggleActionMenu(event) {
     event.stopPropagation();
+    const trigger = event.currentTarget;
     const menu = event.currentTarget.nextElementSibling;
     const wasOpen = menu.classList.contains('open');
     closeAllActionMenus();
-    if (!wasOpen) menu.classList.add('open');
+    if (!wasOpen) {
+        menu.classList.add('open');
+        const settlementRow = trigger.closest('.settlement-row-card');
+        if (settlementRow) settlementRow.classList.add('settlement-row-card-menu-open');
+    }
 }
 
 function closeAllActionMenus() {
     document.querySelectorAll('.actions-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.settlement-row-card-menu-open').forEach(card => card.classList.remove('settlement-row-card-menu-open'));
 }
 
 document.addEventListener('click', closeAllActionMenus);

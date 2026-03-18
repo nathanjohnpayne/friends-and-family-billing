@@ -1434,10 +1434,15 @@ textarea:focus {
 .settlement-row-card:hover {
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
+    z-index: 2;
 }
 
 .settlement-row-card-expanded {
     box-shadow: var(--shadow-md);
+}
+
+.settlement-row-card-menu-open {
+    z-index: 5;
 }
 
 .settlement-outstanding {
