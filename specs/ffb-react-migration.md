@@ -3,14 +3,14 @@
 > **App:** https://friends-and-family-billing.web.app/
 > **Current Stack:** Vanilla JS (esbuild) + Firebase
 > **Target Stack:** React (Vite) + React Router + Firebase
-> **Date:** March 19, 2026
+> **Date:** March 19, 2026 (updated March 20, 2026)
 > **Author:** Migration plan by Claude, commissioned by Nathan Payne
 
 ---
 
 ## Why Migrate
 
-The app is a ~4,700-line vanilla JS monolith (`src/main.js`) that renders everything via `innerHTML` string concatenation, manages state through module-scoped variables, and handles events via `window.*` inline `onclick` handlers. The UX mitigation spec (`specs/ffb-mitigation-plan.md`) calls for routing, modals, responsive component state, and information architecture changes — all of which strain the current approach.
+The app is a ~6,000-line vanilla JS monolith (`src/main.js`) that renders everything via `innerHTML` string concatenation, manages state through module-scoped variables, and handles events via 195 `window.*` inline `onclick` handlers exported via `src/index.js`. The UX mitigation spec (`specs/ffb-mitigation-plan.md`) calls for routing, modals, responsive component state, and information architecture changes — all of which strain the current approach.
 
 **What React solves:**
 - **Routing (P0.1):** React Router replaces a hand-rolled hash router
@@ -27,22 +27,39 @@ The app is a ~4,700-line vanilla JS monolith (`src/main.js`) that renders everyt
 
 ---
 
-## Migration Strategy: Strangler Fig
+## Migration Strategy: Shared-Logic Strangler
 
-Rewrite incrementally by view/component, not all at once. The React app mounts alongside the existing code initially, taking over one section at a time until the vanilla JS is fully replaced.
+Extract shared domain logic into pure ES modules first, then build the React SPA on top of those modules. **Do not** mount React beside vanilla JS DOM-by-DOM — instead, do a full SPA cutover after the React app reaches route parity.
+
+`src/index.js` stays as the `window.*` bridge throughout migration, importing from the extracted modules instead of `main.js`. Delete it only at final cutover when no inline handlers remain.
 
 ---
 
-## Pre-Migration: Vanilla JS Quick Wins (PRs 1–4)
+## Pre-Migration: Vanilla JS Quick Wins (PRs 1–4) ✅ DONE
 
-These items are small, independent, and don't benefit from React. Ship them first against the current codebase:
+Shipped March 19, 2026:
 
-| PR | Items | Description |
-|----|-------|-------------|
-| 1 | P0.4 | Fix invoice template duplication bug |
-| 2 | P0.2 | Sticky tab bar (CSS-only) |
-| 3 | P1.1 + P1.3 | Fix status contradiction + disable invoice for settled |
-| 4 | P1.2 + P1.4 | Confirmation modals + clarify frequency label |
+| PR | Items | Description | Status |
+|----|-------|-------------|--------|
+| 1 | P0.4 | Fix invoice template duplication bug | ✅ |
+| 2 | P0.2 | Sticky tab bar (CSS-only) | ✅ |
+| 3 | P1.1 + P1.3 | Fix status contradiction + disable invoice for settled | ✅ |
+| 4 | P1.2 + P1.4 | Confirmation modals + clarify frequency label | ✅ |
+
+---
+
+## Pre-Migration: Domain Logic Extraction — IN PROGRESS
+
+Extract pure domain logic out of `src/main.js` into importable modules. `main.js` keeps thin wrappers that pass module-scoped state to the pure versions. Order matters (safest → riskiest):
+
+| Priority | Module | Functions | Risk | Status |
+|----------|--------|-----------|------|--------|
+| 1 | `src/lib/calculations.js` | `getBillAnnualAmount`, `getBillMonthlyAmount`, `calculateAnnualSummary`, `getPaymentTotalForMember`, `getMemberPayments`, `isLinkedToAnyone`, `getParentMember`, `calculateSettlementMetrics` | Low | ✅ |
+| 2 | `src/lib/validation.js` | `detectDuplicatePaymentText`, `isValidE164`, `normalizeDisputeStatus`, `generateEventId`, `generateUniquePaymentId`, `generateRawToken`, `hashToken`, `generateUniqueId`, `generateUniqueBillId`, `isArchivedYear`, `isClosedYear`, `isSettlingYear`, `isYearReadOnly`, `yearReadOnlyMessage` | Low | ✅ |
+| 3 | `src/lib/formatting.js` + `src/lib/constants.js` | `PAYMENT_METHOD_LABELS`, `BILLING_EVENT_LABELS`, `PAYMENT_METHOD_TYPES`, `PAYMENT_METHOD_ICONS`, `getPaymentMethodLabel`, `getBillingYearStatusLabel`, `getBillFrequencyLabel`, `formatAnnualSummaryCurrency`, `formatFileSize`, `escapeHtml`, `sanitizeImageSrc`, `getInitials`, `getPaymentMethodIcon`, `getPaymentMethodStripIcon`, `getPaymentMethodDetail`, `disputeStatusClass`; **constants.js**: `BILLING_YEAR_STATUSES`, `DISPUTE_STATUS_LABELS` (re-exported from formatting.js for backward compat) | Low | ✅ |
+| 4 | `src/lib/billing-year.js` | `setBillingYearStatus`, `closeCurrentYear`, `archiveCurrentYear`, `startNewYear` | Medium | Pending |
+| 5 | `src/lib/persistence.js` | `saveData`, `loadData`, `loadBillingYearData`, `_saveChain` | High | Pending |
+| 6 | `src/lib/share.js` | `generateShareLink`, `revokeShareLink`, `refreshPublicShares` | Medium | Pending |
 
 ---
 
@@ -52,41 +69,52 @@ These items are small, independent, and don't benefit from React. Ship them firs
 
 ### 0.1 Initialize Vite + React
 
-- `npm create vite@latest` with React + TypeScript template (or JS if preferred)
-- Configure Vite to output to the repo root for Firebase Hosting compatibility
+- `npm create vite@latest` with React + **JSX** (not TypeScript — add TS later via incremental `.jsx` → `.jsx` rename)
+- Vite outputs to `dist/`; Firebase Hosting stays `"public": "."` until final cutover
 - Set up path aliases (`@/components`, `@/hooks`, `@/lib`)
 - Add ESLint + Prettier config for React
 
-### 0.2 Firebase SDK Migration
+### 0.2 Dual Build Coexistence
+
+- `npm run build` → runs both `build:legacy` (esbuild → `script.js`) and `build:react` (Vite → `dist/`)
+- `npm test` → runs both `test:legacy` (VM context against `script.js`) and `test:react` (Vitest)
+- Legacy VM-context tests retire module-by-module: each test retires when the React component that replaces its corresponding `render*()` function passes its own RTL tests
+- At cutover: delete `build:legacy`, `test:legacy`, `script.js`, switch `firebase.json` to `"public": "dist"`
+
+### 0.3 Firebase SDK Migration
 
 - Install `firebase` npm package (modular v10+)
-- Create `src/lib/firebase.ts` — initialize app, export `auth`, `db`, `storage`, `analytics`
-- Replace CDN compat imports with tree-shakeable modular imports
-- Keep `firebase-config.local.js` pattern (gitignored) for config values
+- Create `src/lib/firebase.js` — initialize app with `initializeApp(config)`, export `auth`, `db`, `storage`, `analytics`
+- Config bridge: `firebase-config.local.js` remains the single source of truth for Firebase config values throughout the migration. Legacy path loads it via `<script>` tag → `window.*`. React path reads the same values (either by importing the file or by reading from `window.__FIREBASE_CONFIG__` set by the script tag).
+- At cutover: move config values to `.env.local` (gitignored), remove CDN scripts and `firebase-config.js`
 
-### 0.3 Auth Context
+### 0.4 Auth Context & Login Page
 
 - Create `AuthProvider` context wrapping the app
 - `useAuth()` hook returns `{ user, loading, signOut }`
-- Replaces the current `currentUser` module variable + `auth.onAuthStateChanged` listener
+- Port `login.html` / `auth.js` (~170 lines) to a React `/login` route in this phase — React owns auth context, so it should own the login page
+- During coexistence: both `login.html` and React `/login` work; `firebase.json` rewrites control which serves
 
-### 0.4 Data Layer
+### 0.5 Data Layer
 
-- Create `useBillingYear()` hook — loads/switches billing years from Firestore
-- Create `useBillingData()` hook — loads familyMembers, bills, payments, settings for the active year
-- These hooks replace the module-scoped `familyMembers`, `bills`, `payments`, `settings` variables
-- `saveData()` becomes a mutation function returned by the hook
+- Split into 4 focused services (not a single `BillingRepository`):
+  - `initFirebase()` — one-time Firebase app + auth listener init
+  - `BillingYearService` — load year list, switch active year, create/archive
+  - `SaveQueue` — serializes Firestore writes (generic middleware)
+  - `ShareSyncService` — post-save hook that denormalizes to `publicShares`
+- **Critical:** `SaveQueue` must own canonical state, not React. Mutations go through the service → update internal state → trigger save → notify React via a subscription API (e.g. `useSyncExternalStore`, a context with event emitter, or a custom hook — implementation chosen at build time). This preserves the current invariant: state is always stable when `saveData()` runs.
+- React reads from the services via context that subscribes to service state changes
 
-### 0.5 Build & Deploy
+### 0.6 Build & Deploy
 
-- Update `firebase.json` to point at Vite's output directory
-- Update `package.json` scripts: `dev`, `build`, `preview`
-- Verify `op-firebase-deploy` still works with the new build output
-- Update `stamp-version.js` if needed
+- Update `package.json` scripts: `dev`, `build`, `build:legacy`, `build:react`, `preview`
+- `stamp-version.js` writes to both repo root (legacy) and `dist/` (Vite)
+- Verify `op-firebase-deploy` works with the legacy build path during coexistence
 
 **Acceptance criteria:**
 - `npm run dev` serves the React app with hot reload
-- `npm run build` produces a deployable bundle
+- `npm run build` produces both legacy and React bundles
+- `npm test` passes both legacy (287+ tests) and React test suites
 - Auth works (sign in, sign out, Google Sign-In)
 - Data loads from Firestore into React state
 
@@ -229,7 +257,14 @@ These items are small, independent, and don't benefit from React. Ship them firs
 - Apply P3.2 (color palette) — use semantic color tokens consistently for status badges
 - Apply P3.3 (share link member view) — audit and polish the share link landing page
 
-### 4.2 Remove Vanilla JS
+### 4.2 Port Public Share Page
+
+- Port `share.html` (standalone page with inline Firestore reads) to a React `/share` route
+- This goes last because it's the simplest page, has no auth dependency, and is the lowest-traffic route
+- During coexistence: `share.html` stays working; `firebase.json` rewrites control which serves
+- At cutover: remove `share.html`, add backward-compatible redirect for old URLs
+
+### 4.3 Remove Vanilla JS
 
 - Delete `src/main.js` (the monolith)
 - Delete `src/index.js` (the window export bridge)
@@ -238,15 +273,22 @@ These items are small, independent, and don't benefit from React. Ship them firs
 - Remove all inline `onclick` handlers from any remaining HTML
 - Remove esbuild from devDependencies
 
-### 4.3 Test Migration
+### 4.4 Test Migration
 
 - Replace `tests/billing.test.js` VM-context approach with:
-  - Unit tests for calculation functions (vitest)
+  - Unit tests for extracted lib modules (Vitest — these can start immediately since lib/ is already extracted)
   - Component tests with React Testing Library
   - Integration tests for data flows
+- Legacy VM-context tests retire module-by-module: each test retires when the React component that replaces its corresponding `render*()` function passes its own RTL tests
 - Maintain CI `check_spec_test_alignment` compliance
 
-### 4.4 Documentation Updates
+### 4.5 Playwright Smoke Suite
+
+- Runs against `firebase emulators:exec` with seed data (no production Firestore dependency)
+- CI gate on `main` branch, runs after `npm test` (emulators are single-tenant)
+- Initial scope (4 tests): login redirect, bill CRUD, share page load, 375px mobile viewport
+
+### 4.6 Documentation Updates
 
 - Update `AGENTS.md` project structure section
 - Update `.ai_context.md` key entry points and tech stack
@@ -254,7 +296,7 @@ These items are small, independent, and don't benefit from React. Ship them firs
 
 **Acceptance criteria:**
 - No vanilla JS rendering code remains
-- All 267+ existing test cases have React equivalents
+- All 287+ existing test cases have React equivalents
 - `npm run build` produces a clean bundle
 - `npm test` passes all tests
 - Deploy to production succeeds via `op-firebase-deploy`
@@ -263,48 +305,59 @@ These items are small, independent, and don't benefit from React. Ship them firs
 
 ## File Impact Summary
 
+### Extracted modules (already shipped)
+
+```
+src/lib/
+├── calculations.js           # Pure math: annual summaries, settlement metrics, payment totals
+├── validation.js             # Predicates, ID generators, year status checks
+└── formatting.js             # Constants, labels, string transforms, escaping
+```
+
 ### New files (React)
 
 ```
 src/
-├── App.tsx                    # Root component with router
+├── App.jsx                    # Root component with router
 ├── lib/
-│   ├── firebase.ts            # Modular Firebase init
+│   ├── firebase.js            # Modular Firebase init (reads config from firebase-config.local.js during coexistence)
+│   ├── BillingYearService.js  # Load/switch/create/archive years
+│   ├── SaveQueue.js           # Serialized Firestore write queue
+│   ├── ShareSyncService.js    # Post-save publicShares denormalization
 │   ├── hooks/
-│   │   ├── useAuth.ts
-│   │   ├── useBillingYear.ts
-│   │   ├── useBillingData.ts
-│   │   └── useDialog.ts
-│   └── calculations.ts       # Pure functions extracted from main.js
+│   │   ├── useAuth.js
+│   │   ├── useBillingYear.js
+│   │   ├── useBillingData.js
+│   │   └── useDialog.js
 ├── components/
-│   ├── AppShell.tsx
-│   ├── NavBar.tsx
-│   ├── ConfirmationDialog.tsx
-│   ├── ActionMenu.tsx
-│   ├── EmptyState.tsx
-│   ├── StatusBadge.tsx
-│   └── Toast.tsx
+│   ├── AppShell.jsx
+│   ├── NavBar.jsx
+│   ├── ConfirmationDialog.jsx
+│   ├── ActionMenu.jsx
+│   ├── EmptyState.jsx
+│   ├── StatusBadge.jsx
+│   └── Toast.jsx
 ├── views/
 │   ├── Dashboard/
-│   │   ├── DashboardView.tsx
-│   │   ├── SettlementBoard.tsx
-│   │   ├── HouseholdCard.tsx
-│   │   └── HouseholdDetail.tsx
+│   │   ├── DashboardView.jsx
+│   │   ├── SettlementBoard.jsx
+│   │   ├── HouseholdCard.jsx
+│   │   └── HouseholdDetail.jsx
 │   ├── Manage/
-│   │   ├── ManageView.tsx
-│   │   ├── MembersTab.tsx
-│   │   ├── MemberCard.tsx
-│   │   ├── BillsTab.tsx
-│   │   ├── BillCard.tsx
-│   │   ├── InvoicingTab.tsx
-│   │   └── ReviewsTab.tsx
+│   │   ├── ManageView.jsx
+│   │   ├── MembersTab.jsx
+│   │   ├── MemberCard.jsx
+│   │   ├── BillsTab.jsx
+│   │   ├── BillCard.jsx
+│   │   ├── InvoicingTab.jsx
+│   │   └── ReviewsTab.jsx
 │   └── Settings/
-│       └── SettingsView.tsx
+│       └── SettingsView.jsx
 └── dialogs/
-    ├── DialogProvider.tsx
-    ├── AddPaymentDialog.tsx
-    ├── EmailInvoiceDialog.tsx
-    ├── ShareLinkDialog.tsx
+    ├── DialogProvider.jsx
+    ├── AddPaymentDialog.jsx
+    ├── EmailInvoiceDialog.jsx
+    ├── ShareLinkDialog.jsx
     └── ...
 ```
 
@@ -334,11 +387,13 @@ src/
 
 ## Implementation Order
 
-| Phase | Effort | Depends On | Ships |
-|-------|--------|------------|-------|
-| Pre-migration (PRs 1–4) | S–M | Nothing | Immediately |
-| Phase 0: Scaffold | M | PRs 1–4 shipped | React app boots with auth + data |
-| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views |
-| Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied |
-| Phase 3: Dialogs | M | Phase 2 | All modals ported |
-| Phase 4: Cleanup | M | Phase 3 | Vanilla JS fully removed |
+| Phase | Effort | Depends On | Ships | Status |
+|-------|--------|------------|-------|--------|
+| Pre-migration (PRs 1–4) | S–M | Nothing | UX fixes in vanilla JS | ✅ Done |
+| Domain extraction (P1–3) | S | PRs 1–4 | Pure lib modules | ✅ Done |
+| Domain extraction (P4–6) | M | P1–3 | Year lifecycle, persistence, shares | Pending |
+| Phase 0: Scaffold | M | Extraction done | React app boots with auth + data | Pending |
+| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | Pending |
+| Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied | Pending |
+| Phase 3: Dialogs | M | Phase 2 | All modals ported | Pending |
+| Phase 4: Cleanup | M | Phase 3 | Vanilla JS fully removed, Playwright CI | Pending |
