@@ -2296,7 +2296,7 @@ function updateSummary() {
                 ? '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>'
                 : '<button class="btn btn-tertiary btn-sm settlement-history-action" onclick="showPaymentHistory(' + data.member.id + ')">Payment History</button>')
             + (balance <= 0 && status === 'settled'
-                ? '<button class="btn btn-secondary btn-sm" disabled title="No balance due \u2014 nothing to invoice">Email Invoice</button>'
+                ? '<button class="btn btn-secondary btn-sm btn-settled-disabled" onclick="alert(\'No balance due \\u2014 nothing to invoice.\')">Email Invoice</button>'
                 : '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>')
             + '<div class="actions-dropdown settlement-actions-dropdown">'
             + '<button class="settlement-more-btn" onclick="toggleActionMenu(event)" aria-label="More actions">\u22EF</button>'

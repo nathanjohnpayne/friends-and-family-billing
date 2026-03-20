@@ -2975,6 +2975,11 @@ textarea:focus {
     background: #c82333;
 }
 
+.btn-settled-disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .text-invoice-summary {
     display: flex;
     flex-direction: column;
