@@ -641,7 +641,7 @@ function confirmStartSettlement() {
     const yearLabel = currentBillingYear ? currentBillingYear.label : '';
     showConfirmationDialog(
         'Start Settlement',
-        'This will move billing year ' + yearLabel + ' into the Settling phase. Members can no longer be added or removed, and invoices can be sent. Continue?',
+        'This will move billing year ' + yearLabel + ' into the Settling phase. Invoices can now be sent to members. Continue?',
         'Start Settlement',
         function() { setBillingYearStatus('settling'); },
         false
@@ -665,11 +665,21 @@ function confirmCloseYear() {
 
 function confirmArchiveYear() {
     const yearLabel = currentBillingYear ? currentBillingYear.label : '';
+    if (!currentBillingYear || isArchivedYear()) return;
     showConfirmationDialog(
         'Archive Billing Year',
         'This will archive billing year ' + yearLabel + '. Archived years are permanently read-only. Continue?',
         'Archive Year',
-        function() { archiveCurrentYear(); },
+        async function() {
+            await setBillingYearStatus('archived');
+            showConfirmationDialog(
+                'Year Archived',
+                'Year ' + yearLabel + ' has been archived successfully. Would you like to start a new billing year?',
+                'Start New Year',
+                function() { startNewYear(); },
+                false
+            );
+        },
         true
     );
 }
@@ -1972,7 +1982,7 @@ function calculateSettlementMetrics() {
             (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
         totalAnnual += combinedTotal;
         totalPayments += payment;
-        if (combinedTotal > 0 && payment >= combinedTotal) paidCount++;
+        if (combinedTotal <= 0 || payment >= combinedTotal) paidCount++;
     });
 
     const totalOutstanding = Math.max(0, totalAnnual - totalPayments);
@@ -5704,7 +5714,11 @@ function _set(key, val) {
         case '_activeWorkspaceTab': _activeWorkspaceTab = val; break;
         case '_summaryFilter': _summaryFilter = val; break;
         case '_expandedSettlementIds': _expandedSettlementIds = val; break;
-        case '_testAutoConfirmDialogs': _testAutoConfirmDialogs = val; break;
+        case '_testAutoConfirmDialogs':
+            if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+                _testAutoConfirmDialogs = val;
+            }
+            break;
         case '_memberComposerOpen': _memberComposerOpen = val; break;
         case '_billComposerOpen': _billComposerOpen = val; break;
     }

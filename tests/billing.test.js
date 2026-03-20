@@ -89,6 +89,7 @@ function createContext(overrides = {}) {
         },
         FileReader: class {},
         encodeURIComponent,
+        process,
         localStorage: { getItem: () => null, clear: () => {} },
 
         firebase: {

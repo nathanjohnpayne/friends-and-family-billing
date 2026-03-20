@@ -87,6 +87,7 @@ function createContext(overrides = {}) {
         },
         FileReader: class {},
         encodeURIComponent,
+        process,
         localStorage: { getItem: () => null, clear: () => {} },
 
         firebase: {
@@ -223,6 +224,26 @@ describe('settlement status - ready to close display', () => {
     it('BILLING_YEAR_STATUSES has settling status', () => {
         const ctx = createContext();
         assert.equal(ctx.BILLING_YEAR_STATUSES.settling.label, 'Settling');
+    });
+
+    it('counts zero-balance households as paid so they do not block Ready to Close', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', linkedMembers: [] },
+            { id: 2, name: 'Bob', linkedMembers: [] }
+        ]);
+        // Only Alice is on the bill; Bob has zero balance
+        ctx._set('bills', [
+            { id: 1, name: 'Test', amount: 100, billingFrequency: 'annual', members: [1] }
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 100, receivedAt: new Date().toISOString() }
+        ]);
+
+        const metrics = ctx.calculateSettlementMetrics();
+        assert.equal(metrics.paidCount, 2, 'both households should count as paid');
+        assert.equal(metrics.totalOutstanding, 0);
+        assert.equal(metrics.percentage, 100);
     });
 });
 
