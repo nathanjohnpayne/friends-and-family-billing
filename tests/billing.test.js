@@ -2566,6 +2566,22 @@ describe('computeMemberSummaryForShare with billing frequency', () => {
         assert.equal(result.bills[0].billingFrequency, 'monthly');
         assert.equal(result.bills[0].canonicalAmount, 15);
     });
+
+    it('includes sanitized member avatars and bill logos for share rendering', () => {
+        const ctx = createContext();
+        const avatar = 'data:image/png;base64,QUJD';
+        const logo = 'data:image/png;base64,REVG';
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar, paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', logo, website: '', members: [1] },
+        ]);
+
+        const result = ctx.computeMemberSummaryForShare(1);
+        assert.equal(result.avatar, avatar);
+        assert.equal(result.bills[0].logo, logo);
+    });
 });
 
 // ──────────────── Money Integrity Layer — Event Ledger ─────────────────
@@ -3517,6 +3533,27 @@ describe('buildInvoiceSubject', () => {
     });
 });
 
+describe('generateInvoiceHTML', () => {
+    it('uses the shared annual summary shell and includes visual assets', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice Smith', email: '', phone: '', avatar: 'data:image/png;base64,QUJD', linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Netflix', amount: 15, billingFrequency: 'monthly', members: [1], logo: 'data:image/png;base64,REVG', website: '' },
+        ]);
+
+        const summary = ctx.calculateAnnualSummary();
+        const html = ctx.generateInvoiceHTML(summary, '2026');
+
+        assert.ok(html.includes('annual-summary.css'));
+        assert.ok(html.includes('annual-summary-hero'));
+        assert.ok(html.includes('logo.svg'));
+        assert.ok(html.includes('data:image/png;base64,REVG'));
+        assert.ok(html.includes('Billing Year 2026'));
+    });
+});
+
 describe('buildInvoiceBody', () => {
     function makeCtx() {
         const ctx = createContext();
@@ -3709,4 +3746,3 @@ describe('updateInvoiceVariant', () => {
         assert.ok(textareaValue.includes('https://example.com'));
     });
 });
-

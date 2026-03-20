@@ -10,759 +10,109 @@
     <meta property="og:image" content="https://friends-and-family-billing.web.app/og-image.png?v=20260317-1942">
     <meta property="og:url" content="https://friends-and-family-billing.web.app">
     <meta property="og:type" content="website">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #6E78D6 0%, #7B5FAF 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        header {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-        }
-
-        header h1 { font-size: 2rem; margin-bottom: 6px; }
-        header .subtitle { font-size: 1rem; opacity: 0.9; }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-
-        h2 {
-            color: #1F2430;
-            margin-bottom: 16px;
-            font-size: 1.3rem;
-        }
-
-        .summary-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 12px;
-        }
-
-        .summary-table th, .summary-table td {
-            padding: 10px 12px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .summary-table th {
-            background: #F7F8FB;
-            font-weight: 600;
-            color: #1F2430;
-            font-size: 0.9rem;
-        }
-
-        .summary-table tr:hover { background: #f9fafb; }
-
-        .total-row {
-            font-weight: 600;
-            color: #6E78D6;
-            font-size: 1.05rem;
-        }
-
-        .child-section { margin-top: 20px; }
-        .child-section h3 {
-            font-size: 1.1rem;
-            color: #5B6475;
-            margin-bottom: 10px;
-        }
-
-        .payment-summary-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 8px;
-        }
-
-        .payment-stat {
-            background: #F7F8FB;
-            border-radius: 8px;
-            padding: 16px;
-            text-align: center;
-        }
-
-        .payment-stat .label {
-            font-size: 0.85rem;
-            color: #666;
-            margin-bottom: 4px;
-        }
-
-        .payment-stat .value {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #1F2430;
-        }
-
-        .payment-stat .value.owed { color: #C65A5A; }
-        .payment-stat .value.paid { color: #3FA37C; }
-
-        .payment-links-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 16px;
-        }
-
-        .payment-methods-strip {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-            padding: 8px 0;
-        }
-
-        .payment-strip-label {
-            font-size: 0.85rem;
-            color: #5B6475;
-            font-weight: 500;
-        }
-
-        .payment-strip-icon {
-            display: inline-flex;
-            width: 24px;
-            height: 24px;
-            color: #5B6475;
-        }
-
-        .payment-strip-icon svg {
-            width: 100%;
-            height: 100%;
-        }
-
-        .payment-link-card {
-            display: block;
-            background: #6E78D6;
-            color: white;
-            text-decoration: none;
-            padding: 16px;
-            border-radius: 8px;
-            text-align: center;
-            font-weight: 600;
-            font-size: 1rem;
-            transition: background 0.2s, transform 0.2s;
-        }
-
-        .payment-link-card:hover {
-            background: #5F6BC2;
-            transform: translateY(-2px);
-        }
-
-        .payment-method-card {
-            background: #F7F8FB;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 24px;
-            overflow: hidden;
-            min-width: 0;
-        }
-
-        .payment-method-card .pm-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-
-        .payment-method-card .pm-icon {
-            width: 32px;
-            height: 32px;
-            flex-shrink: 0;
-            color: #5B6475;
-        }
-
-        .payment-method-card .pm-icon svg {
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
-
-        .payment-method-card .pm-label {
-            font-weight: 700;
-            font-size: 1.05rem;
-            color: #1F2430;
-            margin-bottom: 0;
-        }
-
-        .payment-method-card .pm-detail {
-            color: #5B6475;
-            font-size: 0.95rem;
-            margin: 4px 0;
-            overflow-wrap: break-word;
-            word-break: break-word;
-        }
-
-        .payment-method-card .pm-detail strong {
-            color: #1F2430;
-        }
-
-        .payment-method-card a {
-            color: #6E78D6;
-            text-decoration: none;
-            font-weight: 600;
-            word-break: break-all;
-            overflow-wrap: break-word;
-        }
-
-        .payment-method-card a:hover {
-            text-decoration: underline;
-        }
-
-        .payment-method-card .pm-instructions {
-            color: #888;
-            font-size: 0.85rem;
-            font-style: italic;
-            margin-top: 6px;
-        }
-
-        .pm-copy-btn {
-            background: none;
-            border: 1px solid #cbd5e0;
-            border-radius: 6px;
-            padding: 6px 12px;
-            font-size: 0.85rem;
-            min-height: 32px;
-            color: #6E78D6;
-            cursor: pointer;
-            margin-left: 6px;
-            vertical-align: middle;
-            font-weight: 500;
-            transition: background 0.15s;
-        }
-
-        .pm-copy-btn:hover {
-            background: #edf2f7;
-        }
-
-        .pm-qr-btn {
-            display: block;
-            width: 100%;
-            margin-top: 12px;
-            padding: 10px;
-            background: #6E78D6;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .pm-qr-btn:hover {
-            background: #5F6BC2;
-        }
-
-        .qr-modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            padding: 20px;
-        }
-
-        .qr-modal {
-            background: white;
-            border-radius: 16px;
-            padding: 24px;
-            max-width: 420px;
-            width: 100%;
-            text-align: center;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
-
-        .qr-modal h3 {
-            margin: 0 0 16px;
-            font-size: 1.2rem;
-            color: #1F2430;
-        }
-
-        .qr-modal img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
-        }
-
-        .qr-modal-close {
-            display: inline-block;
-            margin-top: 16px;
-            padding: 10px 32px;
-            background: #6E78D6;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .qr-modal-close:hover {
-            background: #5F6BC2;
-        }
-
-        .pm-contact-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: #EDF2F7;
-            padding: 4px 10px;
-            border-radius: 16px;
-            font-size: 0.9rem;
-            color: #1F2430;
-        }
-
-        .pm-url-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            min-width: 0;
-        }
-
-        .pm-url-row a {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 200px;
-            display: inline-block;
-        }
-
-        .loading-state, .error-state {
-            text-align: center;
-            padding: 60px 20px;
-        }
-
-        .loading-state .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-top-color: white;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 16px;
-        }
-
-        .loading-state p { color: white; font-size: 1.1rem; }
-
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .error-state .error-icon {
-            font-size: 3rem;
-            margin-bottom: 12px;
-        }
-
-        .error-state h2 { color: #1F2430; margin-bottom: 8px; }
-        .error-state p { color: #666; }
-
-        #content { display: none; }
-
-        .powered-by {
-            text-align: center;
-            color: rgba(255,255,255,0.6);
-            font-size: 0.8rem;
-            margin-top: 24px;
-        }
-
-        .review-btn {
-            background: none;
-            border: 1px solid #e2e8f0;
-            color: #6E78D6;
-            font-size: 0.75rem;
-            padding: 3px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            white-space: nowrap;
-            font-family: inherit;
-            transition: background 0.15s, border-color 0.15s;
-        }
-        .review-btn:hover {
-            background: #f0f0ff;
-            border-color: #6E78D6;
-        }
-
-        .dispute-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .dispute-overlay.visible { display: flex; }
-
-        .dispute-dialog {
-            background: white;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 480px;
-            max-height: 90vh;
-            overflow-y: auto;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-
-        .dispute-dialog-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .dispute-dialog-header h3 { color: #1F2430; font-size: 1.1rem; margin: 0; }
-        .dispute-dialog-close {
-            background: none;
-            border: none;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: #999;
-            line-height: 1;
-        }
-
-        .dispute-dialog-body { padding: 20px; }
-
-        .dispute-dialog-body label {
-            display: block;
-            font-weight: 600;
-            color: #1F2430;
-            margin-bottom: 6px;
-            font-size: 0.9rem;
-        }
-        .dispute-dialog-body textarea,
-        .dispute-dialog-body input[type="text"] {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 0.95rem;
-            resize: vertical;
-            box-sizing: border-box;
-        }
-        .dispute-dialog-body textarea:focus,
-        .dispute-dialog-body input[type="text"]:focus {
-            outline: none;
-            border-color: #6E78D6;
-            box-shadow: 0 0 0 3px rgba(110,120,214,0.15);
-        }
-        .dispute-field { margin-bottom: 16px; }
-        .dispute-field .hint { color: #888; font-size: 0.8rem; margin-top: 4px; }
-
-        .dispute-dialog-footer {
-            padding: 12px 20px;
-            border-top: 1px solid #e0e0e0;
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-        }
-        .dispute-dialog-footer button {
-            padding: 9px 18px;
-            border-radius: 6px;
-            border: none;
-            font-size: 0.95rem;
-            font-family: inherit;
-            cursor: pointer;
-        }
-        .dispute-btn-cancel {
-            background: #e2e8f0;
-            color: #5B6475;
-        }
-        .dispute-btn-submit {
-            background: #6E78D6;
-            color: white;
-        }
-        .dispute-btn-submit:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .dispute-success {
-            text-align: center;
-            padding: 30px 20px;
-            color: #3FA37C;
-        }
-        .dispute-success .check-icon { font-size: 2.5rem; margin-bottom: 8px; }
-
-        @media print {
-            body { background: white; padding: 0; }
-            .card { box-shadow: none; border: 1px solid #ddd; }
-            header { color: #1F2430; }
-            .payment-link-card { background: #eee; color: #1F2430; }
-            .no-print { display: none; }
-        }
-
-        .share-dispute-item {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 14px 16px;
-            border-left: 4px solid #e2e8f0;
-            margin-bottom: 10px;
-        }
-        .share-dispute-item.sd-open { border-left-color: #ecc94b; }
-        .share-dispute-item.sd-in-review { border-left-color: #6E78D6; }
-        .share-dispute-item.sd-resolved { border-left-color: #3FA37C; }
-        .share-dispute-item.sd-rejected { border-left-color: #C65A5A; }
-
-        .sd-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-        .sd-header strong { font-size: 1rem; color: #1F2430; }
-        .sd-badge {
-            font-size: 0.75rem;
-            font-weight: 600;
-            padding: 2px 10px;
-            border-radius: 12px;
-            text-transform: uppercase;
-        }
-        .sd-badge.sd-open { background: #fefcbf; color: #975a16; }
-        .sd-badge.sd-in-review { background: #ebf4ff; color: #3c5a99; }
-        .sd-badge.sd-resolved { background: #f0fff4; color: #276749; }
-        .sd-badge.sd-rejected { background: #fff5f5; color: #c53030; }
-
-        .sd-meta { font-size: 0.85rem; color: #888; margin-bottom: 8px; }
-        .sd-message { font-size: 0.95rem; color: #444; line-height: 1.5; margin-bottom: 6px; }
-        .sd-correction {
-            font-size: 0.9rem;
-            color: #6E78D6;
-            background: rgba(110,120,214,0.06);
-            padding: 6px 10px;
-            border-radius: 4px;
-            margin-bottom: 8px;
-        }
-        .sd-resolution {
-            font-size: 0.9rem;
-            color: #276749;
-            background: rgba(72,187,120,0.08);
-            padding: 6px 10px;
-            border-radius: 4px;
-            margin-bottom: 8px;
-        }
-        .sd-evidence-list {
-            margin-top: 8px;
-        }
-        .sd-evidence-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            background: #F7F8FB;
-            border-radius: 4px;
-            margin-bottom: 4px;
-            font-size: 0.9rem;
-        }
-        .sd-evidence-item a {
-            color: #6E78D6;
-            text-decoration: none;
-        }
-        .sd-evidence-item a:hover { text-decoration: underline; }
-
-        .sd-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        .sd-btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            font-family: inherit;
-            cursor: pointer;
-            font-weight: 500;
-        }
-        .sd-btn-approve { background: #3FA37C; color: white; }
-        .sd-btn-approve:hover { background: #358D6B; }
-        .sd-btn-reject { background: #C65A5A; color: white; }
-        .sd-btn-reject:hover { background: #B34E4E; }
-        .sd-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        .sd-user-decision {
-            font-size: 0.85rem;
-            padding: 8px 12px;
-            border-radius: 6px;
-            margin-top: 8px;
-        }
-        .sd-user-decision.approved { background: #d1fae5; color: #065f46; }
-        .sd-user-decision.rejected { background: #fee2e2; color: #991b1b; }
-
-        .share-trust-banner {
-            text-align: center;
-            color: rgba(255,255,255,0.85);
-            font-size: 0.85rem;
-            margin-bottom: 16px;
-            line-height: 1.5;
-        }
-
-        .share-trust-banner .trust-lock {
-            margin-right: 4px;
-        }
-
-        .settlement-callout {
-            border-radius: 12px;
-            padding: 20px 25px;
-            margin-bottom: 20px;
-            background: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            border-left: 5px solid #e0e0e0;
-        }
-
-        .settlement-callout.outstanding {
-            border-left-color: #C65A5A;
-        }
-
-        .settlement-callout.settled {
-            border-left-color: #3FA37C;
-        }
-
-        .settlement-callout-title {
-            font-size: 1.05rem;
-            font-weight: 600;
-            color: #1F2430;
-            margin-bottom: 6px;
-        }
-
-        .settlement-callout-amount {
-            font-size: 1.3rem;
-            font-weight: 700;
-            margin-top: 4px;
-        }
-
-        .settlement-callout-amount.owed { color: #C65A5A; }
-        .settlement-callout-amount.clear { color: #3FA37C; }
-
-        .settlement-callout-desc {
-            font-size: 0.9rem;
-            color: #666;
-            margin-top: 4px;
-        }
-
-        .share-settlement-progress {
-            position: relative;
-            height: 10px;
-            background: #e2e8f0;
-            border-radius: 5px;
-            overflow: hidden;
-            margin-top: 12px;
-        }
-
-        .share-settlement-progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #6E78D6, #3FA37C);
-            border-radius: 5px;
-            transition: width 0.4s ease;
-        }
-
-        .share-settlement-progress-label {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 4px;
-            text-align: right;
-        }
-
-        @media (max-width: 600px) {
-            .payment-summary-grid { grid-template-columns: 1fr; }
-            .payment-links-grid { grid-template-columns: 1fr; }
-            header h1 { font-size: 1.6rem; }
-            .pm-copy-btn {
-                width: 100%;
-                margin-left: 0;
-                margin-top: 8px;
-            }
-            .pm-url-row {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .pm-url-row a {
-                max-width: 100%;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="design-tokens.css">
+    <link rel="stylesheet" href="annual-summary.css">
 </head>
-<body>
-    <div class="container">
-        <div id="loading" class="loading-state">
-            <div class="spinner"></div>
-            <p>Loading your annual billing summary&hellip;</p>
+<body class="annual-summary-page annual-summary-share">
+    <div class="annual-summary-shell">
+        <div id="loading" class="annual-summary-loading">
+            <div class="annual-summary-state-card">
+                <img src="logo.svg" alt="Friends &amp; Family Billing" class="annual-summary-state-logo">
+                <div class="annual-summary-spinner"></div>
+                <h2>Loading your annual billing summary&hellip;</h2>
+                <p>This secure page is preparing your latest billing details.</p>
+            </div>
         </div>
 
-        <div id="error" class="error-state card" style="display:none;"></div>
+        <div id="error" class="annual-summary-error" style="display:none;"></div>
 
-        <div id="content">
-            <header>
-                <div style="display:inline-block;margin-bottom:8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="40" height="40"><defs><linearGradient id="shareGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6E78D6"/><stop offset="100%" stop-color="#7B5FAF"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#shareGrad)"/><g transform="translate(6,5) scale(1.5)"><path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#fff"/><path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)"/></g></svg>
+        <div id="content" style="display:none;">
+            <div class="annual-summary-stack">
+                <header class="annual-summary-hero">
+                    <div class="annual-summary-hero-copy">
+                        <div class="annual-summary-brand-row">
+                            <img src="logo.svg" alt="Friends &amp; Family Billing" class="annual-summary-brand-mark">
+                            <div class="annual-summary-brand-copy">
+                                <p class="annual-summary-kicker">Secure Annual Summary</p>
+                                <div class="annual-summary-pill-row">
+                                    <span class="annual-summary-pill">Friends &amp; Family Billing</span>
+                                    <span class="annual-summary-pill" id="headerYearPill">Shared billing summary</span>
+                                </div>
+                            </div>
+                        </div>
+                        <h1 id="headerTitle" class="annual-summary-title">Annual Billing Summary</h1>
+                        <p id="headerSubtitle" class="annual-summary-subtitle"></p>
+                        <div id="shareTrustBanner" class="annual-summary-hero-note" style="display:none;"></div>
+                    </div>
+                    <div class="annual-summary-hero-side">
+                        <div class="annual-summary-hero-actions no-print">
+                            <button onclick="window.print()" class="annual-summary-button annual-summary-button--ghost">
+                                Print / Save PDF
+                            </button>
+                        </div>
+                        <div id="settlementCallout" class="annual-summary-callout" style="display:none;"></div>
+                    </div>
+                </header>
+
+                <section class="annual-summary-card">
+                    <div class="annual-summary-card-head">
+                        <div>
+                            <h2 id="billBreakdownTitle" class="annual-summary-card-title">Bill Breakdown</h2>
+                            <p class="annual-summary-card-copy">A line-by-line view of each shared bill and how the annual total is split.</p>
+                        </div>
+                    </div>
+                    <div class="annual-summary-table-wrap">
+                        <table class="annual-summary-table">
+                            <thead>
+                                <tr>
+                                    <th>Bill</th>
+                                    <th class="annual-summary-cell-number">Monthly Amount</th>
+                                    <th class="annual-summary-cell-number">Split</th>
+                                    <th class="annual-summary-cell-number">Your Share</th>
+                                    <th class="annual-summary-cell-number">Annual</th>
+                                </tr>
+                            </thead>
+                            <tbody id="billsTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="linkedSections" class="annual-summary-member-sections"></div>
+                </section>
+
+                <section class="annual-summary-card">
+                    <div class="annual-summary-card-head">
+                        <div>
+                            <h2 class="annual-summary-card-title">Annual Payment Summary</h2>
+                            <p class="annual-summary-card-copy">Your billing snapshot for this year, including payment progress and any remaining balance.</p>
+                        </div>
+                    </div>
+                    <div class="annual-summary-stat-grid" id="paymentSummaryGrid"></div>
+                </section>
+
+                <section id="paymentLinksCard" class="annual-summary-card" style="display:none;">
+                    <div class="annual-summary-card-head">
+                        <div>
+                            <h2 class="annual-summary-card-title">Submit Payment</h2>
+                            <p class="annual-summary-card-copy">Review your balance and use any of the payment methods below.</p>
+                        </div>
+                    </div>
+                    <div class="payment-links-grid" id="paymentLinksGrid"></div>
+                </section>
+
+                <section id="disputesCard" class="annual-summary-card" style="display:none;">
+                    <div class="annual-summary-card-head">
+                        <div>
+                            <h2 class="annual-summary-card-title">Review Requests</h2>
+                            <p class="annual-summary-card-copy">Track open questions, evidence, and resolution updates for this shared summary.</p>
+                        </div>
+                    </div>
+                    <div id="shareDisputesList"></div>
+                </section>
+
+                <div class="annual-summary-footer">
+                    Your billing data is private and encrypted.<br>
+                    <strong>Friends &amp; Family Billing</strong>
                 </div>
-                <h1 id="headerTitle">Annual Billing Summary</h1>
-                <p class="subtitle" id="headerSubtitle"></p>
-            </header>
-
-            <div id="shareTrustBanner" class="share-trust-banner" style="display:none;"></div>
-
-            <div id="settlementCallout" style="display:none;"></div>
-
-            <div class="card">
-                <h2 id="billBreakdownTitle">Bill Breakdown</h2>
-                <table class="summary-table">
-                    <thead>
-                        <tr>
-                            <th>Bill</th>
-                            <th>Monthly Amount</th>
-                            <th>Split</th>
-                            <th>Your Share</th>
-                            <th>Annual</th>
-                        </tr>
-                    </thead>
-                    <tbody id="billsTableBody"></tbody>
-                </table>
-                <div id="linkedSections"></div>
             </div>
-
-            <div class="card">
-                <h2>Annual Payment Summary</h2>
-                <div class="payment-summary-grid" id="paymentSummaryGrid"></div>
-            </div>
-
-            <div id="paymentLinksCard" class="card" style="display:none;">
-                <h2>Submit Payment</h2>
-                <p style="color:#666; font-size:0.9rem; margin-bottom:12px;">Please review your balance and submit payment using the methods below.</p>
-                <div class="payment-links-grid" id="paymentLinksGrid"></div>
-            </div>
-
-            <div id="disputesCard" class="card" style="display:none;">
-                <h2>Review Requests</h2>
-                <div id="shareDisputesList"></div>
-            </div>
-
-            <div class="no-print" style="text-align:center; margin-top: 16px;">
-                <button onclick="window.print()" style="padding: 10px 24px; background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.4); border-radius: 8px; font-size: 1rem; cursor: pointer; font-family: inherit;">
-                    Print / Save PDF
-                </button>
-            </div>
-
-            <div class="powered-by">Your billing data is private and encrypted.<br>Friends &amp; Family Billing</div>
         </div>
     </div>
 
@@ -808,6 +158,41 @@
                 .replace(/'/g, '&#039;');
         }
 
+        function sanitizeImageSrc(src) {
+            if (!src) return '';
+            if (/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(src)) return src;
+            return '';
+        }
+
+        function getInitials(name) {
+            return String(name || '')
+                .split(' ')
+                .map(function(part) { return part ? part[0] : ''; })
+                .join('')
+                .toUpperCase()
+                .slice(0, 2);
+        }
+
+        function formatCurrency(amount) {
+            return '$' + Number(amount || 0).toFixed(2);
+        }
+
+        function renderBillIdentity(bill) {
+            var safeName = escapeHtml(bill.name || 'Unnamed Bill');
+            var safeLogoSrc = sanitizeImageSrc(bill.logo);
+            var visual = safeLogoSrc
+                ? '<div class="annual-summary-entity-visual"><img src="' + safeLogoSrc + '" alt="' + safeName + ' logo" class="annual-summary-logo"></div>'
+                : '<div class="annual-summary-entity-visual"><div class="annual-summary-logo-fallback">' + escapeHtml(getInitials(bill.name)) + '</div></div>';
+
+            return '<div class="annual-summary-entity">'
+                + visual
+                + '<div class="annual-summary-entity-copy">'
+                + '<span class="annual-summary-entity-title">' + safeName + '</span>'
+                + '<span class="annual-summary-entity-meta">' + escapeHtml((bill.billingFrequency || 'monthly') === 'annual' ? 'Billed annually' : 'Billed monthly') + '</span>'
+                + '</div>'
+                + '</div>';
+        }
+
         function copyToClipboard(text, btn) {
             if (navigator.clipboard && btn) {
                 navigator.clipboard.writeText(text).then(function() {
@@ -820,11 +205,14 @@
 
         function showError(message) {
             document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'none';
             var el = document.getElementById('error');
-            el.style.display = 'block';
-            el.innerHTML = '<div class="error-icon">&#9888;&#65039;</div>'
+            el.style.display = 'flex';
+            el.innerHTML = '<div class="annual-summary-state-card">'
+                + '<div class="annual-summary-state-icon">&#9888;&#65039;</div>'
                 + '<h2>Unable to Load Summary</h2>'
-                + '<p>' + escapeHtml(message) + '</p>';
+                + '<p>' + escapeHtml(message) + '</p>'
+                + '</div>';
         }
 
         function renderBillsTable(bills, tbody, showReview) {
@@ -832,13 +220,13 @@
             bills.forEach(function(b) {
                 total += b.annualShare;
                 var tr = document.createElement('tr');
-                var html = '<td>' + escapeHtml(b.name) + '</td>'
-                    + '<td>$' + b.monthlyAmount.toFixed(2) + '</td>'
-                    + '<td>' + b.splitCount + ' members</td>'
-                    + '<td>$' + b.monthlyShare.toFixed(2) + '</td>'
-                    + '<td>$' + b.annualShare.toFixed(2) + '</td>';
+                var html = '<td>' + renderBillIdentity(b) + '</td>'
+                    + '<td class="annual-summary-cell-number">' + formatCurrency(b.monthlyAmount) + '</td>'
+                    + '<td class="annual-summary-cell-number">' + b.splitCount + ' ' + (b.splitCount === 1 ? 'member' : 'members') + '</td>'
+                    + '<td class="annual-summary-cell-number">' + formatCurrency(b.monthlyShare) + '</td>'
+                    + '<td class="annual-summary-cell-number">' + formatCurrency(b.annualShare) + '</td>';
                 if (showReview) {
-                    html += '<td><button class="review-btn" data-action="open-dispute" data-bill-id="'
+                    html += '<td class="annual-summary-cell-action"><button class="review-btn" data-action="open-dispute" data-bill-id="'
                         + b.billId + '" data-bill-name="' + escapeHtml(b.name) + '">'
                         + 'Request Review</button></td>';
                 }
@@ -847,11 +235,11 @@
             });
 
             var totalRow = document.createElement('tr');
-            totalRow.className = 'total-row';
+            totalRow.className = 'annual-summary-total-row';
             totalRow.innerHTML = '<td colspan="3">TOTAL</td>'
-                + '<td>$' + (total / 12).toFixed(2) + '</td>'
-                + '<td><strong>$' + total.toFixed(2) + '</strong></td>'
-                + (showReview ? '<td></td>' : '');
+                + '<td class="annual-summary-cell-number">' + formatCurrency(total / 12) + '</td>'
+                + '<td class="annual-summary-cell-number"><strong>' + formatCurrency(total) + '</strong></td>'
+                + (showReview ? '<td class="annual-summary-cell-action"></td>' : '');
             tbody.appendChild(totalRow);
         }
 
@@ -1139,6 +527,10 @@
                     data.memberName + "'s Annual Billing Summary";
                 document.getElementById('headerSubtitle').textContent =
                     'You are viewing your annual shared billing summary for ' + data.year + '.';
+                var yearPill = document.getElementById('headerYearPill');
+                if (yearPill) {
+                    yearPill.textContent = data.year ? ('Billing Year ' + data.year) : 'Shared billing summary';
+                }
 
                 var trustBanner = document.getElementById('shareTrustBanner');
                 if (trustBanner) {
@@ -1150,14 +542,16 @@
                     document.getElementById('billBreakdownTitle').textContent =
                         data.memberName + "'s Bills";
 
-                    var thead = document.querySelector('.summary-table thead tr');
+                    var thead = document.querySelector('.annual-summary-table thead tr');
                     if (_canDispute && thead) {
                         var th = document.createElement('th');
+                        th.className = 'annual-summary-cell-action';
                         th.textContent = '';
                         thead.appendChild(th);
                     }
 
                     var tbody = document.getElementById('billsTableBody');
+                    tbody.innerHTML = '';
                     var billsWithIds = data.summary.bills.map(function(b, i) {
                         b.billId = b.billId || i;
                         return b;
@@ -1166,20 +560,29 @@
 
                     if (data.linkedMembers && data.linkedMembers.length > 0) {
                         var linkedEl = document.getElementById('linkedSections');
+                        linkedEl.innerHTML = '';
                         data.linkedMembers.forEach(function(lm) {
                             var section = document.createElement('div');
-                            section.className = 'child-section';
+                            section.className = 'annual-summary-linked-block';
 
                             var heading = document.createElement('h3');
+                            heading.className = 'annual-summary-linked-title';
                             heading.textContent = lm.name + "'s Bills";
                             section.appendChild(heading);
 
+                            var copy = document.createElement('p');
+                            copy.className = 'annual-summary-card-copy';
+                            copy.textContent = 'Included in the linked-member portion of this annual summary.';
+                            section.appendChild(copy);
+
+                            var wrap = document.createElement('div');
+                            wrap.className = 'annual-summary-table-wrap';
                             var table = document.createElement('table');
-                            table.className = 'summary-table';
+                            table.className = 'annual-summary-table';
                             var headHtml = '<thead><tr>'
-                                + '<th>Bill</th><th>Monthly Amount</th>'
-                                + '<th>Split</th><th>Share</th><th>Annual</th>'
-                                + (_canDispute ? '<th></th>' : '')
+                                + '<th>Bill</th><th class="annual-summary-cell-number">Monthly Amount</th>'
+                                + '<th class="annual-summary-cell-number">Split</th><th class="annual-summary-cell-number">Share</th><th class="annual-summary-cell-number">Annual</th>'
+                                + (_canDispute ? '<th class="annual-summary-cell-action"></th>' : '')
                                 + '</tr></thead>';
                             table.innerHTML = headHtml;
                             var tb = document.createElement('tbody');
@@ -1189,7 +592,8 @@
                             });
                             renderBillsTable(lmBills, tb, _canDispute);
                             table.appendChild(tb);
-                            section.appendChild(table);
+                            wrap.appendChild(table);
+                            section.appendChild(wrap);
                             linkedEl.appendChild(section);
                         });
                     }
@@ -1201,21 +605,21 @@
                     var balClass = ps.balanceRemaining > 0 ? 'owed' : 'paid';
 
                     grid.innerHTML = ''
-                        + '<div class="payment-stat"><div class="label">Annual Total</div>'
-                        + '<div class="value">$' + ps.combinedAnnualTotal.toFixed(2) + '</div></div>'
-                        + '<div class="payment-stat"><div class="label">Monthly</div>'
-                        + '<div class="value">$' + ps.combinedMonthlyTotal.toFixed(2) + '</div></div>'
-                        + '<div class="payment-stat"><div class="label">Paid to Date</div>'
-                        + '<div class="value paid">$' + ps.totalPaid.toFixed(2) + '</div></div>'
-                        + '<div class="payment-stat"><div class="label">Balance Remaining</div>'
-                        + '<div class="value ' + balClass + '">$' + ps.balanceRemaining.toFixed(2) + '</div></div>';
+                        + '<div class="annual-summary-stat-card"><div class="annual-summary-stat-label">Annual Total</div>'
+                        + '<div class="annual-summary-stat-value">' + formatCurrency(ps.combinedAnnualTotal) + '</div></div>'
+                        + '<div class="annual-summary-stat-card"><div class="annual-summary-stat-label">Monthly</div>'
+                        + '<div class="annual-summary-stat-value">' + formatCurrency(ps.combinedMonthlyTotal) + '</div></div>'
+                        + '<div class="annual-summary-stat-card"><div class="annual-summary-stat-label">Paid to Date</div>'
+                        + '<div class="annual-summary-stat-value paid">' + formatCurrency(ps.totalPaid) + '</div></div>'
+                        + '<div class="annual-summary-stat-card"><div class="annual-summary-stat-label">Balance Remaining</div>'
+                        + '<div class="annual-summary-stat-value ' + balClass + '">' + formatCurrency(ps.balanceRemaining) + '</div></div>';
 
                     var pctPaid = ps.combinedAnnualTotal > 0
                         ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100))
                         : 0;
                     grid.innerHTML += ''
-                        + '<div class="payment-stat" style="grid-column: 1 / -1; padding-bottom:10px;">'
-                        + '<div class="label">Your Payment Progress</div>'
+                        + '<div class="annual-summary-stat-card annual-summary-stat-card--wide">'
+                        + '<div class="annual-summary-stat-label">Your Payment Progress</div>'
                         + '<div class="share-settlement-progress"><div class="share-settlement-progress-bar" style="width:' + pctPaid + '%"></div></div>'
                         + '<div class="share-settlement-progress-label">' + pctPaid + '% paid</div>'
                         + '</div>';
@@ -1223,12 +627,17 @@
                     var callout = document.getElementById('settlementCallout');
                     if (callout) {
                         if (ps.balanceRemaining > 0) {
-                            callout.className = 'settlement-callout outstanding';
+                            callout.className = 'annual-summary-callout outstanding';
                             callout.innerHTML = '<div class="settlement-callout-title">You still have an outstanding balance for ' + escapeHtml(data.year) + '.</div>'
-                                + '<div class="settlement-callout-amount owed">Amount Remaining: $' + ps.balanceRemaining.toFixed(2) + '</div>';
+                                + '<div class="settlement-callout-amount owed">Amount Remaining: ' + formatCurrency(ps.balanceRemaining) + '</div>'
+                                + '<div class="settlement-callout-desc">You can use any enabled payment method below to settle the remaining amount.</div>';
                         } else if (ps.totalPaid > 0) {
-                            callout.className = 'settlement-callout settled';
-                            callout.innerHTML = '<div class="settlement-callout-title">You\'re all settled for ' + escapeHtml(data.year) + '. Thank you!</div>';
+                            callout.className = 'annual-summary-callout settled';
+                            callout.innerHTML = '<div class="settlement-callout-title">You\'re all settled for ' + escapeHtml(data.year) + '. Thank you!</div>'
+                                + '<div class="settlement-callout-desc">Your shared annual balance has been fully covered.</div>';
+                        } else {
+                            callout.className = 'annual-summary-callout';
+                            callout.innerHTML = '';
                         }
                         if (callout.innerHTML) callout.style.display = 'block';
                     }
@@ -1239,6 +648,8 @@
                     linksCard.style.display = 'block';
                     var linksGrid = document.getElementById('paymentLinksGrid');
                     linksGrid.innerHTML = '';
+                    var existingStrip = linksCard.querySelector('.payment-methods-strip');
+                    if (existingStrip) existingStrip.remove();
 
                     var stripIcons = data.paymentMethods.map(function(pm) {
                         return '<span class="payment-strip-icon" title="' + escapeHtml(pm.label) + '">' + getPaymentMethodIcon(pm.type) + '</span>';

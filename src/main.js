@@ -174,6 +174,9 @@ async function loadData() {
 
         await loadBillingYearsList();
         await loadBillingYearData(activeYearId);
+        refreshPublicShares().catch(error => {
+            console.warn('Could not refresh public shares on load:', error);
+        });
 
     } catch (error) {
         console.error('Error loading data:', error);
@@ -3205,45 +3208,113 @@ function getEnabledPaymentMethods() {
     return (settings.paymentMethods || []).filter(m => m.enabled);
 }
 
+function formatAnnualSummaryCurrency(amount) {
+    return '$' + Number(amount || 0).toFixed(2);
+}
+
+function renderAnnualSummaryAvatarVisual(member) {
+    const safeName = escapeHtml(member.name || 'Family Member');
+    const safeAvatarSrc = sanitizeImageSrc(member.avatar);
+    if (safeAvatarSrc) {
+        return `<div class="annual-summary-entity-visual"><img src="${safeAvatarSrc}" alt="${safeName}" class="annual-summary-avatar" /></div>`;
+    }
+    return `<div class="annual-summary-entity-visual"><div class="annual-summary-avatar-fallback">${escapeHtml(getInitials(member.name || ''))}</div></div>`;
+}
+
+function renderAnnualSummaryBillVisual(bill) {
+    const safeName = escapeHtml(bill.name || 'Bill');
+    const safeLogoSrc = sanitizeImageSrc(bill.logo);
+    if (safeLogoSrc) {
+        return `<div class="annual-summary-entity-visual"><img src="${safeLogoSrc}" alt="${safeName} logo" class="annual-summary-logo" /></div>`;
+    }
+    return `<div class="annual-summary-entity-visual"><div class="annual-summary-logo-fallback">${escapeHtml(getInitials(bill.name || ''))}</div></div>`;
+}
+
+function buildAnnualSummaryMemberCell(member, meta) {
+    const safeName = escapeHtml(member.name || 'Family Member');
+    return `<div class="annual-summary-entity">`
+        + `${renderAnnualSummaryAvatarVisual(member)}`
+        + `<div class="annual-summary-entity-copy">`
+        + `<span class="annual-summary-entity-title">${safeName}</span>`
+        + `<span class="annual-summary-entity-meta">${escapeHtml(meta || '')}</span>`
+        + `</div>`
+        + `</div>`;
+}
+
+function buildAnnualSummaryBillCell(bill) {
+    const safeName = escapeHtml(bill.name || 'Bill');
+    const meta = (bill.billingFrequency || 'monthly') === 'annual' ? 'Billed annually' : 'Billed monthly';
+    return `<div class="annual-summary-entity">`
+        + `${renderAnnualSummaryBillVisual(bill)}`
+        + `<div class="annual-summary-entity-copy">`
+        + `<span class="annual-summary-entity-title">${safeName}</span>`
+        + `<span class="annual-summary-entity-meta">${escapeHtml(meta)}</span>`
+        + `</div>`
+        + `</div>`;
+}
+
+function getAnnualSummaryAssetBaseHref() {
+    if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin !== 'null') {
+        return window.location.origin.replace(/\/?$/, '/') ;
+    }
+    return './';
+}
+
 function formatPaymentOptionsHTML() {
     const methods = getEnabledPaymentMethods();
     if (methods.length === 0) return '';
 
-    let html = '<div class="payment-options-section" style="margin-top: 30px; page-break-inside: avoid;">';
-    html += '<h2 style="color: #5B6475;">Payment Options</h2>';
-    html += '<div style="display: grid; gap: 16px;">';
+    let html = `
+        <section class="annual-summary-card">
+            <div class="annual-summary-card-head">
+                <div>
+                    <h2 class="annual-summary-card-title">Payment Options</h2>
+                    <p class="annual-summary-card-copy">Use any enabled payment method below when sending an annual settlement payment.</p>
+                </div>
+            </div>
+            <div class="payment-links-grid">
+    `;
 
     methods.forEach(method => {
-        html += '<div style="padding: 16px; background: #F7F8FB; border-radius: 8px; border: 1px solid #e0e0e0;">';
-        html += `<strong style="font-size: 1.05em;">${escapeHtml(method.label)}</strong>`;
+        html += `<div class="payment-method-card">`;
+        html += `<div class="pm-header"><span class="pm-icon">${getPaymentMethodIcon(method.type)}</span><div class="pm-label">${escapeHtml(method.label)}</div></div>`;
 
         if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) {
-                html += `<p style="margin: 8px 0 0; color: #555;">Send via Zelle to: <strong>${escapeHtml(contacts.join(' or '))}</strong></p>`;
+                html += '<p class="pm-detail">Send via Zelle to:</p>';
+                contacts.forEach(contact => {
+                    html += `<p class="pm-detail"><span class="pm-contact-chip">${escapeHtml(contact)}</span></p>`;
+                });
             }
         } else if (method.type === 'apple_cash') {
             const contacts = [method.phone, method.email].filter(Boolean);
             if (contacts.length > 0) {
-                html += `<p style="margin: 8px 0 0; color: #555;">Send via Messages or Wallet to: <strong>${escapeHtml(contacts.join(' or '))}</strong></p>`;
+                html += '<p class="pm-detail">Send via Messages or Wallet to:</p>';
+                contacts.forEach(contact => {
+                    html += `<p class="pm-detail"><span class="pm-contact-chip">${escapeHtml(contact)}</span></p>`;
+                });
             }
         } else {
             if (method.handle) {
-                html += `<p style="margin: 8px 0 0; color: #555;">${escapeHtml(method.handle)}</p>`;
+                html += `<p class="pm-detail"><span class="pm-contact-chip">${escapeHtml(method.handle)}</span></p>`;
             }
             if (method.url) {
-                html += `<p style="margin: 4px 0 0;"><a href="${escapeHtml(method.url)}" style="color: #6E78D6;">${escapeHtml(method.url)}</a></p>`;
+                html += `<div class="pm-url-row"><a href="${escapeHtml(method.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(method.url)}</a></div>`;
             }
         }
 
         if (method.instructions) {
-            html += `<p style="margin: 8px 0 0; color: #888; font-size: 0.9em; font-style: italic;">${escapeHtml(method.instructions)}</p>`;
+            html += `<p class="pm-instructions">${escapeHtml(method.instructions)}</p>`;
         }
 
-        html += '</div>';
+        html += `</div>`;
     });
 
-    html += '</div></div>';
+    html += `
+            </div>
+        </section>
+    `;
     return html;
 }
 
@@ -3973,6 +4044,7 @@ function computeMemberSummaryForShare(targetMemberId) {
             memberBills.push({
                 billId: bill.id,
                 name: bill.name,
+                logo: sanitizeImageSrc(bill.logo),
                 monthlyAmount: getBillMonthlyAmount(bill),
                 billingFrequency: bill.billingFrequency || 'monthly',
                 canonicalAmount: bill.amount,
@@ -3984,6 +4056,7 @@ function computeMemberSummaryForShare(targetMemberId) {
     });
     return {
         name: member.name,
+        avatar: sanitizeImageSrc(member.avatar),
         memberId: targetMemberId,
         monthlyTotal: Math.round((total / 12) * 100) / 100,
         annualTotal: Math.round(total * 100) / 100,
@@ -5060,206 +5133,174 @@ function copyEmailInvoiceMessage() {
 }
 
 function generateInvoiceHTML(summary, currentYear) {
-    let totalAnnual = 0;
-    Object.values(summary).forEach(data => {
-        totalAnnual += data.total;
-    });
+    const memberSummaries = Object.values(summary);
+    const totalAnnual = memberSummaries.reduce((sum, data) => sum + data.total, 0);
+    const billedMembersCount = memberSummaries.filter(data => data.total > 0).length;
+    const generatedDate = new Date().toLocaleDateString();
+    const baseHref = getAnnualSummaryAssetBaseHref();
 
     let html = `
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
-            <title>Annual Billing Summary - ${currentYear}</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    max-width: 800px;
-                    margin: 40px auto;
-                    padding: 20px;
-                }
-                h1 {
-                    color: #1F2430;
-                    border-bottom: 3px solid #6E78D6;
-                    padding-bottom: 10px;
-                }
-                h2 {
-                    color: #5B6475;
-                    margin-top: 30px;
-                }
-                table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin: 20px 0;
-                }
-                th, td {
-                    padding: 12px;
-                    text-align: left;
-                    border-bottom: 1px solid #ddd;
-                }
-                th {
-                    background: #F7F8FB;
-                    font-weight: bold;
-                }
-                .total-row {
-                    font-weight: bold;
-                    background: #E6E8EE;
-                    font-size: 1.1em;
-                }
-                .member-section {
-                    page-break-inside: avoid;
-                    margin-bottom: 40px;
-                }
-                .avatar {
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    object-fit: cover;
-                    vertical-align: middle;
-                    margin-right: 8px;
-                }
-                .avatar-initials {
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    background: #6E78D6;
-                    color: white;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 14px;
-                    font-weight: bold;
-                    vertical-align: middle;
-                    margin-right: 8px;
-                }
-                .logo {
-                    width: 40px;
-                    height: 30px;
-                    object-fit: contain;
-                    vertical-align: middle;
-                    margin-right: 8px;
-                }
-                .logo-text {
-                    display: inline-block;
-                    padding: 4px 8px;
-                    background: #E6E8EE;
-                    border-radius: 4px;
-                    font-size: 12px;
-                    font-weight: bold;
-                    color: #1F2430;
-                    vertical-align: middle;
-                    margin-right: 8px;
-                }
-                @media print {
-                    .no-print {
-                        display: none;
-                    }
-                }
-            </style>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Annual Billing Summary - ${escapeHtml(currentYear)}</title>
+            <base href="${escapeHtml(baseHref)}" />
+            <link rel="stylesheet" href="design-tokens.css" />
+            <link rel="stylesheet" href="annual-summary.css" />
         </head>
-        <body>
-            <h1>Annual Billing Summary - ${currentYear}</h1>
-            <p>Billing Year: ${currentYear} &middot; Generated on: ${new Date().toLocaleDateString()}</p>
+        <body class="annual-summary-page annual-summary-report">
+            <div class="annual-summary-shell">
+                <div class="annual-summary-stack">
+                    <header class="annual-summary-hero">
+                        <div class="annual-summary-hero-copy">
+                            <div class="annual-summary-brand-row">
+                                <img src="logo.svg" alt="Friends &amp; Family Billing" class="annual-summary-brand-mark" />
+                                <div class="annual-summary-brand-copy">
+                                    <p class="annual-summary-kicker">Friends &amp; Family Billing</p>
+                                    <div class="annual-summary-pill-row">
+                                        <span class="annual-summary-pill">Annual Billing Summary</span>
+                                        <span class="annual-summary-pill">Billing Year ${escapeHtml(currentYear)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <h1 class="annual-summary-title">Annual Billing Summary</h1>
+                            <p class="annual-summary-subtitle">A print-ready snapshot of the full household billing split for ${escapeHtml(currentYear)}, including line-item breakdowns and enabled payment options.</p>
+                            <div class="annual-summary-hero-note">Generated on ${escapeHtml(generatedDate)}. Share this report internally or save it as a PDF for year-end records.</div>
+                        </div>
+                        <div class="annual-summary-hero-side">
+                            <div class="annual-summary-hero-actions no-print">
+                                <button class="annual-summary-button annual-summary-button--ghost" onclick="window.print()">Print Summary</button>
+                            </div>
+                            <div class="annual-summary-kpi-grid">
+                                <div class="annual-summary-kpi-card">
+                                    <div class="annual-summary-kpi-label">Annual Total</div>
+                                    <div class="annual-summary-kpi-value">${formatAnnualSummaryCurrency(totalAnnual)}</div>
+                                </div>
+                                <div class="annual-summary-kpi-card">
+                                    <div class="annual-summary-kpi-label">Monthly Equivalent</div>
+                                    <div class="annual-summary-kpi-value">${formatAnnualSummaryCurrency(totalAnnual / 12)}</div>
+                                </div>
+                                <div class="annual-summary-kpi-card">
+                                    <div class="annual-summary-kpi-label">Members With Bills</div>
+                                    <div class="annual-summary-kpi-value">${billedMembersCount}</div>
+                                </div>
+                                <div class="annual-summary-kpi-card">
+                                    <div class="annual-summary-kpi-label">Total Members</div>
+                                    <div class="annual-summary-kpi-value">${memberSummaries.length}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
 
-            <button class="no-print" onclick="window.print()" style="padding: 10px 20px; background: #6E78D6; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 20px 0;">Print Summary</button>
-
-            <h2>Annual Summary</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Family Member</th>
-                        <th>Monthly Total</th>
-                        <th>Annual Total</th>
-                    </tr>
-                </thead>
-                <tbody>
+                    <section class="annual-summary-card">
+                        <div class="annual-summary-card-head">
+                            <div>
+                                <h2 class="annual-summary-card-title">Annual Summary</h2>
+                                <p class="annual-summary-card-copy">Monthly and annual totals for every family member in the current billing year.</p>
+                            </div>
+                            <span class="annual-summary-tag">${memberSummaries.length} members</span>
+                        </div>
+                        <div class="annual-summary-table-wrap">
+                            <table class="annual-summary-table">
+                                <thead>
+                                    <tr>
+                                        <th>Family Member</th>
+                                        <th class="annual-summary-cell-number">Monthly Total</th>
+                                        <th class="annual-summary-cell-number">Annual Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
     `;
 
-    Object.values(summary).forEach(data => {
-        const safeName = escapeHtml(data.member.name);
-        const safeAvatarSrc = sanitizeImageSrc(data.member.avatar);
-        const avatarHTML = safeAvatarSrc
-            ? `<img src="${safeAvatarSrc}" class="avatar" alt="${safeName}" />`
-            : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
-
+    memberSummaries.forEach(data => {
+        const memberMeta = data.bills.length === 1 ? '1 shared bill' : data.bills.length + ' shared bills';
         html += `
-                    <tr>
-                        <td>${avatarHTML}${safeName}</td>
-                        <td>$${(data.total / 12).toFixed(2)}</td>
-                        <td><strong>$${data.total.toFixed(2)}</strong></td>
-                    </tr>
+                                    <tr>
+                                        <td>${buildAnnualSummaryMemberCell(data.member, memberMeta)}</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(data.total / 12)}</td>
+                                        <td class="annual-summary-cell-number"><strong>${formatAnnualSummaryCurrency(data.total)}</strong></td>
+                                    </tr>
         `;
     });
 
     html += `
-                    <tr class="total-row">
-                        <td>TOTAL</td>
-                        <td>$${(totalAnnual / 12).toFixed(2)}</td>
-                        <td><strong>$${totalAnnual.toFixed(2)}</strong></td>
-                    </tr>
-                </tbody>
-            </table>
+                                    <tr class="annual-summary-total-row">
+                                        <td>TOTAL</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(totalAnnual / 12)}</td>
+                                        <td class="annual-summary-cell-number"><strong>${formatAnnualSummaryCurrency(totalAnnual)}</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
     `;
 
-    Object.values(summary).forEach(data => {
+    memberSummaries.forEach(data => {
         if (data.total === 0) return;
 
-        const safeName = escapeHtml(data.member.name);
-        const safeAvatarSrc = sanitizeImageSrc(data.member.avatar);
-        const avatarHTML = safeAvatarSrc
-            ? `<img src="${safeAvatarSrc}" class="avatar" alt="${safeName}" />`
-            : `<div class="avatar-initials">${escapeHtml(getInitials(data.member.name))}</div>`;
-
         html += `
-            <div class="member-section">
-                <h2>${avatarHTML}${safeName}'s Bill Breakdown</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Bill</th>
-                            <th>Bill Amount</th>
-                            <th>Split With</th>
-                            <th>Your Monthly Share</th>
-                            <th>Annual Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                    <section class="annual-summary-card">
+                        <div class="annual-summary-card-head">
+                            <div class="annual-summary-member-header">
+                                ${renderAnnualSummaryAvatarVisual(data.member)}
+                                <div>
+                                    <h2 class="annual-summary-card-title">${escapeHtml(data.member.name)}'s Bill Breakdown</h2>
+                                    <p class="annual-summary-card-copy">Each assigned bill, the number of members sharing it, and the calculated monthly and annual totals.</p>
+                                </div>
+                            </div>
+                            <span class="annual-summary-tag">${formatAnnualSummaryCurrency(data.total)} annual total</span>
+                        </div>
+                        <div class="annual-summary-table-wrap">
+                            <table class="annual-summary-table">
+                                <thead>
+                                    <tr>
+                                        <th>Bill</th>
+                                        <th class="annual-summary-cell-number">Bill Amount</th>
+                                        <th class="annual-summary-cell-number">Split With</th>
+                                        <th class="annual-summary-cell-number">Monthly Share</th>
+                                        <th class="annual-summary-cell-number">Annual Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
         `;
 
         data.bills.forEach(billData => {
-            const safeBillName = escapeHtml(billData.bill.name);
-            const safeLogoSrc = sanitizeImageSrc(billData.bill.logo);
-            const logoHTML = safeLogoSrc
-                ? `<img src="${safeLogoSrc}" class="logo" alt="${safeBillName}" />`
-                : `<div class="logo-text">${safeBillName}</div>`;
-            const isAnnual = billData.bill.billingFrequency === 'annual';
-            const billAmountDisplay = `$${billData.bill.amount.toFixed(2)}${isAnnual ? ' / year' : ' / month'}`;
-
+            const frequency = billData.bill.billingFrequency === 'annual' ? ' / year' : ' / month';
+            const splitCount = billData.bill.members.length;
             html += `
-                        <tr>
-                            <td>${logoHTML}${safeBillName}</td>
-                            <td>${billAmountDisplay}</td>
-                            <td>${billData.bill.members.length} members</td>
-                            <td>$${billData.monthlyShare.toFixed(2)}</td>
-                            <td>$${billData.annualShare.toFixed(2)}</td>
-                        </tr>
+                                    <tr>
+                                        <td>${buildAnnualSummaryBillCell(billData.bill)}</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(billData.bill.amount)}${frequency}</td>
+                                        <td class="annual-summary-cell-number">${splitCount} ${splitCount === 1 ? 'member' : 'members'}</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(billData.monthlyShare)}</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(billData.annualShare)}</td>
+                                    </tr>
             `;
         });
 
         html += `
-                        <tr class="total-row">
-                            <td colspan="3">TOTAL</td>
-                            <td>$${(data.total / 12).toFixed(2)}</td>
-                            <td><strong>$${data.total.toFixed(2)}</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+                                    <tr class="annual-summary-total-row">
+                                        <td colspan="3">TOTAL</td>
+                                        <td class="annual-summary-cell-number">${formatAnnualSummaryCurrency(data.total / 12)}</td>
+                                        <td class="annual-summary-cell-number"><strong>${formatAnnualSummaryCurrency(data.total)}</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
         `;
     });
 
     html += formatPaymentOptionsHTML();
 
     html += `
+                    <div class="annual-summary-footer">
+                        Internal billing report generated by <strong>Friends &amp; Family Billing</strong>.
+                    </div>
+                </div>
+            </div>
         </body>
         </html>
     `;
