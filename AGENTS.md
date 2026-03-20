@@ -26,7 +26,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 .
 ├── src/                       # Application source (ES modules, bundled by esbuild)
 │   ├── index.js               # Bundle entry point — imports main.js, assigns window.* exports
-│   ├── main.js                # Main application logic (~4,690 lines, the monolith being modularized)
+│   ├── main.js                # Main application logic (~5,990 lines, the monolith being modularized)
 │   └── platform/
 │       └── firebase.js        # Bridge module — re-exports Firebase globals from window.*
 ├── script.js                  # BUILD ARTIFACT (gitignored) — IIFE bundle produced by esbuild
@@ -39,7 +39,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── firebase-config.js         # Firebase init, assigns auth/db/storage/analytics to window.*
 ├── firebase-config.local.js   # Real Firebase web config (gitignored locally, deployed with Hosting)
 ├── design-tokens.css          # Design system tokens (colors, spacing, typography)
-├── styles.css                 # Application styles (~2,470 lines, consumes design-tokens.css)
+├── styles.css                 # Application styles (~4,300 lines, consumes design-tokens.css)
 ├── version.json               # App version for update checking (stamped on deploy)
 ├── stamp-version.js           # Predeploy script that writes current timestamp to version.json
 ├── logo.svg                   # App logo (SVG)
@@ -53,7 +53,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   ├── billing.js             # Shared billing utilities for Cloud Functions
 │   └── package.json           # Cloud Functions dependencies
 ├── tests/
-│   └── billing.test.js        # Automated tests (~3,690 lines, Node built-in test runner)
+│   ├── billing.test.js        # Automated tests (~3,710 lines, Node built-in test runner)
+│   └── ffb-mitigation-plan.test.js  # UX mitigation plan tests (~290 lines)
 ├── specs/                     # Feature specifications and acceptance criteria
 ├── scripts/
 │   ├── check-no-public-secrets.mjs  # Secret scanning (runs as part of npm test)

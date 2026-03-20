@@ -41,6 +41,14 @@ import {
     archiveCurrentYear,
     startNewYear,
     closeCurrentYear,
+    confirmStartSettlement,
+    confirmBackToOpen,
+    confirmCloseYear,
+    confirmArchiveYear,
+    confirmReopenToSettling,
+    confirmStartNewYear,
+    showConfirmationDialog,
+    closeConfirmationDialog,
     renderBillingYearSelector,
     renderStatusBanner,
     renderArchivedBanner,
@@ -65,6 +73,7 @@ import {
     uploadAvatar,
     removeAvatar,
     manageLinkMembers,
+    toggleMemberActionsMenu,
     isLinkedToAnyone,
     getParentMember,
     removeFamilyMember,
@@ -99,6 +108,7 @@ import {
     renderBills,
     toggleBillSplit,
     toggleBillActionsMenu,
+    openBillWebsite,
 
     // Calculations & summary
     calculateAnnualSummary,
@@ -134,8 +144,11 @@ import {
     deletePaymentEntry,
 
     // Email settings
+    detectDuplicatePaymentText,
     renderEmailSettings,
     renderEmailTemplatePreview,
+    handleEmailTemplateEditorInput,
+    handleEmailTemplateEditorPaste,
     insertEmailTemplateToken,
     saveEmailMessage,
 
@@ -263,6 +276,14 @@ window.switchBillingYear = switchBillingYear;
 window.archiveCurrentYear = archiveCurrentYear;
 window.startNewYear = startNewYear;
 window.closeCurrentYear = closeCurrentYear;
+window.confirmStartSettlement = confirmStartSettlement;
+window.confirmBackToOpen = confirmBackToOpen;
+window.confirmCloseYear = confirmCloseYear;
+window.confirmArchiveYear = confirmArchiveYear;
+window.confirmReopenToSettling = confirmReopenToSettling;
+window.confirmStartNewYear = confirmStartNewYear;
+window.showConfirmationDialog = showConfirmationDialog;
+window.closeConfirmationDialog = closeConfirmationDialog;
 window.renderBillingYearSelector = renderBillingYearSelector;
 window.renderStatusBanner = renderStatusBanner;
 window.renderArchivedBanner = renderArchivedBanner;
@@ -287,6 +308,7 @@ window.editMemberPhone = editMemberPhone;
 window.uploadAvatar = uploadAvatar;
 window.removeAvatar = removeAvatar;
 window.manageLinkMembers = manageLinkMembers;
+window.toggleMemberActionsMenu = toggleMemberActionsMenu;
 window.isLinkedToAnyone = isLinkedToAnyone;
 window.getParentMember = getParentMember;
 window.removeFamilyMember = removeFamilyMember;
@@ -321,6 +343,7 @@ window.toggleMember = toggleMember;
 window.renderBills = renderBills;
 window.toggleBillSplit = toggleBillSplit;
 window.toggleBillActionsMenu = toggleBillActionsMenu;
+window.openBillWebsite = openBillWebsite;
 
 // Calculations & summary
 window.calculateAnnualSummary = calculateAnnualSummary;
@@ -356,8 +379,11 @@ window.showPaymentHistory = showPaymentHistory;
 window.deletePaymentEntry = deletePaymentEntry;
 
 // Email settings
+window.detectDuplicatePaymentText = detectDuplicatePaymentText;
 window.renderEmailSettings = renderEmailSettings;
 window.renderEmailTemplatePreview = renderEmailTemplatePreview;
+window.handleEmailTemplateEditorInput = handleEmailTemplateEditorInput;
+window.handleEmailTemplateEditorPaste = handleEmailTemplateEditorPaste;
 window.insertEmailTemplateToken = insertEmailTemplateToken;
 window.saveEmailMessage = saveEmailMessage;
 

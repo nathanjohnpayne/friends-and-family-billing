@@ -89,6 +89,7 @@ function createContext(overrides = {}) {
         },
         FileReader: class {},
         encodeURIComponent,
+        process,
         localStorage: { getItem: () => null, clear: () => {} },
 
         firebase: {
@@ -2420,6 +2421,14 @@ describe('calculateAnnualSummary with billing frequency', () => {
 
 // ──────────────── toggleBillFrequency ─────────────────────────
 
+// Helper: toggleBillFrequency now shows a confirmation dialog.
+// Set the _testAutoConfirmDialogs flag to auto-confirm.
+function toggleBillFrequencyWithAutoConfirm(ctx, billId) {
+    ctx._set('_testAutoConfirmDialogs', true);
+    ctx.toggleBillFrequency(billId);
+    ctx._set('_testAutoConfirmDialogs', false);
+}
+
 describe('toggleBillFrequency', () => {
     it('converts monthly to annual', () => {
         const ctx = createContext();
@@ -2430,7 +2439,7 @@ describe('toggleBillFrequency', () => {
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
 
-        ctx.toggleBillFrequency(1);
+        toggleBillFrequencyWithAutoConfirm(ctx, 1);
         const bill = ctx._get('bills')[0];
         assert.equal(bill.billingFrequency, 'annual');
         assert.equal(bill.amount, 120);
@@ -2445,7 +2454,7 @@ describe('toggleBillFrequency', () => {
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
 
-        ctx.toggleBillFrequency(1);
+        toggleBillFrequencyWithAutoConfirm(ctx, 1);
         const bill = ctx._get('bills')[0];
         assert.equal(bill.billingFrequency, 'monthly');
         assert.equal(bill.amount, 10);
@@ -2460,7 +2469,7 @@ describe('toggleBillFrequency', () => {
             { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
         ]);
 
-        ctx.toggleBillFrequency(1);
+        toggleBillFrequencyWithAutoConfirm(ctx, 1);
         const bill = ctx._get('bills')[0];
         assert.equal(bill.billingFrequency, 'monthly');
         assert.equal(bill.amount, Math.round((139.99 / 12) * 100) / 100);
@@ -2929,7 +2938,7 @@ describe('toggleBillFrequency emits BILL_UPDATED event', () => {
             { id: 1, name: 'Netflix', amount: 10, billingFrequency: 'monthly', logo: '', website: '', members: [] },
         ]);
 
-        ctx.toggleBillFrequency(1);
+        toggleBillFrequencyWithAutoConfirm(ctx, 1);
         const events = ctx._get('billingEvents');
         assert.equal(events.length, 1);
         assert.equal(events[0].eventType, 'BILL_UPDATED');
