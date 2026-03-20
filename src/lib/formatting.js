@@ -1,8 +1,9 @@
 // Labels, string transforms, and display constants — no DOM, no Firestore.
 
-// Re-export status constants from their canonical home so existing
-// `import { BILLING_YEAR_STATUSES } from './formatting.js'` still works.
-export { BILLING_YEAR_STATUSES, DISPUTE_STATUS_LABELS } from './constants.js';
+// Import status constants locally (needed by getBillingYearStatusLabel) and
+// re-export so existing `import { … } from './formatting.js'` still works.
+import { BILLING_YEAR_STATUSES, DISPUTE_STATUS_LABELS } from './constants.js';
+export { BILLING_YEAR_STATUSES, DISPUTE_STATUS_LABELS };
 
 export const PAYMENT_METHOD_LABELS = {
     cash: 'Cash',
