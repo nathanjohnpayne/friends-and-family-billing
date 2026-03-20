@@ -534,7 +534,9 @@
 
                 var trustBanner = document.getElementById('shareTrustBanner');
                 if (trustBanner) {
-                    trustBanner.innerHTML = '<span class="trust-lock">&#128274;</span>This is a secure annual billing summary shared by ' + escapeHtml(data.ownerName || 'the account owner') + '.<br>No payment credentials are stored by this app.';
+                    trustBanner.innerHTML = '<span class="trust-lock">&#128274;</span><span class="annual-summary-trust-text">This is a secure annual billing summary shared by '
+                        + escapeHtml(data.ownerName || 'the account owner')
+                        + '. Payments happen in the listed apps or services, not inside Friends &amp; Family Billing.</span>';
                     trustBanner.style.display = 'block';
                 }
 
@@ -663,31 +665,33 @@
                         var card = document.createElement('div');
                         card.className = 'payment-method-card';
                         var iconSvg = getPaymentMethodIcon(pm.type);
-                        var html = '<div class="pm-header"><span class="pm-icon">' + iconSvg + '</span><div class="pm-label">' + escapeHtml(pm.label) + '</div></div>';
+                        var html = '<div class="pm-header"><span class="pm-icon">' + iconSvg + '</span><div class="pm-label">' + escapeHtml(pm.label) + '</div></div><div class="pm-body">';
 
                         if (pm.type === 'zelle') {
                             var contacts = [pm.email, pm.phone].filter(Boolean);
                             if (contacts.length > 0) {
-                                html += '<p class="pm-detail">Send via Zelle to:</p>';
+                                html += '<p class="pm-caption">Send via Zelle to</p>';
                                 contacts.forEach(function(c) {
-                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></p>';
+                                    html += '<div class="pm-detail-row"><span class="pm-contact-chip">' + escapeHtml(c) + '</span><button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></div>';
                                 });
                             }
                         } else if (pm.type === 'apple_cash') {
                             var contacts = [pm.phone, pm.email].filter(Boolean);
                             if (contacts.length > 0) {
-                                html += '<p class="pm-detail">Send via Messages or Wallet to:</p>';
+                                html += '<p class="pm-caption">Send via Messages or Wallet to</p>';
                                 contacts.forEach(function(c) {
-                                    html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(c) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></p>';
+                                    html += '<div class="pm-detail-row"><span class="pm-contact-chip">' + escapeHtml(c) + '</span><button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(c) + '">Copy</button></div>';
                                 });
                             }
                         } else {
                             if (pm.handle) {
-                                html += '<p class="pm-detail"><span class="pm-contact-chip">' + escapeHtml(pm.handle) + '</span> <button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.handle) + '">Copy</button></p>';
+                                html += '<p class="pm-caption">Use this handle</p>';
+                                html += '<div class="pm-detail-row"><span class="pm-contact-chip">' + escapeHtml(pm.handle) + '</span><button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.handle) + '">Copy</button></div>';
                             }
                             if (pm.url) {
-                                html += '<div class="pm-url-row"><a href="' + escapeHtml(pm.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(pm.url) + '</a>'
-                                    + '<button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.url) + '">Copy</button></div>';
+                                html += '<p class="pm-caption">' + (pm.handle ? 'Open payment link' : 'Use this payment link') + '</p>';
+                                html += '<div class="pm-url-row"><a class="pm-url-link" href="' + escapeHtml(pm.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(pm.url) + '</a>'
+                                    + '<button class="pm-copy-btn" data-action="copy" data-copy-text="' + escapeHtml(pm.url) + '">Copy link</button></div>';
                             }
                         }
 
@@ -695,12 +699,16 @@
                             html += '<p class="pm-instructions">' + escapeHtml(pm.instructions) + '</p>';
                         }
 
+                        html += '</div>';
+
                         if (pm.qrCode || pm.hasQrCode) {
+                            html += '<div class="pm-actions">';
                             if (pm.qrCode) {
                                 html += '<button class="pm-qr-btn" data-action="show-qr" data-qr-src="' + escapeHtml(pm.qrCode) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
                             } else {
                                 html += '<button class="pm-qr-btn" data-action="load-qr" data-qr-method-id="' + escapeHtml(pm.id) + '" data-qr-label="' + escapeHtml(pm.label) + '">Show QR Code</button>';
                             }
+                            html += '</div>';
                         }
 
                         card.innerHTML = html;

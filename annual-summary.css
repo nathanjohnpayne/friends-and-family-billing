@@ -240,15 +240,29 @@ body.annual-summary-page::after {
 }
 
 .annual-summary-hero-note {
-    margin-top: 18px;
-    max-width: 560px;
-    font-size: 0.94rem;
-    line-height: 1.65;
-    color: rgba(255, 255, 255, 0.86);
+    margin-top: 22px;
+    max-width: 620px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: linear-gradient(180deg, rgba(36, 33, 83, 0.22), rgba(255, 255, 255, 0.06));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.88);
 }
 
 .annual-summary-hero-note .trust-lock {
-    margin-right: 6px;
+    margin-top: 1px;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.annual-summary-trust-text {
+    display: block;
 }
 
 .annual-summary-hero-side {
@@ -670,24 +684,29 @@ body.annual-summary-page::after {
 }
 
 .payment-methods-strip {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 14px;
-    padding: 6px 0 0;
+    margin-bottom: 18px;
+    padding: 10px 14px;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-alt);
+    border: 1px solid var(--color-border-subtle);
 }
 
 .payment-strip-label {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--color-text-secondary);
-    font-weight: var(--font-weight-semi);
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .payment-strip-icon {
     display: inline-flex;
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     color: var(--color-text-secondary);
 }
 
@@ -697,19 +716,25 @@ body.annual-summary-page::after {
 }
 
 .payment-links-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 18px;
 }
 
 .payment-link-card,
 .payment-method-card {
     border-radius: 20px;
     border: 1px solid var(--color-border-subtle);
+    flex: 1 1 296px;
+    max-width: 360px;
 }
 
 .payment-link-card {
-    display: block;
+    display: flex;
+    align-items: center;
+    min-height: 132px;
     padding: 18px;
     background: linear-gradient(135deg, rgba(110, 120, 214, 0.12), rgba(123, 95, 175, 0.1));
     text-decoration: none;
@@ -725,17 +750,21 @@ body.annual-summary-page::after {
 }
 
 .payment-method-card {
-    background: var(--color-surface-alt);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: linear-gradient(180deg, #f7f8fd 0%, #f4f6fb 100%);
     padding: 22px;
     min-width: 0;
     overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .payment-method-card .pm-header {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 0;
 }
 
 .payment-method-card .pm-icon {
@@ -753,19 +782,39 @@ body.annual-summary-page::after {
 
 .payment-method-card .pm-label {
     font-weight: var(--font-weight-bold);
-    font-size: 1.05rem;
+    font-size: 1.12rem;
     color: var(--color-text);
 }
 
+.payment-method-card .pm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+}
+
+.payment-method-card .pm-caption {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    font-weight: var(--font-weight-bold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
 .payment-method-card .pm-detail {
-    margin: 6px 0;
+    margin: 0;
     color: var(--color-text-secondary);
     font-size: 0.95rem;
     overflow-wrap: break-word;
+    line-height: 1.55;
 }
 
 .payment-method-card .pm-instructions {
-    margin-top: 10px;
+    margin-top: 0;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(110, 120, 214, 0.08);
     color: var(--color-text-muted);
     font-size: 0.88rem;
     font-style: italic;
@@ -782,28 +831,53 @@ body.annual-summary-page::after {
     text-decoration: underline;
 }
 
+.pm-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .pm-contact-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px;
+    min-height: 40px;
+    padding: 6px 12px;
     border-radius: var(--radius-pill);
     background: var(--color-surface);
     border: 1px solid var(--color-border-subtle);
     color: var(--color-text);
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .pm-url-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
     min-width: 0;
 }
 
-.pm-url-row a {
-    display: inline-block;
-    max-width: 100%;
-    overflow-wrap: break-word;
+.payment-method-card a.pm-url-link {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-subtle);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.pm-actions {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(110, 120, 214, 0.12);
 }
 
 .pm-copy-btn,
@@ -815,6 +889,9 @@ body.annual-summary-page::after {
     min-height: 38px;
     padding: 0 14px;
     border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-family: inherit;
     font-size: 0.9rem;
     font-weight: var(--font-weight-semi);
@@ -837,6 +914,7 @@ body.annual-summary-page::after {
     background: var(--color-surface);
     color: var(--color-primary);
     border: 1px solid rgba(110, 120, 214, 0.22);
+    white-space: nowrap;
 }
 
 .pm-copy-btn:hover,
@@ -1230,12 +1308,13 @@ body.annual-summary-page::after {
     }
 
     .payment-links-grid {
-        grid-template-columns: 1fr;
+        justify-content: stretch;
     }
 
-    .pm-url-row {
-        flex-direction: column;
-        align-items: stretch;
+    .payment-link-card,
+    .payment-method-card {
+        flex-basis: 100%;
+        max-width: none;
     }
 
     .pm-copy-btn {
