@@ -21,6 +21,7 @@ let _summaryFilter = 'all';
 let _expandedSettlementIds = new Set();
 let _memberComposerOpen = false;
 let _billComposerOpen = false;
+let _testAutoConfirmDialogs = false;
 
 const CURRENT_MIGRATION_VERSION = 1;
 
@@ -636,6 +637,58 @@ async function startNewYear() {
     }
 }
 
+function confirmStartSettlement() {
+    const yearLabel = currentBillingYear ? currentBillingYear.label : '';
+    showConfirmationDialog(
+        'Start Settlement',
+        'This will move billing year ' + yearLabel + ' into the Settling phase. Members can no longer be added or removed, and invoices can be sent. Continue?',
+        'Start Settlement',
+        function() { setBillingYearStatus('settling'); },
+        false
+    );
+}
+
+function confirmBackToOpen() {
+    const yearLabel = currentBillingYear ? currentBillingYear.label : '';
+    showConfirmationDialog(
+        'Reopen Billing Year',
+        'This will move billing year ' + yearLabel + ' back to Open. Settlement progress will be preserved, but the year will no longer be in settling mode. Continue?',
+        'Back to Open',
+        function() { setBillingYearStatus('open'); },
+        true
+    );
+}
+
+function confirmCloseYear() {
+    closeCurrentYear();
+}
+
+function confirmArchiveYear() {
+    const yearLabel = currentBillingYear ? currentBillingYear.label : '';
+    showConfirmationDialog(
+        'Archive Billing Year',
+        'This will archive billing year ' + yearLabel + '. Archived years are permanently read-only. Continue?',
+        'Archive Year',
+        function() { archiveCurrentYear(); },
+        true
+    );
+}
+
+function confirmReopenToSettling() {
+    const yearLabel = currentBillingYear ? currentBillingYear.label : '';
+    showConfirmationDialog(
+        'Reopen to Settling',
+        'This will move billing year ' + yearLabel + ' back to the Settling phase. Continue?',
+        'Reopen to Settling',
+        function() { setBillingYearStatus('settling'); },
+        false
+    );
+}
+
+function confirmStartNewYear() {
+    startNewYear();
+}
+
 function renderBillingYearSelector() {
     const container = document.getElementById('billingYearControls');
     if (!container || !currentBillingYear) return;
@@ -650,17 +703,17 @@ function renderBillingYearSelector() {
     const actions = [];
 
     if (status === 'open') {
-        actions.push('<button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-secondary btn-sm">Start Settlement</button>');
+        actions.push('<button onclick="confirmStartSettlement()" class="btn btn-header-secondary btn-sm">Start Settlement</button>');
     } else if (status === 'settling') {
-        actions.push('<button onclick="closeCurrentYear()" class="btn btn-header-secondary btn-sm">Close Year</button>');
-        actions.push('<button onclick="setBillingYearStatus(\'open\')" class="btn btn-header-tertiary">Back to Open</button>');
+        actions.push('<button onclick="confirmCloseYear()" class="btn btn-header-secondary btn-sm">Close Year</button>');
+        actions.push('<button onclick="confirmBackToOpen()" class="btn btn-header-tertiary">Back to Open</button>');
     } else if (status === 'closed') {
-        actions.push('<button onclick="archiveCurrentYear()" class="btn btn-header-secondary btn-sm">Archive Year</button>');
-        actions.push('<button onclick="setBillingYearStatus(\'settling\')" class="btn btn-header-tertiary">Reopen to Settling</button>');
+        actions.push('<button onclick="confirmArchiveYear()" class="btn btn-header-secondary btn-sm">Archive Year</button>');
+        actions.push('<button onclick="confirmReopenToSettling()" class="btn btn-header-tertiary">Reopen to Settling</button>');
     }
 
     if (status !== 'archived') {
-        actions.push('<button onclick="startNewYear()" class="btn btn-primary btn-sm">Start New Year</button>');
+        actions.push('<button onclick="confirmStartNewYear()" class="btn btn-primary btn-sm">Start New Year</button>');
     }
 
     container.innerHTML =
@@ -715,14 +768,19 @@ async function closeCurrentYear() {
         if (balance > 0) totalOutstanding += balance;
     });
 
-    let msg = 'Close billing year ' + currentBillingYear.label + '?';
+    let msg = 'Close billing year ' + currentBillingYear.label + '.';
     if (totalOutstanding > 0) {
-        msg += '\n\nNote: $' + totalOutstanding.toFixed(2) + ' is still outstanding. Closing will prevent further payments.';
+        msg += ' $' + totalOutstanding.toFixed(2) + ' is still outstanding. Closing will prevent further payments.';
     }
-    msg += '\n\nYou can archive it later for permanent read-only storage.';
+    msg += ' You can archive it later for permanent read-only storage.';
 
-    if (!confirm(msg)) return;
-    await setBillingYearStatus('closed');
+    showConfirmationDialog(
+        'Close Billing Year',
+        msg,
+        'Close Year',
+        function() { setBillingYearStatus('closed'); },
+        true
+    );
 }
 
 // Escape user-controlled strings before interpolating into HTML
@@ -1153,7 +1211,7 @@ function renderLinkedHouseholdPills(member) {
     if (linkedNames.length === 0) return '';
 
     return '<div class="linked-member-group">'
-        + '<span class="linked-member-group-label">Linked household</span>'
+        + '<span class="linked-member-group-label">Household</span>'
         + '<div class="linked-member-pill-list">'
         + linkedNames.map(name => '<span class="linked-member-pill">' + name + '</span>').join('')
         + '</div>'
@@ -1175,11 +1233,12 @@ function renderFamilyMembers() {
     }
 
     container.innerHTML = familyMembers.map(member => {
+        const householdActionLabel = (member.linkedMembers || []).length > 0 ? 'Edit Household' : 'Link Household';
         return `
         <div class="member-card" data-member-id="${member.id}">
-            <div class="member-avatar-container">
-                ${generateAvatar(member)}
-            </div>
+            ${archived
+                ? `<div class="member-avatar-container">${generateAvatar(member)}</div>`
+                : `<button type="button" class="member-avatar-container member-avatar-button member-avatar-action" onclick="uploadAvatar(${member.id})" title="${member.avatar ? 'Change avatar photo' : 'Add avatar photo'}" aria-label="${member.avatar ? 'Change photo for ' : 'Add photo for '}${escapeHtml(member.name)}">${generateAvatar(member)}</button>`}
             <div class="member-info">
                 <div class="member-name" ${archived ? '' : `onclick="editFamilyMember(${member.id})" title="Click to edit name"`}>${escapeHtml(member.name)}</div>
                 <div class="member-email" ${archived ? '' : `onclick="editMemberEmail(${member.id})" title="Click to edit email"`}>
@@ -1191,13 +1250,41 @@ function renderFamilyMembers() {
                 ${renderLinkedHouseholdPills(member)}
             </div>
             ${archived ? '' : `<div class="member-actions">
-                <button class="member-action-btn" onclick="uploadAvatar(${member.id})" title="${member.avatar ? 'Change avatar photo' : 'Upload avatar photo'}">${member.avatar ? 'Change Photo' : 'Add Photo'}</button>
-                ${member.avatar ? `<button class="member-action-btn" onclick="removeAvatar(${member.id})" title="Remove avatar photo">Remove Photo</button>` : ''}
-                <button class="member-action-btn" onclick="manageLinkMembers(${member.id})" title="Link dependents or household members to this primary member">Link Household</button>
-                <button class="member-action-btn member-action-btn-danger" onclick="removeFamilyMember(${member.id})" title="Remove member">Delete</button>
+                <button class="member-household-btn" onclick="manageLinkMembers(${member.id})" title="Link dependents or household members to this primary member">${householdActionLabel}</button>
+                <div class="member-actions-dropdown">
+                    <button type="button" class="member-menu-button" onclick="toggleMemberActionsMenu(event, ${member.id})" aria-label="More actions for ${escapeHtml(member.name)}" aria-expanded="false" aria-controls="member-actions-menu-${member.id}">•••</button>
+                    <div class="member-actions-menu" id="member-actions-menu-${member.id}" aria-label="More actions for ${escapeHtml(member.name)}">
+                        <button type="button" onclick="uploadAvatar(${member.id})">${member.avatar ? 'Change Photo' : 'Add Photo'}</button>
+                        ${member.avatar ? `<button type="button" onclick="removeAvatar(${member.id})">Remove Photo</button>` : ''}
+                        <button type="button" class="danger" onclick="removeFamilyMember(${member.id})">Delete Member</button>
+                    </div>
+                </div>
             </div>`}
         </div>
     `}).join('');
+}
+
+function closeActionMenus() {
+    var openMenus = document.querySelectorAll('.bill-actions-menu.open, .member-actions-menu.open');
+    openMenus.forEach(function(menu) {
+        menu.classList.remove('open');
+        var toggle = document.querySelector('[aria-controls="' + menu.id + '"]');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
+}
+
+function toggleMemberActionsMenu(event, memberId) {
+    event.stopPropagation();
+    var button = event.currentTarget;
+    var menu = document.getElementById('member-actions-menu-' + memberId);
+    if (!menu) return;
+    var shouldOpen = !menu.classList.contains('open');
+    closeActionMenus();
+    if (!shouldOpen) return;
+    menu.classList.add('open');
+    if (button) button.setAttribute('aria-expanded', 'true');
+    var firstAction = menu.querySelector('button');
+    if (firstAction) firstAction.focus();
 }
 
 // ──────────────── Money Integrity Layer — Event Ledger ─────────────────────
@@ -1451,27 +1538,39 @@ function toggleBillFrequency(id) {
     const bill = bills.find(b => b.id === id);
     if (!bill) return;
 
-    const previousFrequency = bill.billingFrequency || 'monthly';
-    const previousAmount = bill.amount;
+    const currentFreq = bill.billingFrequency || 'monthly';
+    const targetFreq = currentFreq === 'annual' ? 'monthly' : 'annual';
+    const newAmount = currentFreq === 'annual'
+        ? Math.round((bill.amount / 12) * 100) / 100
+        : Math.round((bill.amount * 12) * 100) / 100;
 
-    if (bill.billingFrequency === 'annual') {
-        bill.amount = Math.round((bill.amount / 12) * 100) / 100;
-        bill.billingFrequency = 'monthly';
-    } else {
-        bill.amount = Math.round((bill.amount * 12) * 100) / 100;
-        bill.billingFrequency = 'annual';
-    }
+    var msg = 'Convert ' + bill.name + ' from ' + currentFreq + ' to ' + targetFreq + ' billing. '
+        + 'The stored amount will change from $' + bill.amount.toFixed(2) + ' to $' + newAmount.toFixed(2) + '. '
+        + 'All totals will be recalculated.';
 
-    emitBillingEvent('BILL_UPDATED', {
-        billId: id, billName: bill.name, field: 'billingFrequency',
-        previousValue: previousFrequency, newValue: bill.billingFrequency,
-        previousAmount: previousAmount, newAmount: bill.amount
-    });
+    showConfirmationDialog(
+        'Convert Billing Frequency',
+        msg,
+        'Convert to ' + targetFreq,
+        function() {
+            var previousFrequency = bill.billingFrequency || 'monthly';
+            var previousAmount = bill.amount;
+            bill.amount = newAmount;
+            bill.billingFrequency = targetFreq;
 
-    saveData();
-    renderBills();
-    updateSummary();
-    showChangeToast('Bill updated: ' + bill.name + ' now $' + bill.amount.toFixed(2) + getBillFrequencyLabel(bill) + '. All totals recalculated.');
+            emitBillingEvent('BILL_UPDATED', {
+                billId: id, billName: bill.name, field: 'billingFrequency',
+                previousValue: previousFrequency, newValue: bill.billingFrequency,
+                previousAmount: previousAmount, newAmount: bill.amount
+            });
+
+            saveData();
+            renderBills();
+            updateSummary();
+            showChangeToast('Bill updated: ' + bill.name + ' now $' + bill.amount.toFixed(2) + getBillFrequencyLabel(bill) + '. All totals recalculated.');
+        },
+        false
+    );
 }
 
 function editBillWebsite(id) {
@@ -1663,14 +1762,16 @@ function renderBills() {
             ? (isAnnual
                 ? '$' + (annualAmount / memberCount).toFixed(2) + ' per person annually'
                 : '$' + (annualAmount / memberCount / 12).toFixed(2) + ' per person monthly')
-            : '';
-        const derivedAmount = isAnnual
-            ? 'Monthly equivalent \u2248 $' + getBillMonthlyAmount(bill).toFixed(2) + ' per month'
-            : 'Annual equivalent \u2248 $' + getBillAnnualAmount(bill).toFixed(2) + ' per year';
+            : 'No members assigned yet';
+        const cadenceSummary = isAnnual
+            ? 'Billed annually \u00b7 Monthly equivalent \u2248 $' + getBillMonthlyAmount(bill).toFixed(2)
+            : 'Billed monthly \u00b7 Annualized \u2248 $' + getBillAnnualAmount(bill).toFixed(2);
         const safeWebsite = (bill.website && /^https?:\/\//i.test(bill.website)) ? escapeHtml(bill.website) : '';
         const freqLabel = getBillFrequencyLabel(bill);
-        const cadenceLabel = isAnnual ? 'Billed annually' : 'Billed monthly';
-        const convertLabel = isAnnual ? 'Convert to monthly billing' : 'Convert to annual billing';
+        const cadenceActionLabel = isAnnual ? 'Convert to monthly billing' : 'Convert to annual billing';
+        const splitSummary = memberCount > 0
+            ? memberCount + ' member' + (memberCount !== 1 ? 's' : '') + ' \u00b7 ' + perPersonDisplay
+            : perPersonDisplay;
 
         return `
             <div class="bill-item${billTierClass}" data-bill-id="${bill.id}">
@@ -1681,25 +1782,17 @@ function renderBills() {
                     <div class="bill-header">
                         <div class="bill-header-left">
                             <div class="bill-title${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillName(${bill.id})" title="Click to edit name"`}>${escapeHtml(bill.name)}</div>
-                            ${safeWebsite ? `<div class="bill-website"><a href="${safeWebsite}" target="_blank" rel="noopener noreferrer" title="${safeWebsite}">${safeWebsite}</a></div>` : ''}
-                            <div class="bill-per-person">
-                                ${memberCount > 0 ? `${perPersonDisplay} (${memberCount} members)` : 'No members selected'}
-                            </div>
                         </div>
                         <div class="bill-header-right">
                             <span class="bill-amount${archived ? '' : ' editable'}" ${archived ? '' : `onclick="editBillAmount(${bill.id})" title="Click to edit amount"`}>$${bill.amount.toFixed(2)}${freqLabel}</span>
-                            <div class="bill-cadence-row">
-                                <span class="bill-cadence-badge">${cadenceLabel}</span>
-                                ${archived ? '' : `<button class="btn-link bill-frequency-convert" onclick="toggleBillFrequency(${bill.id})">${convertLabel}</button>`}
-                            </div>
-                            <div class="bill-derived-amount">${derivedAmount}</div>
+                            <div class="bill-derived-amount">${cadenceSummary}</div>
                         </div>
                     </div>
                 </div>
 
                 <div class="bill-split-section">
                     <div class="bill-split-collapsed" id="bill-split-collapsed-${bill.id}">
-                        <span class="split-summary-text">${memberCount > 0 ? 'Split with ' + memberCount + ' member' + (memberCount !== 1 ? 's' : '') : 'No members selected'}</span>
+                        <span class="split-summary-text">${splitSummary}</span>
                         ${archived ? '' : `<button class="btn-link" onclick="toggleBillSplit(${bill.id})">Edit split</button>`}
                     </div>
                     <div class="bill-split-expanded" id="bill-split-expanded-${bill.id}" style="display:none;">
@@ -1724,16 +1817,18 @@ function renderBills() {
                 </div>
 
                 <div class="bill-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="showBillAuditHistory(${bill.id})">History</button>
                     ${archived
-                        ? ''
+                        ? `<button class="btn btn-secondary btn-sm" onclick="showBillAuditHistory(${bill.id})">History</button>`
                         : `<div class="bill-actions-dropdown">
-                            <button class="btn btn-secondary btn-sm" onclick="toggleBillActionsMenu(event, ${bill.id})">More ▾</button>
-                            <div class="bill-actions-menu" id="bill-actions-menu-${bill.id}">
-                                <button onclick="editBillWebsite(${bill.id})">Edit Website</button>
-                                <button onclick="uploadLogo(${bill.id})">Upload Logo</button>
-                                ${bill.logo ? `<button onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
-                                <button class="danger" onclick="removeBill(${bill.id})">Remove Bill</button>
+                            <button type="button" class="btn btn-secondary btn-sm bill-menu-button" onclick="toggleBillActionsMenu(event, ${bill.id})" aria-expanded="false" aria-controls="bill-actions-menu-${bill.id}">More ▾</button>
+                            <div class="bill-actions-menu" id="bill-actions-menu-${bill.id}" aria-label="More actions for ${escapeHtml(bill.name)}">
+                                <button type="button" onclick="showBillAuditHistory(${bill.id})">History</button>
+                                <button type="button" onclick="toggleBillFrequency(${bill.id})">${cadenceActionLabel}</button>
+                                ${safeWebsite ? `<button type="button" onclick="openBillWebsite(${bill.id})">Open Website</button>` : ''}
+                                <button type="button" onclick="editBillWebsite(${bill.id})">Edit Website</button>
+                                <button type="button" onclick="uploadLogo(${bill.id})">Upload Logo</button>
+                                ${bill.logo ? `<button type="button" onclick="removeLogo(${bill.id})">Remove Logo</button>` : ''}
+                                <button type="button" class="danger" onclick="removeBill(${bill.id})">Remove Bill</button>
                             </div>
                         </div>`}
                 </div>
@@ -1757,16 +1852,38 @@ function toggleBillSplit(billId) {
 
 function toggleBillActionsMenu(event, billId) {
     event.stopPropagation();
+    var button = event.currentTarget;
     var menu = document.getElementById('bill-actions-menu-' + billId);
     if (!menu) return;
-    var allMenus = document.querySelectorAll('.bill-actions-menu');
-    allMenus.forEach(function(m) { if (m !== menu) m.classList.remove('open'); });
-    menu.classList.toggle('open');
+    var shouldOpen = !menu.classList.contains('open');
+    closeActionMenus();
+    if (!shouldOpen) return;
+    menu.classList.add('open');
+    if (button) button.setAttribute('aria-expanded', 'true');
+    var firstAction = menu.querySelector('button');
+    if (firstAction) firstAction.focus();
+}
+
+function openBillWebsite(billId) {
+    var bill = bills.find(function(b) { return b.id === billId; });
+    if (!bill || !bill.website || !/^https?:\/\//i.test(bill.website)) return;
+    window.open(bill.website, '_blank', 'noopener,noreferrer');
 }
 
 document.addEventListener('click', function() {
-    var menus = document.querySelectorAll('.bill-actions-menu.open');
-    menus.forEach(function(m) { m.classList.remove('open'); });
+    closeActionMenus();
+});
+
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeActionMenus();
+    }
+});
+
+document.addEventListener('focusin', function(event) {
+    if (!event.target.closest('.bill-actions-dropdown, .member-actions-dropdown')) {
+        closeActionMenus();
+    }
 });
 
 // Calculate annual summary
@@ -1933,6 +2050,21 @@ function renderWorkspaceTabs() {
     ).join('');
     // Ensure correct panel visibility
     switchWorkspaceTab(_activeWorkspaceTab);
+
+    // Add sticky shadow when tab bar is stuck to top
+    if (typeof IntersectionObserver !== 'undefined' && !bar._stickyObserverAttached) {
+        const sentinel = document.createElement('div');
+        sentinel.className = 'workspace-tab-sentinel';
+        sentinel.style.height = '1px';
+        sentinel.style.marginBottom = '-1px';
+        bar.parentNode.insertBefore(sentinel, bar);
+        const observer = new IntersectionObserver(
+            ([entry]) => { bar.classList.toggle('stuck', !entry.isIntersecting); },
+            { threshold: 0 }
+        );
+        observer.observe(sentinel);
+        bar._stickyObserverAttached = true;
+    }
 }
 
 // ──────────────── Composer Panels ────────────────
@@ -2153,7 +2285,9 @@ function updateSummary() {
             + (showPaymentAction
                 ? '<button class="btn btn-primary btn-sm" onclick="showAddPaymentDialog(' + data.member.id + ')">Record Payment</button>'
                 : '<button class="btn btn-tertiary btn-sm settlement-history-action" onclick="showPaymentHistory(' + data.member.id + ')">Payment History</button>')
-            + '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>'
+            + (balance <= 0 && status === 'settled'
+                ? '<button class="btn btn-secondary btn-sm" disabled title="No balance due \u2014 nothing to invoice">Email Invoice</button>'
+                : '<button class="btn btn-secondary btn-sm" onclick="showEmailInvoiceDialog(' + data.member.id + ')">Email Invoice</button>')
             + '<div class="actions-dropdown settlement-actions-dropdown">'
             + '<button class="settlement-more-btn" onclick="toggleActionMenu(event)" aria-label="More actions">\u22EF</button>'
             + '<div class="actions-dropdown-menu settlement-actions-menu">' + overflowActions + '</div>'
@@ -2227,19 +2361,24 @@ function renderDashboardStatus() {
 
     const currentStatus = currentBillingYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
+    const remaining = metrics.totalMembers - metrics.paidCount;
+
+    // When settling and all members are paid, show "Ready to Close" instead of "Settling"
+    const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
     const lifecycleSteps = ['open', 'settling', 'closed', 'archived'].map(s => {
         const meta = BILLING_YEAR_STATUSES[s];
-        const isActive = s === currentStatus;
-        const isComplete = meta.order < currentOrder;
+        const isActive = s === currentStatus && !isReadyToClose;
+        const isComplete = meta.order < currentOrder || (isReadyToClose && s === 'settling');
+        const isNext = isReadyToClose && s === 'closed';
         let cls = 'lifecycle-step';
         if (isActive) cls += ' lifecycle-active lifecycle-' + meta.color;
         else if (isComplete) cls += ' lifecycle-complete';
+        if (isNext) cls += ' lifecycle-next';
         return '<span class="' + cls + '">' + meta.label + '</span>';
     }).join('<span class="lifecycle-arrow">\u2192</span>');
 
     let settlementMessage = '';
-    const remaining = metrics.totalMembers - metrics.paidCount;
     if (currentStatus === 'archived') {
         settlementMessage = 'Archived year. Records are preserved for reference and cannot be modified.';
     } else if (currentStatus === 'closed') {
@@ -2266,15 +2405,19 @@ function renderDashboardStatus() {
     }
 
     const openReviews = _loadedDisputes.filter(d => d.status === 'open' || d.status === 'in_review').length;
-    const statusLabel = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label;
-    const statusClass = 'dashboard-state-badge dashboard-state-badge--' + currentStatus;
-    const statusHeadline = currentStatus === 'open'
-        ? 'Planning in progress'
-        : currentStatus === 'settling'
-            ? 'Settlement in progress'
-            : currentStatus === 'closed'
-                ? 'Year closed'
-                : 'Archive view';
+    const statusLabel = isReadyToClose ? 'Ready to Close' : (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label;
+    const statusClass = isReadyToClose
+        ? 'dashboard-state-badge dashboard-state-badge--ready'
+        : 'dashboard-state-badge dashboard-state-badge--' + currentStatus;
+    const statusHeadline = isReadyToClose
+        ? 'Settlement complete'
+        : currentStatus === 'open'
+            ? 'Planning in progress'
+            : currentStatus === 'settling'
+                ? 'Settlement in progress'
+                : currentStatus === 'closed'
+                    ? 'Year closed'
+                    : 'Archive view';
 
     container.innerHTML = `
         <div class="dashboard-status-shell">
@@ -2423,62 +2566,242 @@ function recordPayment(memberId, amount, method, note, distribute) {
 // Render email settings
 const EMAIL_TEMPLATE_FIELDS = [
     { token: '%billing_year%', label: 'Billing Year' },
-    { token: '%annual_total%', label: 'Annual Total' },
+    { token: '%annual_total%', label: 'Household Total' },
     { token: '%payment_methods%', label: 'Payment Methods' }
 ];
 
+const EMAIL_TEMPLATE_TOKEN_LABELS = {
+    '%billing_year%': 'Billing Year',
+    '%annual_total%': 'Household Total',
+    '%total%': 'Household Total',
+    '%payment_methods%': 'Payment Methods'
+};
+
+const EMAIL_TEMPLATE_TOKEN_PATTERN = /(%billing_year%|%annual_total%|%total%|%payment_methods%)/g;
+
+// Detect when a template contains both the %payment_methods% token AND hardcoded
+// payment provider text, which would cause payment info to render twice.
+const PAYMENT_PROVIDER_PATTERN = /\b(venmo|zelle|paypal|cash\s*app|apple\s*cash|bank\s*transfer)\b/i;
+
+function detectDuplicatePaymentText(template) {
+    if (!template) return false;
+    const hasToken = template.indexOf('%payment_methods%') !== -1;
+    if (!hasToken) return false;
+    // Strip the token itself so we only check the surrounding literal text
+    const withoutToken = template.replace(/%payment_methods%/g, '');
+    return PAYMENT_PROVIDER_PATTERN.test(withoutToken);
+}
+
+function createEmailTemplateTokenNode(token) {
+    const chip = document.createElement('span');
+    chip.className = 'template-editor-token';
+    chip.contentEditable = 'false';
+    chip.dataset.token = token;
+    chip.textContent = EMAIL_TEMPLATE_TOKEN_LABELS[token] || token;
+    return chip;
+}
+
+function renderEmailTemplateInlineHTML(text) {
+    return String(text || '').split(EMAIL_TEMPLATE_TOKEN_PATTERN).map(segment => {
+        if (EMAIL_TEMPLATE_TOKEN_LABELS[segment]) {
+            return '<span class="template-editor-token" contenteditable="false" data-token="' + segment + '">'
+                + escapeHtml(EMAIL_TEMPLATE_TOKEN_LABELS[segment])
+                + '</span>';
+        }
+        return escapeHtml(segment);
+    }).join('');
+}
+
+function buildEmailTemplateEditorHTML(template) {
+    const lines = String(template || '').split('\n');
+    return lines.map(line => '<div class="template-editor-line">' + (renderEmailTemplateInlineHTML(line) || '<br>') + '</div>').join('');
+}
+
+function getEmailTemplateValue() {
+    const editor = document.getElementById('emailMessageEditor');
+    if (editor && typeof editor.cloneNode === 'function') {
+        const clone = editor.cloneNode(true);
+        clone.querySelectorAll('.template-editor-token').forEach(function(tokenEl) {
+            tokenEl.replaceWith(document.createTextNode(tokenEl.dataset.token || ''));
+        });
+
+        const html = clone.innerHTML
+            .replace(/<(div|p|li|blockquote|h[1-6])\b[^>]*>/gi, '\n')
+            .replace(/<\/(div|p|li|blockquote|h[1-6])>/gi, '')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/&nbsp;/gi, ' ');
+
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+
+        return (tmp.textContent || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\r/g, '')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .replace(/^\n+|\n+$/g, '');
+    }
+
+    const input = document.getElementById('emailMessageInput');
+    return input ? input.value : (settings.emailMessage || '');
+}
+
 function getInvoiceTemplatePreviewContext() {
     const billingYearLabel = currentBillingYear ? (currentBillingYear.label || currentBillingYear.id) : String(new Date().getFullYear());
-    const paymentMethodsText = formatPaymentOptionsText().trim() || 'Add payment methods in the Invoicing tab to include them here.';
     const sampleMember = familyMembers.find(m => !isLinkedToAnyone(m.id)) || familyMembers[0] || null;
     const sampleHousehold = sampleMember ? getInvoiceSummaryContext(sampleMember.id) : null;
-    const previewTotal = sampleHousehold ? sampleHousehold.combinedTotal : 0;
+    if (sampleHousehold) {
+        return Object.assign({}, sampleHousehold, {
+            currentYear: billingYearLabel,
+            previewRecipient: sampleMember.email || sampleMember.name
+        });
+    }
 
     return {
-        billingYear: billingYearLabel,
-        annualTotal: '$' + previewTotal.toFixed(2),
-        paymentMethods: paymentMethodsText,
-        householdName: sampleMember ? sampleMember.name : 'Example household'
+        member: { name: 'Example household' },
+        firstName: 'Friend',
+        combinedTotal: 0,
+        payment: 0,
+        balance: 0,
+        amountStr: '$0.00',
+        amountLabel: 'total',
+        currentYear: billingYearLabel,
+        linkedMembersData: [],
+        memberData: null,
+        numMembers: 1,
+        previewRecipient: 'Example household'
     };
 }
 
 function buildInvoiceTemplatePreviewText(template, ctx) {
-    return (template || '')
+    return String(template || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%total\b/g, ctx.annualTotal)
-        .replace(/%payment_methods%/g, ctx.paymentMethods);
+        .replace(/%total\b/g, ctx.annualTotal);
+}
+
+function buildConfiguredInvoiceMessage(ctx, templateOverride) {
+    const template = templateOverride !== undefined ? templateOverride : (settings.emailMessage || '');
+    return buildInvoiceTemplatePreviewText(template, {
+        billingYear: ctx.currentYear,
+        annualTotal: '$' + ctx.combinedTotal.toFixed(2)
+    }).replace(/%payment_methods%/g, formatPaymentOptionsText()).trim();
+}
+
+function renderInvoicePreviewTextBlocks(text) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return '';
+    return trimmed.split(/\n{2,}/).map(block =>
+        '<p class="invoice-preview-paragraph">' + escapeHtml(block).replace(/\n/g, '<br>') + '</p>'
+    ).join('');
+}
+
+function buildInvoiceTemplatePreviewHTML(template, ctx) {
+    const previewBody = buildInvoiceBody(ctx, 'text-only', '', 'email', template);
+    const bodyHtml = renderInvoicePreviewTextBlocks(previewBody) || '<p class="placeholder-text">Your invoice preview will appear here.</p>';
+    const subject = buildInvoiceSubject(ctx.currentYear, ctx.member);
+    return '<div class="invoice-preview-shell">'
+        + '<div class="invoice-preview-meta"><span class="invoice-preview-meta-label">To</span><span>' + escapeHtml(ctx.previewRecipient) + '</span></div>'
+        + '<div class="invoice-preview-meta"><span class="invoice-preview-meta-label">Subject</span><span>' + escapeHtml(subject) + '</span></div>'
+        + '<div class="invoice-preview-message">' + bodyHtml + '</div>'
+        + '</div>';
 }
 
 function renderEmailTemplatePreview() {
     const preview = document.getElementById('emailTemplatePreview');
-    const textarea = document.getElementById('emailMessageInput');
-    if (!preview || !textarea) return;
+    if (!preview) return;
 
     const ctx = getInvoiceTemplatePreviewContext();
-    const previewText = buildInvoiceTemplatePreviewText(textarea.value, ctx);
-    preview.innerHTML = previewText
-        ? escapeHtml(previewText).replace(/\n/g, '<br>')
-        : '<span class="placeholder-text">Your invoice preview will appear here.</span>';
+    const templateValue = getEmailTemplateValue();
+    preview.innerHTML = buildInvoiceTemplatePreviewHTML(templateValue, ctx);
 
     const sample = document.getElementById('emailTemplatePreviewSample');
     if (sample) {
-        sample.textContent = 'Previewing for ' + ctx.householdName + ' in ' + ctx.billingYear;
+        sample.textContent = 'Previewing the default email invoice for ' + ctx.member.name + ' in ' + ctx.currentYear;
     }
 }
 
-function insertEmailTemplateToken(token) {
-    const textarea = document.getElementById('emailMessageInput');
-    if (!textarea || textarea.disabled) return;
+function emailTemplateEditorShowsRawTokens(editor) {
+    if (!editor) return false;
+    const visibleText = editor.textContent || '';
+    return Object.keys(EMAIL_TEMPLATE_TOKEN_LABELS).some(function(token) {
+        return visibleText.indexOf(token) !== -1;
+    });
+}
 
-    const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : textarea.value.length;
-    const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : textarea.value.length;
-    const value = textarea.value || '';
-    textarea.value = value.slice(0, start) + token + value.slice(end);
-    const nextPos = start + token.length;
-    textarea.focus();
-    textarea.setSelectionRange(nextPos, nextPos);
+function placeCaretAtEnd(element) {
+    if (!element || !window.getSelection || !document.createRange) return;
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function normalizeEmailTemplateEditor(moveCaretToEnd) {
+    const editor = document.getElementById('emailMessageEditor');
+    if (!editor) return;
+    editor.innerHTML = buildEmailTemplateEditorHTML(getEmailTemplateValue());
+    if (moveCaretToEnd && editor.getAttribute('contenteditable') !== 'false') {
+        editor.focus();
+        placeCaretAtEnd(editor);
+    }
+}
+
+function handleEmailTemplateEditorInput() {
+    const editor = document.getElementById('emailMessageEditor');
+    if (emailTemplateEditorShowsRawTokens(editor)) {
+        normalizeEmailTemplateEditor(true);
+    }
+    renderEmailTemplatePreview();
+}
+
+function handleEmailTemplateEditorPaste(event) {
+    if (!event) return;
+    event.preventDefault();
+    const clipboard = event.clipboardData || window.clipboardData;
+    const text = clipboard ? clipboard.getData('text/plain') : '';
+    if (document.execCommand) {
+        document.execCommand('insertHTML', false, escapeHtml(text).replace(/\n/g, '<br>'));
+    }
+    normalizeEmailTemplateEditor(true);
+    renderEmailTemplatePreview();
+}
+
+function insertEmailTemplateToken(token) {
+    const editor = document.getElementById('emailMessageEditor');
+    if (!editor || editor.getAttribute('contenteditable') === 'false') return;
+
+    const tokenNode = createEmailTemplateTokenNode(token);
+    const spacer = document.createTextNode(' ');
+    editor.focus();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !editor.contains(selection.anchorNode)) {
+        let targetLine = editor.lastElementChild;
+        if (!targetLine || !targetLine.classList || !targetLine.classList.contains('template-editor-line')) {
+            targetLine = document.createElement('div');
+            targetLine.className = 'template-editor-line';
+            editor.appendChild(targetLine);
+        }
+        if (targetLine.innerHTML === '<br>') {
+            targetLine.innerHTML = '';
+        }
+        targetLine.appendChild(tokenNode);
+        targetLine.appendChild(spacer);
+    } else {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(spacer);
+        range.insertNode(tokenNode);
+        range.setStartAfter(spacer);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+
     renderEmailTemplatePreview();
 }
 
@@ -2489,18 +2812,28 @@ function renderEmailSettings() {
         '<button type="button" class="template-token-chip" onclick="insertEmailTemplateToken(\'' + field.token + '\')">' + escapeHtml(field.label) + '</button>'
     ).join('');
 
+    const hasDuplicate = detectDuplicatePaymentText(settings.emailMessage);
+    const duplicationWarning = hasDuplicate
+        ? '<div class="template-duplication-warning">'
+            + '<strong>Duplicate payment info detected.</strong> '
+            + 'Your template contains the Payment Methods field <em>and</em> hardcoded payment text. '
+            + 'This will show payment methods twice in sent invoices. '
+            + 'Remove the hardcoded text and rely on the Payment Methods field alone.'
+            + '</div>'
+        : '';
+
     container.innerHTML = `
         <div class="form-group">
-            <label for="emailMessage">Email Message (sent with annual invoices)</label>
+            <label id="emailTemplateEditorLabel">Email Message (sent with annual invoices)</label>
             <p class="section-desc">
-                Build one message for the full billing year. Click a field below to insert it into the template without memorizing the token format.
+                Build one message for the full billing year. Use the field chips to insert live billing data into the message without typing placeholders by hand.
             </p>
+            ${duplicationWarning}
             <div class="template-token-bar">
                 <span class="template-token-label">Insert fields</span>
                 <div class="template-token-list">${tokenButtons}</div>
             </div>
-            <p class="template-token-help">Supported fields: <strong>%billing_year%</strong>, <strong>%annual_total%</strong>, <strong>%total%</strong>, and <strong>%payment_methods%</strong>.</p>
-            <textarea id="emailMessageInput" rows="4" oninput="renderEmailTemplatePreview()" ${archived ? 'disabled' : ''}>${escapeHtml(settings.emailMessage)}</textarea>
+            <div id="emailMessageEditor" class="template-editor" contenteditable="${archived ? 'false' : 'true'}" role="textbox" tabindex="0" aria-labelledby="emailTemplateEditorLabel" aria-multiline="true" oninput="handleEmailTemplateEditorInput()" onpaste="handleEmailTemplateEditorPaste(event)">${buildEmailTemplateEditorHTML(settings.emailMessage)}</div>
             <div class="invoice-template-preview">
                 <div class="invoice-template-preview-head">
                     <span class="invoice-template-preview-label">Live Preview</span>
@@ -2517,10 +2850,17 @@ function renderEmailSettings() {
 // Save email message
 function saveEmailMessage() {
     if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
-    const input = document.getElementById('emailMessageInput');
-    settings.emailMessage = input.value;
+    const templateValue = getEmailTemplateValue();
+    if (detectDuplicatePaymentText(templateValue)) {
+        if (!confirm('Your template contains both the Payment Methods field and hardcoded payment text. This will show payment methods twice in sent invoices. Save anyway?')) {
+            return;
+        }
+    }
+    settings.emailMessage = templateValue;
     saveData();
+    normalizeEmailTemplateEditor(false);
     renderEmailTemplatePreview();
+    renderEmailSettings();
     showChangeToast('Invoice template saved.');
 }
 
@@ -2901,34 +3241,32 @@ function formatPaymentOptionsText() {
     const methods = getEnabledPaymentMethods();
     if (methods.length === 0) return '';
 
-    let text = '\nPAYMENT OPTIONS:\n';
-    text += '='.repeat(80) + '\n';
+    let text = '\nPayment methods:\n';
 
     methods.forEach(method => {
-        text += `\n${method.label}:\n`;
+        text += `\n${method.label}\n`;
 
         if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) {
-                text += `  Send via Zelle to: ${contacts.join(' or ')}\n`;
+                text += `Send via Zelle to: ${contacts.join(' or ')}\n`;
             }
         } else if (method.type === 'apple_cash') {
             const contacts = [method.phone, method.email].filter(Boolean);
             if (contacts.length > 0) {
-                text += `  Send via Messages or Wallet to: ${contacts.join(' or ')}\n`;
+                text += `Send via Messages or Wallet to: ${contacts.join(' or ')}\n`;
             }
         } else {
-            if (method.handle) text += `  ${method.handle}\n`;
-            if (method.url) text += `  ${method.url}\n`;
+            if (method.handle) text += `${method.handle}\n`;
+            if (method.url) text += `${method.url}\n`;
         }
 
         if (method.instructions) {
-            text += `  Note: ${method.instructions}\n`;
+            text += `Note: ${method.instructions}\n`;
         }
     });
 
-    text += '='.repeat(80) + '\n';
-    return text;
+    return text.trimEnd();
 }
 
 // ──────────────── Review Requests (Disputes) ────────────────
@@ -2960,10 +3298,6 @@ function setDisputeFilter(status) {
         filterBar.querySelectorAll('.dispute-filter-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.status === status);
         });
-        const select = filterBar.querySelector('.dispute-filter-select');
-        if (select) {
-            select.value = ['open', 'in_review', 'resolved', 'rejected'].includes(status) ? status : '';
-        }
     }
     renderDisputes(_loadedDisputes);
 }
@@ -3021,15 +3355,12 @@ function renderDisputeFilterBar(disputes) {
 
     let filters;
     if (disputes.length <= 3) {
+        if (_disputeStatusFilter !== 'actionable' && _disputeStatusFilter !== 'all') {
+            _disputeStatusFilter = 'all';
+        }
         filters = [
             { key: 'actionable', label: 'Actionable' },
             { key: 'all', label: 'All Requests' }
-        ];
-        const compactStatusOptions = [
-            { key: 'open', label: 'Open' },
-            { key: 'in_review', label: 'In Review' },
-            { key: 'resolved', label: 'Resolved' },
-            { key: 'rejected', label: 'Rejected' }
         ];
         bar.innerHTML = '<div class="dispute-filter-compact">'
             + '<span class="dispute-filter-summary">' + disputes.length + ' request' + (disputes.length === 1 ? '' : 's') + ' on file</span>'
@@ -3037,13 +3368,6 @@ function renderDisputeFilterBar(disputes) {
             + filters.map(f =>
                 `<button class="dispute-filter-btn${_disputeStatusFilter === f.key ? ' active' : ''}" data-status="${f.key}" onclick="setDisputeFilter('${f.key}')">${escapeHtml(f.label)} <span class="dispute-filter-count">${counts[f.key] || 0}</span></button>`
             ).join('')
-            + '<label class="sr-only" for="compactDisputeFilterSelect">Filter review requests by status</label>'
-            + '<select id="compactDisputeFilterSelect" class="dispute-filter-select" onchange="setDisputeFilter(this.value || \'all\')">'
-            + '<option value="">' + escapeHtml(_disputeStatusFilter === 'actionable' ? 'Specific status' : _disputeStatusFilter === 'all' ? 'Filter by status' : (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || 'Filter by status')) + '</option>'
-            + compactStatusOptions.map(option =>
-                `<option value="${option.key}"${_disputeStatusFilter === option.key ? ' selected' : ''}>${escapeHtml(option.label)} (${counts[option.key] || 0})</option>`
-            ).join('')
-            + '</select>'
             + '</div>'
             + '</div>';
         return;
@@ -3084,13 +3408,12 @@ function renderDisputes(disputes) {
         if (_disputeStatusFilter === 'all') {
             container.innerHTML = '<div class="empty-state">'
                 + '<p>No review requests yet.</p>'
-                + '<p class="empty-state-hint">Members can flag items while reviewing their annual billing summary.<br>You\'ll review and approve them here.</p>'
+                + '<p class="empty-state-hint">Requests appear here when members flag bills during annual review.</p>'
                 + '</div>';
         } else if (_disputeStatusFilter === 'actionable' && disputes.length > 0) {
             container.innerHTML = '<div class="empty-state review-empty-state">'
-                + '<p>No actionable review requests right now.</p>'
-                + '<p class="empty-state-hint">When members flag a bill during annual review, open and in-review requests appear here. The requests already on file have been resolved or rejected.</p>'
-                + '<button class="btn btn-secondary btn-sm empty-state-action" onclick="setDisputeFilter(\'all\')">Show all requests</button>'
+                + '<p>No open review requests.</p>'
+                + '<button class="btn btn-secondary btn-sm empty-state-action" onclick="setDisputeFilter(\'all\')">Show all requests (' + disputes.length + ')</button>'
                 + '</div>';
         } else {
             const statusLabel = (DISPUTE_STATUS_LABELS[_disputeStatusFilter] || _disputeStatusFilter).toLowerCase();
@@ -4232,17 +4555,29 @@ function buildInvoiceSubject(year, member) {
     return 'Annual Billing Summary ' + year + '\u2014' + member.name;
 }
 
-function buildInvoiceBody(ctx, variant, shareUrl, channel) {
+function buildInvoiceBody(ctx, variant, shareUrl, channel, templateOverride) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
+    const configuredMessage = buildConfiguredInvoiceMessage(ctx, templateOverride);
 
     if (variant === 'text-only') {
+        if (isEmail && configuredMessage) {
+            return 'Hello ' + firstName + ',\n\n' + configuredMessage;
+        }
         const greeting = isEmail ? 'Hello' : 'Hey';
         return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
     }
 
     if (variant === 'full') {
-        return buildFullInvoiceText(ctx, shareUrl);
+        return buildFullInvoiceText(ctx, shareUrl, templateOverride);
+    }
+
+    if (isEmail && configuredMessage) {
+        let msg = 'Hello ' + firstName + ',\n\n' + configuredMessage;
+        if (shareUrl) {
+            msg += '\n\nView your billing summary:\n' + shareUrl;
+        }
+        return msg;
     }
 
     // Default: text-link
@@ -4254,16 +4589,11 @@ function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     return msg;
 }
 
-function buildFullInvoiceText(ctx, shareUrl) {
+function buildFullInvoiceText(ctx, shareUrl, templateOverride) {
     const { member, firstName, combinedTotal, payment, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
-    const emailMessage = settings.emailMessage
-        .replace(/%billing_year%/g, currentYear)
-        .replace(/%annual_total%/g, '$' + combinedTotal.toFixed(2))
-        .replace(/%total%/g, '$' + combinedTotal.toFixed(2))
-        .replace(/%total\b/g, '$' + combinedTotal.toFixed(2))
-        .replace(/%payment_methods%/g, formatPaymentOptionsText());
+    const emailMessage = buildConfiguredInvoiceMessage(ctx, templateOverride);
     let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
     if (shareUrl) {
         text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
@@ -5021,6 +5351,48 @@ function ensureDialogContainer() {
     }
 }
 
+function showConfirmationDialog(title, message, confirmLabel, onConfirm, destructive) {
+    // Test hook: auto-confirm when flag is set
+    if (_testAutoConfirmDialogs) {
+        onConfirm();
+        return;
+    }
+    var overlayId = 'confirmation-dialog-overlay';
+    var overlay = document.getElementById(overlayId);
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = overlayId;
+        overlay.className = 'dialog-overlay';
+        overlay.onclick = function(e) {
+            if (e.target === overlay) closeConfirmationDialog();
+        };
+        var dialog = document.createElement('div');
+        dialog.id = 'confirmation-dialog';
+        dialog.className = 'dialog confirmation-dialog';
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+    }
+    var dialog = document.getElementById('confirmation-dialog');
+    dialog.innerHTML =
+        '<div class="dialog-header"><h3>' + escapeHtml(title) + '</h3></div>'
+        + '<div class="dialog-body"><p class="confirmation-message">' + escapeHtml(message) + '</p></div>'
+        + '<div class="dialog-footer">'
+        + '<button class="btn btn-secondary" onclick="closeConfirmationDialog()">Cancel</button>'
+        + '<button class="btn ' + (destructive ? 'btn-destructive' : 'btn-primary') + '" id="confirmation-confirm-btn">' + escapeHtml(confirmLabel) + '</button>'
+        + '</div>';
+    var confirmBtn = document.getElementById('confirmation-confirm-btn');
+    confirmBtn.onclick = function() {
+        closeConfirmationDialog();
+        onConfirm();
+    };
+    overlay.classList.add('visible');
+}
+
+function closeConfirmationDialog() {
+    var overlay = document.getElementById('confirmation-dialog-overlay');
+    if (overlay) overlay.classList.remove('visible');
+}
+
 function showAddPaymentDialog(memberId) {
     if (isYearReadOnly()) { alert(yearReadOnlyMessage()); return; }
     const member = familyMembers.find(m => m.id === memberId);
@@ -5332,6 +5704,7 @@ function _set(key, val) {
         case '_activeWorkspaceTab': _activeWorkspaceTab = val; break;
         case '_summaryFilter': _summaryFilter = val; break;
         case '_expandedSettlementIds': _expandedSettlementIds = val; break;
+        case '_testAutoConfirmDialogs': _testAutoConfirmDialogs = val; break;
         case '_memberComposerOpen': _memberComposerOpen = val; break;
         case '_billComposerOpen': _billComposerOpen = val; break;
     }
@@ -5411,6 +5784,14 @@ export {
     archiveCurrentYear,
     startNewYear,
     closeCurrentYear,
+    confirmStartSettlement,
+    confirmBackToOpen,
+    confirmCloseYear,
+    confirmArchiveYear,
+    confirmReopenToSettling,
+    confirmStartNewYear,
+    showConfirmationDialog,
+    closeConfirmationDialog,
     renderBillingYearSelector,
     renderStatusBanner,
     renderArchivedBanner,
@@ -5436,6 +5817,7 @@ export {
     uploadAvatar,
     removeAvatar,
     manageLinkMembers,
+    toggleMemberActionsMenu,
     isLinkedToAnyone,
     getParentMember,
     removeFamilyMember,
@@ -5470,6 +5852,7 @@ export {
     renderBills,
     toggleBillSplit,
     toggleBillActionsMenu,
+    openBillWebsite,
 
     // Calculations & summary
     calculateAnnualSummary,
@@ -5505,8 +5888,11 @@ export {
     deletePaymentEntry,
 
     // Email settings
+    detectDuplicatePaymentText,
     renderEmailSettings,
     renderEmailTemplatePreview,
+    handleEmailTemplateEditorInput,
+    handleEmailTemplateEditorPaste,
     insertEmailTemplateToken,
     saveEmailMessage,
 
