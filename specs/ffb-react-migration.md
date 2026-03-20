@@ -56,7 +56,7 @@ Extract pure domain logic out of `src/main.js` into importable modules. `main.js
 |----------|--------|-----------|------|--------|
 | 1 | `src/lib/calculations.js` | `getBillAnnualAmount`, `getBillMonthlyAmount`, `calculateAnnualSummary`, `getPaymentTotalForMember`, `getMemberPayments`, `isLinkedToAnyone`, `getParentMember`, `calculateSettlementMetrics` | Low | ✅ |
 | 2 | `src/lib/validation.js` | `detectDuplicatePaymentText`, `isValidE164`, `normalizeDisputeStatus`, `generateEventId`, `generateUniquePaymentId`, `generateRawToken`, `hashToken`, `generateUniqueId`, `generateUniqueBillId`, `isArchivedYear`, `isClosedYear`, `isSettlingYear`, `isYearReadOnly`, `yearReadOnlyMessage` | Low | ✅ |
-| 3 | `src/lib/formatting.js` | `PAYMENT_METHOD_LABELS`, `BILLING_YEAR_STATUSES`, `BILLING_EVENT_LABELS`, `DISPUTE_STATUS_LABELS`, `PAYMENT_METHOD_TYPES`, `PAYMENT_METHOD_ICONS`, `getPaymentMethodLabel`, `getBillingYearStatusLabel`, `getBillFrequencyLabel`, `formatAnnualSummaryCurrency`, `formatFileSize`, `escapeHtml`, `sanitizeImageSrc`, `getInitials`, `getPaymentMethodIcon`, `getPaymentMethodStripIcon`, `getPaymentMethodDetail`, `disputeStatusClass` | Low | ✅ |
+| 3 | `src/lib/formatting.js` + `src/lib/constants.js` | `PAYMENT_METHOD_LABELS`, `BILLING_EVENT_LABELS`, `PAYMENT_METHOD_TYPES`, `PAYMENT_METHOD_ICONS`, `getPaymentMethodLabel`, `getBillingYearStatusLabel`, `getBillFrequencyLabel`, `formatAnnualSummaryCurrency`, `formatFileSize`, `escapeHtml`, `sanitizeImageSrc`, `getInitials`, `getPaymentMethodIcon`, `getPaymentMethodStripIcon`, `getPaymentMethodDetail`, `disputeStatusClass`; **constants.js**: `BILLING_YEAR_STATUSES`, `DISPUTE_STATUS_LABELS` (re-exported from formatting.js for backward compat) | Low | ✅ |
 | 4 | `src/lib/billing-year.js` | `setBillingYearStatus`, `closeCurrentYear`, `archiveCurrentYear`, `startNewYear` | Medium | Pending |
 | 5 | `src/lib/persistence.js` | `saveData`, `loadData`, `loadBillingYearData`, `_saveChain` | High | Pending |
 | 6 | `src/lib/share.js` | `generateShareLink`, `revokeShareLink`, `refreshPublicShares` | Medium | Pending |
@@ -85,9 +85,8 @@ Extract pure domain logic out of `src/main.js` into importable modules. `main.js
 
 - Install `firebase` npm package (modular v10+)
 - Create `src/lib/firebase.js` — initialize app with `initializeApp(config)`, export `auth`, `db`, `storage`, `analytics`
-- Config bridge: legacy path uses CDN `<script>` tags → `window.*`; React path uses `import { initializeApp } from 'firebase/app'` with config from `.env.local`
-- Keep `firebase-config.local.js` as source of truth during coexistence
-- At cutover: remove CDN scripts, remove `firebase-config.js`, move config to `.env.local` (gitignored)
+- Config bridge: `firebase-config.local.js` remains the single source of truth for Firebase config values throughout the migration. Legacy path loads it via `<script>` tag → `window.*`. React path reads the same values (either by importing the file or by reading from `window.__FIREBASE_CONFIG__` set by the script tag).
+- At cutover: move config values to `.env.local` (gitignored), remove CDN scripts and `firebase-config.js`
 
 ### 0.4 Auth Context & Login Page
 
@@ -103,8 +102,8 @@ Extract pure domain logic out of `src/main.js` into importable modules. `main.js
   - `BillingYearService` — load year list, switch active year, create/archive
   - `SaveQueue` — serializes Firestore writes (generic middleware)
   - `ShareSyncService` — post-save hook that denormalizes to `publicShares`
-- **Critical:** `SaveQueue` must own canonical state, not React. Mutations go through the service → update internal state → trigger save → notify React via `useSyncExternalStore`. This preserves the current invariant: state is always stable when `saveData()` runs.
-- React reads from the services via context + `useSyncExternalStore`
+- **Critical:** `SaveQueue` must own canonical state, not React. Mutations go through the service → update internal state → trigger save → notify React via a subscription API (e.g. `useSyncExternalStore`, a context with event emitter, or a custom hook — implementation chosen at build time). This preserves the current invariant: state is always stable when `saveData()` runs.
+- React reads from the services via context that subscribes to service state changes
 
 ### 0.6 Build & Deploy
 
@@ -321,7 +320,7 @@ src/lib/
 src/
 ├── App.jsx                    # Root component with router
 ├── lib/
-│   ├── firebase.js            # Modular Firebase init (reads config from .env.local)
+│   ├── firebase.js            # Modular Firebase init (reads config from firebase-config.local.js during coexistence)
 │   ├── BillingYearService.js  # Load/switch/create/archive years
 │   ├── SaveQueue.js           # Serialized Firestore write queue
 │   ├── ShareSyncService.js    # Post-save publicShares denormalization

@@ -1,4 +1,8 @@
-// Constants, labels, and string transforms — no DOM, no Firestore.
+// Labels, string transforms, and display constants — no DOM, no Firestore.
+
+// Re-export status constants from their canonical home so existing
+// `import { BILLING_YEAR_STATUSES } from './formatting.js'` still works.
+export { BILLING_YEAR_STATUSES, DISPUTE_STATUS_LABELS } from './constants.js';
 
 export const PAYMENT_METHOD_LABELS = {
     cash: 'Cash',
@@ -12,13 +16,6 @@ export const PAYMENT_METHOD_LABELS = {
     other: 'Other'
 };
 
-export const BILLING_YEAR_STATUSES = {
-    open:     { label: 'Open',     order: 0, color: 'primary' },
-    settling: { label: 'Settling', order: 1, color: 'warning' },
-    closed:   { label: 'Closed',   order: 2, color: 'success' },
-    archived: { label: 'Archived', order: 3, color: 'muted' }
-};
-
 export const BILLING_EVENT_LABELS = {
     BILL_CREATED: 'Bill created',
     BILL_UPDATED: 'Bill updated',
@@ -28,13 +25,6 @@ export const BILLING_EVENT_LABELS = {
     PAYMENT_RECORDED: 'Payment recorded',
     PAYMENT_REVERSED: 'Payment reversed',
     YEAR_STATUS_CHANGED: 'Year status changed'
-};
-
-export const DISPUTE_STATUS_LABELS = {
-    open: 'Open',
-    in_review: 'In Review',
-    resolved: 'Resolved',
-    rejected: 'Rejected'
 };
 
 export const PAYMENT_METHOD_TYPES = {
