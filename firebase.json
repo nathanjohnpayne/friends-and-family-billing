@@ -9,6 +9,8 @@
       "**/.*",
       "**/node_modules/**",
       "src/**",
+      "app/**",
+      "vite.config.js",
       "DEPLOYMENT.md",
       "AGENTS.md",
       "QUICKSTART.md",
@@ -97,6 +99,14 @@
       {
         "source": "/submitDisputeDecision",
         "function": "submitDisputeDecision"
+      },
+      {
+        "source": "/app/**",
+        "destination": "/dist/app/index.html"
+      },
+      {
+        "source": "/app",
+        "destination": "/dist/app/index.html"
       },
       {
         "source": "**",

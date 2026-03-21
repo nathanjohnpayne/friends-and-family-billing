@@ -19,6 +19,7 @@ Thumbs.db
 # Build artifacts
 /script.js
 /script.js.map
+/dist/
 
 # Logs
 *.log
