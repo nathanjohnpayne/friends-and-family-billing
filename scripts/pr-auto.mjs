@@ -155,9 +155,16 @@ function createPr({ branch, title, base, draft, templatePath }) {
     args.push('--draft');
   }
   run('gh', args);
-  return options.dryRun
-    ? 'https://github.com/nathanjohnpayne/friends-and-family-billing/pull/DRY-RUN'
-    : read('gh', ['pr', 'view', '--head', branch, '--json', 'url', '--jq', '.url']);
+  if (options.dryRun) {
+    return 'https://github.com/nathanjohnpayne/friends-and-family-billing/pull/DRY-RUN';
+  }
+
+  const [createdPr] = listOpenPrs(branch);
+  if (!createdPr?.url) {
+    throw new Error(`Created PR for ${branch}, but could not resolve its URL.`);
+  }
+
+  return createdPr.url;
 }
 
 function enableAutoMerge(prUrl, method) {
