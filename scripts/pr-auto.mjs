@@ -150,7 +150,7 @@ function pushBranch(branch) {
 
 function createPr({ branch, title, base, draft, templatePath }) {
   const templateArg = path.relative(repoRoot, templatePath);
-  const args = ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--template', templateArg];
+  const args = ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body-file', templateArg];
   if (draft) {
     args.push('--draft');
   }
