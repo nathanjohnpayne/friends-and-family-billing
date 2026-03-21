@@ -1,15 +1,32 @@
 {
   "private": true,
   "scripts": {
-    "build": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
+    "build": "npm run build:legacy && npm run build:react",
+    "build:legacy": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
+    "build:react": "vite build",
     "build:watch": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap --watch",
-    "test": "npm run build && node --test 'tests/**/*.test.js' && node scripts/check-no-public-secrets.mjs",
+    "dev": "vite --open",
+    "preview": "vite preview",
+    "test": "npm run test:legacy && npm run test:react && npm run test:secrets",
+    "test:legacy": "npm run build:legacy && node --test 'tests/*.test.js'",
+    "test:react": "vitest run",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
     "deploy:functions": "op-firebase-deploy --only functions",
     "deploy:all": "op-firebase-deploy"
   },
   "devDependencies": {
-    "esbuild": "^0.27.3"
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "esbuild": "^0.27.3",
+    "jsdom": "^29.0.1",
+    "vite": "^8.0.1",
+    "vitest": "^4.1.0"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1"
   }
 }
