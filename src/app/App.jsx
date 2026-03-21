@@ -1,6 +1,15 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import LoginView from './views/LoginView.jsx';
+import AppShell from './components/AppShell.jsx';
+import DashboardView from './views/Dashboard/DashboardView.jsx';
+import ManageView from './views/Manage/ManageView.jsx';
+import MembersTab from './views/Manage/MembersTab.jsx';
+import BillsTab from './views/Manage/BillsTab.jsx';
+import InvoicingTab from './views/Manage/InvoicingTab.jsx';
+import ReviewsTab from './views/Manage/ReviewsTab.jsx';
+import SettingsView from './views/Settings/SettingsView.jsx';
+import './shell.css';
 
 /**
  * App root — wraps everything in AuthProvider and BrowserRouter.
@@ -20,19 +29,30 @@ export function AppRoutes() {
     return (
         <Routes>
             <Route path="/login" element={<GuestRoute><LoginView /></GuestRoute>} />
-            <Route path="/" element={<ProtectedRoute><DashboardPlaceholder /></ProtectedRoute>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardView />} />
+                <Route path="manage" element={<ManageView />}>
+                    <Route index element={<Navigate to="members" replace />} />
+                    <Route path="members" element={<MembersTab />} />
+                    <Route path="bills" element={<BillsTab />} />
+                    <Route path="invoicing" element={<InvoicingTab />} />
+                    <Route path="reviews" element={<ReviewsTab />} />
+                </Route>
+                <Route path="settings" element={<SettingsView />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
     );
 }
 
 /**
- * GuestRoute — redirects authenticated users to / (mirrors legacy auth.js:174).
+ * GuestRoute — redirects authenticated users to /dashboard (mirrors legacy auth.js:174).
  */
 function GuestRoute({ children }) {
     const { user, loading } = useAuth();
     if (loading) return null;
-    if (user) return <Navigate to="/" replace />;
+    if (user) return <Navigate to="/dashboard" replace />;
     return children;
 }
 
@@ -56,35 +76,4 @@ function ProtectedRoute({ children }) {
     }
 
     return children;
-}
-
-/**
- * Temporary dashboard placeholder — Phase 1 replaces this with real views.
- */
-function DashboardPlaceholder() {
-    const { user, signOut } = useAuth();
-
-    return (
-        <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h1>Friends &amp; Family Billing</h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ color: '#666', fontSize: '0.875rem' }}>{user?.email}</span>
-                    <button onClick={signOut} style={{
-                        padding: '0.4rem 0.8rem', border: '1px solid #ccc', borderRadius: 6,
-                        background: '#fff', cursor: 'pointer', fontSize: '0.875rem'
-                    }}>
-                        Sign Out
-                    </button>
-                </div>
-            </div>
-            <p style={{ color: '#666' }}>
-                React app — Phase 0 scaffold. Auth is working.
-                Real views arrive in Phase 1.
-            </p>
-            <p style={{ fontSize: '0.875rem', color: '#999' }}>
-                The legacy app is at <a href="/" style={{ color: '#999' }}>the root URL</a>.
-            </p>
-        </div>
-    );
 }
