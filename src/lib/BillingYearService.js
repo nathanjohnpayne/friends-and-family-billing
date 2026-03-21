@@ -13,7 +13,8 @@ import {
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly } from './validation.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly, isValidE164 } from './validation.js';
+import { isLinkedToAnyone } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -327,11 +328,16 @@ export class BillingYearService {
             throw new Error('A member named "' + trimmed + '" already exists.');
         }
 
+        const phone = (data.phone || '').trim();
+        if (phone && !isValidE164(phone)) {
+            throw new Error('Invalid phone number. Use E.164 format (e.g. +14155551212) or leave blank.');
+        }
+
         const member = {
             id: generateUniqueId(familyMembers.map(m => m.id)),
             name: trimmed,
             email: (data.email || '').trim(),
-            phone: (data.phone || '').trim(),
+            phone,
             avatar: '',
             paymentReceived: 0,
             linkedMembers: []
@@ -361,6 +367,45 @@ export class BillingYearService {
                 throw new Error('A member named "' + trimmed + '" already exists.');
             }
             fields = { ...fields, name: trimmed };
+        }
+
+        // E.164 phone validation (mirrors main.js:986)
+        if (fields.phone !== undefined) {
+            const phone = fields.phone.trim();
+            if (phone && !isValidE164(phone)) {
+                throw new Error('Invalid phone number. Use E.164 format (e.g. +14155551212) or leave blank.');
+            }
+            fields = { ...fields, phone };
+        }
+
+        // One-parent household invariant (mirrors main.js:1028–1031)
+        // A member can only be linked to ONE parent, and parents can't be children.
+        if (fields.linkedMembers !== undefined) {
+            const member = familyMembers[idx];
+            for (const childId of fields.linkedMembers) {
+                if (childId === memberId) {
+                    throw new Error('A member cannot be linked to themselves.');
+                }
+                const child = familyMembers.find(m => m.id === childId);
+                if (!child) {
+                    throw new Error('Linked member not found.');
+                }
+                // Child must not be a parent (has its own linked members)
+                if (child.linkedMembers && child.linkedMembers.length > 0) {
+                    throw new Error(child.name + ' is a parent and cannot be linked as a child.');
+                }
+                // Child must not already be linked to a DIFFERENT parent
+                const existingParent = familyMembers.find(m =>
+                    m.id !== memberId && m.linkedMembers.includes(childId)
+                );
+                if (existingParent) {
+                    throw new Error(child.name + ' is already linked to ' + existingParent.name + '.');
+                }
+            }
+            // The parent being updated must not themselves be a child of someone else
+            if (fields.linkedMembers.length > 0 && isLinkedToAnyone(familyMembers, memberId)) {
+                throw new Error(member.name + ' is linked as a child and cannot have their own linked members.');
+            }
         }
 
         const updated = [...familyMembers];
@@ -418,13 +463,18 @@ export class BillingYearService {
         const amount = parseFloat(data.amount);
         if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
 
+        const website = (data.website || '').trim();
+        if (website && !/^https?:\/\//i.test(website)) {
+            throw new Error('Website URL must start with http:// or https://.');
+        }
+
         const bill = {
             id: generateUniqueBillId(bills.map(b => b.id)),
             name: data.name.trim(),
             amount,
             billingFrequency: data.billingFrequency || 'monthly',
             logo: '',
-            website: (data.website || '').trim(),
+            website,
             members: []
         };
 
@@ -448,6 +498,24 @@ export class BillingYearService {
         const { bills } = this._state;
         const idx = bills.findIndex(b => b.id === billId);
         if (idx === -1) throw new Error('Bill not found.');
+
+        // Amount validation (mirrors main.js:1387)
+        if (fields.amount !== undefined) {
+            const amount = parseFloat(fields.amount);
+            if (isNaN(amount) || amount <= 0) {
+                throw new Error('Amount must be greater than zero.');
+            }
+            fields = { ...fields, amount };
+        }
+
+        // Website validation (mirrors main.js:1456)
+        if (fields.website !== undefined) {
+            const website = fields.website.trim();
+            if (website && !/^https?:\/\//i.test(website)) {
+                throw new Error('Website URL must start with http:// or https://.');
+            }
+            fields = { ...fields, website };
+        }
 
         const prev = bills[idx];
         const updated = [...bills];

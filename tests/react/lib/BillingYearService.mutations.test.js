@@ -101,6 +101,23 @@ describe('BillingYearService — CRUD mutations', () => {
             svc._setState({ activeYear: { id: '2024', status: 'closed' } });
             expect(() => svc.addMember({ name: 'New' })).toThrow('read-only');
         });
+
+        it('rejects invalid E.164 phone', () => {
+            const svc = createService();
+            expect(() => svc.addMember({ name: 'Dave', phone: '555-1234' })).toThrow('E.164');
+        });
+
+        it('accepts valid E.164 phone', () => {
+            const svc = createService();
+            const member = svc.addMember({ name: 'Dave', phone: '+14155551212' });
+            expect(member.phone).toBe('+14155551212');
+        });
+
+        it('accepts empty phone', () => {
+            const svc = createService();
+            const member = svc.addMember({ name: 'Dave', phone: '' });
+            expect(member.phone).toBe('');
+        });
     });
 
     describe('updateMember', () => {
@@ -118,6 +135,67 @@ describe('BillingYearService — CRUD mutations', () => {
         it('throws for non-existent member', () => {
             const svc = createService();
             expect(() => svc.updateMember(999, { email: 'x' })).toThrow('not found');
+        });
+
+        it('rejects invalid E.164 phone on update', () => {
+            const svc = createService();
+            expect(() => svc.updateMember(1, { phone: 'bad' })).toThrow('E.164');
+        });
+
+        it('accepts valid E.164 phone on update', () => {
+            const svc = createService();
+            svc.updateMember(1, { phone: '+442071234567' });
+            expect(svc.getState().familyMembers.find(m => m.id === 1).phone).toBe('+442071234567');
+        });
+
+        // ── Linked members one-parent invariant ──
+
+        it('allows linking unlinked non-parent members', () => {
+            const svc = createService();
+            // Alice (1) is not linked to anyone and has no children — can link to Bob (2)
+            // But Bob already has Carol linked. Let's use Alice linking to a fresh member.
+            svc.addMember({ name: 'Dave' });
+            const dave = svc.getState().familyMembers.find(m => m.name === 'Dave');
+            svc.updateMember(1, { linkedMembers: [dave.id] });
+            expect(svc.getState().familyMembers.find(m => m.id === 1).linkedMembers).toContain(dave.id);
+        });
+
+        it('rejects linking a member to themselves', () => {
+            const svc = createService();
+            expect(() => svc.updateMember(1, { linkedMembers: [1] })).toThrow('cannot be linked to themselves');
+        });
+
+        it('rejects linking a parent (member with children) as a child', () => {
+            const svc = createService();
+            // Bob (2) has linkedMembers: [3] — he's a parent
+            expect(() => svc.updateMember(1, { linkedMembers: [2] })).toThrow('is a parent');
+        });
+
+        it('rejects linking a member already linked to another parent', () => {
+            const svc = createService();
+            // Carol (3) is linked to Bob (2). Alice (1) can't also claim Carol.
+            expect(() => svc.updateMember(1, { linkedMembers: [3] })).toThrow('already linked to');
+        });
+
+        it('rejects making a child into a parent', () => {
+            const svc = createService();
+            // Carol (3) is linked to Bob (2) — she's a child
+            expect(() => svc.updateMember(3, { linkedMembers: [1] })).toThrow('linked as a child');
+        });
+
+        it('allows a parent to update their own linked members list', () => {
+            const svc = createService();
+            // Bob (2) currently has Carol (3). Add a new member and re-link.
+            svc.addMember({ name: 'Dave' });
+            const dave = svc.getState().familyMembers.find(m => m.name === 'Dave');
+            svc.updateMember(2, { linkedMembers: [3, dave.id] });
+            expect(svc.getState().familyMembers.find(m => m.id === 2).linkedMembers).toEqual([3, dave.id]);
+        });
+
+        it('allows clearing linked members', () => {
+            const svc = createService();
+            svc.updateMember(2, { linkedMembers: [] });
+            expect(svc.getState().familyMembers.find(m => m.id === 2).linkedMembers).toEqual([]);
         });
     });
 
@@ -182,6 +260,24 @@ describe('BillingYearService — CRUD mutations', () => {
             const bill = svc.addBill({ name: 'Insurance', amount: 1200, billingFrequency: 'annual' });
             expect(bill.billingFrequency).toBe('annual');
         });
+
+        it('rejects non-http(s) website URL', () => {
+            const svc = createService();
+            expect(() => svc.addBill({ name: 'Cable', amount: 50, website: 'ftp://bad.com' }))
+                .toThrow('http:// or https://');
+        });
+
+        it('accepts valid http website', () => {
+            const svc = createService();
+            const bill = svc.addBill({ name: 'Cable', amount: 50, website: 'https://cable.com' });
+            expect(bill.website).toBe('https://cable.com');
+        });
+
+        it('accepts empty website', () => {
+            const svc = createService();
+            const bill = svc.addBill({ name: 'Cable', amount: 50, website: '' });
+            expect(bill.website).toBe('');
+        });
     });
 
     describe('updateBill', () => {
@@ -205,6 +301,40 @@ describe('BillingYearService — CRUD mutations', () => {
             const svc = createService();
             svc.updateBill(101, { name: 'Internet' }); // same name
             expect(svc.getState().billingEvents).toHaveLength(0);
+        });
+
+        it('rejects invalid amount on update', () => {
+            const svc = createService();
+            expect(() => svc.updateBill(101, { amount: -5 })).toThrow('greater than zero');
+        });
+
+        it('rejects NaN amount on update', () => {
+            const svc = createService();
+            expect(() => svc.updateBill(101, { amount: 'abc' })).toThrow('greater than zero');
+        });
+
+        it('coerces string amount to number', () => {
+            const svc = createService();
+            svc.updateBill(101, { amount: '150' });
+            expect(svc.getState().bills.find(b => b.id === 101).amount).toBe(150);
+        });
+
+        it('rejects non-http(s) website on update', () => {
+            const svc = createService();
+            expect(() => svc.updateBill(101, { website: 'ftp://bad.com' }))
+                .toThrow('http:// or https://');
+        });
+
+        it('accepts valid website on update', () => {
+            const svc = createService();
+            svc.updateBill(101, { website: 'https://isp.com' });
+            expect(svc.getState().bills.find(b => b.id === 101).website).toBe('https://isp.com');
+        });
+
+        it('accepts clearing website to empty string', () => {
+            const svc = createService();
+            svc.updateBill(101, { website: '' });
+            expect(svc.getState().bills.find(b => b.id === 101).website).toBe('');
         });
     });
 
