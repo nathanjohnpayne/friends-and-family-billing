@@ -396,8 +396,8 @@ src/
 | Pre-migration (PRs 1–4) | S–M | Nothing | UX fixes in vanilla JS | ✅ Done |
 | Domain extraction (P1–3) | S | PRs 1–4 | Pure lib modules | ✅ Done |
 | Domain extraction (P4–6) | M | P1–3 | Year lifecycle, persistence, shares | ✅ Done |
-| Phase 0: Scaffold | M | Extraction done | React app boots with auth + data | 🔧 In Progress |
-| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | Pending |
+| Phase 0: Scaffold | M | Extraction done | React app boots with auth + data | ✅ Done |
+| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | 🔧 In Progress |
 | Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied | Pending |
 | Phase 3: Dialogs | M | Phase 2 | All modals ported | Pending |
 | Phase 4: Cleanup | M | Phase 3 | Vanilla JS fully removed, Playwright CI | Pending |

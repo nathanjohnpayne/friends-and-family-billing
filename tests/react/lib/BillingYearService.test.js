@@ -242,6 +242,101 @@ describe('BillingYearService', () => {
         });
     });
 
+    // ── setYearStatus ────────────────────────────────────────────────
+
+    describe('setYearStatus', () => {
+        it('transitions active year to new status and writes to Firestore with billing event', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                billingYears: [{ id: '2025', label: '2025', status: 'open' }],
+                billingEvents: []
+            });
+
+            await svc.setYearStatus('settling');
+
+            const state = svc.getState();
+            expect(state.activeYear.status).toBe('settling');
+            expect(state.billingYears[0].status).toBe('settling');
+
+            // Verify YEAR_STATUS_CHANGED event was emitted
+            expect(state.billingEvents.length).toBe(1);
+            expect(state.billingEvents[0].eventType).toBe('YEAR_STATUS_CHANGED');
+            expect(state.billingEvents[0].payload.previousStatus).toBe('open');
+            expect(state.billingEvents[0].payload.newStatus).toBe('settling');
+            expect(state.billingEvents[0].actor.userId).toBe('user-1');
+
+            const write = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2025' && c.data.status === 'settling'
+            );
+            expect(write).toBeDefined();
+            expect(write.options).toEqual({ merge: true });
+            // Event should be persisted in the Firestore write
+            expect(write.data.billingEvents.length).toBe(1);
+            expect(write.data.billingEvents[0].eventType).toBe('YEAR_STATUS_CHANGED');
+        });
+
+        it('sets closedAt when closing', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'settling' },
+                billingYears: [{ id: '2025', label: '2025', status: 'settling' }]
+            });
+
+            await svc.setYearStatus('closed');
+
+            const state = svc.getState();
+            expect(state.activeYear.status).toBe('closed');
+            expect(state.activeYear.closedAt).toBeInstanceOf(Date);
+
+            const write = setDocCalls.find(c => c.data.status === 'closed');
+            expect(write.data.closedAt).toBe('__SERVER_TIMESTAMP__');
+        });
+
+        it('sets archivedAt when archiving', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'closed' },
+                billingYears: [{ id: '2025', label: '2025', status: 'closed' }]
+            });
+
+            await svc.setYearStatus('archived');
+            expect(svc.getState().activeYear.archivedAt).toBeInstanceOf(Date);
+        });
+
+        it('no-ops when status is unchanged', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                billingYears: [{ id: '2025', label: '2025', status: 'open' }]
+            });
+
+            const before = setDocCalls.length;
+            await svc.setYearStatus('open');
+            expect(setDocCalls.length).toBe(before);
+        });
+
+        it('no-ops without a user', async () => {
+            const before = setDocCalls.length;
+            await svc.setYearStatus('settling');
+            expect(setDocCalls.length).toBe(before);
+        });
+
+        it('throws and preserves state on Firestore error', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                billingYears: [{ id: '2025', label: '2025', status: 'open' }]
+            });
+
+            const { setDoc } = await import('firebase/firestore');
+            setDoc.mockRejectedValueOnce(new Error('permission denied'));
+
+            await expect(svc.setYearStatus('settling')).rejects.toThrow('permission denied');
+            expect(svc.getState().activeYear.status).toBe('open');
+        });
+    });
+
     // ── switchYear ────────────────────────────────────────────────────
 
     describe('switchYear', () => {

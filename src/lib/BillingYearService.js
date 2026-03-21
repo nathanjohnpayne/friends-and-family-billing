@@ -13,6 +13,7 @@ import {
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
+import { generateEventId } from './validation.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -205,6 +206,57 @@ export class BillingYearService {
             payload.updatedAt = serverTimestamp();
             await setDoc(yearDocRef, payload);
         });
+    }
+
+    /**
+     * Transition the active year to a new status.
+     * Port of setBillingYearStatus() from main.js.
+     * @param {string} newStatus - 'open' | 'settling' | 'closed' | 'archived'
+     */
+    async setYearStatus(newStatus) {
+        if (!this._user) return;
+        const { activeYear, billingYears, billingEvents } = this._state;
+        if (!activeYear || activeYear.status === newStatus) return;
+
+        // Emit YEAR_STATUS_CHANGED event (mirrors legacy main.js:386)
+        const previousStatus = activeYear.status;
+        const event = {
+            id: generateEventId(),
+            timestamp: new Date().toISOString(),
+            actor: { type: 'admin', userId: this._user.uid },
+            eventType: 'YEAR_STATUS_CHANGED',
+            payload: { previousStatus, newStatus, yearLabel: activeYear.label },
+            note: '',
+            source: 'ui'
+        };
+        const updatedEvents = [...(billingEvents || []), event];
+
+        const updates = { status: newStatus, billingEvents: updatedEvents };
+        if (newStatus === 'closed') updates.closedAt = serverTimestamp();
+        if (newStatus === 'archived') updates.archivedAt = serverTimestamp();
+
+        try {
+            const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+            await setDoc(yearDocRef, updates, { merge: true });
+
+            // Update local state
+            const updatedYear = { ...activeYear, status: newStatus };
+            if (newStatus === 'closed') updatedYear.closedAt = new Date();
+            if (newStatus === 'archived') updatedYear.archivedAt = new Date();
+
+            const updatedYears = billingYears.map(y =>
+                y.id === activeYear.id ? { ...y, status: newStatus } : y
+            );
+
+            this._setState({
+                activeYear: updatedYear,
+                billingYears: updatedYears,
+                billingEvents: updatedEvents
+            });
+        } catch (error) {
+            console.error('setYearStatus failed:', error);
+            throw error;
+        }
     }
 
     /**
