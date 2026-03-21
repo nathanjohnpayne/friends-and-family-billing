@@ -13,7 +13,7 @@ import {
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId } from './validation.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly } from './validation.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -279,5 +279,313 @@ export class BillingYearService {
 
         await this._loadYearsList();
         await this.switchYear(yearId);
+    }
+
+    // ────────── Entity CRUD ──────────
+
+    /** @private Guard: throws if year is read-only. */
+    _guardReadOnly() {
+        const { activeYear } = this._state;
+        if (!activeYear || isYearReadOnly(activeYear)) {
+            throw new Error(
+                activeYear
+                    ? 'This billing year is ' + activeYear.status + ' and read-only.'
+                    : 'No active billing year.'
+            );
+        }
+    }
+
+    /** @private Emit a billing event and return the updated events array. */
+    _emitEvent(eventType, payload) {
+        const event = {
+            id: generateEventId(),
+            timestamp: new Date().toISOString(),
+            actor: { type: 'admin', userId: this._user ? this._user.uid : null },
+            eventType,
+            payload: payload || {},
+            note: '',
+            source: 'ui'
+        };
+        const events = [...(this._state.billingEvents || []), event];
+        return events;
+    }
+
+    // ── Members ──
+
+    /**
+     * Add a family member.
+     * @param {{ name: string, email?: string, phone?: string }} data
+     * @returns {Object} the new member
+     */
+    addMember(data) {
+        this._guardReadOnly();
+        const { familyMembers } = this._state;
+
+        if (!data.name || !data.name.trim()) throw new Error('Name is required.');
+        const trimmed = data.name.trim();
+        if (familyMembers.some(m => m.name === trimmed)) {
+            throw new Error('A member named "' + trimmed + '" already exists.');
+        }
+
+        const member = {
+            id: generateUniqueId(familyMembers.map(m => m.id)),
+            name: trimmed,
+            email: (data.email || '').trim(),
+            phone: (data.phone || '').trim(),
+            avatar: '',
+            paymentReceived: 0,
+            linkedMembers: []
+        };
+
+        this._setState({ familyMembers: [...familyMembers, member] });
+        this.save();
+        return member;
+    }
+
+    /**
+     * Update fields on an existing member.
+     * @param {number} memberId
+     * @param {Object} fields — partial update (name, email, phone, avatar, linkedMembers)
+     */
+    updateMember(memberId, fields) {
+        this._guardReadOnly();
+        const { familyMembers } = this._state;
+        const idx = familyMembers.findIndex(m => m.id === memberId);
+        if (idx === -1) throw new Error('Member not found.');
+
+        // Duplicate name check
+        if (fields.name !== undefined) {
+            const trimmed = fields.name.trim();
+            if (!trimmed) throw new Error('Name is required.');
+            if (familyMembers.some(m => m.name === trimmed && m.id !== memberId)) {
+                throw new Error('A member named "' + trimmed + '" already exists.');
+            }
+            fields = { ...fields, name: trimmed };
+        }
+
+        const updated = [...familyMembers];
+        updated[idx] = { ...updated[idx], ...fields };
+        this._setState({ familyMembers: updated });
+        this.save();
+    }
+
+    /**
+     * Remove a family member and clean up references.
+     * Port of removeFamilyMember() from main.js:1067.
+     * @param {number} memberId
+     */
+    removeMember(memberId) {
+        this._guardReadOnly();
+        const { familyMembers, bills, payments } = this._state;
+
+        // Unlink from other members
+        const updatedMembers = familyMembers
+            .filter(m => m.id !== memberId)
+            .map(m => ({
+                ...m,
+                linkedMembers: m.linkedMembers.filter(id => id !== memberId)
+            }));
+
+        // Remove from all bills
+        const updatedBills = bills.map(b => ({
+            ...b,
+            members: b.members.filter(id => id !== memberId)
+        }));
+
+        // Remove payments for this member
+        const updatedPayments = payments.filter(p => p.memberId !== memberId);
+
+        this._setState({
+            familyMembers: updatedMembers,
+            bills: updatedBills,
+            payments: updatedPayments
+        });
+        this.save();
+    }
+
+    // ── Bills ──
+
+    /**
+     * Add a new bill.
+     * @param {{ name: string, amount: number, billingFrequency?: string, website?: string }} data
+     * @returns {Object} the new bill
+     */
+    addBill(data) {
+        this._guardReadOnly();
+        const { bills } = this._state;
+
+        if (!data.name || !data.name.trim()) throw new Error('Bill name is required.');
+        const amount = parseFloat(data.amount);
+        if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
+
+        const bill = {
+            id: generateUniqueBillId(bills.map(b => b.id)),
+            name: data.name.trim(),
+            amount,
+            billingFrequency: data.billingFrequency || 'monthly',
+            logo: '',
+            website: (data.website || '').trim(),
+            members: []
+        };
+
+        const events = this._emitEvent('BILL_CREATED', {
+            billId: bill.id, billName: bill.name, amount: bill.amount,
+            billingFrequency: bill.billingFrequency, website: bill.website
+        });
+
+        this._setState({ bills: [...bills, bill], billingEvents: events });
+        this.save();
+        return bill;
+    }
+
+    /**
+     * Update fields on an existing bill.
+     * @param {number} billId
+     * @param {Object} fields
+     */
+    updateBill(billId, fields) {
+        this._guardReadOnly();
+        const { bills } = this._state;
+        const idx = bills.findIndex(b => b.id === billId);
+        if (idx === -1) throw new Error('Bill not found.');
+
+        const prev = bills[idx];
+        const updated = [...bills];
+        updated[idx] = { ...prev, ...fields };
+
+        // Emit update events for tracked fields
+        let events = this._state.billingEvents;
+        for (const field of ['name', 'amount', 'billingFrequency', 'website']) {
+            if (fields[field] !== undefined && fields[field] !== prev[field]) {
+                events = [...events, {
+                    id: generateEventId(),
+                    timestamp: new Date().toISOString(),
+                    actor: { type: 'admin', userId: this._user ? this._user.uid : null },
+                    eventType: 'BILL_UPDATED',
+                    payload: {
+                        billId, billName: updated[idx].name, field,
+                        previousValue: prev[field], newValue: fields[field]
+                    },
+                    note: '', source: 'ui'
+                }];
+            }
+        }
+
+        this._setState({ bills: updated, billingEvents: events });
+        this.save();
+    }
+
+    /**
+     * Remove a bill.
+     * @param {number} billId
+     */
+    removeBill(billId) {
+        this._guardReadOnly();
+        const { bills } = this._state;
+        const bill = bills.find(b => b.id === billId);
+
+        const events = this._emitEvent('BILL_DELETED', {
+            billId,
+            billName: bill ? bill.name : '',
+            amount: bill ? bill.amount : 0,
+            billingFrequency: bill ? bill.billingFrequency : 'monthly',
+            memberCount: bill ? bill.members.length : 0
+        });
+
+        this._setState({
+            bills: bills.filter(b => b.id !== billId),
+            billingEvents: events
+        });
+        this.save();
+    }
+
+    /**
+     * Toggle a member's assignment to a bill.
+     * Port of toggleMember() from main.js:1578.
+     * @param {number} billId
+     * @param {number} memberId
+     */
+    toggleBillMember(billId, memberId) {
+        this._guardReadOnly();
+        const { bills, familyMembers } = this._state;
+        const idx = bills.findIndex(b => b.id === billId);
+        if (idx === -1) throw new Error('Bill not found.');
+
+        const bill = bills[idx];
+        const memberObj = familyMembers.find(m => m.id === memberId);
+        const isMember = bill.members.includes(memberId);
+
+        const newMembers = isMember
+            ? bill.members.filter(id => id !== memberId)
+            : [...bill.members, memberId];
+
+        const events = this._emitEvent(
+            isMember ? 'MEMBER_REMOVED_FROM_BILL' : 'MEMBER_ADDED_TO_BILL',
+            {
+                billId, billName: bill.name,
+                memberId, memberName: memberObj ? memberObj.name : '',
+                newMemberCount: newMembers.length
+            }
+        );
+
+        const updated = [...bills];
+        updated[idx] = { ...bill, members: newMembers };
+        this._setState({ bills: updated, billingEvents: events });
+        this.save();
+    }
+
+    // ── Payments ──
+
+    /**
+     * Record a payment for a member.
+     * Simplified single-member payment — distributed payments will be added in Phase 2b.
+     * @param {{ memberId: number, amount: number, method?: string, note?: string }} data
+     */
+    recordPayment(data) {
+        this._guardReadOnly();
+        const { payments, familyMembers } = this._state;
+        const member = familyMembers.find(m => m.id === data.memberId);
+        if (!member) throw new Error('Member not found.');
+
+        const amount = Math.max(0, parseFloat(data.amount) || 0);
+        if (amount <= 0) throw new Error('Amount must be greater than zero.');
+
+        const entry = {
+            id: generateUniquePaymentId(),
+            memberId: data.memberId,
+            amount,
+            receivedAt: new Date().toISOString(),
+            note: data.note || '',
+            method: data.method || 'other'
+        };
+
+        const events = this._emitEvent('PAYMENT_RECORDED', {
+            paymentId: entry.id,
+            memberId: data.memberId,
+            memberName: member.name,
+            amount,
+            method: entry.method,
+            distributed: false
+        });
+
+        this._setState({
+            payments: [...payments, entry],
+            billingEvents: events
+        });
+        this.save();
+        return entry;
+    }
+
+    // ── Settings ──
+
+    /**
+     * Update billing year settings (email template, payment methods, payment links).
+     * @param {Object} fields — partial settings update
+     */
+    updateSettings(fields) {
+        this._guardReadOnly();
+        const { settings } = this._state;
+        this._setState({ settings: { ...(settings || {}), ...fields } });
+        this.save();
     }
 }
