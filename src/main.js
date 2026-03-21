@@ -49,6 +49,25 @@ import {
     getPaymentMethodDetail,
     disputeStatusClass,
 } from './lib/formatting.js';
+import {
+    calculateOutstandingBalance as _calculateOutstandingBalance,
+    buildCloseYearMessage as _buildCloseYearMessage,
+    suggestNextYearLabel as _suggestNextYearLabel,
+    isYearLabelDuplicate as _isYearLabelDuplicate,
+    buildNewYearData as _buildNewYearData,
+} from './lib/billing-year.js';
+import {
+    buildSavePayload as _buildSavePayload,
+    normalizeYearData as _normalizeYearData,
+    buildInitialYearData as _buildInitialYearData,
+} from './lib/persistence.js';
+import {
+    buildShareScopes as _buildShareScopes,
+    buildShareTokenDoc as _buildShareTokenDoc,
+    buildShareUrl as _buildShareUrl,
+    computeExpiryDate as _computeExpiryDate,
+    isShareTokenStale as _isShareTokenStale,
+} from './lib/share.js';
 
 // Data storage
 let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, linkedMembers: [memberIds]}
@@ -213,17 +232,10 @@ async function loadData() {
             activeYearId = String(new Date().getFullYear());
             await userDocRef.set({ activeBillingYear: activeYearId });
             const yearDocRef = userDocRef.collection('billingYears').doc(activeYearId);
-            await yearDocRef.set({
-                label: activeYearId,
-                status: 'open',
-                createdAt: FieldValue.serverTimestamp(),
-                archivedAt: null,
-                familyMembers: [],
-                bills: [],
-                payments: [],
-                settings: settings,
-                updatedAt: FieldValue.serverTimestamp()
-            });
+            const initialData = _buildInitialYearData(activeYearId, settings);
+            initialData.createdAt = FieldValue.serverTimestamp();
+            initialData.updatedAt = FieldValue.serverTimestamp();
+            await yearDocRef.set(initialData);
         }
 
         await loadBillingYearsList();
@@ -331,30 +343,10 @@ function saveData() {
         try {
             const yearDocRef = db.collection('users').doc(currentUser.uid)
                 .collection('billingYears').doc(currentBillingYear.id);
-            const settingsForSave = Object.assign({}, settings);
-            if (settingsForSave.paymentMethods) {
-                settingsForSave.paymentMethods = settingsForSave.paymentMethods.map(m => {
-                    if (m.qrCode) {
-                        const copy = Object.assign({}, m);
-                        copy.hasQrCode = true;
-                        delete copy.qrCode;
-                        return copy;
-                    }
-                    return m;
-                });
-            }
-            await yearDocRef.set({
-                label: currentBillingYear.label,
-                status: currentBillingYear.status,
-                createdAt: currentBillingYear.createdAt || FieldValue.serverTimestamp(),
-                archivedAt: currentBillingYear.archivedAt || null,
-                familyMembers: familyMembers,
-                bills: bills,
-                payments: payments,
-                billingEvents: billingEvents,
-                settings: settingsForSave,
-                updatedAt: FieldValue.serverTimestamp()
-            });
+            const payload = _buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings);
+            if (!payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
+            payload.updatedAt = FieldValue.serverTimestamp();
+            await yearDocRef.set(payload);
             console.log('Data saved successfully');
             refreshPublicShares();
         } catch (error) {
@@ -486,37 +478,15 @@ async function loadBillingYearData(yearId) {
 
     if (yearDoc.exists) {
         const yearData = yearDoc.data();
-        currentBillingYear = {
-            id: yearId,
-            label: yearData.label || yearId,
-            status: yearData.status || 'open',
-            createdAt: yearData.createdAt,
-            archivedAt: yearData.archivedAt || null,
-        };
+        const normalized = _normalizeYearData(yearData, yearId);
+        currentBillingYear = normalized.year;
+        familyMembers = normalized.members;
+        bills = normalized.bills;
+        payments = normalized.payments;
+        billingEvents = normalized.billingEvents;
 
-        familyMembers = (yearData.familyMembers || []).map(m => {
-            if (!m.email) m.email = '';
-            if (!m.phone) m.phone = '';
-            if (!m.avatar) m.avatar = '';
-            if (m.paymentReceived === undefined) m.paymentReceived = 0;
-            if (!m.linkedMembers) m.linkedMembers = [];
-            return m;
-        });
-
-        bills = (yearData.bills || []).map(b => {
-            if (!b.logo) b.logo = '';
-            if (!b.website) b.website = '';
-            if (!b.members) b.members = [];
-            if (!b.billingFrequency) b.billingFrequency = 'monthly';
-            return b;
-        });
-
-        payments = yearData.payments || [];
-        billingEvents = yearData.billingEvents || [];
-
-        if (yearData.settings) {
-            settings = yearData.settings;
-            if (!settings.paymentLinks) settings.paymentLinks = [];
+        if (normalized.settings) {
+            settings = normalized.settings;
             if (!settings.paymentMethods) {
                 settings.paymentMethods = migratePaymentLinksToMethods(settings.paymentLinks);
             }
@@ -583,16 +553,14 @@ async function archiveCurrentYear() {
 }
 
 async function startNewYear() {
-    const curLabel = currentBillingYear ? parseInt(currentBillingYear.label) : NaN;
-    const nextYear = !isNaN(curLabel) ? Math.max(new Date().getFullYear(), curLabel + 1) : new Date().getFullYear();
-    const defaultLabel = String(nextYear);
+    const defaultLabel = _suggestNextYearLabel(currentBillingYear);
 
     const label = prompt('Enter label for the new billing year:', defaultLabel);
     if (!label || !label.trim()) return;
 
     const yearId = label.trim();
 
-    if (billingYears.some(y => y.id === yearId)) {
+    if (_isYearLabelDuplicate(billingYears, yearId)) {
         alert('Billing year "' + yearId + '" already exists.');
         return;
     }
@@ -600,41 +568,9 @@ async function startNewYear() {
     try {
         const userDocRef = db.collection('users').doc(currentUser.uid);
 
-        const clonedMembers = familyMembers.map(m => ({
-            id: m.id,
-            name: m.name,
-            email: m.email,
-            phone: m.phone || '',
-            avatar: m.avatar,
-            paymentReceived: 0,
-            linkedMembers: m.linkedMembers ? m.linkedMembers.slice() : []
-        }));
-        const clonedBills = bills.map(b => ({
-            id: b.id,
-            name: b.name,
-            amount: b.amount,
-            billingFrequency: b.billingFrequency || 'monthly',
-            logo: b.logo,
-            website: b.website,
-            members: b.members ? b.members.slice() : []
-        }));
-
-        const yearData = {
-            label: yearId,
-            status: 'open',
-            createdAt: FieldValue.serverTimestamp(),
-            archivedAt: null,
-            familyMembers: clonedMembers,
-            bills: clonedBills,
-            payments: [],
-            billingEvents: [],
-            settings: {
-                emailMessage: settings.emailMessage,
-                paymentLinks: (settings.paymentLinks || []).map(l => ({...l})),
-                paymentMethods: (settings.paymentMethods || []).map(m => ({...m}))
-            },
-            updatedAt: FieldValue.serverTimestamp()
-        };
+        const yearData = _buildNewYearData(familyMembers, bills, settings, yearId);
+        yearData.createdAt = FieldValue.serverTimestamp();
+        yearData.updatedAt = FieldValue.serverTimestamp();
 
         await userDocRef.collection('billingYears').doc(yearId).set(yearData);
         await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
@@ -791,25 +727,8 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
-    const summary = calculateAnnualSummary();
-    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(m.id));
-    let totalOutstanding = 0;
-    mainMembers.forEach(member => {
-        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
-        (member.linkedMembers || []).forEach(id => {
-            if (summary[id]) combinedTotal += summary[id].total;
-        });
-        const payment = getPaymentTotalForMember(member.id) +
-            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(id), 0);
-        const balance = combinedTotal - payment;
-        if (balance > 0) totalOutstanding += balance;
-    });
-
-    let msg = 'Close billing year ' + currentBillingYear.label + '.';
-    if (totalOutstanding > 0) {
-        msg += ' $' + totalOutstanding.toFixed(2) + ' is still outstanding. Closing will prevent further payments.';
-    }
-    msg += ' You can archive it later for permanent read-only storage.';
+    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments);
+    const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
 
     showConfirmationDialog(
         'Close Billing Year',
@@ -4037,9 +3956,7 @@ async function refreshPublicShares() {
         const now = new Date();
         for (const doc of snapshot.docs) {
             const tokenData = doc.data();
-            const isStale = tokenData.revoked || (tokenData.expiresAt && (
-                (tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt)) < now
-            ));
+            const isStale = _isShareTokenStale(tokenData, now);
 
             if (isStale) {
                 batch.delete(db.collection('publicShares').doc(doc.id));
@@ -4136,36 +4053,21 @@ async function doGenerateShareLink(memberId) {
 
         const expirySelect = document.getElementById('shareLinkExpiry');
         const expiryDays = expirySelect ? parseInt(expirySelect.value) : 0;
-        let expiresAt = null;
-        if (expiryDays > 0) {
-            const d = new Date();
-            d.setDate(d.getDate() + expiryDays);
-            expiresAt = d;
-        }
+        const expiresAt = _computeExpiryDate(expiryDays);
 
         const disputeCheckbox = document.getElementById('shareLinkDisputes');
         const disputeReadCheckbox = document.getElementById('shareLinkDisputesRead');
-        const scopes = ['summary:read', 'paymentMethods:read'];
-        if (disputeCheckbox && disputeCheckbox.checked) {
-            scopes.push('disputes:create');
-        }
-        if (disputeReadCheckbox && disputeReadCheckbox.checked) {
-            scopes.push('disputes:read');
-        }
+        const scopes = _buildShareScopes(
+            disputeCheckbox && disputeCheckbox.checked,
+            disputeReadCheckbox && disputeReadCheckbox.checked
+        );
 
-        const tokenDoc = {
-            ownerId: currentUser.uid,
-            memberId: memberId,
-            billingYearId: currentBillingYear.id,
-            scopes: scopes,
-            revoked: false,
-            expiresAt: expiresAt ? Timestamp.fromDate(expiresAt) : null,
-            createdAt: FieldValue.serverTimestamp(),
-            lastAccessedAt: null,
-            accessCount: 0,
-            memberName: member.name,
-            rawToken: rawToken
-        };
+        const tokenDoc = _buildShareTokenDoc(
+            currentUser.uid, memberId, member.name, currentBillingYear.id,
+            rawToken, expiresAt, scopes
+        );
+        tokenDoc.expiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+        tokenDoc.createdAt = FieldValue.serverTimestamp();
 
         await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
 
@@ -4175,7 +4077,7 @@ async function doGenerateShareLink(memberId) {
         }
         writePublicQrCodes();
 
-        const shareUrl = window.location.origin + '/share.html?token=' + rawToken;
+        const shareUrl = _buildShareUrl(window.location.origin, rawToken);
 
         let copied = false;
         try {
@@ -4762,35 +4664,23 @@ async function doGenerateShareLinkForInvoice() {
 
         const expirySelect = document.getElementById('shareLinkExpiry');
         const expiryDays = expirySelect ? parseInt(expirySelect.value) : 0;
-        let expiresAt = null;
-        if (expiryDays > 0) {
-            const d = new Date();
-            d.setDate(d.getDate() + expiryDays);
-            expiresAt = d;
-        }
+        const expiresAt = _computeExpiryDate(expiryDays);
 
         const disputeCheckbox = document.getElementById('shareLinkDisputes');
         const disputeReadCheckbox = document.getElementById('shareLinkDisputesRead');
-        const scopes = ['summary:read', 'paymentMethods:read'];
-        if (disputeCheckbox && disputeCheckbox.checked) {
-            scopes.push('disputes:create');
-        }
-        if (disputeReadCheckbox && disputeReadCheckbox.checked) {
-            scopes.push('disputes:read');
-        }
+        const scopes = _buildShareScopes(
+            disputeCheckbox && disputeCheckbox.checked,
+            disputeReadCheckbox && disputeReadCheckbox.checked
+        );
 
-        const tokenDoc = {
-            ownerId: currentUser.uid,
-            memberId: memberId,
-            billingYearId: currentBillingYear.id,
-            scopes: scopes,
-            revoked: false,
-            expiresAt: expiresAt ? Timestamp.fromDate(expiresAt) : null,
-            createdAt: FieldValue.serverTimestamp(),
-            lastAccessedAt: null,
-            accessCount: 0,
-            memberName: member.name
-        };
+        // Invoice-generated links omit rawToken from the stored doc (unlike
+        // regular share links) — pass null to preserve that behavior.
+        const tokenDoc = _buildShareTokenDoc(
+            currentUser.uid, memberId, member.name, currentBillingYear.id,
+            null, expiresAt, scopes
+        );
+        tokenDoc.expiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
+        tokenDoc.createdAt = FieldValue.serverTimestamp();
 
         await db.collection('shareTokens').doc(tokenHash).set(tokenDoc);
 
