@@ -42,13 +42,16 @@ vi.mock('firebase/firestore', () => ({
 // Import after mocks
 import { AppRoutes } from '@/app/App.jsx';
 import { AuthProvider } from '@/app/contexts/AuthContext.jsx';
+import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 
 function renderWithAuth(initialEntries = ['/']) {
     return render(
         <AuthProvider>
-            <MemoryRouter initialEntries={initialEntries}>
-                <AppRoutes />
-            </MemoryRouter>
+            <ToastProvider>
+                <MemoryRouter initialEntries={initialEntries}>
+                    <AppRoutes />
+                </MemoryRouter>
+            </ToastProvider>
         </AuthProvider>
     );
 }

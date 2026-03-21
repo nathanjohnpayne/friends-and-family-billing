@@ -5,8 +5,8 @@ import { render, screen } from '@testing-library/react';
 const mockState = {
     activeYear: { id: '2026', label: '2026', status: 'open' },
     familyMembers: [
-        { id: 1, name: 'Alice', linkedMembers: [] },
-        { id: 2, name: 'Bob', linkedMembers: [] }
+        { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+        { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
     ],
     bills: [
         { id: 'b1', name: 'Internet', amount: 1200, billingFrequency: 'annual', members: [1, 2] }
@@ -40,10 +40,15 @@ describe('DashboardView', () => {
 
     it('renders KPI cards', () => {
         render(<DashboardView />);
-        expect(screen.getByText('Outstanding')).toBeInTheDocument();
-        expect(screen.getByText('Settled')).toBeInTheDocument();
-        expect(screen.getByText('Open Reviews')).toBeInTheDocument();
-        expect(screen.getByText('Status')).toBeInTheDocument();
+        // "Outstanding" appears in KPI label + filter chip + status badges — use getAllByText
+        expect(screen.getAllByText('Outstanding').length).toBeGreaterThanOrEqual(1);
+        // "Settled" appears in KPI + filter chip — check KPI label exists
+        const kpiLabels = document.querySelectorAll('.kpi-label');
+        const labelTexts = Array.from(kpiLabels).map(el => el.textContent);
+        expect(labelTexts).toContain('Outstanding');
+        expect(labelTexts).toContain('Settled');
+        expect(labelTexts).toContain('Open Reviews');
+        expect(labelTexts).toContain('Status');
         // Open Reviews shows dash (not zero) since disputes aren't loaded yet
         expect(screen.getByText('—')).toBeInTheDocument();
     });

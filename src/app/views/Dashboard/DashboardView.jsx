@@ -1,7 +1,8 @@
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { calculateSettlementMetrics } from '@/lib/calculations.js';
-import { escapeHtml } from '@/lib/formatting.js';
+import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
+import SettlementBoard from '../../components/SettlementBoard.jsx';
 
 /**
  * DashboardView — hero status panel + KPIs.
@@ -109,10 +110,12 @@ export default function DashboardView() {
                 )}
             </div>
 
-            <div className="tab-placeholder">
-                <h3>Settlement Board</h3>
-                <p>Household cards with payment tracking arrive in Phase 2.</p>
-            </div>
+            <SettlementBoard
+                familyMembers={familyMembers}
+                bills={bills}
+                payments={payments}
+                readOnly={isYearReadOnly(activeYear)}
+            />
         </>
     );
 }

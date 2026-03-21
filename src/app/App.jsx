@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
+import { ToastProvider } from './contexts/ToastContext.jsx';
 import LoginView from './views/LoginView.jsx';
 import AppShell from './components/AppShell.jsx';
 import DashboardView from './views/Dashboard/DashboardView.jsx';
@@ -17,9 +18,11 @@ import './shell.css';
 export default function App() {
     return (
         <AuthProvider>
-            <BrowserRouter basename="/app">
-                <AppRoutes />
-            </BrowserRouter>
+            <ToastProvider>
+                <BrowserRouter basename="/app">
+                    <AppRoutes />
+                </BrowserRouter>
+            </ToastProvider>
         </AuthProvider>
     );
 }
