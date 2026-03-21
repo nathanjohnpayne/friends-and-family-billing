@@ -1,14 +1,17 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
+import LoginView from './views/LoginView.jsx';
 
 /**
- * Phase 0 shell — proves the React build pipeline works.
- * Actual views (Dashboard, Manage, Settings) arrive in Phase 1.
+ * App root — wraps everything in AuthProvider and BrowserRouter.
  */
 export default function App() {
     return (
-        <BrowserRouter basename="/app">
-            <AppRoutes />
-        </BrowserRouter>
+        <AuthProvider>
+            <BrowserRouter basename="/app">
+                <AppRoutes />
+            </BrowserRouter>
+        </AuthProvider>
     );
 }
 
@@ -16,19 +19,61 @@ export default function App() {
 export function AppRoutes() {
     return (
         <Routes>
-            <Route path="/" element={<Placeholder title="Dashboard" />} />
+            <Route path="/login" element={<LoginView />} />
+            <Route path="/" element={<ProtectedRoute><DashboardPlaceholder /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     );
 }
 
-export function Placeholder({ title }) {
+/**
+ * ProtectedRoute — redirects to /login if no auth user.
+ * Shows a loading spinner while auth state is resolving.
+ */
+function ProtectedRoute({ children }) {
+    const { user, loading } = useAuth();
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+                <p style={{ color: '#666', fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+
+    return children;
+}
+
+/**
+ * Temporary dashboard placeholder — Phase 1 replaces this with real views.
+ */
+function DashboardPlaceholder() {
+    const { user, signOut } = useAuth();
+
     return (
         <div style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-            <h1>Friends &amp; Family Billing</h1>
-            <p>React app — Phase 0 scaffold. View: <strong>{title}</strong></p>
-            <p style={{ color: '#666', fontSize: '0.875rem' }}>
-                The legacy app is still live at <a href="/">the root URL</a>.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h1>Friends &amp; Family Billing</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ color: '#666', fontSize: '0.875rem' }}>{user?.email}</span>
+                    <button onClick={signOut} style={{
+                        padding: '0.4rem 0.8rem', border: '1px solid #ccc', borderRadius: 6,
+                        background: '#fff', cursor: 'pointer', fontSize: '0.875rem'
+                    }}>
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+            <p style={{ color: '#666' }}>
+                React app — Phase 0 scaffold. Auth is working.
+                Real views arrive in Phase 1.
+            </p>
+            <p style={{ fontSize: '0.875rem', color: '#999' }}>
+                The legacy app is at <a href="/" style={{ color: '#999' }}>the root URL</a>.
             </p>
         </div>
     );
