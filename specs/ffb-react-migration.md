@@ -48,7 +48,7 @@ Shipped March 19, 2026:
 
 ---
 
-## Pre-Migration: Domain Logic Extraction — IN PROGRESS
+## Pre-Migration: Domain Logic Extraction — ✅ DONE
 
 Extract pure domain logic out of `src/main.js` into importable modules. `main.js` keeps thin wrappers that pass module-scoped state to the pure versions. Order matters (safest → riskiest):
 
@@ -57,9 +57,9 @@ Extract pure domain logic out of `src/main.js` into importable modules. `main.js
 | 1 | `src/lib/calculations.js` | `getBillAnnualAmount`, `getBillMonthlyAmount`, `calculateAnnualSummary`, `getPaymentTotalForMember`, `getMemberPayments`, `isLinkedToAnyone`, `getParentMember`, `calculateSettlementMetrics` | Low | ✅ |
 | 2 | `src/lib/validation.js` | `detectDuplicatePaymentText`, `isValidE164`, `normalizeDisputeStatus`, `generateEventId`, `generateUniquePaymentId`, `generateRawToken`, `hashToken`, `generateUniqueId`, `generateUniqueBillId`, `isArchivedYear`, `isClosedYear`, `isSettlingYear`, `isYearReadOnly`, `yearReadOnlyMessage` | Low | ✅ |
 | 3 | `src/lib/formatting.js` + `src/lib/constants.js` | `PAYMENT_METHOD_LABELS`, `BILLING_EVENT_LABELS`, `PAYMENT_METHOD_TYPES`, `PAYMENT_METHOD_ICONS`, `getPaymentMethodLabel`, `getBillingYearStatusLabel`, `getBillFrequencyLabel`, `formatAnnualSummaryCurrency`, `formatFileSize`, `escapeHtml`, `sanitizeImageSrc`, `getInitials`, `getPaymentMethodIcon`, `getPaymentMethodStripIcon`, `getPaymentMethodDetail`, `disputeStatusClass`; **constants.js**: `BILLING_YEAR_STATUSES`, `DISPUTE_STATUS_LABELS` (re-exported from formatting.js for backward compat) | Low | ✅ |
-| 4 | `src/lib/billing-year.js` | `setBillingYearStatus`, `closeCurrentYear`, `archiveCurrentYear`, `startNewYear` | Medium | Pending |
-| 5 | `src/lib/persistence.js` | `saveData`, `loadData`, `loadBillingYearData`, `_saveChain` | High | Pending |
-| 6 | `src/lib/share.js` | `generateShareLink`, `revokeShareLink`, `refreshPublicShares` | Medium | Pending |
+| 4 | `src/lib/billing-year.js` | `calculateOutstandingBalance`, `buildCloseYearMessage`, `suggestNextYearLabel`, `isYearLabelDuplicate`, `buildNewYearData` | Medium | ✅ |
+| 5 | `src/lib/persistence.js` | `buildSavePayload`, `normalizeYearData`, `buildInitialYearData` | Medium | ✅ |
+| 6 | `src/lib/share.js` | `buildShareScopes`, `buildShareTokenDoc`, `buildShareUrl`, `computeExpiryDate`, `isShareTokenStale` | Medium | ✅ |
 
 ---
 
@@ -311,7 +311,11 @@ Extract pure domain logic out of `src/main.js` into importable modules. `main.js
 src/lib/
 ├── calculations.js           # Pure math: annual summaries, settlement metrics, payment totals
 ├── validation.js             # Predicates, ID generators, year status checks
-└── formatting.js             # Constants, labels, string transforms, escaping
+├── formatting.js             # Labels, string transforms, escaping
+├── constants.js              # BILLING_YEAR_STATUSES, DISPUTE_STATUS_LABELS
+├── billing-year.js           # Year lifecycle: outstanding balance, new year data, label helpers
+├── persistence.js            # Save payload construction, data normalization
+└── share.js                  # Share scopes, token doc builder, expiry/stale checks
 ```
 
 ### New files (React)
@@ -391,7 +395,7 @@ src/
 |-------|--------|------------|-------|--------|
 | Pre-migration (PRs 1–4) | S–M | Nothing | UX fixes in vanilla JS | ✅ Done |
 | Domain extraction (P1–3) | S | PRs 1–4 | Pure lib modules | ✅ Done |
-| Domain extraction (P4–6) | M | P1–3 | Year lifecycle, persistence, shares | Pending |
+| Domain extraction (P4–6) | M | P1–3 | Year lifecycle, persistence, shares | ✅ Done |
 | Phase 0: Scaffold | M | Extraction done | React app boots with auth + data | Pending |
 | Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | Pending |
 | Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied | Pending |
