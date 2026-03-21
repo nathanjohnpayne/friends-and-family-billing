@@ -21,13 +21,13 @@ export function buildShareScopes(allowDisputeCreate, allowDisputeRead) {
  * @param {number} memberId
  * @param {string} memberName
  * @param {string} billingYearId
- * @param {string} rawToken
+ * @param {string|null} rawToken - included in doc when truthy (omit for invoice-generated links)
  * @param {Date|null} expiresAt
  * @param {string[]} scopes
  * @returns {Object}
  */
 export function buildShareTokenDoc(userId, memberId, memberName, billingYearId, rawToken, expiresAt, scopes) {
-    return {
+    const doc = {
         ownerId: userId,
         memberId: memberId,
         billingYearId: billingYearId,
@@ -35,10 +35,11 @@ export function buildShareTokenDoc(userId, memberId, memberName, billingYearId, 
         revoked: false,
         expiresAt: expiresAt || null,
         memberName: memberName,
-        rawToken: rawToken,
         lastAccessedAt: null,
         accessCount: 0
     };
+    if (rawToken) doc.rawToken = rawToken;
+    return doc;
 }
 
 /**

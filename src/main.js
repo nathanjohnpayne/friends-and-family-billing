@@ -4673,9 +4673,11 @@ async function doGenerateShareLinkForInvoice() {
             disputeReadCheckbox && disputeReadCheckbox.checked
         );
 
+        // Invoice-generated links omit rawToken from the stored doc (unlike
+        // regular share links) — pass null to preserve that behavior.
         const tokenDoc = _buildShareTokenDoc(
             currentUser.uid, memberId, member.name, currentBillingYear.id,
-            rawToken, expiresAt, scopes
+            null, expiresAt, scopes
         );
         tokenDoc.expiresAt = expiresAt ? Timestamp.fromDate(expiresAt) : null;
         tokenDoc.createdAt = FieldValue.serverTimestamp();
