@@ -51,9 +51,10 @@ describe('AppRoutes', () => {
         expect(screen.getByText(/Phase 0 scaffold/)).toBeInTheDocument();
     });
 
-    it('shows the login page at /login', () => {
+    it('redirects authenticated users from /login to /', () => {
         renderWithAuth(['/login']);
-        expect(screen.getByText('Sign in to continue')).toBeInTheDocument();
+        // GuestRoute should redirect to dashboard, not show login
+        expect(screen.getByText(/Phase 0 scaffold/)).toBeInTheDocument();
     });
 
     it('redirects unknown routes to /', () => {

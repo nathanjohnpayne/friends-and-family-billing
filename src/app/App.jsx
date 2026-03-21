@@ -19,11 +19,21 @@ export default function App() {
 export function AppRoutes() {
     return (
         <Routes>
-            <Route path="/login" element={<LoginView />} />
+            <Route path="/login" element={<GuestRoute><LoginView /></GuestRoute>} />
             <Route path="/" element={<ProtectedRoute><DashboardPlaceholder /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     );
+}
+
+/**
+ * GuestRoute — redirects authenticated users to / (mirrors legacy auth.js:174).
+ */
+function GuestRoute({ children }) {
+    const { user, loading } = useAuth();
+    if (loading) return null;
+    if (user) return <Navigate to="/" replace />;
+    return children;
 }
 
 /**

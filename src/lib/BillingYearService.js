@@ -12,8 +12,15 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
-import { buildNewYearData } from './billing-year.js';
+import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
 import { SaveQueue } from './SaveQueue.js';
+
+/** Default settings matching the legacy app (main.js line 77). */
+const DEFAULT_SETTINGS = {
+    emailMessage: 'Your annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
+    paymentLinks: [],
+    paymentMethods: []
+};
 
 export class BillingYearService {
     constructor() {
@@ -108,7 +115,7 @@ export class BillingYearService {
                 activeYearId = String(new Date().getFullYear());
                 await setDoc(userDocRef, { activeBillingYear: activeYearId });
                 const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYearId);
-                const initialData = buildInitialYearData(activeYearId, { emailMessage: '', paymentLinks: [], paymentMethods: [] });
+                const initialData = buildInitialYearData(activeYearId, DEFAULT_SETTINGS);
                 initialData.createdAt = serverTimestamp();
                 initialData.updatedAt = serverTimestamp();
                 await setDoc(yearDocRef, initialData);
@@ -206,7 +213,12 @@ export class BillingYearService {
      */
     async createYear(yearId) {
         if (!this._user) return;
-        const { familyMembers, bills, settings } = this._state;
+        const { billingYears, familyMembers, bills, settings } = this._state;
+
+        if (isYearLabelDuplicate(billingYears, yearId)) {
+            throw new Error('Billing year "' + yearId + '" already exists.');
+        }
+
         const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
         const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId);
         newData.createdAt = serverTimestamp();
