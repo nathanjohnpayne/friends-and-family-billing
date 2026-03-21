@@ -7,10 +7,13 @@ export default defineConfig({
     base: '/app/',
     root: '.',
     build: {
-        outDir: 'dist',
-        emptyDirFirst: true,
+        // Output to app/ so deployed paths match URL paths.
+        // Firebase Hosting serves from "public": "." — a file at ./app/assets/foo.js
+        // is served at /app/assets/foo.js, which matches Vite's base: '/app/'.
+        outDir: 'app',
+        emptyOutDir: true,
         rollupOptions: {
-            input: path.resolve(__dirname, 'app/index.html')
+            input: path.resolve(__dirname, 'src/app/index.html')
         }
     },
     resolve: {

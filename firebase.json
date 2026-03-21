@@ -2,14 +2,13 @@
   "hosting": {
     "public": ".",
     "predeploy": [
-      "node stamp-version.js && npm run build"
+      "npm run build && node stamp-version.js"
     ],
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**",
       "src/**",
-      "app/**",
       "vite.config.js",
       "DEPLOYMENT.md",
       "AGENTS.md",
@@ -102,11 +101,11 @@
       },
       {
         "source": "/app/**",
-        "destination": "/dist/app/index.html"
+        "destination": "/app/src/app/index.html"
       },
       {
         "source": "/app",
-        "destination": "/dist/app/index.html"
+        "destination": "/app/src/app/index.html"
       },
       {
         "source": "**",
