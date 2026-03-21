@@ -134,12 +134,13 @@ function listOpenPrs(branch) {
   return JSON.parse(output || '[]');
 }
 
-function hasUpstreamBranch() {
-  return read('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { allowFailure: true }) !== null;
+function getUpstreamBranch() {
+  return read('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { allowFailure: true });
 }
 
 function pushBranch(branch) {
-  if (hasUpstreamBranch()) {
+  const upstreamBranch = getUpstreamBranch();
+  if (upstreamBranch === `origin/${branch}`) {
     run('git', ['push'], { capture: false });
     return;
   }
