@@ -420,6 +420,67 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.875rem;
 }
 
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1, 4px);
+    padding: var(--space-2, 8px) var(--space-3, 16px);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    white-space: nowrap;
+}
+
+.btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn-sm {
+    padding: var(--space-1, 4px) var(--space-2, 8px);
+    font-size: 0.8rem;
+}
+
+.btn-primary {
+    background: var(--color-primary, #6E78D6);
+    color: var(--color-text-inverse, #ffffff);
+    border-color: var(--color-primary, #6E78D6);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--color-primary-hover, #5F6BC2);
+    border-color: var(--color-primary-hover, #5F6BC2);
+}
+
+.btn-header-secondary {
+    background: var(--color-surface, #ffffff);
+    color: var(--color-text, #1F2430);
+    border-color: var(--color-border, #e0e0e0);
+}
+
+.btn-header-secondary:hover:not(:disabled) {
+    border-color: var(--color-border-strong, #cbd5e0);
+    background: var(--color-surface-alt, #F7F8FB);
+}
+
+.btn-header-tertiary {
+    background: none;
+    color: var(--color-text-secondary, #5B6475);
+    border-color: transparent;
+    padding: var(--space-1, 4px) var(--space-2, 8px);
+    font-size: 0.8rem;
+}
+
+.btn-header-tertiary:hover:not(:disabled) {
+    color: var(--color-primary, #6E78D6);
+    background: var(--color-primary-light, rgba(110, 120, 214, 0.1));
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
     .nav-email { display: none; }
