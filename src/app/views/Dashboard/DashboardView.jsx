@@ -87,7 +87,7 @@ export default function DashboardView() {
                     <KpiCard label="Outstanding" value={'$' + metrics.totalOutstanding.toFixed(2)}
                         valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'} />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers} />
-                    <KpiCard label="Open Reviews" value="0" />
+                    <KpiCard label="Open Reviews" value="—" title="Dispute data loads in Phase 2" />
                     <KpiCard label="Status" value={statusLabel} />
                 </div>
 
@@ -146,9 +146,9 @@ function LifecycleBar({ currentStatus, currentOrder, isReadyToClose }) {
 }
 
 /** Single KPI metric card. */
-function KpiCard({ label, value, valueClass = '' }) {
+function KpiCard({ label, value, valueClass = '', title = '' }) {
     return (
-        <div className="kpi-card">
+        <div className="kpi-card" title={title || undefined}>
             <span className="kpi-label">{label}</span>
             <span className={'kpi-value' + (valueClass ? ' ' + valueClass : '')}>{value}</span>
         </div>

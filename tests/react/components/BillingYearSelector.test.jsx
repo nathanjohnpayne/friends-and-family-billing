@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const mockService = {
     switchYear: vi.fn(),
+    setYearStatus: vi.fn(() => Promise.resolve()),
+    createYear: vi.fn(() => Promise.resolve()),
     getSaveQueue: vi.fn(() => ({ subscribe: vi.fn(() => () => {}) }))
 };
 
@@ -22,6 +24,20 @@ import BillingYearSelector from '@/app/components/BillingYearSelector.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
 
 describe('BillingYearSelector', () => {
+    let confirmSpy;
+    let promptSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('2027');
+    });
+
+    afterEach(() => {
+        confirmSpy.mockRestore();
+        promptSpy.mockRestore();
+    });
+
     it('renders the year selector with options', () => {
         render(<BillingYearSelector />);
         expect(screen.getByText('Billing Controls')).toBeInTheDocument();
@@ -37,21 +53,35 @@ describe('BillingYearSelector', () => {
         expect(mockService.switchYear).toHaveBeenCalledWith('2025');
     });
 
-    it('shows Start Settlement for open year', () => {
+    it('shows Start Settlement for open year and calls setYearStatus on click', async () => {
         render(<BillingYearSelector />);
-        expect(screen.getByText('Start Settlement')).toBeInTheDocument();
-        expect(screen.getByText('Start New Year')).toBeInTheDocument();
+        const btn = screen.getByText('Start Settlement');
+        expect(btn).not.toBeDisabled();
+        fireEvent.click(btn);
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(mockService.setYearStatus).toHaveBeenCalledWith('settling');
     });
 
-    it('shows Close Year for settling year', () => {
+    it('shows Close Year for settling year and calls setYearStatus', () => {
         useBillingData.mockReturnValue({
             billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             service: mockService
         });
         render(<BillingYearSelector />);
-        expect(screen.getByText('Close Year')).toBeInTheDocument();
-        expect(screen.getByText('Back to Open')).toBeInTheDocument();
+        fireEvent.click(screen.getByText('Close Year'));
+        expect(mockService.setYearStatus).toHaveBeenCalledWith('closed');
+    });
+
+    it('shows Back to Open for settling year', () => {
+        useBillingData.mockReturnValue({
+            billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
+            activeYear: { id: '2026', label: '2026', status: 'settling' },
+            service: mockService
+        });
+        render(<BillingYearSelector />);
+        fireEvent.click(screen.getByText('Back to Open'));
+        expect(mockService.setYearStatus).toHaveBeenCalledWith('open');
     });
 
     it('shows Archive Year for closed year', () => {
@@ -61,8 +91,28 @@ describe('BillingYearSelector', () => {
             service: mockService
         });
         render(<BillingYearSelector />);
-        expect(screen.getByText('Archive Year')).toBeInTheDocument();
-        expect(screen.getByText('Reopen to Settling')).toBeInTheDocument();
+        fireEvent.click(screen.getByText('Archive Year'));
+        expect(mockService.setYearStatus).toHaveBeenCalledWith('archived');
+    });
+
+    it('calls createYear with prompted label for Start New Year', () => {
+        render(<BillingYearSelector />);
+        fireEvent.click(screen.getByText('Start New Year'));
+        expect(promptSpy).toHaveBeenCalled();
+        expect(mockService.createYear).toHaveBeenCalledWith('2027');
+    });
+
+    it('does not call setYearStatus when confirm is cancelled', () => {
+        // Reset mock to open year (previous tests may have changed it)
+        useBillingData.mockReturnValue({
+            billingYears: [{ id: '2026', label: '2026', status: 'open' }],
+            activeYear: { id: '2026', label: '2026', status: 'open' },
+            service: mockService
+        });
+        confirmSpy.mockReturnValue(false);
+        render(<BillingYearSelector />);
+        fireEvent.click(screen.getByText('Start Settlement'));
+        expect(mockService.setYearStatus).not.toHaveBeenCalled();
     });
 
     it('hides Start New Year for archived year', () => {

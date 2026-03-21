@@ -208,6 +208,40 @@ export class BillingYearService {
     }
 
     /**
+     * Transition the active year to a new status.
+     * Port of setBillingYearStatus() from main.js.
+     * @param {string} newStatus - 'open' | 'settling' | 'closed' | 'archived'
+     */
+    async setYearStatus(newStatus) {
+        if (!this._user) return;
+        const { activeYear, billingYears } = this._state;
+        if (!activeYear || activeYear.status === newStatus) return;
+
+        const updates = { status: newStatus };
+        if (newStatus === 'closed') updates.closedAt = serverTimestamp();
+        if (newStatus === 'archived') updates.archivedAt = serverTimestamp();
+
+        try {
+            const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+            await setDoc(yearDocRef, updates, { merge: true });
+
+            // Update local state
+            const updatedYear = { ...activeYear, status: newStatus };
+            if (newStatus === 'closed') updatedYear.closedAt = new Date();
+            if (newStatus === 'archived') updatedYear.archivedAt = new Date();
+
+            const updatedYears = billingYears.map(y =>
+                y.id === activeYear.id ? { ...y, status: newStatus } : y
+            );
+
+            this._setState({ activeYear: updatedYear, billingYears: updatedYears });
+        } catch (error) {
+            console.error('setYearStatus failed:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Create a new billing year cloned from the current one.
      * @param {string} yearId
      */

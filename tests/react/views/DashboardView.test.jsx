@@ -42,7 +42,10 @@ describe('DashboardView', () => {
         render(<DashboardView />);
         expect(screen.getByText('Outstanding')).toBeInTheDocument();
         expect(screen.getByText('Settled')).toBeInTheDocument();
+        expect(screen.getByText('Open Reviews')).toBeInTheDocument();
         expect(screen.getByText('Status')).toBeInTheDocument();
+        // Open Reviews shows dash (not zero) since disputes aren't loaded yet
+        expect(screen.getByText('—')).toBeInTheDocument();
     });
 
     it('renders lifecycle bar', () => {
