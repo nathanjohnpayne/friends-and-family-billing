@@ -31,6 +31,32 @@ export default function BillingYearSelector() {
         }
     }
 
+    /**
+     * Archive flow — mirrors legacy archiveCurrentYear() in main.js:539.
+     * After archiving, immediately offers to start a new year so the user
+     * isn't stranded on a read-only archived year.
+     */
+    async function handleArchive() {
+        const msg = 'Archive billing year ' + activeYear.label + '?\n\n'
+            + 'This will make all records read-only.\n'
+            + 'You can still view historical data later.';
+        if (!window.confirm(msg)) return;
+        setBusy(true);
+        try {
+            await service.setYearStatus('archived');
+            // Offer to start new year immediately (legacy parity)
+            if (window.confirm('Year archived successfully. Would you like to start a new billing year?')) {
+                setBusy(false);
+                await handleStartNewYear();
+                return;
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function handleStartNewYear() {
         const defaultLabel = suggestNextYearLabel(activeYear);
         const label = window.prompt('Enter label for the new billing year:', defaultLabel);
@@ -97,8 +123,7 @@ export default function BillingYearSelector() {
                 {status === 'closed' && (
                     <>
                         <button className="btn btn-header-secondary btn-sm" disabled={busy}
-                            onClick={() => handleStatusChange('archived',
-                                'Archive billing year ' + activeYear.label + '?\n\nThis will make all records read-only.\nYou can still view historical data later.')}>
+                            onClick={handleArchive}>
                             Archive Year
                         </button>
                         <button className="btn btn-header-tertiary" disabled={busy}

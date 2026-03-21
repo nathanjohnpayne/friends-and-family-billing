@@ -84,7 +84,7 @@ describe('BillingYearSelector', () => {
         expect(mockService.setYearStatus).toHaveBeenCalledWith('open');
     });
 
-    it('shows Archive Year for closed year', () => {
+    it('shows Archive Year for closed year and calls setYearStatus', () => {
         useBillingData.mockReturnValue({
             billingYears: [{ id: '2026', label: '2026', status: 'closed' }],
             activeYear: { id: '2026', label: '2026', status: 'closed' },
@@ -93,6 +93,44 @@ describe('BillingYearSelector', () => {
         render(<BillingYearSelector />);
         fireEvent.click(screen.getByText('Archive Year'));
         expect(mockService.setYearStatus).toHaveBeenCalledWith('archived');
+    });
+
+    it('archive flow chains into start-new-year prompt', async () => {
+        useBillingData.mockReturnValue({
+            billingYears: [{ id: '2026', label: '2026', status: 'closed' }],
+            activeYear: { id: '2026', label: '2026', status: 'closed' },
+            service: mockService
+        });
+        // First confirm = archive, second confirm = start new year, prompt = year label
+        confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(true);
+        promptSpy.mockReturnValue('2027');
+
+        render(<BillingYearSelector />);
+        fireEvent.click(screen.getByText('Archive Year'));
+
+        // Wait for async chain
+        await vi.waitFor(() => {
+            expect(mockService.setYearStatus).toHaveBeenCalledWith('archived');
+            expect(mockService.createYear).toHaveBeenCalledWith('2027');
+        });
+    });
+
+    it('archive flow does not start new year when declined', async () => {
+        useBillingData.mockReturnValue({
+            billingYears: [{ id: '2026', label: '2026', status: 'closed' }],
+            activeYear: { id: '2026', label: '2026', status: 'closed' },
+            service: mockService
+        });
+        // First confirm = archive, second confirm = decline new year
+        confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+        render(<BillingYearSelector />);
+        fireEvent.click(screen.getByText('Archive Year'));
+
+        await vi.waitFor(() => {
+            expect(mockService.setYearStatus).toHaveBeenCalledWith('archived');
+        });
+        expect(mockService.createYear).not.toHaveBeenCalled();
     });
 
     it('calls createYear with prompted label for Start New Year', () => {
