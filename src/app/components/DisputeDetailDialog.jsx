@@ -7,6 +7,7 @@ import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../../lib/firebase.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
+import { openSmsComposer } from '../../lib/sms.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
 function isTerminal(status) {
@@ -20,9 +21,9 @@ function formatDate(ts) {
 }
 
 /**
- * @param {{ open: boolean, dispute: Object, onUpdate: function, onUploadEvidence: function, onRemoveEvidence: function, onClose: function, showToast?: function }} props
+ * @param {{ open: boolean, dispute: Object, onUpdate: function, onStatusChange: function, onUploadEvidence: function, onRemoveEvidence: function, onClose: function, showToast?: function, familyMembers?: Array, activeYear?: Object }} props
  */
-export default function DisputeDetailDialog({ open, dispute, onUpdate, onUploadEvidence, onRemoveEvidence, onClose, showToast }) {
+export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusChange, onUploadEvidence, onRemoveEvidence, onClose, showToast, familyMembers, activeYear }) {
     const [resolutionNote, setResolutionNote] = useState('');
     const [actionConfirm, setActionConfirm] = useState(null);
     const [noteError, setNoteError] = useState('');
@@ -58,9 +59,12 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onUploadE
         const fields = { status: newStatus, resolutionNote: resolutionNote.trim() };
         if (newStatus === 'resolved') fields.resolvedAt = new Date().toISOString();
         if (newStatus === 'rejected') fields.rejectedAt = new Date().toISOString();
-        await onUpdate(dispute.id, fields);
+        // Use onStatusChange (closes modal) for terminal actions, onUpdate for in_review
+        const handler = (newStatus === 'resolved' || newStatus === 'rejected') ? (onStatusChange || onUpdate) : onUpdate;
+        await handler(dispute.id, fields);
         if (showToast) showToast('Dispute ' + newStatus);
         setActionConfirm(null);
+        if (newStatus === 'in_review') return; // keep dialog open for in_review
         onClose();
     }
 
@@ -220,6 +224,46 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onUploadE
                         </button>
                     </div>
                 )}
+
+                {terminal && dispute.resolutionNote && (() => {
+                    const member = (familyMembers || []).find(m => m.id === dispute.memberId);
+                    const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
+                    const statusWord = dispute.status === 'resolved' ? 'resolved' : 'reviewed';
+
+                    function buildResolutionText() {
+                        let text = 'Hi ' + (member ? member.name : 'there') + ',\n\n';
+                        text += 'Your review request for ' + dispute.billName + ' (' + yearLabel + ') has been ' + statusWord + '.\n\n';
+                        text += 'Resolution: ' + dispute.resolutionNote + '\n';
+                        if (dispute.proposedCorrection) text += 'Your suggestion: ' + dispute.proposedCorrection + '\n';
+                        text += '\nIf you have questions, please reach out.\n\nThanks!';
+                        return text;
+                    }
+
+                    return (
+                        <div className="dispute-share-actions">
+                            <span className="dispute-share-label">Share Resolution:</span>
+                            {member && member.email && (
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                    const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
+                                    const body = buildResolutionText();
+                                    window.location.href = 'mailto:' + encodeURIComponent(member.email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+                                }}>Email</button>
+                            )}
+                            {member && member.phone && (
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                    openSmsComposer(member.phone, buildResolutionText(), () => {
+                                        if (showToast) showToast('Resolution copied\u2014paste into your messaging app');
+                                    });
+                                }}>Text</button>
+                            )}
+                            <button className="btn btn-sm btn-secondary" onClick={() => {
+                                navigator.clipboard.writeText(buildResolutionText()).then(() => {
+                                    if (showToast) showToast('Resolution copied');
+                                });
+                            }}>Copy</button>
+                        </div>
+                    );
+                })()}
 
                 {terminal && (
                     <div className="dialog-buttons">

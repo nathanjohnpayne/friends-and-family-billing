@@ -2052,6 +2052,22 @@ img, svg { display: block; max-width: 100%; }
     margin-top: var(--space-2, 8px);
 }
 
+/* Dispute Resolution Share Actions */
+.dispute-share-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-3, 12px) 0;
+    border-top: 1px solid var(--color-border, #e0e0e0);
+    margin-top: var(--space-2, 8px);
+}
+
+.dispute-share-label {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+}
+
 /* QR Code Preview */
 .pm-qr-preview {
     display: flex;

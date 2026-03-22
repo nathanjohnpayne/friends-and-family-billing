@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
+// Mock Firebase (needed by InvoicingTab for publicQrCodes sync)
+vi.mock('@/lib/firebase.js', () => ({ db: {} }));
+vi.mock('firebase/firestore', () => ({
+    doc: vi.fn(), setDoc: vi.fn(), deleteDoc: vi.fn(), serverTimestamp: vi.fn()
+}));
+
+// Mock auth
+vi.mock('@/app/contexts/AuthContext.jsx', () => ({
+    useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
+}));
+
 const mockService = {
     updateSettings: vi.fn(),
     getState: vi.fn(() => ({

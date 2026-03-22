@@ -3,6 +3,9 @@
  * Port of renderEmailSettings() (main.js:2605) and renderPaymentMethodsSettings() (main.js:2696).
  */
 import { useState, useRef, useEffect } from 'react';
+import { doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../../lib/firebase.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly, isValidE164 } from '../../../lib/validation.js';
@@ -18,8 +21,39 @@ const EMAIL_TEMPLATE_FIELDS = [
     { token: '%payment_methods%', label: 'Payment Methods' }
 ];
 
+/**
+ * Sync QR codes to the publicQrCodes collection (mirrors main.js:3895).
+ * Called after payment method updates to keep share pages in sync.
+ */
+async function syncPublicQrCodes(userId, methods) {
+    if (!userId) return;
+    const methodsWithQr = (methods || []).filter(m => m.qrCode);
+    // Write/update QR codes for methods that have them
+    for (const m of methodsWithQr) {
+        const docId = userId + '_' + m.id;
+        try {
+            await setDoc(doc(db, 'publicQrCodes', docId), {
+                ownerId: userId,
+                methodId: m.id,
+                qrCode: m.qrCode,
+                updatedAt: serverTimestamp()
+            });
+        } catch (err) {
+            console.error('Error writing public QR code:', err);
+        }
+    }
+    // Delete QR codes for methods that no longer have them
+    const allMethods = methods || [];
+    const withoutQr = allMethods.filter(m => !m.qrCode && m.hasQrCode === false);
+    for (const m of withoutQr) {
+        const docId = userId + '_' + m.id;
+        try { await deleteDoc(doc(db, 'publicQrCodes', docId)); } catch (_) {}
+    }
+}
+
 export default function InvoicingTab() {
     const { familyMembers, bills, payments, activeYear, loading, service } = useBillingData();
+    const { user } = useAuth();
     const { showToast } = useToast();
     const readOnly = isYearReadOnly(activeYear);
     const settings = service.getState().settings || {};
@@ -45,6 +79,7 @@ export default function InvoicingTab() {
                 readOnly={readOnly}
                 onUpdate={paymentMethods => {
                     service.updateSettings({ paymentMethods });
+                    syncPublicQrCodes(user ? user.uid : null, paymentMethods);
                     showToast('Payment methods updated');
                 }}
             />

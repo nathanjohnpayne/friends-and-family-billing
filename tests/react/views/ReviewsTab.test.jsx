@@ -8,7 +8,20 @@ vi.mock('firebase/firestore', () => ({
     setDoc: vi.fn(), serverTimestamp: vi.fn(), deleteDoc: vi.fn()
 }));
 vi.mock('firebase/storage', () => ({
-    ref: vi.fn(), deleteObject: vi.fn()
+    ref: vi.fn(), deleteObject: vi.fn(), uploadBytes: vi.fn(), getDownloadURL: vi.fn()
+}));
+
+vi.mock('@/app/hooks/useBillingData.js', () => ({
+    useBillingData: vi.fn(() => ({
+        familyMembers: [
+            { id: 1, name: 'Alice', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [] },
+            { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [] }
+        ],
+        activeYear: { id: '2026', label: '2026', status: 'settling' },
+        loading: false,
+        service: { getState: vi.fn(() => ({ settings: {} })) },
+        saveQueue: { subscribe: vi.fn(() => () => {}) }
+    }))
 }));
 
 const mockDisputes = [

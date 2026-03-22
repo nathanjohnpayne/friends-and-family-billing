@@ -3,6 +3,7 @@
  * Port of loadDisputes()/renderDisputes() from main.js:3116.
  */
 import { useState } from 'react';
+import { useBillingData } from '../../hooks/useBillingData.js';
 import { useDisputes } from '../../hooks/useDisputes.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { DISPUTE_STATUS_LABELS } from '../../../lib/constants.js';
@@ -20,6 +21,7 @@ function formatDate(ts) {
 }
 
 export default function ReviewsTab() {
+    const { familyMembers, activeYear } = useBillingData();
     const { disputes, loading, error, updateDispute, uploadEvidence, removeEvidence } = useDisputes();
     const { showToast } = useToast();
     const [filter, setFilter] = useState('actionable');
@@ -110,7 +112,8 @@ export default function ReviewsTab() {
             <DisputeDetailDialog
                 open={selectedDispute !== null}
                 dispute={selectedDispute}
-                onUpdate={async (id, fields) => {
+                onUpdate={updateDispute}
+                onStatusChange={async (id, fields) => {
                     await updateDispute(id, fields);
                     setSelectedDisputeId(null);
                 }}
@@ -118,6 +121,8 @@ export default function ReviewsTab() {
                 onRemoveEvidence={removeEvidence}
                 onClose={() => setSelectedDisputeId(null)}
                 showToast={showToast}
+                familyMembers={familyMembers}
+                activeYear={activeYear}
             />
         </div>
     );
