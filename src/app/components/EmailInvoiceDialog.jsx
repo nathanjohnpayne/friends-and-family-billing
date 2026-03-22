@@ -1,6 +1,9 @@
 /**
  * EmailInvoiceDialog — email invoice composer with variant selector.
  * Port of showEmailInvoiceDialog() from main.js:4724.
+ *
+ * TODO: Add dedicated React test file (tests/react/components/EmailInvoiceDialog.test.jsx)
+ *       covering variant switching, mailto: link construction, and clipboard copy.
  */
 import { useState, useEffect } from 'react';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
