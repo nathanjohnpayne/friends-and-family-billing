@@ -73,10 +73,10 @@ export function useDisputes() {
         const item = dispute.evidence[evidenceIndex];
         if (!item) return;
 
-        // Remove from Storage if URL is a gs:// or Firebase Storage URL
-        if (item.url) {
+        // Remove from Storage using storagePath (the canonical reference, mirrors main.js:3740)
+        if (item.storagePath) {
             try {
-                const storageRef = ref(storage, item.url);
+                const storageRef = ref(storage, item.storagePath);
                 await deleteObject(storageRef);
             } catch (_) { /* file may not exist */ }
         }

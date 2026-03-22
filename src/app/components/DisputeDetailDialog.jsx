@@ -2,12 +2,12 @@
  * DisputeDetailDialog — detail view for a single dispute with actions.
  * Port of showDisputeDetail() from main.js:3294.
  */
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { getDownloadURL, ref } from 'firebase/storage';
+import { storage } from '../../lib/firebase.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
-
-const STATUS_ORDER = { open: 0, in_review: 1, resolved: 2, rejected: 3 };
 
 function isTerminal(status) {
     return status === 'resolved' || status === 'rejected';
@@ -23,8 +23,17 @@ function formatDate(ts) {
  * @param {{ open: boolean, dispute: Object, onUpdate: function, onRemoveEvidence: function, onClose: function, showToast?: function }} props
  */
 export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveEvidence, onClose, showToast }) {
-    const [resolutionNote, setResolutionNote] = useState(dispute ? (dispute.resolutionNote || '') : '');
+    const [resolutionNote, setResolutionNote] = useState('');
     const [actionConfirm, setActionConfirm] = useState(null);
+    const [noteError, setNoteError] = useState('');
+    const noteRef = useRef(null);
+
+    // Sync resolutionNote when dispute changes (fixes note bleed between disputes)
+    useEffect(() => {
+        setResolutionNote(dispute ? (dispute.resolutionNote || '') : '');
+        setNoteError('');
+        setActionConfirm(null);
+    }, [dispute?.id]);
 
     if (!open || !dispute) return null;
 
@@ -32,8 +41,19 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
     const statusLabel = DISPUTE_STATUS_LABELS[dispute.status] || dispute.status;
     const statusCls = disputeStatusClass(dispute.status);
 
+    function handleActionClick(newStatus) {
+        // Enforce resolution note for resolve/reject (mirrors main.js:3533)
+        if ((newStatus === 'resolved' || newStatus === 'rejected') && !resolutionNote.trim()) {
+            setNoteError('Please add a resolution note before ' + (newStatus === 'resolved' ? 'resolving' : 'rejecting') + '.');
+            if (noteRef.current) noteRef.current.focus();
+            return;
+        }
+        setNoteError('');
+        setActionConfirm(newStatus);
+    }
+
     async function doAction(newStatus) {
-        const fields = { status: newStatus, resolutionNote };
+        const fields = { status: newStatus, resolutionNote: resolutionNote.trim() };
         if (newStatus === 'resolved') fields.resolvedAt = new Date().toISOString();
         if (newStatus === 'rejected') fields.rejectedAt = new Date().toISOString();
         await onUpdate(dispute.id, fields);
@@ -81,13 +101,15 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                 <div className="dispute-detail-section">
                     <div className="dispute-detail-label">Resolution Note</div>
                     <textarea
-                        className="composer-input"
+                        ref={noteRef}
+                        className={'composer-input' + (noteError ? ' input-error' : '')}
                         rows={3}
                         placeholder="Add a resolution note..."
                         value={resolutionNote}
-                        onChange={e => setResolutionNote(e.target.value)}
+                        onChange={e => { setResolutionNote(e.target.value); setNoteError(''); }}
                         disabled={terminal}
                     />
+                    {noteError && <p className="composer-error">{noteError}</p>}
                 </div>
 
                 {dispute.evidence && dispute.evidence.length > 0 && (
@@ -95,24 +117,13 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                         <div className="dispute-detail-label">Evidence ({dispute.evidence.length} file{dispute.evidence.length !== 1 ? 's' : ''})</div>
                         <div className="evidence-list">
                             {dispute.evidence.map((item, i) => (
-                                <div key={i} className="evidence-item">
-                                    <div className="evidence-info">
-                                        <span className="evidence-name">{item.name || 'File ' + (i + 1)}</span>
-                                        {item.size > 0 && <span className="evidence-size">{formatFileSize(item.size)}</span>}
-                                    </div>
-                                    <div className="evidence-actions">
-                                        {item.url && (
-                                            <a href={item.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-tertiary">
-                                                View
-                                            </a>
-                                        )}
-                                        {!terminal && (
-                                            <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRemoveEvidence(i)}>
-                                                Remove
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
+                                <EvidenceItem
+                                    key={i}
+                                    item={item}
+                                    index={i}
+                                    terminal={terminal}
+                                    onRemove={handleRemoveEvidence}
+                                />
                             ))}
                         </div>
                     </div>
@@ -125,10 +136,10 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                                 Mark In Review
                             </button>
                         )}
-                        <button className="btn btn-sm btn-primary" onClick={() => setActionConfirm('resolved')}>
+                        <button className="btn btn-sm btn-primary" onClick={() => handleActionClick('resolved')}>
                             Resolve
                         </button>
-                        <button className="btn btn-sm btn-destructive" onClick={() => setActionConfirm('rejected')}>
+                        <button className="btn btn-sm btn-destructive" onClick={() => handleActionClick('rejected')}>
                             Reject
                         </button>
                     </div>
@@ -151,6 +162,52 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                     onConfirm={() => doAction(actionConfirm)}
                     onCancel={() => setActionConfirm(null)}
                 />
+            </div>
+        </div>
+    );
+}
+
+/** Evidence item that resolves storagePath to downloadUrl on demand. */
+function EvidenceItem({ item, index, terminal, onRemove }) {
+    const [viewUrl, setViewUrl] = useState(item.downloadUrl || null);
+    const [loading, setLoading] = useState(false);
+
+    async function handleView() {
+        if (viewUrl) {
+            window.open(viewUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        if (!item.storagePath) return;
+        setLoading(true);
+        try {
+            const url = await getDownloadURL(ref(storage, item.storagePath));
+            setViewUrl(url);
+            window.open(url, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            console.error('Failed to get download URL:', err);
+        }
+        setLoading(false);
+    }
+
+    const canView = !!(item.downloadUrl || item.storagePath);
+
+    return (
+        <div className="evidence-item">
+            <div className="evidence-info">
+                <span className="evidence-name">{item.name || 'File ' + (index + 1)}</span>
+                {item.size > 0 && <span className="evidence-size">{formatFileSize(item.size)}</span>}
+            </div>
+            <div className="evidence-actions">
+                {canView && (
+                    <button className="btn btn-sm btn-tertiary" onClick={handleView} disabled={loading}>
+                        {loading ? 'Loading...' : 'View'}
+                    </button>
+                )}
+                {!terminal && (
+                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => onRemove(index)}>
+                        Remove
+                    </button>
+                )}
             </div>
         </div>
     );

@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
-import { isYearReadOnly } from '../../../lib/validation.js';
+import { isYearReadOnly, isValidE164 } from '../../../lib/validation.js';
 import { detectDuplicatePaymentText } from '../../../lib/validation.js';
 import { PAYMENT_METHOD_TYPES, getPaymentMethodIcon, getPaymentMethodDetail } from '../../../lib/formatting.js';
 import { buildInvoiceBody, getInvoiceSummaryContext } from '../../../lib/invoice.js';
@@ -283,15 +283,45 @@ function PaymentMethodsSection({ settings, readOnly, onUpdate }) {
 
 function PaymentMethodEditDialog({ method, onSave, onCancel }) {
     const [fields, setFields] = useState({ ...method });
+    const [error, setError] = useState('');
     const typeDef = PAYMENT_METHOD_TYPES[method.type] || { fields: ['url', 'instructions'] };
 
     function update(key, value) {
         setFields(prev => ({ ...prev, [key]: value }));
+        setError('');
     }
 
     function handleSave(e) {
         e.preventDefault();
-        onSave(fields);
+        setError('');
+
+        // Default blank label to type default (mirrors main.js:2908)
+        const label = (fields.label || '').trim();
+        const defaultLabel = (PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other).label;
+        const validated = { ...fields, label: label || defaultLabel };
+
+        // Validate phone (E.164, mirrors main.js:2912)
+        const phone = (validated.phone || '').trim();
+        if (phone && !isValidE164(phone)) {
+            setError('Phone must be in E.164 format (e.g., +14155551212)');
+            return;
+        }
+        validated.phone = phone;
+
+        // Validate URL (http(s), mirrors main.js:2921)
+        const url = (validated.url || '').trim();
+        if (url && !/^https?:\/\//i.test(url)) {
+            setError('URL must start with http:// or https://');
+            return;
+        }
+        validated.url = url;
+
+        // Trim all string fields
+        if (validated.email) validated.email = validated.email.trim();
+        if (validated.handle) validated.handle = validated.handle.trim();
+        if (validated.instructions) validated.instructions = validated.instructions.trim();
+
+        onSave(validated);
     }
 
     const fieldDefs = {
@@ -342,6 +372,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
                             );
                         })}
                     </div>
+                    {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
                         <button type="submit" className="btn btn-sm btn-primary">Save</button>
