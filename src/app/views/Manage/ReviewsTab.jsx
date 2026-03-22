@@ -20,10 +20,13 @@ function formatDate(ts) {
 }
 
 export default function ReviewsTab() {
-    const { disputes, loading, error, updateDispute, removeEvidence } = useDisputes();
+    const { disputes, loading, error, updateDispute, uploadEvidence, removeEvidence } = useDisputes();
     const { showToast } = useToast();
     const [filter, setFilter] = useState('actionable');
-    const [selectedDispute, setSelectedDispute] = useState(null);
+    const [selectedDisputeId, setSelectedDisputeId] = useState(null);
+
+    // Look up the live dispute from the hook state so it refreshes after mutations
+    const selectedDispute = selectedDisputeId ? disputes.find(d => d.id === selectedDisputeId) || null : null;
 
     if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
     if (error) return <p className="composer-error">Error loading review requests: {error}</p>;
@@ -98,7 +101,7 @@ export default function ReviewsTab() {
                         <DisputeCard
                             key={d.id}
                             dispute={d}
-                            onClick={() => setSelectedDispute(d)}
+                            onClick={() => setSelectedDisputeId(d.id)}
                         />
                     ))}
                 </div>
@@ -109,10 +112,11 @@ export default function ReviewsTab() {
                 dispute={selectedDispute}
                 onUpdate={async (id, fields) => {
                     await updateDispute(id, fields);
-                    setSelectedDispute(null);
+                    setSelectedDisputeId(null);
                 }}
+                onUploadEvidence={uploadEvidence}
                 onRemoveEvidence={removeEvidence}
-                onClose={() => setSelectedDispute(null)}
+                onClose={() => setSelectedDisputeId(null)}
                 showToast={showToast}
             />
         </div>

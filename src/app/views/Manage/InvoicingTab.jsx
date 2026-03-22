@@ -284,6 +284,7 @@ function PaymentMethodsSection({ settings, readOnly, onUpdate }) {
 function PaymentMethodEditDialog({ method, onSave, onCancel }) {
     const [fields, setFields] = useState({ ...method });
     const [error, setError] = useState('');
+    const qrInputRef = useRef(null);
     const typeDef = PAYMENT_METHOD_TYPES[method.type] || { fields: ['url', 'instructions'] };
 
     function update(key, value) {
@@ -371,6 +372,44 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
                                 </div>
                             );
                         })}
+                        <div className="payment-field-group">
+                            <label>QR Code (optional)</label>
+                            {fields.qrCode ? (
+                                <div className="pm-qr-preview">
+                                    <img src={fields.qrCode} alt="QR Code" className="pm-qr-image" />
+                                    <div className="pm-qr-actions">
+                                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
+                                            Replace
+                                        </button>
+                                        <button type="button" className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => {
+                                            setFields(prev => ({ ...prev, qrCode: '', hasQrCode: false }));
+                                        }}>
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
+                                    Upload QR Code
+                                </button>
+                            )}
+                            <input
+                                ref={qrInputRef}
+                                type="file"
+                                accept="image/png,image/jpeg"
+                                style={{ display: 'none' }}
+                                onChange={e => {
+                                    const file = e.target.files && e.target.files[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                        setFields(prev => ({ ...prev, qrCode: reader.result, hasQrCode: true }));
+                                    };
+                                    reader.readAsDataURL(file);
+                                    e.target.value = '';
+                                }}
+                            />
+                        </div>
                     </div>
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">

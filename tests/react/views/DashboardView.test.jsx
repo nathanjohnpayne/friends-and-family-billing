@@ -38,6 +38,7 @@ vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
 }));
 
+import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import DashboardView from '@/app/views/Dashboard/DashboardView.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
@@ -46,7 +47,7 @@ function renderDashboard(overrides = {}) {
     if (Object.keys(overrides).length > 0) {
         useBillingData.mockReturnValue({ ...mockState, ...overrides });
     }
-    return render(<ToastProvider><DashboardView /></ToastProvider>);
+    return render(<MemoryRouter><ToastProvider><DashboardView /></ToastProvider></MemoryRouter>);
 }
 
 describe('DashboardView', () => {

@@ -20,13 +20,15 @@ function formatDate(ts) {
 }
 
 /**
- * @param {{ open: boolean, dispute: Object, onUpdate: function, onRemoveEvidence: function, onClose: function, showToast?: function }} props
+ * @param {{ open: boolean, dispute: Object, onUpdate: function, onUploadEvidence: function, onRemoveEvidence: function, onClose: function, showToast?: function }} props
  */
-export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveEvidence, onClose, showToast }) {
+export default function DisputeDetailDialog({ open, dispute, onUpdate, onUploadEvidence, onRemoveEvidence, onClose, showToast }) {
     const [resolutionNote, setResolutionNote] = useState('');
     const [actionConfirm, setActionConfirm] = useState(null);
     const [noteError, setNoteError] = useState('');
+    const [uploading, setUploading] = useState(false);
     const noteRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     // Sync resolutionNote when dispute changes (fixes note bleed between disputes)
     useEffect(() => {
@@ -66,6 +68,34 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
         await onRemoveEvidence(dispute.id, index);
         if (showToast) showToast('Evidence removed');
     }
+
+    async function handleUploadEvidence(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file || !onUploadEvidence) return;
+        setUploading(true);
+        try {
+            await onUploadEvidence(dispute.id, file);
+            if (showToast) showToast('Evidence uploaded: ' + file.name);
+        } catch (err) {
+            if (showToast) showToast(err.message);
+        }
+        setUploading(false);
+        // Reset input so same file can be re-selected
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+
+    async function toggleUserReview(checked) {
+        // Mirrors main.js:3549 — set userReview.state to 'requested' or remove it
+        if (checked) {
+            await onUpdate(dispute.id, { userReview: { state: 'requested' } });
+        } else {
+            await onUpdate(dispute.id, { userReview: null });
+        }
+        if (showToast) showToast(checked ? 'User approval requested' : 'User approval request removed');
+    }
+
+    const userReviewState = dispute.userReview ? dispute.userReview.state : null;
+    const evidenceCount = (dispute.evidence || []).length;
 
     return (
         <div className="dialog-overlay" onClick={onClose}>
@@ -112,9 +142,9 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                     {noteError && <p className="composer-error">{noteError}</p>}
                 </div>
 
-                {dispute.evidence && dispute.evidence.length > 0 && (
-                    <div className="dispute-detail-section">
-                        <div className="dispute-detail-label">Evidence ({dispute.evidence.length} file{dispute.evidence.length !== 1 ? 's' : ''})</div>
+                <div className="dispute-detail-section">
+                    <div className="dispute-detail-label">Evidence ({evidenceCount} file{evidenceCount !== 1 ? 's' : ''})</div>
+                    {evidenceCount > 0 && (
                         <div className="evidence-list">
                             {dispute.evidence.map((item, i) => (
                                 <EvidenceItem
@@ -126,6 +156,52 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onRemoveE
                                 />
                             ))}
                         </div>
+                    )}
+                    {!terminal && evidenceCount < 10 && (
+                        <div className="evidence-upload">
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="application/pdf,image/png,image/jpeg"
+                                onChange={handleUploadEvidence}
+                                style={{ display: 'none' }}
+                            />
+                            <button
+                                className="btn btn-sm btn-secondary"
+                                onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                                disabled={uploading}
+                            >
+                                {uploading ? 'Uploading...' : 'Upload Evidence'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {!terminal && (
+                    <div className="dispute-detail-section">
+                        <div className="checkbox-item">
+                            <input
+                                type="checkbox"
+                                id="dispute-user-review"
+                                checked={userReviewState === 'requested'}
+                                onChange={e => toggleUserReview(e.target.checked)}
+                            />
+                            <label htmlFor="dispute-user-review">Request user approval before finalizing</label>
+                        </div>
+                    </div>
+                )}
+
+                {terminal && userReviewState && (
+                    <div className="dispute-detail-section">
+                        <div className="dispute-detail-label">User Decision</div>
+                        <p className="dispute-detail-message">
+                            {userReviewState === 'approved_by_user' ? 'Approved by user'
+                                : userReviewState === 'rejected_by_user' ? 'Rejected by user'
+                                : userReviewState}
+                            {dispute.userReview && dispute.userReview.rejectionNote
+                                ? '\u2014' + dispute.userReview.rejectionNote
+                                : ''}
+                        </p>
                     </div>
                 )}
 

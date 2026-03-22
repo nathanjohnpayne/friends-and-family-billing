@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { collection, doc, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
+import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBillingData } from './useBillingData.js';
@@ -65,6 +65,44 @@ export function useDisputes() {
         ));
     }, [canLoad, user?.uid, activeYear?.id]);
 
+    const uploadEvidence = useCallback(async (disputeId, file) => {
+        if (!canLoad) return;
+        const dispute = disputes.find(d => d.id === disputeId);
+        if (!dispute) return;
+
+        const EVIDENCE_MAX_SIZE = 20 * 1024 * 1024;
+        const EVIDENCE_ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg'];
+
+        if (!EVIDENCE_ALLOWED_TYPES.includes(file.type)) {
+            throw new Error('Only PDF, PNG, and JPEG files are allowed.');
+        }
+        if (file.size > EVIDENCE_MAX_SIZE) {
+            throw new Error('File is too large. Maximum size is 20 MB.');
+        }
+        if ((dispute.evidence || []).length >= 10) {
+            throw new Error('Maximum of 10 evidence files per dispute.');
+        }
+
+        const storagePath = 'users/' + user.uid + '/disputes/' + disputeId + '/' + Date.now() + '_' + file.name;
+        const storageRef = ref(storage, storagePath);
+        await uploadBytes(storageRef, file);
+
+        let downloadUrl = '';
+        try { downloadUrl = await getDownloadURL(storageRef); } catch (_) {}
+
+        const entry = {
+            name: file.name,
+            storagePath,
+            contentType: file.type,
+            size: file.size,
+            uploadedAt: new Date().toISOString(),
+            downloadUrl
+        };
+
+        const newEvidence = [...(dispute.evidence || []), entry];
+        await updateDispute(disputeId, { evidence: newEvidence });
+    }, [canLoad, user?.uid, disputes, updateDispute]);
+
     const removeEvidence = useCallback(async (disputeId, evidenceIndex) => {
         if (!canLoad) return;
         const dispute = disputes.find(d => d.id === disputeId);
@@ -85,5 +123,5 @@ export function useDisputes() {
         await updateDispute(disputeId, { evidence: newEvidence });
     }, [canLoad, disputes, updateDispute]);
 
-    return { disputes, loading, error, reload: load, updateDispute, removeEvidence };
+    return { disputes, loading, error, reload: load, updateDispute, uploadEvidence, removeEvidence };
 }

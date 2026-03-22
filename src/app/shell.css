@@ -259,6 +259,16 @@ img, svg { display: block; max-width: 100%; }
     text-align: center;
 }
 
+.kpi-card--clickable {
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kpi-card--clickable:hover {
+    background: var(--color-surface, #ffffff);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
 .kpi-label {
     display: block;
     font-size: 0.7rem;
@@ -2036,6 +2046,29 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     gap: var(--space-1, 4px);
     flex-shrink: 0;
+}
+
+.evidence-upload {
+    margin-top: var(--space-2, 8px);
+}
+
+/* QR Code Preview */
+.pm-qr-preview {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+}
+
+.pm-qr-image {
+    max-width: 150px;
+    max-height: 150px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+}
+
+.pm-qr-actions {
+    display: flex;
+    gap: var(--space-2, 8px);
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
