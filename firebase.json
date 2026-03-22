@@ -19,8 +19,11 @@
       "package-lock.json",
       "tests/**",
       "functions/**",
+      "scripts/**",
+      "specs/**",
       "stamp-version.js",
-      "enhancements/**"
+      "enhancements/**",
+      ".env*"
     ],
     "headers": [
       {
@@ -78,11 +81,19 @@
         ]
       }
     ],
-    "rewrites": [
+    "redirects": [
       {
         "source": "/share",
-        "destination": "/share.html"
+        "destination": "/app/share",
+        "type": 301
       },
+      {
+        "source": "/share.html",
+        "destination": "/app/share",
+        "type": 301
+      }
+    ],
+    "rewrites": [
       {
         "source": "/resolveShareToken",
         "function": "resolveShareToken"

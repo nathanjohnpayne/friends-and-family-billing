@@ -1,16 +1,20 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import { ToastProvider } from './contexts/ToastContext.jsx';
 import LoginView from './views/LoginView.jsx';
 import AppShell from './components/AppShell.jsx';
-import DashboardView from './views/Dashboard/DashboardView.jsx';
 import ManageView from './views/Manage/ManageView.jsx';
-import MembersTab from './views/Manage/MembersTab.jsx';
-import BillsTab from './views/Manage/BillsTab.jsx';
-import InvoicingTab from './views/Manage/InvoicingTab.jsx';
-import ReviewsTab from './views/Manage/ReviewsTab.jsx';
-import SettingsView from './views/Settings/SettingsView.jsx';
 import './shell.css';
+
+// Code-split heavy views — loaded on demand
+const DashboardView = lazy(() => import('./views/Dashboard/DashboardView.jsx'));
+const MembersTab = lazy(() => import('./views/Manage/MembersTab.jsx'));
+const BillsTab = lazy(() => import('./views/Manage/BillsTab.jsx'));
+const InvoicingTab = lazy(() => import('./views/Manage/InvoicingTab.jsx'));
+const ReviewsTab = lazy(() => import('./views/Manage/ReviewsTab.jsx'));
+const SettingsView = lazy(() => import('./views/Settings/SettingsView.jsx'));
+const ShareView = lazy(() => import('./views/ShareView.jsx'));
 
 /**
  * App root — wraps everything in AuthProvider and BrowserRouter.
@@ -30,8 +34,10 @@ export default function App() {
 /** Exported for testing without BrowserRouter (use MemoryRouter in tests). */
 export function AppRoutes() {
     return (
+        <Suspense fallback={<div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>Loading…</div>}>
         <Routes>
             <Route path="/login" element={<GuestRoute><LoginView /></GuestRoute>} />
+            <Route path="/share" element={<ShareView />} />
             <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<DashboardView />} />
@@ -46,6 +52,7 @@ export function AppRoutes() {
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
     );
 }
 

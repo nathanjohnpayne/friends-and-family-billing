@@ -96,8 +96,8 @@ describe('Routes — authenticated user', () => {
             </AuthProvider>
         );
 
-        // Should be redirected to dashboard, not see login form
-        expect(screen.getByText('Dashboard')).toBeInTheDocument();
+        // Should be redirected to dashboard, not see login form (lazy-loaded)
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
         expect(screen.queryByText('Sign in to continue')).toBeNull();
     });
 
@@ -125,7 +125,7 @@ describe('Routes — authenticated user', () => {
             </AuthProvider>
         );
 
-        expect(screen.getByText('Dashboard')).toBeInTheDocument();
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('a@b.com')).toBeInTheDocument();
         expect(screen.getByText('Sign Out')).toBeInTheDocument();
     });

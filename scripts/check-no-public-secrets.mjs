@@ -44,6 +44,7 @@ function lineNumberForIndex(text, index) {
 
 function findSecrets(file) {
   const absolutePath = path.join(repoRoot, file);
+  if (!fs.existsSync(absolutePath)) return [];
   const buffer = fs.readFileSync(absolutePath);
   if (isBinary(buffer)) {
     return [];

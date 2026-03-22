@@ -10,9 +10,6 @@ export default defineConfig({
         // Output to app/ so deployed paths match URL paths.
         // Firebase Hosting serves from "public": "." — a file at ./app/assets/foo.js
         // is served at /app/assets/foo.js, which matches Vite's base: '/app/'.
-        // TODO: Add code-splitting (dynamic imports for dialog components) to bring
-        //       the main bundle under 500 KB. Current size ~690 KB due to settlement
-        //       dialogs and Firebase SDK.
         outDir: 'app',
         emptyOutDir: true,
         rollupOptions: {
