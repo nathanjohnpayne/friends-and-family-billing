@@ -107,4 +107,111 @@ describe('SettlementBoard', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expect(screen.getByText('Individual')).toBeInTheDocument();
     });
+
+    it('shows Record Payment button for outstanding members', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const payButtons = screen.getAllByText('Record Payment');
+        expect(payButtons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('hides Record Payment button when readOnly', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={true} />);
+        expect(screen.queryByText('Record Payment')).toBeNull();
+    });
+
+    it('opens payment dialog on Record Payment click', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const payButtons = screen.getAllByText('Record Payment');
+        fireEvent.click(payButtons[0]);
+        expect(screen.getByText(/For:/)).toBeInTheDocument();
+        expect(screen.getByText('Save Payment')).toBeInTheDocument();
+    });
+
+    it('calls onRecordPayment when payment is submitted', () => {
+        const onRecordPayment = vi.fn();
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} onRecordPayment={onRecordPayment} />);
+        const payButtons = screen.getAllByText('Record Payment');
+        fireEvent.click(payButtons[0]);
+        // Fill in amount
+        const amountInput = screen.getByPlaceholderText('0.00');
+        fireEvent.change(amountInput, { target: { value: '100' } });
+        fireEvent.click(screen.getByText('Save Payment'));
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
+            memberId: 1,
+            amount: 100,
+            method: 'cash',
+            note: ''
+        }));
+    });
+
+    it('shows payment error for invalid amount', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const payButtons = screen.getAllByText('Record Payment');
+        fireEvent.click(payButtons[0]);
+        fireEvent.click(screen.getByText('Save Payment'));
+        expect(screen.getByText('Enter a valid amount.')).toBeInTheDocument();
+    });
+
+    it('hides Record Payment when member is fully settled', () => {
+        const payments = [
+            { memberId: 1, amount: 10000, method: 'cash' },
+            { memberId: 2, amount: 10000, method: 'cash' },
+            { memberId: 3, amount: 10000, method: 'cash' }
+        ];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        expect(screen.queryByText('Record Payment')).toBeNull();
+    });
+
+    it('shows distribute checkbox for household members in payment dialog', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        // Alice has linked members — open her payment dialog
+        const payButtons = screen.getAllByText('Record Payment');
+        fireEvent.click(payButtons[0]);
+        expect(screen.getByLabelText(/Distribute across household/)).toBeInTheDocument();
+        // Should be checked by default
+        expect(screen.getByLabelText(/Distribute across household/)).toBeChecked();
+    });
+
+    it('passes distribute=true to onRecordPayment for household members', () => {
+        const onRecordPayment = vi.fn();
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} onRecordPayment={onRecordPayment} />);
+        const payButtons = screen.getAllByText('Record Payment');
+        fireEvent.click(payButtons[0]); // Alice (has linked members)
+        fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '200' } });
+        fireEvent.click(screen.getByText('Save Payment'));
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
+            memberId: 1,
+            amount: 200,
+            distribute: true
+        }));
+    });
+
+    it('shows Email Invoice button on card', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const invoiceButtons = screen.getAllByText('Email Invoice');
+        expect(invoiceButtons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows Payment History and share actions in expanded detail', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const aliceCard = screen.getByText('Alice').closest('.settlement-card-main');
+        fireEvent.click(aliceCard);
+        expect(screen.getByText('New Share Link')).toBeInTheDocument();
+        // Payment History appears in detail actions
+        const historyButtons = screen.getAllByText('Payment History');
+        expect(historyButtons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows Payment History instead of Record Payment when settled', () => {
+        const payments = [
+            { memberId: 1, amount: 10000, method: 'cash' },
+            { memberId: 2, amount: 10000, method: 'cash' },
+            { memberId: 3, amount: 10000, method: 'cash' }
+        ];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        // Record Payment should be gone, Payment History should appear
+        expect(screen.queryByText('Record Payment')).toBeNull();
+        const historyButtons = screen.getAllByText('Payment History');
+        expect(historyButtons.length).toBeGreaterThanOrEqual(1);
+    });
 });

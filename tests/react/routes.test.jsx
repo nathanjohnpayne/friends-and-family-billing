@@ -10,7 +10,8 @@ vi.mock('firebase/analytics', () => ({ logEvent: vi.fn() }));
 vi.mock('firebase/firestore', () => ({
     collection: vi.fn(), doc: vi.fn(), getDocs: vi.fn(),
     getDoc: vi.fn(() => Promise.resolve({ exists: () => false, data: () => ({}) })),
-    setDoc: vi.fn(() => Promise.resolve()), serverTimestamp: vi.fn()
+    setDoc: vi.fn(() => Promise.resolve()), serverTimestamp: vi.fn(),
+    query: vi.fn(), where: vi.fn(), deleteDoc: vi.fn()
 }));
 
 // ── Unauthenticated user suite ──────────────────────────────────────
@@ -80,12 +81,15 @@ describe('Routes — authenticated user', () => {
 
         const { AppRoutes } = await import('@/app/App.jsx');
         const { AuthProvider } = await import('@/app/contexts/AuthContext.jsx');
+        const { ToastProvider } = await import('@/app/contexts/ToastContext.jsx');
 
         render(
             <AuthProvider>
-                <MemoryRouter initialEntries={['/login']}>
-                    <AppRoutes />
-                </MemoryRouter>
+                <ToastProvider>
+                    <MemoryRouter initialEntries={['/login']}>
+                        <AppRoutes />
+                    </MemoryRouter>
+                </ToastProvider>
             </AuthProvider>
         );
 
@@ -106,12 +110,15 @@ describe('Routes — authenticated user', () => {
 
         const { AppRoutes } = await import('@/app/App.jsx');
         const { AuthProvider } = await import('@/app/contexts/AuthContext.jsx');
+        const { ToastProvider } = await import('@/app/contexts/ToastContext.jsx');
 
         render(
             <AuthProvider>
-                <MemoryRouter initialEntries={['/dashboard']}>
-                    <AppRoutes />
-                </MemoryRouter>
+                <ToastProvider>
+                    <MemoryRouter initialEntries={['/dashboard']}>
+                        <AppRoutes />
+                    </MemoryRouter>
+                </ToastProvider>
             </AuthProvider>
         );
 

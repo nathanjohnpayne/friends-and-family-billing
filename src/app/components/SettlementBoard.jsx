@@ -6,11 +6,25 @@ import { useState } from 'react';
 import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
 import { getInitials, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
+
+/** Payment method options matching legacy main.js:5173 */
+const PAYMENT_METHODS = [
+    { value: 'cash', label: 'Cash' },
+    { value: 'check', label: 'Check' },
+    { value: 'venmo', label: 'Venmo' },
+    { value: 'zelle', label: 'Zelle' },
+    { value: 'paypal', label: 'PayPal' },
+    { value: 'cashapp', label: 'Cash App' },
+    { value: 'apple_cash', label: 'Apple Cash' },
+    { value: 'bank_transfer', label: 'Bank Transfer' },
+    { value: 'other', label: 'Other' }
+];
 
 /**
- * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean }} props
+ * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, readOnly }) {
+export default function SettlementBoard({ familyMembers, bills, payments, readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -83,7 +97,18 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
                     <p className="settlement-empty">No households match this filter.</p>
                 ) : (
                     filtered.map(row => (
-                        <HouseholdCard key={row.member.id} row={row} payments={payments} />
+                        <HouseholdCard
+                            key={row.member.id}
+                            row={row}
+                            payments={payments}
+                            readOnly={readOnly}
+                            onRecordPayment={onRecordPayment}
+                            onTextInvoice={onTextInvoice}
+                            onEmailInvoice={onEmailInvoice}
+                            onGenerateShareLink={onGenerateShareLink}
+                            onManageShareLinks={onManageShareLinks}
+                            onViewHistory={onViewHistory}
+                        />
                     ))
                 )}
             </div>
@@ -91,10 +116,55 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
     );
 }
 
-function HouseholdCard({ row, payments }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [expanded, setExpanded] = useState(false);
+    const [paymentOpen, setPaymentOpen] = useState(false);
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState('cash');
+    const [paymentNote, setPaymentNote] = useState('');
+    const [paymentError, setPaymentError] = useState('');
+    const [distribute, setDistribute] = useState(true);
+
     const { member, data, combinedTotal, linkedData, payment, balance, status } = row;
     const hasLinked = (member.linkedMembers || []).length > 0;
+    const showPaymentAction = !readOnly && balance > 0;
+
+    function handleRecordPayment(e) {
+        e.preventDefault();
+        setPaymentError('');
+        const amt = parseFloat(paymentAmount);
+        if (!amt || amt <= 0) {
+            setPaymentError('Enter a valid amount.');
+            return;
+        }
+        try {
+            if (onRecordPayment) {
+                onRecordPayment({
+                    memberId: member.id,
+                    amount: amt,
+                    method: paymentMethod,
+                    note: paymentNote,
+                    distribute: hasLinked && distribute
+                });
+            }
+            setPaymentOpen(false);
+            setPaymentAmount('');
+            setPaymentMethod('cash');
+            setPaymentNote('');
+            setDistribute(true);
+        } catch (err) {
+            setPaymentError(err.message);
+        }
+    }
+
+    function cancelPayment() {
+        setPaymentOpen(false);
+        setPaymentAmount('');
+        setPaymentMethod('cash');
+        setPaymentNote('');
+        setPaymentError('');
+        setDistribute(true);
+    }
 
     return (
         <div className={'settlement-card settlement-card--' + status}>
@@ -121,6 +191,30 @@ function HouseholdCard({ row, payments }) {
                         <span className="settlement-card-paid">Paid {formatAnnualSummaryCurrency(payment)}</span>
                     </div>
                     <StatusBadge status={status} />
+                    <div className="settlement-card-actions" onClick={e => e.stopPropagation()}>
+                        {showPaymentAction ? (
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => setPaymentOpen(true)}
+                            >
+                                Record Payment
+                            </button>
+                        ) : (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onViewHistory && onViewHistory(member.id)}
+                            >
+                                Payment History
+                            </button>
+                        )}
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => onEmailInvoice && onEmailInvoice(member.id)}
+                            disabled={balance <= 0}
+                        >
+                            Email Invoice
+                        </button>
+                    </div>
                     <span className="settlement-expand-icon">{expanded ? '▾' : '▸'}</span>
                 </div>
             </div>
@@ -164,10 +258,129 @@ function HouseholdCard({ row, payments }) {
                                         Bal {formatAnnualSummaryCurrency(childBalance)}
                                     </span>
                                     {childStatus && <StatusBadge status={childStatus} />}
+                                    <button
+                                        className="btn btn-tertiary btn-sm"
+                                        onClick={() => onViewHistory && onViewHistory(ls.member.id)}
+                                    >
+                                        History
+                                    </button>
                                 </div>
                             </div>
                         );
                     })}
+
+                    <div className="settlement-detail-actions">
+                        {showPaymentAction && (
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => setPaymentOpen(true)}
+                            >
+                                Record Payment
+                            </button>
+                        )}
+                        <button
+                            className="btn btn-tertiary btn-sm"
+                            onClick={() => onViewHistory && onViewHistory(member.id)}
+                        >
+                            Payment History
+                        </button>
+                        <button
+                            className="btn btn-tertiary btn-sm"
+                            onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}
+                        >
+                            New Share Link
+                        </button>
+                        <button
+                            className="btn btn-tertiary btn-sm"
+                            onClick={() => onManageShareLinks && onManageShareLinks(member.id)}
+                        >
+                            Manage Share Links
+                        </button>
+                        {member.phone && (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onTextInvoice && onTextInvoice(member.id)}
+                            >
+                                Text Invoice
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {paymentOpen && (
+                <div className="dialog-overlay" onClick={cancelPayment}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Record Payment</div>
+                        <form onSubmit={handleRecordPayment}>
+                            <p className="payment-dialog-for">
+                                For: <strong>{member.name}</strong>
+                                {balance > 0 && (
+                                    <span className="payment-dialog-balance">
+                                        {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
+                                    </span>
+                                )}
+                            </p>
+                            <div className="payment-dialog-fields">
+                                <div className="payment-field-group">
+                                    <label htmlFor={'pay-amount-' + member.id}>Amount ($)</label>
+                                    <input
+                                        id={'pay-amount-' + member.id}
+                                        className="composer-input"
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        placeholder="0.00"
+                                        value={paymentAmount}
+                                        onChange={e => setPaymentAmount(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="payment-field-group">
+                                    <label htmlFor={'pay-method-' + member.id}>Method</label>
+                                    <select
+                                        id={'pay-method-' + member.id}
+                                        className="composer-input"
+                                        value={paymentMethod}
+                                        onChange={e => setPaymentMethod(e.target.value)}
+                                    >
+                                        {PAYMENT_METHODS.map(m => (
+                                            <option key={m.value} value={m.value}>{m.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="payment-field-group">
+                                    <label htmlFor={'pay-note-' + member.id}>Note (optional)</label>
+                                    <input
+                                        id={'pay-note-' + member.id}
+                                        className="composer-input"
+                                        type="text"
+                                        placeholder="e.g., Q1 payment"
+                                        value={paymentNote}
+                                        onChange={e => setPaymentNote(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            {hasLinked && (
+                                <div className="checkbox-item payment-distribute-option">
+                                    <input
+                                        type="checkbox"
+                                        id={'pay-distribute-' + member.id}
+                                        checked={distribute}
+                                        onChange={e => setDistribute(e.target.checked)}
+                                    />
+                                    <label htmlFor={'pay-distribute-' + member.id}>
+                                        Distribute across household proportionally
+                                    </label>
+                                </div>
+                            )}
+                            {paymentError && <p className="composer-error">{paymentError}</p>}
+                            <div className="dialog-buttons">
+                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
+                                <button type="submit" className="btn btn-sm btn-primary">Save Payment</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             )}
         </div>

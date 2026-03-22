@@ -1,16 +1,27 @@
+import { useState } from 'react';
 import { useBillingData } from '../../hooks/useBillingData.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useToast } from '../../contexts/ToastContext.jsx';
 import { calculateSettlementMetrics } from '@/lib/calculations.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
 import SettlementBoard from '../../components/SettlementBoard.jsx';
+import PaymentHistoryDialog from '../../components/PaymentHistoryDialog.jsx';
+import EmailInvoiceDialog from '../../components/EmailInvoiceDialog.jsx';
+import TextInvoiceDialog from '../../components/TextInvoiceDialog.jsx';
+import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 
 /**
  * DashboardView — hero status panel + KPIs.
  * Port of renderDashboardStatus() from main.js.
- * The settlement board (household cards) ships in Phase 2.
  */
 export default function DashboardView() {
-    const { activeYear, familyMembers, bills, payments, loading } = useBillingData();
+    const { activeYear, familyMembers, bills, payments, loading, service } = useBillingData();
+    const { user } = useAuth();
+    const { showToast } = useToast();
+
+    // Dialog state — which dialog is open and for which member
+    const [dialog, setDialog] = useState({ type: null, memberId: null });
 
     if (loading) {
         return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>Loading…</p>;
@@ -115,7 +126,82 @@ export default function DashboardView() {
                 bills={bills}
                 payments={payments}
                 readOnly={isYearReadOnly(activeYear)}
+                onRecordPayment={data => service.recordPayment(data)}
+                onEmailInvoice={memberId => setDialog({ type: 'emailInvoice', memberId })}
+                onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
+                onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
+                onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
+                onViewHistory={memberId => setDialog({ type: 'history', memberId })}
             />
+
+            {dialog.type === 'history' && (() => {
+                const member = familyMembers.find(m => m.id === dialog.memberId);
+                return (
+                    <PaymentHistoryDialog
+                        open
+                        memberId={dialog.memberId}
+                        memberName={member ? member.name : ''}
+                        familyMembers={familyMembers}
+                        bills={bills}
+                        payments={payments}
+                        readOnly={isYearReadOnly(activeYear)}
+                        onReverse={paymentId => {
+                            service.reversePayment(paymentId);
+                            showToast('Payment reversed');
+                        }}
+                        onClose={() => setDialog({ type: null, memberId: null })}
+                    />
+                );
+            })()}
+
+            {dialog.type === 'emailInvoice' && (
+                <EmailInvoiceDialog
+                    open
+                    memberId={dialog.memberId}
+                    familyMembers={familyMembers}
+                    bills={bills}
+                    payments={payments}
+                    activeYear={activeYear}
+                    settings={service.getState().settings || {}}
+                    onClose={() => setDialog({ type: null, memberId: null })}
+                />
+            )}
+
+            {dialog.type === 'textInvoice' && (
+                <TextInvoiceDialog
+                    open
+                    memberId={dialog.memberId}
+                    familyMembers={familyMembers}
+                    bills={bills}
+                    payments={payments}
+                    activeYear={activeYear}
+                    settings={service.getState().settings || {}}
+                    showToast={showToast}
+                    onClose={() => setDialog({ type: null, memberId: null })}
+                />
+            )}
+
+            {dialog.type === 'shareLink' && (() => {
+                const member = familyMembers.find(m => m.id === dialog.memberId);
+                return (
+                    <ShareLinkDialog
+                        open
+                        memberId={dialog.memberId}
+                        memberName={member ? member.name : ''}
+                        userId={user ? user.uid : ''}
+                        billingYearId={activeYear.id}
+                        yearLabel={yearLabel}
+                        initialTab={dialog.tab || 'generate'}
+                        familyMembers={familyMembers}
+                        bills={bills}
+                        payments={payments}
+                        activeYear={activeYear}
+                        settings={service.getState().settings || {}}
+                        showToast={showToast}
+                        onClose={() => setDialog({ type: null, memberId: null })}
+                    />
+                );
+            })()}
         </>
     );
 }

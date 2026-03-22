@@ -652,6 +652,18 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface-alt, #F7F8FB);
 }
 
+.btn-tertiary {
+    background: transparent;
+    color: var(--color-primary, #4A6FA5);
+    border-color: transparent;
+    padding: 0.3rem 0.6rem;
+}
+
+.btn-tertiary:hover:not(:disabled) {
+    background: var(--color-surface-alt, #F7F8FB);
+    color: var(--color-primary-hover, #3B5A8C);
+}
+
 .btn-destructive {
     background: var(--color-danger, #C65A5A);
     color: var(--color-text-inverse, #ffffff);
@@ -1253,6 +1265,367 @@ img, svg { display: block; max-width: 100%; }
 
 .balance-owed { color: var(--color-danger, #C65A5A); font-weight: 600; }
 .balance-paid { color: var(--color-success, #3FA37C); font-weight: 600; }
+
+/* ── Settlement Card Actions ───────────────────────────── */
+.settlement-card-actions {
+    display: flex;
+    gap: var(--space-2, 8px);
+    align-items: center;
+}
+
+/* ── Payment Dialog ────────────────────────────────────── */
+.payment-dialog-for {
+    font-size: 0.92rem;
+    color: var(--color-text-primary, #1A2233);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.payment-dialog-balance {
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.85rem;
+}
+
+.payment-dialog-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3, 12px);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.payment-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 4px);
+}
+
+.payment-field-group label {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+/* ── Link Manager Dialog ───────────────────────────────── */
+.link-manager-hint {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.link-manager-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-4, 16px);
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.link-manager-empty {
+    font-size: 0.85rem;
+    color: var(--color-text-tertiary, #8B95A8);
+    font-style: italic;
+}
+
+/* ── Payment Distribute Option ─────────────────────────── */
+.payment-distribute-option {
+    margin-bottom: var(--space-2, 8px);
+    padding: var(--space-2, 8px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+}
+
+.payment-distribute-option label {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+/* ── Settlement Detail Actions ─────────────────────────── */
+.settlement-detail-actions {
+    padding: var(--space-3, 12px) 0 var(--space-2, 8px);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2, 8px);
+}
+
+/* ── Wide Dialog ───────────────────────────────────────── */
+.dialog--wide {
+    max-width: 560px;
+    width: 90vw;
+}
+
+/* ── Payment History ───────────────────────────────────── */
+.payment-history-summary {
+    display: flex;
+    gap: var(--space-4, 16px);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.payment-history-stat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 4px);
+}
+
+.payment-history-stat-label {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary, #5B6475);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.payment-history-stat-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.payment-history-empty {
+    font-size: 0.85rem;
+    color: var(--color-text-tertiary, #8B95A8);
+    font-style: italic;
+    padding: var(--space-3, 12px) 0;
+}
+
+.payment-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: var(--space-3, 12px);
+}
+
+.payment-history-item {
+    padding: var(--space-2, 8px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+}
+
+.payment-history-item.payment-reversed {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+
+.payment-history-item.payment-reversal {
+    border-left: 3px solid var(--color-danger, #C65A5A);
+}
+
+.payment-history-item-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.payment-history-item-left {
+    display: flex;
+    gap: var(--space-3, 12px);
+    align-items: center;
+}
+
+.payment-history-item-right {
+    display: flex;
+    gap: var(--space-2, 8px);
+    align-items: center;
+}
+
+.payment-history-date {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.payment-history-amount {
+    font-weight: 600;
+}
+
+.reversal-amount {
+    color: var(--color-danger, #C65A5A);
+}
+
+.payment-history-method {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.payment-history-tag {
+    font-size: 0.72rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm, 6px);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.tag-reversed {
+    background: var(--color-surface-alt, #F7F8FB);
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.tag-reversal {
+    background: rgba(198, 90, 90, 0.1);
+    color: var(--color-danger, #C65A5A);
+}
+
+.payment-reverse-btn {
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.payment-history-note {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-top: var(--space-1, 4px);
+    padding-left: var(--space-2, 8px);
+}
+
+/* ── Invoice Dialog ────────────────────────────────────── */
+.invoice-summary-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 4px);
+    margin-bottom: var(--space-3, 12px);
+    font-size: 0.85rem;
+}
+
+.invoice-meta-row {
+    display: flex;
+    gap: var(--space-2, 8px);
+}
+
+.invoice-meta-label {
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+    min-width: 90px;
+}
+
+.invoice-share-url {
+    font-size: 0.78rem;
+    color: var(--color-primary, #4A6FA5);
+    word-break: break-all;
+}
+
+.invoice-variant-selector {
+    display: flex;
+    gap: var(--space-3, 12px);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.invoice-variant-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 4px);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.invoice-body-textarea {
+    min-height: 100px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+/* ── Share Link Dialog ─────────────────────────────────── */
+.share-link-tabs {
+    display: flex;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.share-link-generate,
+.share-link-manage {
+    min-height: 120px;
+}
+
+.share-link-result {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    padding: var(--space-2, 8px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+    margin: var(--space-3, 12px) 0;
+}
+
+.share-link-url {
+    font-size: 0.82rem;
+    color: var(--color-primary, #4A6FA5);
+    word-break: break-all;
+    flex: 1;
+}
+
+.share-link-url-truncated {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.share-link-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    max-height: 320px;
+    overflow-y: auto;
+    margin-bottom: var(--space-3, 12px);
+}
+
+.share-link-item {
+    padding: var(--space-2, 8px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+}
+
+.share-link-item-header {
+    display: flex;
+    gap: var(--space-2, 8px);
+    align-items: center;
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-link-year {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.share-link-date {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-link-status {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm, 6px);
+}
+
+.share-link-status--active {
+    background: rgba(63, 163, 124, 0.12);
+    color: var(--color-success, #3FA37C);
+}
+
+.share-link-status--expired {
+    background: rgba(139, 149, 168, 0.12);
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-link-status--revoked {
+    background: rgba(198, 90, 90, 0.1);
+    color: var(--color-danger, #C65A5A);
+}
+
+.share-link-url-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-link-meta {
+    font-size: 0.78rem;
+    color: var(--color-text-tertiary, #8B95A8);
+}
 
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {

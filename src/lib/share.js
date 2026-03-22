@@ -1,4 +1,6 @@
 // Share link helpers — no DOM, no Firestore, no module-scoped state.
+import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember } from './calculations.js';
+import { sanitizeImageSrc } from './formatting.js';
 
 /**
  * Build the default scopes array for a share link.
@@ -77,4 +79,105 @@ export function isShareTokenStale(tokenData, now) {
         ? tokenData.expiresAt.toDate()
         : new Date(tokenData.expiresAt);
     return expiryDate < now;
+}
+
+/**
+ * Compute a member's bill summary for a public share (mirrors main.js:3759).
+ */
+function computeMemberSummaryForShare(familyMembers, bills, memberId) {
+    const member = familyMembers.find(m => m.id === memberId);
+    if (!member) return null;
+    const memberBills = [];
+    let total = 0;
+    bills.forEach(bill => {
+        if (bill.members && bill.members.includes(memberId) && bill.members.length > 0) {
+            const annualTotal = getBillAnnualAmount(bill);
+            const annualShare = annualTotal / bill.members.length;
+            const monthlyShare = annualShare / 12;
+            total += annualShare;
+            memberBills.push({
+                billId: bill.id,
+                name: bill.name,
+                logo: sanitizeImageSrc(bill.logo),
+                monthlyAmount: getBillMonthlyAmount(bill),
+                billingFrequency: bill.billingFrequency || 'monthly',
+                canonicalAmount: bill.amount,
+                splitCount: bill.members.length,
+                monthlyShare: Math.round(monthlyShare * 100) / 100,
+                annualShare: Math.round(annualShare * 100) / 100,
+            });
+        }
+    });
+    return {
+        name: member.name,
+        avatar: sanitizeImageSrc(member.avatar),
+        memberId,
+        monthlyTotal: Math.round((total / 12) * 100) / 100,
+        annualTotal: Math.round(total * 100) / 100,
+        bills: memberBills,
+    };
+}
+
+/**
+ * Build the publicShares document for a share link (mirrors main.js:3793).
+ * Pure function — caller writes to Firestore.
+ * @param {Array} familyMembers
+ * @param {Array} bills
+ * @param {Array} payments
+ * @param {number} memberId
+ * @param {string[]} scopes
+ * @param {string} userId
+ * @param {{ id: string, label?: string }} activeYear
+ * @param {{ paymentMethods?: Array }} settings
+ * @returns {Object|null}
+ */
+export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings) {
+    const primarySummary = computeMemberSummaryForShare(familyMembers, bills, memberId);
+    if (!primarySummary) return null;
+
+    const member = familyMembers.find(m => m.id === memberId);
+    const linkedIds = (member && member.linkedMembers) || [];
+    const linkedSummaries = linkedIds
+        .map(id => computeMemberSummaryForShare(familyMembers, bills, id))
+        .filter(Boolean);
+
+    const paymentTotal = getPaymentTotalForMember(payments, memberId);
+    let combinedAnnual = primarySummary.annualTotal;
+    let combinedPayment = paymentTotal;
+    linkedSummaries.forEach(ls => {
+        combinedAnnual += ls.annualTotal;
+        combinedPayment += getPaymentTotalForMember(payments, ls.memberId);
+    });
+
+    const enabledMethods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+
+    const data = {
+        memberName: primarySummary.name,
+        memberId,
+        billingYearId: activeYear ? activeYear.id : '',
+        year: activeYear ? (activeYear.label || activeYear.id) : '',
+        scopes,
+        ownerId: userId,
+    };
+
+    if (scopes.includes('summary:read')) {
+        data.summary = primarySummary;
+        data.linkedMembers = linkedSummaries;
+        data.paymentSummary = {
+            combinedAnnualTotal: Math.round(combinedAnnual * 100) / 100,
+            combinedMonthlyTotal: Math.round((combinedAnnual / 12) * 100) / 100,
+            totalPaid: Math.round(combinedPayment * 100) / 100,
+            balanceRemaining: Math.round((combinedAnnual - combinedPayment) * 100) / 100,
+        };
+    }
+
+    if (scopes.includes('paymentMethods:read')) {
+        data.paymentMethods = enabledMethods.map(m => {
+            const copy = Object.assign({}, m);
+            if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
+            return copy;
+        });
+    }
+
+    return data;
 }

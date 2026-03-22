@@ -32,6 +32,10 @@ export default function MembersTab() {
     // Delete confirmation
     const [deleteTarget, setDeleteTarget] = useState(null);
 
+    // Household link management
+    const [linkTarget, setLinkTarget] = useState(null);
+    const [linkSelections, setLinkSelections] = useState([]);
+
     if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
 
     function handleAdd(e) {
@@ -84,6 +88,42 @@ export default function MembersTab() {
         service.removeMember(deleteTarget.id);
         showToast('Member removed: ' + deleteTarget.name);
         setDeleteTarget(null);
+    }
+
+    function openLinkManager(member) {
+        // Available: non-parents who aren't linked to someone else (except already linked to this member)
+        setLinkTarget(member);
+        setLinkSelections([...(member.linkedMembers || [])]);
+    }
+
+    function toggleLinkSelection(memberId) {
+        setLinkSelections(prev =>
+            prev.includes(memberId)
+                ? prev.filter(id => id !== memberId)
+                : [...prev, memberId]
+        );
+    }
+
+    function saveLinkSelections() {
+        if (!linkTarget) return;
+        try {
+            service.updateMember(linkTarget.id, { linkedMembers: linkSelections });
+            showToast('Household updated for ' + linkTarget.name);
+        } catch (err) {
+            alert(err.message);
+        }
+        setLinkTarget(null);
+        setLinkSelections([]);
+    }
+
+    function getAvailableForLinking(parentId) {
+        // Mirrors legacy manageLinkMembers (main.js:1028):
+        // Include members already linked to THIS parent, plus unlinked non-parents
+        return familyMembers.filter(m =>
+            m.id !== parentId &&
+            (m.linkedMembers || []).length === 0 &&
+            (!isLinkedToAnyone(familyMembers, m.id) || (familyMembers.find(p => p.id === parentId)?.linkedMembers || []).includes(m.id))
+        );
     }
 
     return (
@@ -151,6 +191,7 @@ export default function MembersTab() {
                             onCancelEdit={cancelEdit}
                             onEditKeyDown={handleEditKeyDown}
                             onDelete={confirmDelete}
+                            onLinkHousehold={openLinkManager}
                         />
                     ))}
                 </div>
@@ -167,6 +208,39 @@ export default function MembersTab() {
                 onConfirm={executeDelete}
                 onCancel={() => setDeleteTarget(null)}
             />
+
+            {linkTarget && (
+                <div className="dialog-overlay" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Manage Household for {linkTarget.name}</div>
+                        <p className="link-manager-hint">
+                            Select members to link as part of {linkTarget.name}'s household.
+                            Members can only belong to one household.
+                        </p>
+                        <div className="link-manager-list">
+                            {getAvailableForLinking(linkTarget.id).length === 0 ? (
+                                <p className="link-manager-empty">No available members to link. Members can only be linked to one parent.</p>
+                            ) : (
+                                getAvailableForLinking(linkTarget.id).map(m => (
+                                    <div key={m.id} className="checkbox-item">
+                                        <input
+                                            type="checkbox"
+                                            id={'link-' + linkTarget.id + '-' + m.id}
+                                            checked={linkSelections.includes(m.id)}
+                                            onChange={() => toggleLinkSelection(m.id)}
+                                        />
+                                        <label htmlFor={'link-' + linkTarget.id + '-' + m.id}>{m.name}</label>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-header-secondary" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>Cancel</button>
+                            <button className="btn btn-sm btn-primary" onClick={saveLinkSelections}>Save Household</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -175,7 +249,7 @@ function MemberCard({
     member, familyMembers, readOnly,
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
-    onDelete
+    onDelete, onLinkHousehold
 }) {
     const isChild = isLinkedToAnyone(familyMembers, member.id);
     const linkedNames = (member.linkedMembers || [])
@@ -238,6 +312,11 @@ function MemberCard({
             {!readOnly && (
                 <div className="member-actions-col">
                     <ActionMenu label={'Actions for ' + member.name}>
+                        {!isChild && (
+                            <ActionMenuItem onClick={() => onLinkHousehold(member)}>
+                                {(member.linkedMembers || []).length > 0 ? 'Edit Household' : 'Link Household'}
+                            </ActionMenuItem>
+                        )}
                         <ActionMenuItem onClick={() => onDelete(member)} danger>
                             Delete Member
                         </ActionMenuItem>

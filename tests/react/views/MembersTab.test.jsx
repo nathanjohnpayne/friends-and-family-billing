@@ -136,4 +136,50 @@ describe('MembersTab', () => {
         renderTab({ loading: true });
         expect(screen.getByText('Loading…')).toBeInTheDocument();
     });
+
+    it('shows Link Household option in action menu for parent member', () => {
+        renderTab();
+        // Alice has linkedMembers — should show "Edit Household"
+        const triggers = screen.getAllByLabelText(/Actions for/);
+        fireEvent.click(triggers[0]); // Alice's menu
+        expect(screen.getByText('Edit Household')).toBeInTheDocument();
+    });
+
+    it('shows Link Household option for member with no links', () => {
+        renderTab({
+            familyMembers: [
+                { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+                { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+            ]
+        });
+        const triggers = screen.getAllByLabelText(/Actions for/);
+        fireEvent.click(triggers[0]);
+        expect(screen.getByText('Link Household')).toBeInTheDocument();
+    });
+
+    it('opens household link dialog on Edit Household click', () => {
+        renderTab();
+        const triggers = screen.getAllByLabelText(/Actions for/);
+        fireEvent.click(triggers[0]); // Alice
+        fireEvent.click(screen.getByText('Edit Household'));
+        expect(screen.getByText(/Manage Household for Alice/)).toBeInTheDocument();
+        expect(screen.getByText('Save Household')).toBeInTheDocument();
+    });
+
+    it('calls service.updateMember with linkedMembers on Save Household', () => {
+        renderTab({
+            familyMembers: [
+                { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+                { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+                { id: 3, name: 'Carol', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+            ]
+        });
+        const triggers = screen.getAllByLabelText(/Actions for/);
+        fireEvent.click(triggers[0]); // Alice
+        fireEvent.click(screen.getByText('Link Household'));
+        // Check Bob
+        fireEvent.click(screen.getByLabelText('Bob'));
+        fireEvent.click(screen.getByText('Save Household'));
+        expect(mockService.updateMember).toHaveBeenCalledWith(1, { linkedMembers: [2] });
+    });
 });

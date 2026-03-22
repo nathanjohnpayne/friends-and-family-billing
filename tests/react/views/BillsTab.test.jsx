@@ -144,4 +144,73 @@ describe('BillsTab', () => {
         fireEvent.click(screen.getByLabelText('Actions for Internet'));
         expect(screen.getByText('Open Website')).toBeInTheDocument();
     });
+
+    it('shows Convert to Annual option in action menu for monthly bill', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('Convert to Annual')).toBeInTheDocument();
+    });
+
+    it('shows Convert to Monthly for annual bill', () => {
+        renderTab({
+            bills: [
+                { id: 101, name: 'Insurance', amount: 1200, billingFrequency: 'annual', members: [1], logo: '', website: '' }
+            ]
+        });
+        fireEvent.click(screen.getByLabelText('Actions for Insurance'));
+        expect(screen.getByText('Convert to Monthly')).toBeInTheDocument();
+    });
+
+    it('opens frequency conversion dialog on click', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Convert to Annual'));
+        expect(screen.getByText('Convert Billing Frequency')).toBeInTheDocument();
+        expect(screen.getByText(/from monthly to annual/)).toBeInTheDocument();
+    });
+
+    it('calls service.updateBill with converted frequency on confirm', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Convert to Annual'));
+        fireEvent.click(screen.getByText('Convert to annual'));
+        expect(mockService.updateBill).toHaveBeenCalledWith(101, {
+            billingFrequency: 'annual',
+            amount: 1200
+        });
+    });
+
+    it('shows Edit Website option in action menu', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('Edit Website')).toBeInTheDocument();
+    });
+
+    it('shows Add Website for bill without website', () => {
+        renderTab({
+            bills: [
+                { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1], logo: '', website: '' }
+            ]
+        });
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('Add Website')).toBeInTheDocument();
+    });
+
+    it('opens website edit dialog on click', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Edit Website'));
+        expect(screen.getByText('Edit Website for Internet')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument();
+    });
+
+    it('calls service.updateBill with new website on save', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Edit Website'));
+        const urlInput = screen.getByPlaceholderText('https://example.com');
+        fireEvent.change(urlInput, { target: { value: 'https://newsite.com' } });
+        fireEvent.click(screen.getByText('Save Website'));
+        expect(mockService.updateBill).toHaveBeenCalledWith(101, { website: 'https://newsite.com' });
+    });
 });

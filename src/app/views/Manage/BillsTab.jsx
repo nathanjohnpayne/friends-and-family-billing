@@ -36,6 +36,14 @@ export default function BillsTab() {
     // Delete confirmation
     const [deleteTarget, setDeleteTarget] = useState(null);
 
+    // Frequency conversion dialog
+    const [freqTarget, setFreqTarget] = useState(null);
+
+    // Website edit dialog
+    const [websiteTarget, setWebsiteTarget] = useState(null);
+    const [websiteValue, setWebsiteValue] = useState('');
+    const [websiteError, setWebsiteError] = useState('');
+
     if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
 
     function handleAdd(e) {
@@ -103,6 +111,50 @@ export default function BillsTab() {
         service.removeBill(deleteTarget.id);
         showToast('Bill removed: ' + deleteTarget.name);
         setDeleteTarget(null);
+    }
+
+    function openFrequencyConvert(bill) {
+        setFreqTarget(bill);
+    }
+
+    function executeFrequencyConvert() {
+        if (!freqTarget) return;
+        const currentFreq = freqTarget.billingFrequency || 'monthly';
+        const targetFreq = currentFreq === 'annual' ? 'monthly' : 'annual';
+        const newAmount = currentFreq === 'annual'
+            ? Math.round((freqTarget.amount / 12) * 100) / 100
+            : Math.round((freqTarget.amount * 12) * 100) / 100;
+        try {
+            service.updateBill(freqTarget.id, { billingFrequency: targetFreq, amount: newAmount });
+            showToast('Bill updated: ' + freqTarget.name + ' now $' + newAmount.toFixed(2) + (targetFreq === 'annual' ? ' / year' : ' / month'));
+        } catch (err) {
+            alert(err.message);
+        }
+        setFreqTarget(null);
+    }
+
+    function openWebsiteEdit(bill) {
+        setWebsiteTarget(bill);
+        setWebsiteValue(bill.website || '');
+        setWebsiteError('');
+    }
+
+    function saveWebsite() {
+        if (!websiteTarget) return;
+        const trimmed = websiteValue.trim();
+        if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+            setWebsiteError('URL must start with http:// or https://');
+            return;
+        }
+        try {
+            service.updateBill(websiteTarget.id, { website: trimmed });
+            showToast('Website updated for ' + websiteTarget.name);
+        } catch (err) {
+            setWebsiteError(err.message);
+        }
+        setWebsiteTarget(null);
+        setWebsiteValue('');
+        setWebsiteError('');
     }
 
     return (
@@ -187,6 +239,8 @@ export default function BillsTab() {
                             onToggleSplit={() => toggleSplit(bill.id)}
                             onToggleMember={handleToggleMember}
                             onDelete={confirmDelete}
+                            onConvertFrequency={openFrequencyConvert}
+                            onEditWebsite={openWebsiteEdit}
                         />
                     ))}
                 </div>
@@ -201,6 +255,55 @@ export default function BillsTab() {
                 onConfirm={executeDelete}
                 onCancel={() => setDeleteTarget(null)}
             />
+
+            {freqTarget && (() => {
+                const currentFreq = freqTarget.billingFrequency || 'monthly';
+                const targetFreq = currentFreq === 'annual' ? 'monthly' : 'annual';
+                const newAmount = currentFreq === 'annual'
+                    ? Math.round((freqTarget.amount / 12) * 100) / 100
+                    : Math.round((freqTarget.amount * 12) * 100) / 100;
+                return (
+                    <ConfirmDialog
+                        open={true}
+                        title="Convert Billing Frequency"
+                        message={
+                            'Convert ' + freqTarget.name + ' from ' + currentFreq + ' to ' + targetFreq + ' billing. '
+                            + 'The stored amount will change from $' + freqTarget.amount.toFixed(2) + ' to $' + newAmount.toFixed(2) + '. '
+                            + 'All totals will be recalculated.'
+                        }
+                        confirmLabel={'Convert to ' + targetFreq}
+                        onConfirm={executeFrequencyConvert}
+                        onCancel={() => setFreqTarget(null)}
+                    />
+                );
+            })()}
+
+            {websiteTarget && (
+                <div className="dialog-overlay" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Edit Website for {websiteTarget.name}</div>
+                        <div className="payment-dialog-fields">
+                            <div className="payment-field-group">
+                                <label htmlFor={'website-edit-' + websiteTarget.id}>Website URL</label>
+                                <input
+                                    id={'website-edit-' + websiteTarget.id}
+                                    className="composer-input"
+                                    type="url"
+                                    placeholder="https://example.com"
+                                    value={websiteValue}
+                                    onChange={e => setWebsiteValue(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                        {websiteError && <p className="composer-error">{websiteError}</p>}
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-header-secondary" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>Cancel</button>
+                            <button className="btn btn-sm btn-primary" onClick={saveWebsite}>Save Website</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -210,7 +313,7 @@ function BillCard({
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
-    onDelete
+    onDelete, onConvertFrequency, onEditWebsite
 }) {
     const annualAmount = getBillAnnualAmount(bill);
     const isAnnual = bill.billingFrequency === 'annual';
@@ -313,6 +416,12 @@ function BillCard({
             {!readOnly && (
                 <div className="bill-actions-row">
                     <ActionMenu label={'Actions for ' + bill.name}>
+                        <ActionMenuItem onClick={() => onConvertFrequency(bill)}>
+                            {isAnnual ? 'Convert to Monthly' : 'Convert to Annual'}
+                        </ActionMenuItem>
+                        <ActionMenuItem onClick={() => onEditWebsite(bill)}>
+                            {bill.website ? 'Edit Website' : 'Add Website'}
+                        </ActionMenuItem>
                         {bill.website && /^https?:\/\//i.test(bill.website) && (
                             <ActionMenuItem onClick={() => window.open(bill.website, '_blank', 'noopener,noreferrer')}>
                                 Open Website
