@@ -63,7 +63,7 @@ export default function MembersTab() {
             service.updateMember(editingId, { [editField]: editValue });
             showToast('Member updated');
         } catch (err) {
-            alert(err.message);
+            showToast(err.message);
         }
         setEditingId(null);
         setEditField(null);
@@ -110,7 +110,7 @@ export default function MembersTab() {
             service.updateMember(linkTarget.id, { linkedMembers: linkSelections });
             showToast('Household updated for ' + linkTarget.name);
         } catch (err) {
-            alert(err.message);
+            showToast(err.message);
         }
         setLinkTarget(null);
         setLinkSelections([]);

@@ -1,9 +1,6 @@
 /**
  * TextInvoiceDialog — SMS invoice composer with variant selector.
  * Port of showTextInvoiceDialog() from main.js:4521.
- *
- * TODO: Add dedicated React test file (tests/react/components/TextInvoiceDialog.test.jsx)
- *       covering variant switching, SMS deep link generation, and clipboard fallback.
  */
 import { useState, useEffect } from 'react';
 import { getInvoiceSummaryContext, buildInvoiceBody } from '../../lib/invoice.js';

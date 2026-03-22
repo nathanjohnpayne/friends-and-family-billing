@@ -75,6 +75,22 @@ describe('BillsTab', () => {
         expect(screen.queryByText('+ Add Bill')).toBeNull();
     });
 
+    it('shows View History in action menu when year is read-only', () => {
+        renderTab({ activeYear: { id: '2024', label: '2024', status: 'archived' } });
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('View History')).toBeInTheDocument();
+    });
+
+    it('hides mutation actions when year is read-only', () => {
+        renderTab({ activeYear: { id: '2024', label: '2024', status: 'archived' } });
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('View History')).toBeInTheDocument();
+        expect(screen.getByText('Open Website')).toBeInTheDocument();
+        expect(screen.queryByText('Convert to Annual')).toBeNull();
+        expect(screen.queryByText('Edit Website')).toBeNull();
+        expect(screen.queryByText('Remove Bill')).toBeNull();
+    });
+
     it('opens composer on Add Bill click', () => {
         renderTab();
         fireEvent.click(screen.getByText('+ Add Bill'));
