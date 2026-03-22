@@ -19,8 +19,11 @@
       "package-lock.json",
       "tests/**",
       "functions/**",
+      "scripts/**",
+      "specs/**",
       "stamp-version.js",
-      "enhancements/**"
+      "enhancements/**",
+      ".env*"
     ],
     "headers": [
       {
@@ -81,7 +84,7 @@
     "rewrites": [
       {
         "source": "/share",
-        "destination": "/share.html"
+        "destination": "/app/src/app/index.html"
       },
       {
         "source": "/resolveShareToken",

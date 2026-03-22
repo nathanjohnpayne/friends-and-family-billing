@@ -22,15 +22,17 @@ There is no staging environment. All deploys go directly to production.
 
 ## Build Process
 
-Firebase Hosting deploys the repository root, but the app bundle is generated from `src/` first.
+Firebase Hosting deploys the repository root. The React app is built by Vite into `app/`.
 
 ```bash
-# Build the browser bundle locally
+# Build the React app
 npm run build
 ```
 
-`npm run build` runs esbuild and writes `script.js` and `script.js.map` at the repo root.
-During deploys, Firebase also runs the configured hosting predeploy hook: `node stamp-version.js && npm run build`.
+`npm run build` runs Vite, which outputs to `app/` (matching the `/app/` base path).
+During deploys, Firebase also runs the configured hosting predeploy hook: `npm run build && node stamp-version.js`.
+
+Firebase config is read from `.env.local` (gitignored) as `VITE_FIREBASE_*` environment variables. Create this file from the template before building or deploying.
 
 ## Deployment Steps
 

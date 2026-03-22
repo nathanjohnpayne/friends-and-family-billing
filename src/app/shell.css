@@ -2140,6 +2140,336 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+/* ── Share Page ─────────────────────────────────────────── */
+.share-page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: var(--space-4, 16px);
+    font-family: var(--font-family, system-ui, -apple-system, sans-serif);
+}
+
+.share-loading, .share-error {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 50vh;
+}
+
+.share-state-card {
+    text-align: center;
+    padding: var(--space-6, 24px);
+}
+
+.share-header {
+    margin-bottom: var(--space-6, 24px);
+}
+
+.share-header h1 {
+    font-size: 1.5rem;
+    margin: var(--space-3, 12px) 0 var(--space-2, 8px);
+}
+
+.share-header-meta {
+    display: flex;
+    gap: var(--space-2, 8px);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2, 8px);
+}
+
+.share-pill {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: var(--radius-pill, 20px);
+    background: var(--color-surface-alt, #F7F8FB);
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-subtitle {
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.92rem;
+}
+
+.share-trust-banner {
+    display: flex;
+    gap: var(--space-2, 8px);
+    align-items: flex-start;
+    padding: var(--space-3, 12px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+    margin-top: var(--space-3, 12px);
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-section {
+    margin-bottom: var(--space-6, 24px);
+}
+
+.share-section h2 {
+    font-size: 1.15rem;
+    margin-bottom: var(--space-3, 12px);
+}
+
+.share-hint {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-bottom: var(--space-2, 8px);
+}
+
+.share-linked-block {
+    margin-top: var(--space-4, 16px);
+}
+
+.share-linked-block h3 {
+    font-size: 1rem;
+    margin-bottom: var(--space-2, 8px);
+}
+
+/* Share Tables */
+.share-table-wrap {
+    overflow-x: auto;
+}
+
+.share-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.share-table th {
+    text-align: left;
+    padding: var(--space-2, 8px);
+    border-bottom: 2px solid var(--color-border, #e0e0e0);
+    font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-table td {
+    padding: var(--space-2, 8px);
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.share-cell-number {
+    text-align: right;
+}
+
+.share-total-row td {
+    font-weight: 600;
+    border-top: 2px solid var(--color-border, #e0e0e0);
+}
+
+.share-review-btn {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-primary, #4A6FA5);
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+/* Payment Summary */
+.share-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-3, 12px);
+}
+
+.share-stat-card {
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+    padding: var(--space-3, 12px);
+    text-align: center;
+}
+
+.share-stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-secondary, #5B6475);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-stat-value {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.share-stat-value.paid { color: var(--color-success, #3FA37C); }
+.share-stat-value.owed { color: var(--color-danger, #C65A5A); }
+
+.share-progress {
+    height: 8px;
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-progress-bar {
+    height: 100%;
+    background: var(--color-success, #3FA37C);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.share-progress-label {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    text-align: center;
+    margin-bottom: var(--space-3, 12px);
+}
+
+.share-callout {
+    padding: var(--space-3, 12px);
+    border-radius: var(--radius-sm, 6px);
+    margin-top: var(--space-3, 12px);
+}
+
+.share-callout.outstanding {
+    background: rgba(198, 90, 90, 0.08);
+    border-left: 3px solid var(--color-danger, #C65A5A);
+}
+
+.share-callout.settled {
+    background: rgba(63, 163, 124, 0.08);
+    border-left: 3px solid var(--color-success, #3FA37C);
+}
+
+/* Payment Methods */
+.share-pm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-3, 12px);
+}
+
+.share-pm-card {
+    background: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    padding: var(--space-3, 12px);
+}
+
+.share-pm-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-2, 8px);
+}
+
+.share-pm-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.share-pm-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.share-pm-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-pm-instructions {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-top: var(--space-2, 8px);
+}
+
+.share-copy-btn {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border: 1px solid var(--color-border, #e0e0e0);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.share-qr-btn {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-2, 8px);
+    padding: 0.3rem;
+    font-size: 0.82rem;
+    background: var(--color-surface-alt, #F7F8FB);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    cursor: pointer;
+}
+
+/* Share Disputes */
+.share-disputes-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+}
+
+.share-dispute-item {
+    padding: var(--space-3, 12px);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    border-left: 3px solid transparent;
+}
+
+.share-dispute--open { border-left-color: var(--color-warning, #E0A84D); }
+.share-dispute--in_review { border-left-color: var(--color-primary, #4A6FA5); }
+.share-dispute--resolved { border-left-color: var(--color-success, #3FA37C); }
+.share-dispute--rejected { border-left-color: var(--color-danger, #C65A5A); }
+
+.share-dispute-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-dispute-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm, 6px);
+}
+
+.share-dispute-badge--open { background: rgba(224, 168, 77, 0.12); color: var(--color-warning, #E0A84D); }
+.share-dispute-badge--in_review { background: rgba(74, 111, 165, 0.12); color: var(--color-primary, #4A6FA5); }
+.share-dispute-badge--resolved { background: rgba(63, 163, 124, 0.12); color: var(--color-success, #3FA37C); }
+.share-dispute-badge--rejected { background: rgba(198, 90, 90, 0.1); color: var(--color-danger, #C65A5A); }
+
+.share-dispute-meta {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-bottom: var(--space-2, 8px);
+}
+
+.share-dispute-message { font-size: 0.85rem; margin: 0 0 var(--space-1, 4px); }
+.share-dispute-correction { font-size: 0.82rem; color: var(--color-primary, #4A6FA5); font-style: italic; }
+.share-dispute-resolution { font-size: 0.82rem; color: var(--color-text-secondary, #5B6475); margin-top: var(--space-1, 4px); }
+
+.share-dispute-actions {
+    display: flex;
+    gap: var(--space-2, 8px);
+    margin-top: var(--space-2, 8px);
+}
+
+.share-dispute-decision {
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-top: var(--space-2, 8px);
+}
+
+.share-dispute-decision.approved { color: var(--color-success, #3FA37C); }
+.share-dispute-decision.rejected { color: var(--color-danger, #C65A5A); }
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
     .nav-email { display: none; }

@@ -1,0 +1,463 @@
+/**
+ * ShareView — public billing summary page (no auth required).
+ * Port of share.html inline JS (~700 lines) to React.
+ * Reads share token from URL, resolves via publicShares or Cloud Function,
+ * renders member summary, bill tables, payment progress, payment methods.
+ */
+import { useState, useEffect } from 'react';
+import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { db } from '../../lib/firebase.js';
+import { hashToken } from '../../lib/validation.js';
+import { getPaymentMethodIcon } from '../../lib/formatting.js';
+
+const STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
+
+function formatCurrency(amount) {
+    return '$' + Number(amount || 0).toFixed(2);
+}
+
+export default function ShareView() {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [data, setData] = useState(null);
+    const [shareCtx, setShareCtx] = useState({ token: null, tokenHash: null, ownerId: null, billingYearId: null, memberId: null, memberName: '', canDispute: false, canDisputeRead: false });
+
+    useEffect(() => {
+        loadShareData();
+    }, []);
+
+    async function loadShareData() {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+        if (!token) {
+            setError('No share token provided. Please check your link.');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const tokenHash = await hashToken(token);
+            let shareData = null;
+
+            // Try publicShares first (eager cache)
+            const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
+            if (publicDoc.exists()) {
+                shareData = publicDoc.data();
+                // Bump access count
+                updateDoc(doc(db, 'publicShares', tokenHash), {
+                    accessCount: increment(1),
+                    lastAccessedAt: new Date().toISOString()
+                }).catch(() => {});
+            } else {
+                // Fall back to Cloud Function
+                const resp = await fetch('/resolveShareToken', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    setError(errData.error || 'This link is invalid or has been removed.');
+                    setLoading(false);
+                    return;
+                }
+                shareData = await resp.json();
+            }
+
+            const scopes = shareData.scopes || [];
+            setShareCtx({
+                token,
+                tokenHash,
+                ownerId: shareData.ownerId || null,
+                billingYearId: shareData.billingYearId || null,
+                memberId: shareData.memberId || (shareData.summary && shareData.summary.memberId) || null,
+                memberName: shareData.memberName || '',
+                canDispute: scopes.includes('disputes:create'),
+                canDisputeRead: scopes.includes('disputes:read')
+            });
+            setData(shareData);
+        } catch (err) {
+            console.error('Share page error:', err);
+            setError('Could not connect to the server. Please try again later.');
+        }
+        setLoading(false);
+    }
+
+    if (loading) {
+        return (
+            <div className="share-page share-loading">
+                <div className="share-state-card">
+                    <h2>Loading your annual billing summary...</h2>
+                    <p>This secure page is preparing your latest billing details.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="share-page share-error">
+                <div className="share-state-card">
+                    <h2>Unable to Load Summary</h2>
+                    <p>{error}</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!data) return null;
+
+    return (
+        <div className="share-page">
+            <ShareHeader data={data} />
+            {data.summary && <BillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
+            {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
+            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} />}
+            {data.disputes && data.disputes.length > 0 && <DisputesSection disputes={data.disputes} shareCtx={shareCtx} />}
+        </div>
+    );
+}
+
+function ShareHeader({ data }) {
+    return (
+        <header className="share-header">
+            <div className="share-header-meta">
+                <span className="share-pill">Friends &amp; Family Billing</span>
+                <span className="share-pill">{data.year ? 'Billing Year ' + data.year : 'Shared billing summary'}</span>
+            </div>
+            <h1>{data.memberName}'s Annual Billing Summary</h1>
+            <p className="share-subtitle">You are viewing your annual shared billing summary for {data.year}.</p>
+            <div className="share-trust-banner">
+                <span>&#128274;</span>
+                <span>This is a secure annual billing summary. Payments happen in the listed apps or services, not inside Friends &amp; Family Billing.</span>
+            </div>
+        </header>
+    );
+}
+
+function BillsSection({ data, canDispute, shareCtx }) {
+    const [disputeForm, setDisputeForm] = useState(null);
+
+    return (
+        <div className="share-section">
+            <h2>{data.memberName}'s Bills</h2>
+            <BillsTable bills={data.summary.bills} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
+
+            {data.linkedMembers && data.linkedMembers.map(lm => (
+                <div key={lm.memberId || lm.name} className="share-linked-block">
+                    <h3>{lm.name}'s Bills</h3>
+                    <p className="share-hint">Included in the linked-member portion of this annual summary.</p>
+                    <BillsTable bills={lm.bills} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
+                </div>
+            ))}
+
+            {disputeForm && (
+                <DisputeFormOverlay
+                    bill={disputeForm}
+                    shareCtx={shareCtx}
+                    onClose={() => setDisputeForm(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+function BillsTable({ bills, canDispute, onRequestReview }) {
+    if (!bills || bills.length === 0) return <p className="share-hint">No bills assigned.</p>;
+    const total = bills.reduce((s, b) => s + (b.annualShare || 0), 0);
+
+    return (
+        <div className="share-table-wrap">
+            <table className="share-table">
+                <thead>
+                    <tr>
+                        <th>Bill</th>
+                        <th className="share-cell-number">Monthly</th>
+                        <th className="share-cell-number">Split</th>
+                        <th className="share-cell-number">Share</th>
+                        <th className="share-cell-number">Annual</th>
+                        {canDispute && <th></th>}
+                    </tr>
+                </thead>
+                <tbody>
+                    {bills.map((b, i) => (
+                        <tr key={b.billId || i}>
+                            <td><strong>{b.name || 'Unnamed Bill'}</strong></td>
+                            <td className="share-cell-number">{formatCurrency(b.monthlyAmount)}</td>
+                            <td className="share-cell-number">{b.splitCount} {b.splitCount === 1 ? 'member' : 'members'}</td>
+                            <td className="share-cell-number">{formatCurrency(b.monthlyShare)}</td>
+                            <td className="share-cell-number">{formatCurrency(b.annualShare)}</td>
+                            {canDispute && (
+                                <td><button className="share-review-btn" onClick={() => onRequestReview(b)}>Request Review</button></td>
+                            )}
+                        </tr>
+                    ))}
+                    <tr className="share-total-row">
+                        <td colSpan={3}>TOTAL</td>
+                        <td className="share-cell-number">{formatCurrency(total / 12)}</td>
+                        <td className="share-cell-number"><strong>{formatCurrency(total)}</strong></td>
+                        {canDispute && <td></td>}
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function PaymentSummarySection({ ps, year }) {
+    const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
+    const balClass = ps.balanceRemaining > 0 ? 'owed' : 'paid';
+
+    return (
+        <div className="share-section">
+            <h2>Payment Summary</h2>
+            <div className="share-stat-grid">
+                <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                <div className="share-stat-card"><div className="share-stat-label">Monthly</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}</div></div>
+                <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>
+                <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{formatCurrency(ps.balanceRemaining)}</div></div>
+            </div>
+            <div className="share-progress">
+                <div className="share-progress-bar" style={{ width: pctPaid + '%' }} />
+            </div>
+            <div className="share-progress-label">{pctPaid}% paid</div>
+
+            {ps.balanceRemaining > 0 && (
+                <div className="share-callout outstanding">
+                    <strong>You still have an outstanding balance for {year}.</strong>
+                    <p>Amount Remaining: {formatCurrency(ps.balanceRemaining)}</p>
+                </div>
+            )}
+            {ps.balanceRemaining <= 0 && ps.totalPaid > 0 && (
+                <div className="share-callout settled">
+                    <strong>You're all settled for {year}. Thank you!</strong>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PaymentMethodsSection({ methods }) {
+    const [qrModal, setQrModal] = useState(null);
+
+    function copyText(text, e) {
+        const btn = e.currentTarget;
+        navigator.clipboard.writeText(text).then(() => {
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = orig; }, 1500);
+        });
+    }
+
+    return (
+        <div className="share-section">
+            <h2>Payment Methods</h2>
+            <div className="share-pm-grid">
+                {methods.map((pm, i) => (
+                    <div key={pm.id || i} className="share-pm-card">
+                        <div className="share-pm-header">
+                            <span className="share-pm-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(pm.type) }} />
+                            <strong>{pm.label}</strong>
+                        </div>
+                        <div className="share-pm-body">
+                            {pm.type === 'zelle' && [pm.email, pm.phone].filter(Boolean).map(c => (
+                                <div key={c} className="share-pm-detail">
+                                    <span>{c}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
+                                </div>
+                            ))}
+                            {pm.type === 'apple_cash' && [pm.phone, pm.email].filter(Boolean).map(c => (
+                                <div key={c} className="share-pm-detail">
+                                    <span>{c}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
+                                </div>
+                            ))}
+                            {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.handle && (
+                                <div className="share-pm-detail">
+                                    <span>{pm.handle}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(pm.handle, e)}>Copy</button>
+                                </div>
+                            )}
+                            {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.url && (
+                                <div className="share-pm-detail">
+                                    <a href={pm.url} target="_blank" rel="noopener noreferrer">{pm.url}</a>
+                                    <button className="share-copy-btn" onClick={e => copyText(pm.url, e)}>Copy link</button>
+                                </div>
+                            )}
+                            {pm.instructions && <p className="share-pm-instructions">{pm.instructions}</p>}
+                        </div>
+                        {(pm.qrCode || pm.hasQrCode) && (
+                            <button className="share-qr-btn" onClick={() => setQrModal({ src: pm.qrCode, label: pm.label })}>Show QR Code</button>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {qrModal && (
+                <div className="dialog-overlay" onClick={() => setQrModal(null)}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">QR Code — {qrModal.label}</div>
+                        {qrModal.src && <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />}
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-header-secondary" onClick={() => setQrModal(null)}>Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function DisputesSection({ disputes, shareCtx }) {
+    return (
+        <div className="share-section">
+            <h2>Your Review Requests</h2>
+            <div className="share-disputes-list">
+                {disputes.map(d => (
+                    <ShareDisputeCard key={d.id} dispute={d} shareCtx={shareCtx} />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ShareDisputeCard({ dispute, shareCtx }) {
+    const [decision, setDecision] = useState(dispute.userReview ? dispute.userReview.state : null);
+    const d = dispute;
+    const label = STATUS_LABELS[d.status] || d.status;
+    const created = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '';
+
+    async function submitDecision(type, note) {
+        if (!shareCtx.ownerId || !shareCtx.billingYearId) return;
+        const disputeRef = doc(db, 'users', shareCtx.ownerId, 'billingYears', shareCtx.billingYearId, 'disputes', d.id);
+        const updates = {};
+        if (type === 'approve') {
+            updates.status = 'resolved';
+            updates.userReview = { state: 'approved_by_user', decidedAt: new Date().toISOString() };
+            updates.resolvedAt = serverTimestamp();
+        } else {
+            updates.status = 'open';
+            updates.userReview = { state: 'rejected_by_user', rejectionNote: note || '', decidedAt: new Date().toISOString() };
+        }
+        try {
+            await updateDoc(disputeRef, updates);
+            setDecision(type === 'approve' ? 'approved_by_user' : 'rejected_by_user');
+        } catch (err) {
+            console.error('Decision error:', err);
+        }
+    }
+
+    return (
+        <div className={'share-dispute-item share-dispute--' + (d.status || 'open')}>
+            <div className="share-dispute-header">
+                <strong>{d.billName}</strong>
+                <span className={'share-dispute-badge share-dispute-badge--' + d.status}>{label}</span>
+            </div>
+            {created && <div className="share-dispute-meta">{created}</div>}
+            <p className="share-dispute-message">{d.message}</p>
+            {d.proposedCorrection && <p className="share-dispute-correction">Suggested: {d.proposedCorrection}</p>}
+            {d.resolutionNote && <p className="share-dispute-resolution">Resolution: {d.resolutionNote}</p>}
+
+            {d.userReview && d.userReview.state === 'requested' && !decision && (
+                <div className="share-dispute-actions">
+                    <button className="btn btn-sm btn-primary" onClick={() => submitDecision('approve')}>Approve</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => {
+                        const note = prompt('Please explain why you are rejecting:');
+                        if (note !== null && note.trim()) submitDecision('reject', note.trim());
+                    }}>Reject</button>
+                </div>
+            )}
+            {(decision === 'approved_by_user' || (d.userReview && d.userReview.state === 'approved_by_user')) && (
+                <p className="share-dispute-decision approved">You approved this resolution.</p>
+            )}
+            {(decision === 'rejected_by_user' || (d.userReview && d.userReview.state === 'rejected_by_user')) && (
+                <p className="share-dispute-decision rejected">You rejected this resolution.</p>
+            )}
+        </div>
+    );
+}
+
+function DisputeFormOverlay({ bill, shareCtx, onClose }) {
+    const [message, setMessage] = useState('');
+    const [correction, setCorrection] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [success, setSuccess] = useState(false);
+    const [msgError, setMsgError] = useState(false);
+
+    async function handleSubmit() {
+        if (!message.trim()) {
+            setMsgError(true);
+            return;
+        }
+        if (!shareCtx.ownerId || !shareCtx.billingYearId || !shareCtx.memberId) return;
+        setSubmitting(true);
+        try {
+            const col = collection(db, 'users', shareCtx.ownerId, 'billingYears', shareCtx.billingYearId, 'disputes');
+            await addDoc(col, {
+                memberId: shareCtx.memberId,
+                memberName: shareCtx.memberName || '',
+                billId: bill.billId,
+                billName: (bill.name || '').trim(),
+                message: message.trim(),
+                proposedCorrection: correction.trim() || null,
+                status: 'open',
+                createdAt: serverTimestamp(),
+                tokenHash: shareCtx.tokenHash
+            });
+            setSuccess(true);
+        } catch (err) {
+            console.error('Dispute submission error:', err);
+        }
+        setSubmitting(false);
+    }
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
+                {success ? (
+                    <>
+                        <div className="dialog-title">Review Request Submitted</div>
+                        <p>The account owner will be notified of your request.</p>
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-primary" onClick={onClose}>Close</button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="dialog-title">Request Review</div>
+                        <p className="share-hint">Flagging <strong>{bill.name}</strong> for review.</p>
+                        <div className="payment-dialog-fields">
+                            <div className="payment-field-group">
+                                <label>What looks wrong?</label>
+                                <textarea
+                                    className={'composer-input' + (msgError ? ' input-error' : '')}
+                                    rows={4}
+                                    placeholder="Describe the issue..."
+                                    value={message}
+                                    onChange={e => { setMessage(e.target.value); setMsgError(false); }}
+                                    maxLength={2000}
+                                />
+                            </div>
+                            <div className="payment-field-group">
+                                <label>Suggested correction (optional)</label>
+                                <input
+                                    className="composer-input"
+                                    placeholder="e.g. Should be $45/mo instead of $60"
+                                    value={correction}
+                                    onChange={e => setCorrection(e.target.value)}
+                                    maxLength={500}
+                                />
+                            </div>
+                        </div>
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
+                            <button className="btn btn-sm btn-primary" onClick={handleSubmit} disabled={submitting}>
+                                {submitting ? 'Submitting...' : 'Submit'}
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
