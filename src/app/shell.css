@@ -2470,6 +2470,35 @@ img, svg { display: block; max-width: 100%; }
 .share-dispute-decision.approved { color: var(--color-success, #3FA37C); }
 .share-dispute-decision.rejected { color: var(--color-danger, #C65A5A); }
 
+.share-evidence-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1, 4px);
+    margin: var(--space-2, 8px) 0;
+}
+
+.share-evidence-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    font-size: 0.85rem;
+}
+
+.share-evidence-link {
+    background: none;
+    border: none;
+    color: var(--color-primary, #4A6FA5);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 0.85rem;
+    padding: 0;
+}
+
+.share-evidence-link:disabled {
+    color: var(--color-text-secondary, #5B6475);
+    cursor: default;
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
     .nav-email { display: none; }

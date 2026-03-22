@@ -112,7 +112,7 @@ export default function ShareView() {
             <ShareHeader data={data} />
             {data.summary && <BillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
-            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} />}
+            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} />}
             {data.disputes && data.disputes.length > 0 && <DisputesSection disputes={data.disputes} shareCtx={shareCtx} />}
         </div>
     );
@@ -237,7 +237,7 @@ function PaymentSummarySection({ ps, year }) {
     );
 }
 
-function PaymentMethodsSection({ methods }) {
+function PaymentMethodsSection({ methods, ownerId }) {
     const [qrModal, setQrModal] = useState(null);
 
     function copyText(text, e) {
@@ -247,6 +247,19 @@ function PaymentMethodsSection({ methods }) {
             btn.textContent = 'Copied!';
             setTimeout(() => { btn.textContent = orig; }, 1500);
         });
+    }
+
+    async function loadQrCode(methodId, label) {
+        if (!ownerId || !methodId) return;
+        const docId = ownerId + '_' + methodId;
+        try {
+            const qrDoc = await getDoc(doc(db, 'publicQrCodes', docId));
+            if (qrDoc.exists() && qrDoc.data().qrCode) {
+                setQrModal({ src: qrDoc.data().qrCode, label });
+            }
+        } catch (err) {
+            console.error('Failed to load QR code:', err);
+        }
     }
 
     return (
@@ -287,7 +300,13 @@ function PaymentMethodsSection({ methods }) {
                             {pm.instructions && <p className="share-pm-instructions">{pm.instructions}</p>}
                         </div>
                         {(pm.qrCode || pm.hasQrCode) && (
-                            <button className="share-qr-btn" onClick={() => setQrModal({ src: pm.qrCode, label: pm.label })}>Show QR Code</button>
+                            <button className="share-qr-btn" onClick={() => {
+                                if (pm.qrCode) {
+                                    setQrModal({ src: pm.qrCode, label: pm.label });
+                                } else {
+                                    loadQrCode(pm.id, pm.label);
+                                }
+                            }}>Show QR Code</button>
                         )}
                     </div>
                 ))}
@@ -358,6 +377,14 @@ function ShareDisputeCard({ dispute, shareCtx }) {
             {d.proposedCorrection && <p className="share-dispute-correction">Suggested: {d.proposedCorrection}</p>}
             {d.resolutionNote && <p className="share-dispute-resolution">Resolution: {d.resolutionNote}</p>}
 
+            {d.evidence && d.evidence.length > 0 && (
+                <div className="share-evidence-list">
+                    {d.evidence.map((ev, i) => (
+                        <ShareEvidenceItem key={i} evidence={ev} index={i} disputeId={d.id} shareCtx={shareCtx} />
+                    ))}
+                </div>
+            )}
+
             {d.userReview && d.userReview.state === 'requested' && !decision && (
                 <div className="share-dispute-actions">
                     <button className="btn btn-sm btn-primary" onClick={() => submitDecision('approve')}>Approve</button>
@@ -373,6 +400,44 @@ function ShareDisputeCard({ dispute, shareCtx }) {
             {(decision === 'rejected_by_user' || (d.userReview && d.userReview.state === 'rejected_by_user')) && (
                 <p className="share-dispute-decision rejected">You rejected this resolution.</p>
             )}
+        </div>
+    );
+}
+
+function ShareEvidenceItem({ evidence, index, disputeId, shareCtx }) {
+    const [loading, setLoading] = useState(false);
+
+    async function handleView() {
+        // If downloadUrl is available, use it directly
+        if (evidence.downloadUrl) {
+            window.open(evidence.downloadUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        // Otherwise fetch via Cloud Function (mirrors share.html:397)
+        setLoading(true);
+        try {
+            const resp = await fetch('/getEvidenceUrl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: shareCtx.token, disputeId, evidenceIndex: index })
+            });
+            const data = await resp.json();
+            if (resp.ok && data.url) {
+                window.open(data.url, '_blank', 'noopener,noreferrer');
+            }
+        } catch (err) {
+            console.error('Evidence URL error:', err);
+        }
+        setLoading(false);
+    }
+
+    const isImage = evidence.contentType && evidence.contentType.startsWith('image/');
+    return (
+        <div className="share-evidence-item">
+            <span>{isImage ? '\ud83d\udcf7' : '\ud83d\udcc4'}</span>
+            <button className="share-evidence-link" onClick={handleView} disabled={loading}>
+                {loading ? 'Loading...' : (evidence.name || 'File ' + (index + 1))}
+            </button>
         </div>
     );
 }

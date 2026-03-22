@@ -81,11 +81,19 @@
         ]
       }
     ],
-    "rewrites": [
+    "redirects": [
       {
         "source": "/share",
-        "destination": "/app/src/app/index.html"
+        "destination": "/app/share",
+        "type": 301
       },
+      {
+        "source": "/share.html",
+        "destination": "/app/share",
+        "type": 301
+      }
+    ],
+    "rewrites": [
       {
         "source": "/resolveShareToken",
         "function": "resolveShareToken"

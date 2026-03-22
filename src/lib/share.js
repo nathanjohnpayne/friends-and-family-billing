@@ -51,7 +51,7 @@ export function buildShareTokenDoc(userId, memberId, memberName, billingYearId, 
  * @returns {string}
  */
 export function buildShareUrl(origin, rawToken) {
-    return origin + '/share.html?token=' + rawToken;
+    return origin + '/app/share?token=' + rawToken;
 }
 
 /**
