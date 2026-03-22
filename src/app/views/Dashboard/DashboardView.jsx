@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast } from '../../contexts/ToastContext.jsx';
+import { useDisputes } from '../../hooks/useDisputes.js';
 import { calculateSettlementMetrics } from '@/lib/calculations.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
@@ -19,6 +21,10 @@ export default function DashboardView() {
     const { activeYear, familyMembers, bills, payments, loading, service } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
+
+    const navigate = useNavigate();
+    const { disputes } = useDisputes();
+    const openDisputeCount = disputes.filter(d => d.status === 'open' || d.status === 'in_review').length;
 
     // Dialog state — which dialog is open and for which member
     const [dialog, setDialog] = useState({ type: null, memberId: null });
@@ -99,7 +105,11 @@ export default function DashboardView() {
                     <KpiCard label="Outstanding" value={'$' + metrics.totalOutstanding.toFixed(2)}
                         valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'} />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers} />
-                    <KpiCard label="Open Reviews" value="—" title="Dispute data loads in Phase 2" />
+                    <KpiCard
+                        label="Open Reviews"
+                        value={String(openDisputeCount)}
+                        onClick={openDisputeCount > 0 ? () => navigate('/manage/reviews') : undefined}
+                    />
                     <KpiCard label="Status" value={statusLabel} />
                 </div>
 
@@ -235,9 +245,14 @@ function LifecycleBar({ currentStatus, currentOrder, isReadyToClose }) {
 }
 
 /** Single KPI metric card. */
-function KpiCard({ label, value, valueClass = '', title = '' }) {
+function KpiCard({ label, value, valueClass = '', title = '', onClick }) {
     return (
-        <div className="kpi-card" title={title || undefined}>
+        <div
+            className={'kpi-card' + (onClick ? ' kpi-card--clickable' : '')}
+            title={title || undefined}
+            onClick={onClick}
+            role={onClick ? 'button' : undefined}
+        >
             <span className="kpi-label">{label}</span>
             <span className={'kpi-value' + (valueClass ? ' ' + valueClass : '')}>{value}</span>
         </div>

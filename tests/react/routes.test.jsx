@@ -8,10 +8,13 @@ vi.mock('@/lib/firebase.js', () => ({
 }));
 vi.mock('firebase/analytics', () => ({ logEvent: vi.fn() }));
 vi.mock('firebase/firestore', () => ({
-    collection: vi.fn(), doc: vi.fn(), getDocs: vi.fn(),
+    collection: vi.fn(), doc: vi.fn(), getDocs: vi.fn(() => Promise.resolve({ docs: [] })),
     getDoc: vi.fn(() => Promise.resolve({ exists: () => false, data: () => ({}) })),
     setDoc: vi.fn(() => Promise.resolve()), serverTimestamp: vi.fn(),
     query: vi.fn(), where: vi.fn(), deleteDoc: vi.fn()
+}));
+vi.mock('firebase/storage', () => ({
+    ref: vi.fn(), deleteObject: vi.fn()
 }));
 
 // ── Unauthenticated user suite ──────────────────────────────────────
