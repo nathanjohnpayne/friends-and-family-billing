@@ -2068,6 +2068,59 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text-secondary, #5B6475);
 }
 
+/* ── Audit History ─────────────────────────────────────── */
+.audit-event-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    max-height: 360px;
+    overflow-y: auto;
+    margin-bottom: var(--space-3, 12px);
+}
+
+.audit-event-item {
+    padding: var(--space-2, 8px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border-radius: var(--radius-sm, 6px);
+}
+
+.audit-event-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.audit-event-label {
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.audit-event-date {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.audit-event-detail {
+    font-size: 0.82rem;
+    color: var(--color-text-primary, #1A2233);
+    margin-top: var(--space-1, 4px);
+}
+
+.audit-event-note {
+    font-size: 0.78rem;
+    color: var(--color-text-tertiary, #8B95A8);
+    font-style: italic;
+    margin-top: var(--space-1, 4px);
+}
+
+.audit-empty {
+    font-size: 0.85rem;
+    color: var(--color-text-tertiary, #8B95A8);
+    font-style: italic;
+    padding: var(--space-3, 12px) 0;
+}
+
 /* QR Code Preview */
 .pm-qr-preview {
     display: flex;

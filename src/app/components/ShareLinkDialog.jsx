@@ -1,10 +1,6 @@
 /**
  * ShareLinkDialog — generate new share links and manage existing ones.
  * Port of generateShareLink() (main.js:3985) and showShareLinks() (main.js:4154).
- *
- * TODO: Add dedicated React test file (tests/react/components/ShareLinkDialog.test.jsx)
- *       covering initialTab prop, eager publicShares publication, manage tab loading,
- *       and revoke flow. Currently validated by code inspection + suite/build passes only.
  */
 import { useState, useEffect } from 'react';
 import { doc, setDoc, getDocs, collection, query, where, deleteDoc, serverTimestamp } from 'firebase/firestore';

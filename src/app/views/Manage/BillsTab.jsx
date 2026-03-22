@@ -11,9 +11,10 @@ import { getBillFrequencyLabel } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
+import BillAuditHistoryDialog from '../../components/BillAuditHistoryDialog.jsx';
 
 export default function BillsTab() {
-    const { bills, familyMembers, activeYear, loading, service } = useBillingData();
+    const { bills, familyMembers, activeYear, loading, service, billingEvents } = useBillingData();
     const { showToast } = useToast();
     const readOnly = isYearReadOnly(activeYear);
 
@@ -44,6 +45,9 @@ export default function BillsTab() {
     const [websiteValue, setWebsiteValue] = useState('');
     const [websiteError, setWebsiteError] = useState('');
 
+    // Audit history dialog
+    const [historyTarget, setHistoryTarget] = useState(null);
+
     if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
 
     function handleAdd(e) {
@@ -73,7 +77,7 @@ export default function BillsTab() {
             service.updateBill(editingId, { [editField]: value });
             showToast('Bill updated');
         } catch (err) {
-            alert(err.message);
+            showToast(err.message);
         }
         setEditingId(null);
         setEditField(null);
@@ -128,7 +132,7 @@ export default function BillsTab() {
             service.updateBill(freqTarget.id, { billingFrequency: targetFreq, amount: newAmount });
             showToast('Bill updated: ' + freqTarget.name + ' now $' + newAmount.toFixed(2) + (targetFreq === 'annual' ? ' / year' : ' / month'));
         } catch (err) {
-            alert(err.message);
+            showToast(err.message);
         }
         setFreqTarget(null);
     }
@@ -241,6 +245,7 @@ export default function BillsTab() {
                             onDelete={confirmDelete}
                             onConvertFrequency={openFrequencyConvert}
                             onEditWebsite={openWebsiteEdit}
+                            onViewHistory={setHistoryTarget}
                         />
                     ))}
                 </div>
@@ -304,6 +309,16 @@ export default function BillsTab() {
                     </div>
                 </div>
             )}
+
+            {historyTarget && (
+                <BillAuditHistoryDialog
+                    open
+                    billId={historyTarget.id}
+                    billName={historyTarget.name}
+                    billingEvents={billingEvents || []}
+                    onClose={() => setHistoryTarget(null)}
+                />
+            )}
         </div>
     );
 }
@@ -313,7 +328,7 @@ function BillCard({
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
-    onDelete, onConvertFrequency, onEditWebsite
+    onDelete, onConvertFrequency, onEditWebsite, onViewHistory
 }) {
     const annualAmount = getBillAnnualAmount(bill);
     const isAnnual = bill.billingFrequency === 'annual';
@@ -416,6 +431,9 @@ function BillCard({
             {!readOnly && (
                 <div className="bill-actions-row">
                     <ActionMenu label={'Actions for ' + bill.name}>
+                        <ActionMenuItem onClick={() => onViewHistory(bill)}>
+                            View History
+                        </ActionMenuItem>
                         <ActionMenuItem onClick={() => onConvertFrequency(bill)}>
                             {isAnnual ? 'Convert to Monthly' : 'Convert to Annual'}
                         </ActionMenuItem>

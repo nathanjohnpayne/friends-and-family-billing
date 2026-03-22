@@ -2,14 +2,29 @@ import { useState } from 'react';
 import { getBillingYearStatusLabel } from '@/lib/formatting.js';
 import { suggestNextYearLabel, isYearLabelDuplicate } from '@/lib/billing-year.js';
 import { useBillingData } from '../hooks/useBillingData.js';
+import { useToast } from '../contexts/ToastContext.jsx';
+import ConfirmDialog from './ConfirmDialog.jsx';
 
 /**
  * BillingYearSelector — switch years, manage lifecycle transitions.
  * Port of renderBillingYearSelector() + confirm* functions from main.js.
+ * All native confirm()/prompt()/alert() replaced with styled React dialogs.
  */
 export default function BillingYearSelector() {
     const { billingYears, activeYear, service } = useBillingData();
+    const { showToast } = useToast();
     const [busy, setBusy] = useState(false);
+
+    // Confirm dialog state
+    const [confirmState, setConfirmState] = useState(null);
+
+    // New year prompt state
+    const [newYearOpen, setNewYearOpen] = useState(false);
+    const [newYearLabel, setNewYearLabel] = useState('');
+    const [newYearError, setNewYearError] = useState('');
+
+    // Post-archive offer state
+    const [postArchiveOffer, setPostArchiveOffer] = useState(false);
 
     if (!activeYear) return null;
 
@@ -19,60 +34,60 @@ export default function BillingYearSelector() {
         service.switchYear(e.target.value);
     }
 
-    async function handleStatusChange(newStatus, message) {
-        if (!window.confirm(message)) return;
+    function requestConfirm(message, action) {
+        setConfirmState({ message, action });
+    }
+
+    async function executeConfirm() {
+        if (!confirmState) return;
+        const { action } = confirmState;
+        setConfirmState(null);
         setBusy(true);
         try {
-            await service.setYearStatus(newStatus);
+            await action();
         } catch (err) {
-            alert('Error: ' + err.message);
+            showToast('Error: ' + err.message);
         } finally {
             setBusy(false);
         }
     }
 
-    /**
-     * Archive flow — mirrors legacy archiveCurrentYear() in main.js:539.
-     * After archiving, immediately offers to start a new year so the user
-     * isn't stranded on a read-only archived year.
-     */
-    async function handleArchive() {
+    function handleStatusChange(newStatus, message) {
+        requestConfirm(message, () => service.setYearStatus(newStatus));
+    }
+
+    function handleArchive() {
         const msg = 'Archive billing year ' + activeYear.label + '?\n\n'
             + 'This will make all records read-only.\n'
             + 'You can still view historical data later.';
-        if (!window.confirm(msg)) return;
-        setBusy(true);
-        try {
+        requestConfirm(msg, async () => {
             await service.setYearStatus('archived');
-            // Offer to start new year immediately (legacy parity)
-            if (window.confirm('Year archived successfully. Would you like to start a new billing year?')) {
-                setBusy(false);
-                await handleStartNewYear();
-                return;
-            }
-        } catch (err) {
-            alert('Error: ' + err.message);
-        } finally {
-            setBusy(false);
-        }
+            setPostArchiveOffer(true);
+        });
     }
 
-    async function handleStartNewYear() {
-        const defaultLabel = suggestNextYearLabel(activeYear);
-        const label = window.prompt('Enter label for the new billing year:', defaultLabel);
-        if (!label || !label.trim()) return;
+    function handleStartNewYear() {
+        setNewYearLabel(suggestNextYearLabel(activeYear));
+        setNewYearError('');
+        setNewYearOpen(true);
+    }
 
-        const yearId = label.trim();
-        if (isYearLabelDuplicate(billingYears, yearId)) {
-            alert('Billing year "' + yearId + '" already exists.');
+    async function executeNewYear() {
+        const yearId = newYearLabel.trim();
+        if (!yearId) {
+            setNewYearError('Label is required.');
             return;
         }
-
+        if (isYearLabelDuplicate(billingYears, yearId)) {
+            setNewYearError('Billing year "' + yearId + '" already exists.');
+            return;
+        }
+        setNewYearOpen(false);
         setBusy(true);
         try {
             await service.createYear(yearId);
         } catch (err) {
-            alert('Error: ' + err.message);
+            showToast('Error: ' + err.message);
         } finally {
             setBusy(false);
         }
@@ -141,6 +156,56 @@ export default function BillingYearSelector() {
                     </button>
                 )}
             </div>
+
+            {/* Generic confirm dialog for status transitions */}
+            <ConfirmDialog
+                open={confirmState !== null}
+                title="Confirm Action"
+                message={confirmState ? confirmState.message : ''}
+                confirmLabel="Confirm"
+                onConfirm={executeConfirm}
+                onCancel={() => setConfirmState(null)}
+            />
+
+            {/* Post-archive offer to start new year */}
+            <ConfirmDialog
+                open={postArchiveOffer}
+                title="Year Archived"
+                message="Year archived successfully. Would you like to start a new billing year?"
+                confirmLabel="Start New Year"
+                onConfirm={() => {
+                    setPostArchiveOffer(false);
+                    handleStartNewYear();
+                }}
+                onCancel={() => setPostArchiveOffer(false)}
+            />
+
+            {/* New year label prompt */}
+            {newYearOpen && (
+                <div className="dialog-overlay" onClick={() => setNewYearOpen(false)}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Start New Billing Year</div>
+                        <div className="payment-dialog-fields">
+                            <div className="payment-field-group">
+                                <label htmlFor="new-year-label">Billing year label</label>
+                                <input
+                                    id="new-year-label"
+                                    className="composer-input"
+                                    value={newYearLabel}
+                                    onChange={e => { setNewYearLabel(e.target.value); setNewYearError(''); }}
+                                    onKeyDown={e => { if (e.key === 'Enter') executeNewYear(); }}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                        {newYearError && <p className="composer-error">{newYearError}</p>}
+                        <div className="dialog-buttons">
+                            <button className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
+                            <button className="btn btn-sm btn-primary" onClick={executeNewYear}>Create Year</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

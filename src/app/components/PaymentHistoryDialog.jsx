@@ -1,9 +1,6 @@
 /**
  * PaymentHistoryDialog — shows a member's payment timeline with reversal support.
  * Port of showPaymentHistory() from main.js:5310.
- *
- * TODO: Add dedicated React test file (tests/react/components/PaymentHistoryDialog.test.jsx)
- *       covering payment list rendering, reversal confirmation flow, and read-only mode.
  */
 import { useState } from 'react';
 import { getMemberPayments, getPaymentTotalForMember, calculateAnnualSummary } from '../../lib/calculations.js';
