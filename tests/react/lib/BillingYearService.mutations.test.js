@@ -403,6 +403,84 @@ describe('BillingYearService — CRUD mutations', () => {
             const entry = svc.recordPayment({ memberId: 1, amount: 10 });
             expect(entry.method).toBe('other');
         });
+
+        it('distributes payment proportionally across household when distribute=true', () => {
+            // Bob (id:2) has Carol (id:3) linked. Add Carol to the bill so she has a share.
+            const svc = createService();
+            svc._setState({
+                ...svc.getState(),
+                bills: [
+                    { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2, 3] }
+                ]
+            });
+            const before = svc.getState().payments.length;
+            const result = svc.recordPayment({ memberId: 2, amount: 120, method: 'venmo', distribute: true });
+            // Should create multiple payment entries
+            expect(Array.isArray(result)).toBe(true);
+            expect(result.length).toBe(2); // Bob + Carol
+            // Total should equal original amount
+            const total = result.reduce((s, e) => s + e.amount, 0);
+            expect(total).toBeCloseTo(120, 2);
+            // Both Bob and Carol should have payments
+            expect(result.some(e => e.memberId === 2)).toBe(true);
+            expect(result.some(e => e.memberId === 3)).toBe(true);
+            // Events emitted with distributed: true
+            const events = svc.getState().billingEvents.filter(e => e.eventType === 'PAYMENT_RECORDED' && e.payload.distributed);
+            expect(events.length).toBe(2);
+        });
+
+        it('records single payment when distribute=false for household member', () => {
+            const svc = createService();
+            const entry = svc.recordPayment({ memberId: 2, amount: 100, distribute: false });
+            expect(Array.isArray(entry)).toBe(false);
+            expect(entry.memberId).toBe(2);
+            expect(entry.amount).toBe(100);
+        });
+
+        it('records single payment when distribute=true but member has no linked members', () => {
+            const svc = createService();
+            const entry = svc.recordPayment({ memberId: 1, amount: 50, distribute: true });
+            expect(Array.isArray(entry)).toBe(false);
+            expect(entry.memberId).toBe(1);
+        });
+    });
+
+    // ── Payment Reversal ──
+
+    describe('reversePayment', () => {
+        it('creates a reversal entry and marks original as reversed', () => {
+            const svc = createService();
+            const result = svc.reversePayment('pay_1');
+            expect(result.original.reversed).toBe(true);
+            expect(result.reversal.type).toBe('reversal');
+            expect(result.reversal.amount).toBe(-50);
+            expect(result.reversal.reversesPaymentId).toBe('pay_1');
+        });
+
+        it('emits PAYMENT_REVERSED event', () => {
+            const svc = createService();
+            svc.reversePayment('pay_1');
+            const event = svc.getState().billingEvents.find(e => e.eventType === 'PAYMENT_REVERSED');
+            expect(event).toBeDefined();
+            expect(event.payload.reversedPaymentId).toBe('pay_1');
+        });
+
+        it('rejects unknown payment', () => {
+            const svc = createService();
+            expect(() => svc.reversePayment('pay_999')).toThrow('not found');
+        });
+
+        it('rejects already-reversed payment', () => {
+            const svc = createService();
+            svc.reversePayment('pay_1');
+            expect(() => svc.reversePayment('pay_1')).toThrow('already reversed');
+        });
+
+        it('rejects reversing a reversal entry', () => {
+            const svc = createService();
+            const result = svc.reversePayment('pay_1');
+            expect(() => svc.reversePayment(result.reversal.id)).toThrow('Cannot reverse a reversal');
+        });
     });
 
     // ── Settings ──

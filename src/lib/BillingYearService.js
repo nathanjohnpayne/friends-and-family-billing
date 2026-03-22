@@ -14,7 +14,7 @@ import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly, isValidE164 } from './validation.js';
-import { isLinkedToAnyone } from './calculations.js';
+import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -606,42 +606,178 @@ export class BillingYearService {
 
     /**
      * Record a payment for a member.
-     * Simplified single-member payment — distributed payments will be added in Phase 2b.
-     * @param {{ memberId: number, amount: number, method?: string, note?: string }} data
+     * When `distribute` is true and the member has linked household members,
+     * the payment is split proportionally across the household based on each
+     * member's share of the combined annual total (mirrors main.js:2282).
+     * @param {{ memberId: number, amount: number, method?: string, note?: string, distribute?: boolean }} data
      */
     recordPayment(data) {
         this._guardReadOnly();
-        const { payments, familyMembers } = this._state;
+        const { payments, familyMembers, bills } = this._state;
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
 
         const amount = Math.max(0, parseFloat(data.amount) || 0);
         if (amount <= 0) throw new Error('Amount must be greater than zero.');
 
-        const entry = {
-            id: generateUniquePaymentId(),
-            memberId: data.memberId,
-            amount,
-            receivedAt: new Date().toISOString(),
-            note: data.note || '',
-            method: data.method || 'other'
-        };
+        const now = new Date().toISOString();
+        const method = data.method || 'other';
+        const note = data.note || '';
+        const newPayments = [];
+        const newEvents = [];
 
-        const events = this._emitEvent('PAYMENT_RECORDED', {
-            paymentId: entry.id,
-            memberId: data.memberId,
-            memberName: member.name,
-            amount,
-            method: entry.method,
-            distributed: false
-        });
+        function makeEvent(user, eventType, payload) {
+            return {
+                id: generateEventId(),
+                timestamp: new Date().toISOString(),
+                actor: { type: 'admin', userId: user ? user.uid : null },
+                eventType,
+                payload: payload || {},
+                note: '',
+                source: 'ui'
+            };
+        }
+
+        if (data.distribute && member.linkedMembers && member.linkedMembers.length > 0) {
+            const summary = calculateAnnualSummary(familyMembers, bills);
+            let combinedTotal = summary[data.memberId] ? summary[data.memberId].total : 0;
+            member.linkedMembers.forEach(id => {
+                if (summary[id]) combinedTotal += summary[id].total;
+            });
+
+            // Parent share
+            const parentTotal = summary[data.memberId] ? summary[data.memberId].total : 0;
+            const parentShare = combinedTotal > 0
+                ? Math.round(amount * parentTotal / combinedTotal * 100) / 100
+                : amount;
+
+            const parentEntry = {
+                id: generateUniquePaymentId(),
+                memberId: data.memberId,
+                amount: parentShare,
+                receivedAt: now,
+                note: note || 'Distributed payment',
+                method
+            };
+            newPayments.push(parentEntry);
+            newEvents.push(makeEvent(this._user, 'PAYMENT_RECORDED', {
+                paymentId: parentEntry.id,
+                memberId: data.memberId,
+                memberName: member.name,
+                amount: parentShare,
+                method,
+                distributed: true
+            }));
+
+            // Linked member shares
+            let distributed = parentShare;
+            const linked = member.linkedMembers.slice();
+            linked.forEach((linkedId, i) => {
+                const linkedTotal = summary[linkedId] ? summary[linkedId].total : 0;
+                let childShare;
+                if (i === linked.length - 1) {
+                    // Last child gets remainder to avoid rounding drift
+                    childShare = Math.round((amount - distributed) * 100) / 100;
+                } else {
+                    childShare = combinedTotal > 0
+                        ? Math.round(amount * linkedTotal / combinedTotal * 100) / 100
+                        : 0;
+                    distributed += childShare;
+                }
+                if (childShare > 0) {
+                    const childMember = familyMembers.find(m => m.id === linkedId);
+                    const childEntry = {
+                        id: generateUniquePaymentId(),
+                        memberId: linkedId,
+                        amount: childShare,
+                        receivedAt: now,
+                        note: note || 'Distributed from ' + member.name,
+                        method
+                    };
+                    newPayments.push(childEntry);
+                    newEvents.push(makeEvent(this._user, 'PAYMENT_RECORDED', {
+                        paymentId: childEntry.id,
+                        memberId: linkedId,
+                        memberName: childMember ? childMember.name : '',
+                        amount: childShare,
+                        method,
+                        distributed: true,
+                        distributedFrom: data.memberId
+                    }));
+                }
+            });
+        } else {
+            const entry = {
+                id: generateUniquePaymentId(),
+                memberId: data.memberId,
+                amount,
+                receivedAt: now,
+                note,
+                method
+            };
+            newPayments.push(entry);
+            newEvents.push(makeEvent(this._user, 'PAYMENT_RECORDED', {
+                paymentId: entry.id,
+                memberId: data.memberId,
+                memberName: member.name,
+                amount,
+                method,
+                distributed: false
+            }));
+        }
 
         this._setState({
-            payments: [...payments, entry],
-            billingEvents: events
+            payments: [...payments, ...newPayments],
+            billingEvents: [...(this._state.billingEvents || []), ...newEvents]
         });
         this.save();
-        return entry;
+        return newPayments.length === 1 ? newPayments[0] : newPayments;
+    }
+
+    /**
+     * Reverse a payment by creating a reversal entry (mirrors main.js:5374).
+     * Does not delete the original — marks it reversed and creates an audit trail entry.
+     * @param {string} paymentId — ID of the payment to reverse
+     * @returns {{ original: Object, reversal: Object }}
+     */
+    reversePayment(paymentId) {
+        this._guardReadOnly();
+        const { payments, familyMembers } = this._state;
+        const original = payments.find(p => p.id === paymentId);
+        if (!original) throw new Error('Payment not found.');
+        if (original.reversed) throw new Error('Payment already reversed.');
+        if (original.type === 'reversal') throw new Error('Cannot reverse a reversal entry.');
+
+        const member = familyMembers.find(m => m.id === original.memberId);
+        const now = new Date().toISOString();
+
+        const reversalEntry = {
+            id: generateUniquePaymentId(),
+            memberId: original.memberId,
+            amount: -Math.abs(original.amount),
+            receivedAt: now,
+            note: 'Reversal of payment ' + paymentId,
+            method: original.method,
+            type: 'reversal',
+            reversesPaymentId: paymentId
+        };
+
+        const updatedPayments = payments.map(p =>
+            p.id === paymentId ? { ...p, reversed: true } : p
+        );
+        updatedPayments.push(reversalEntry);
+
+        const events = this._emitEvent('PAYMENT_REVERSED', {
+            paymentId: reversalEntry.id,
+            reversedPaymentId: paymentId,
+            memberId: original.memberId,
+            memberName: member ? member.name : '',
+            amount: original.amount
+        });
+
+        this._setState({ payments: updatedPayments, billingEvents: events });
+        this.save();
+        return { original: { ...original, reversed: true }, reversal: reversalEntry };
     }
 
     // ── Settings ──

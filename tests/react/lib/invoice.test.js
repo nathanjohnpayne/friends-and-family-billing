@@ -1,0 +1,68 @@
+import { describe, it, expect } from 'vitest';
+import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '@/lib/invoice.js';
+
+const members = [
+    { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [2], paymentReceived: 0 },
+    { id: 2, name: 'Bob Smith', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+];
+
+const bills = [
+    { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1, 2] }
+];
+
+const year = { id: '2026', label: '2026' };
+
+describe('invoice helpers', () => {
+    it('getInvoiceSummaryContext returns member context', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        expect(ctx).not.toBeNull();
+        expect(ctx.firstName).toBe('Alice');
+        expect(ctx.combinedTotal).toBeGreaterThan(0);
+        expect(ctx.currentYear).toBe('2026');
+        expect(ctx.numMembers).toBe(2); // Alice + Bob linked
+    });
+
+    it('getInvoiceSummaryContext returns null for unknown member', () => {
+        expect(getInvoiceSummaryContext(members, bills, [], 999, year, {})).toBeNull();
+    });
+
+    it('buildInvoiceSubject formats correctly', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' });
+        expect(subject).toContain('2026');
+        expect(subject).toContain('Alice Smith');
+    });
+
+    it('buildInvoiceBody text-only variant produces greeting', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('Alice');
+        expect(body).toContain('2026');
+    });
+
+    it('buildInvoiceBody text-link variant includes share URL', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const body = buildInvoiceBody(ctx, 'text-link', 'https://example.com/share', 'email');
+        expect(body).toContain('https://example.com/share');
+    });
+
+    it('buildInvoiceBody sms variant uses Hey instead of Hello', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'sms');
+        expect(body).toContain('Hey');
+    });
+
+    it('buildInvoiceBody full variant includes bill breakdown', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const body = buildInvoiceBody(ctx, 'full', '', 'email');
+        expect(body).toContain('ANNUAL BILLING SUMMARY');
+        expect(body).toContain('Internet');
+    });
+
+    it('context includes balance when partially paid', () => {
+        const payments = [{ memberId: 1, amount: 300, method: 'cash' }];
+        const ctx = getInvoiceSummaryContext(members, bills, payments, 1, year, {});
+        expect(ctx.payment).toBe(300);
+        expect(ctx.balance).toBe(ctx.combinedTotal - 300);
+        expect(ctx.amountLabel).toBe('remaining balance');
+    });
+});
