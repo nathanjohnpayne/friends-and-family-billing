@@ -428,29 +428,33 @@ function BillCard({
                 )}
             </div>
 
-            {!readOnly && (
-                <div className="bill-actions-row">
-                    <ActionMenu label={'Actions for ' + bill.name}>
-                        <ActionMenuItem onClick={() => onViewHistory(bill)}>
-                            View History
-                        </ActionMenuItem>
+            <div className="bill-actions-row">
+                <ActionMenu label={'Actions for ' + bill.name}>
+                    <ActionMenuItem onClick={() => onViewHistory(bill)}>
+                        View History
+                    </ActionMenuItem>
+                    {!readOnly && (
                         <ActionMenuItem onClick={() => onConvertFrequency(bill)}>
                             {isAnnual ? 'Convert to Monthly' : 'Convert to Annual'}
                         </ActionMenuItem>
+                    )}
+                    {!readOnly && (
                         <ActionMenuItem onClick={() => onEditWebsite(bill)}>
                             {bill.website ? 'Edit Website' : 'Add Website'}
                         </ActionMenuItem>
-                        {bill.website && /^https?:\/\//i.test(bill.website) && (
-                            <ActionMenuItem onClick={() => window.open(bill.website, '_blank', 'noopener,noreferrer')}>
-                                Open Website
-                            </ActionMenuItem>
-                        )}
+                    )}
+                    {bill.website && /^https?:\/\//i.test(bill.website) && (
+                        <ActionMenuItem onClick={() => window.open(bill.website, '_blank', 'noopener,noreferrer')}>
+                            Open Website
+                        </ActionMenuItem>
+                    )}
+                    {!readOnly && (
                         <ActionMenuItem onClick={() => onDelete(bill)} danger>
                             Remove Bill
                         </ActionMenuItem>
-                    </ActionMenu>
-                </div>
-            )}
+                    )}
+                </ActionMenu>
+            </div>
         </div>
     );
 }
