@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-// Mock Firebase (needed by ShareLinkDialog)
-vi.mock('@/lib/firebase.js', () => ({ db: {} }));
+// Mock Firebase (needed by ShareLinkDialog and useDisputes)
+vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
 vi.mock('firebase/firestore', () => ({
-    doc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(), collection: vi.fn(),
+    doc: vi.fn(), setDoc: vi.fn(), getDocs: vi.fn(() => Promise.resolve({ docs: [] })), collection: vi.fn(),
     query: vi.fn(), where: vi.fn(), deleteDoc: vi.fn(), serverTimestamp: vi.fn()
+}));
+vi.mock('firebase/storage', () => ({
+    ref: vi.fn(), deleteObject: vi.fn()
 }));
 
 // Mock useBillingData with controllable state
@@ -68,8 +71,10 @@ describe('DashboardView', () => {
         expect(labelTexts).toContain('Settled');
         expect(labelTexts).toContain('Open Reviews');
         expect(labelTexts).toContain('Status');
-        // Open Reviews shows dash (not zero) since disputes aren't loaded yet
-        expect(screen.getByText('—')).toBeInTheDocument();
+        // Open Reviews now shows real dispute count
+        const kpiValues = document.querySelectorAll('.kpi-value');
+        const reviewKpiIndex = labelTexts.indexOf('Open Reviews');
+        expect(kpiValues[reviewKpiIndex].textContent).toBe('0');
     });
 
     it('renders lifecycle bar', () => {

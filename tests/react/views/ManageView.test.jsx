@@ -2,6 +2,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
+// Mock Firebase (needed by ReviewsTab → useDisputes)
+vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('firebase/firestore', () => ({
+    collection: vi.fn(), doc: vi.fn(), getDocs: vi.fn(() => Promise.resolve({ docs: [] })),
+    setDoc: vi.fn(), serverTimestamp: vi.fn(), deleteDoc: vi.fn()
+}));
+vi.mock('firebase/storage', () => ({
+    ref: vi.fn(), deleteObject: vi.fn()
+}));
+
+// Mock auth (needed by useDisputes)
+vi.mock('@/app/contexts/AuthContext.jsx', () => ({
+    useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
+}));
+
 vi.mock('@/app/hooks/useBillingData.js', () => ({
     useBillingData: vi.fn(() => ({
         familyMembers: [{ id: 1, name: 'Alice', email: 'a@b.com', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }],
@@ -9,7 +24,7 @@ vi.mock('@/app/hooks/useBillingData.js', () => ({
         payments: [],
         activeYear: { id: '2026', label: '2026', status: 'open' },
         loading: false,
-        service: { addMember: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), addBill: vi.fn(), updateBill: vi.fn(), removeBill: vi.fn(), toggleBillMember: vi.fn() },
+        service: { addMember: vi.fn(), updateMember: vi.fn(), removeMember: vi.fn(), addBill: vi.fn(), updateBill: vi.fn(), removeBill: vi.fn(), toggleBillMember: vi.fn(), updateSettings: vi.fn(), getState: vi.fn(() => ({ settings: { emailMessage: '', paymentMethods: [] } })) },
         saveQueue: { subscribe: vi.fn(() => () => {}) }
     }))
 }));
@@ -59,12 +74,12 @@ describe('ManageView', () => {
 
     it('renders InvoicingTab content', () => {
         renderManage('invoicing');
-        expect(screen.getByText(/Template editor/)).toBeInTheDocument();
+        expect(screen.getByText('Email Template')).toBeInTheDocument();
     });
 
     it('renders ReviewsTab content', () => {
         renderManage('reviews');
-        expect(screen.getByText(/Dispute cards/)).toBeInTheDocument();
+        expect(screen.getByText(/Review Requests/)).toBeInTheDocument();
     });
 
     it('marks current tab as active', () => {
