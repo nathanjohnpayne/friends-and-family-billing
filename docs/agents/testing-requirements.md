@@ -49,3 +49,14 @@ Coverage output lands in `coverage/react/` (text summary printed to terminal, pl
 - Any security-relevant input validation (phone format, image source, URL validation)
 - New Cloud Functions logic (add to `_testHelpers` exports)
 - New React components (Vitest + React Testing Library)
+
+## Follow-up items
+
+Tracked hardening work from the test-gap-mitigation PR:
+
+1. **Centralize test mocks** — move distributed `vi.mock()` calls for Firebase SDK, `firebase/auth`, and `BillingYearService` into a shared `tests/react/testSetup.js` (or extend the existing `setup.js`) so consuming test files don't each duplicate the same mock boilerplate. This reduces mock drift when dependencies change.
+2. **Fail-fast on missing mocks** — add runtime assertions in `renderWithBillingData` that detect when required modules aren't mocked, producing a clear error instead of misleading test failures.
+3. **Coverage thresholds** — after baseline stabilizes, set CI-enforced coverage thresholds in `vite.config.js` to prevent regression. Capture baseline from the first clean CI run.
+4. **ShareView race condition coverage** — the `updateDoc` call in the approval flow is not tested for concurrent/race scenarios. Add a test that verifies correct behavior when `updateDoc` rejects after the button click.
+5. **Cloud Functions test suite** — add `functions/tests/` with `node:test` runner covering token validation, revoked/expired links, dispute rate limiting, evidence URL authorization, and CORS rejection (Wave 4 from the mitigation plan).
+6. **Convert one existing view suite to shared harness** — migrate `DashboardView.test.jsx` from hook-level mocking to the `renderWithBillingData` integration pattern as proof of concept.
