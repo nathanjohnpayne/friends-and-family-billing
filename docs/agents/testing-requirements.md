@@ -20,12 +20,12 @@ Coverage output lands in `coverage/react/` (text summary printed to terminal, pl
 
 ## Test count
 
-**~400 React tests** covering services, hooks, components, and views.
+**~490 React tests** covering services, hooks, components, and views.
 
 ## Mocking policy
 
 - **Firebase SDK modules** (`firebase/firestore`, `firebase/storage`, `firebase/auth`) are mocked at the module boundary via `vi.mock()` in test setup. This is the correct layer for unit tests.
-- **App-level hooks** (`useBillingData`, `useDisputes`, etc.) should NOT be mocked in integration-style tests. Instead, render with the real hook backed by a mocked `BillingYearService` singleton. Use `tests/react/helpers/renderWithBillingData.js` when available.
+- **App-level hooks** (`useBillingData`, `useDisputes`, etc.) should NOT be mocked in integration-style tests. Instead, render with the real hook backed by a mocked `BillingYearService` singleton. Use `tests/react/helpers/renderWithBillingData.js` — see its module docstring for the required `vi.mock()` calls that the consuming test file must include (Firebase SDK, `firebase/auth`, and `BillingYearService`).
 - Hook-level mocking (`vi.mock('../../hooks/useBillingData')`) is acceptable for isolated component unit tests where the hook behavior is not under test.
 - Components using `useToast()` require a `<ToastProvider>` wrapper in tests.
 - Service tests use direct method calls on `BillingYearService` instances.
