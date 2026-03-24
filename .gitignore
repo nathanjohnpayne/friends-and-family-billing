@@ -30,6 +30,7 @@ firebase-debug.log
 
 # Public repo hygiene
 .env
+.env.*
 *.key
 service-account.json
 firebase-adminsdk*.json
