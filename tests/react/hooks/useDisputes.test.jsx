@@ -4,12 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock firebase
 vi.mock('../../../src/lib/firebase.js', () => ({ db: {}, storage: {} }));
 
-// Mock firebase/firestore
+// Mock firebase/firestore — return trackable ref objects so tests can verify Firestore paths
 const mockGetDocs = vi.fn();
 const mockSetDoc = vi.fn();
+const mockCollection = vi.fn((...segments) => ({ _type: 'collection', _path: segments.filter(s => typeof s === 'string').join('/') }));
+const mockDoc = vi.fn((...segments) => ({ _type: 'doc', _path: segments.filter(s => typeof s === 'string').join('/') }));
 vi.mock('firebase/firestore', () => ({
-    collection: vi.fn(),
-    doc: vi.fn(),
+    collection: (...args) => mockCollection(...args),
+    doc: (...args) => mockDoc(...args),
     getDocs: (...args) => mockGetDocs(...args),
     setDoc: (...args) => mockSetDoc(...args),
     serverTimestamp: vi.fn(() => 'SERVER_TS')
@@ -128,6 +130,11 @@ describe('useDisputes', () => {
 
         await waitFor(() => expect(result.current.loading).toBe(false));
 
+        // Verify the correct Firestore collection path was used
+        expect(mockCollection).toHaveBeenCalled();
+        const colRef = mockCollection.mock.results[0].value;
+        expect(colRef._path).toContain('users/u1/billingYears/y1/disputes');
+
         expect(normalizeDisputeStatus).toHaveBeenCalledWith('dispute');
         expect(normalizeDisputeStatus).toHaveBeenCalledWith('resolved');
 
@@ -207,7 +214,7 @@ describe('useDisputes', () => {
     // -----------------------------------------------------------------------
     // 5. updateDispute writes merged data
     // -----------------------------------------------------------------------
-    it('calls setDoc with merge: true and serverTimestamp', async () => {
+    it('calls setDoc with correct doc path, merge: true, and serverTimestamp', async () => {
         setupMocks();
         mockGetDocs.mockResolvedValue(fakeSnap([
             { id: 'd1', status: 'open', createdAt: '2024-01-01T00:00:00Z' }
@@ -220,11 +227,15 @@ describe('useDisputes', () => {
             await result.current.updateDispute('d1', { status: 'resolved' });
         });
 
-        expect(mockSetDoc).toHaveBeenCalledWith(
-            undefined, // doc() return value is undefined due to mock
-            { status: 'resolved', updatedAt: 'SERVER_TS' },
-            { merge: true }
-        );
+        expect(mockSetDoc).toHaveBeenCalledTimes(1);
+        const [docRef, fields, options] = mockSetDoc.mock.calls[0];
+
+        // Verify the exact Firestore document path
+        expect(docRef._type).toBe('doc');
+        expect(docRef._path).toContain('users/u1/billingYears/y1/disputes/d1');
+
+        expect(fields).toEqual({ status: 'resolved', updatedAt: 'SERVER_TS' });
+        expect(options).toEqual({ merge: true });
     });
 
     // -----------------------------------------------------------------------

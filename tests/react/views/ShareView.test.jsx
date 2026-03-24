@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
@@ -667,15 +667,7 @@ describe('ShareView', () => {
     // 12. Dispute approval / rejection on share page
     // -----------------------------------------------------------------------
     describe('Dispute approval and rejection', () => {
-        // NOTE: The ShareDisputeCard component initializes `decision` state to
-        // `dispute.userReview.state`, which means when state is 'requested',
-        // `!decision` is false and Approve/Reject buttons won't render.
-        // The tests below use disputes with `userReview: null` so `decision`
-        // starts as null, making the buttons visible when we manually set
-        // userReview on the dispute object used for the condition check.
-        // We also test the pre-decided display states.
-
-        function makeShareDataWithActionableDispute() {
+        function makeShareDataWithRequestedReview() {
             return {
                 ...sampleShareData,
                 disputes: [{
@@ -685,15 +677,50 @@ describe('ShareView', () => {
                     message: 'Overcharged',
                     createdAt: '2024-06-15',
                     resolutionNote: 'Adjusted',
-                    // userReview state must be 'requested' for buttons to show,
-                    // but decision is initialized from this, causing !decision to be false.
-                    // This documents the current component behavior.
                     userReview: { state: 'requested' }
                 }]
             };
         }
 
-        it('shows "You approved" text when dispute userReview state is approved_by_user', async () => {
+        it('shows Approve/Reject buttons when userReview.state is requested', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(makeShareDataWithRequestedReview());
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Utilities')).toBeInTheDocument();
+            });
+
+            expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+        });
+
+        it('clicking Approve calls updateDoc and shows approved message', async () => {
+            setToken('abc123');
+            const data = makeShareDataWithRequestedReview();
+            mockPublicSharesHit(data);
+            mockUpdateDoc.mockResolvedValue();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+            });
+
+            fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+            await waitFor(() => {
+                expect(screen.getByText('You approved this resolution.')).toBeInTheDocument();
+            });
+            expect(mockUpdateDoc).toHaveBeenCalled();
+            const lastCall = mockUpdateDoc.mock.calls[mockUpdateDoc.mock.calls.length - 1];
+            const updatePayload = lastCall[1];
+            expect(updatePayload.status).toBe('resolved');
+            expect(updatePayload.userReview.state).toBe('approved_by_user');
+        });
+
+        it('does not show buttons when userReview.state is approved_by_user', async () => {
             setToken('abc123');
             const data = {
                 ...sampleShareData,
@@ -713,6 +740,7 @@ describe('ShareView', () => {
             await waitFor(() => {
                 expect(screen.getByText('You approved this resolution.')).toBeInTheDocument();
             });
+            expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
         });
 
         it('shows "You rejected" text when dispute userReview state is rejected_by_user', async () => {
@@ -735,21 +763,7 @@ describe('ShareView', () => {
             await waitFor(() => {
                 expect(screen.getByText('You rejected this resolution.')).toBeInTheDocument();
             });
-        });
-
-        it('does not show Approve/Reject buttons when userReview.state is already set', async () => {
-            setToken('abc123');
-            mockPublicSharesHit(makeShareDataWithActionableDispute());
-
-            render(<ShareView />);
-
-            await waitFor(() => {
-                expect(screen.getByText('Utilities')).toBeInTheDocument();
-            });
-
-            // Buttons should not render because decision is initialized to 'requested' (truthy)
             expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
-            expect(screen.queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument();
         });
     });
 
