@@ -341,7 +341,10 @@ function DisputesSection({ disputes, shareCtx }) {
 }
 
 function ShareDisputeCard({ dispute, shareCtx }) {
-    const [decision, setDecision] = useState(dispute.userReview ? dispute.userReview.state : null);
+    // Only seed from terminal decisions — 'requested' is the actionable state, not a decision.
+    const initialDecision = dispute.userReview && dispute.userReview.state !== 'requested'
+        ? dispute.userReview.state : null;
+    const [decision, setDecision] = useState(initialDecision);
     const d = dispute;
     const label = STATUS_LABELS[d.status] || d.status;
     const created = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '';

@@ -15,9 +15,9 @@ The following directories must always exist:
 - `rules/` — contains this file and other binding constraints
 - `plans/` — execution and rollout plans
 - `specs/` — feature specifications and acceptance criteria
-- `tests/` — automated test suite (Node built-in test runner)
+- `tests/` — automated test suite (Vitest + React Testing Library)
 - `functions/` — Cloud Functions v2 source
-- `src/` — ES module application source (bundled by esbuild)
+- `src/` — React application source (built by Vite)
 - `scripts/ci/` — CI enforcement scripts
 - `docs/` — extended documentation
 
@@ -28,25 +28,25 @@ The following tool config directories must contain only configuration — no ins
 
 **Intentionally absent directories (documented deviations from the standard):**
 
-- `dist/` — Build artifact (`script.js`) goes to repo root per Firebase Hosting config (`"public": "."`). No separate dist/ directory. See `.ai_context.md`.
+- `dist/` — Build output goes to `app/` (matching the `/app/` Vite base path). No separate dist/ directory.
 
 ## Forbidden Patterns
 
-- **Never edit `script.js` directly.** It is a build artifact produced by esbuild from `src/`. Always edit source in `src/` and run `npm run build` to regenerate.
-- **Never commit `firebase-config.local.js`.** It contains the real Firebase web config and is gitignored. The committed `firebase-config.js` must contain only placeholder values.
+- **Never edit the `app/` output directory directly.** It is a build artifact produced by Vite from `src/`. Always edit source in `src/` and run `npm run build` to regenerate.
+- **Never commit `.env.local`.** It contains the real Firebase web config as `VITE_FIREBASE_*` variables and is gitignored.
 - **Never commit credentials.** API keys, service account JSON, ADC credentials, Firebase web config, and tokens must never appear in tracked files. The `npm test` script includes a secret scan that will fail on detected credentials.
 - **Never delete tests to force a build to pass.** If a test is failing, fix the underlying issue. Test deletion is forbidden.
 - **No instruction files in tool folders.** `.claude/` and `.cursor/` must not contain plain `.md` or `.txt` instruction files. Cursor `.mdc` rule files are permitted.
 - **No duplicate documentation.** If a concept is documented in `AGENTS.md` or a canonical root file, it must not be redefined in a conflicting location.
 - **No new top-level directories** without explicit justification documented in `AGENTS.md` or a `plans/` entry.
-- **Do not introduce `__/firebase/init.js`.** Production config is owned by `firebase-config.local.js`; Hosting auto-init can resurrect deleted keys.
+- **Do not introduce `__/firebase/init.js`.** Production config is owned by `.env.local`; Hosting auto-init can resurrect deleted keys.
 
 ## High-Risk Modification Zones
 
 Changes to the following areas require explicit human review before any merge. AI agents must flag these changes and must not auto-apply them:
 
-- **`src/main.js` — Payment calculations:** `calculateAnnualSummary()`, `recordPayment()`, `deletePaymentEntry()`, `getPaymentTotalForMember()`, `calculateSettlementMetrics()`
-- **`src/main.js` — Ledger integrity:** The payments array is append-only. Never physically delete entries — always use reversals.
+- **`src/lib/calculations.js` — Payment calculations:** `calculateAnnualSummary()`, `getPaymentTotalForMember()`, `calculateSettlementMetrics()`
+- **`src/lib/BillingYearService.js` — Payment mutations:** `recordPayment()`, `reversePayment()`. The payments array is append-only. Never physically delete entries — always use reversals.
 - **`firestore.rules`** — Data access security
 - **`storage.rules`** — Storage access security
 - **`functions/index.js`** — Cloud Functions auth and token validation

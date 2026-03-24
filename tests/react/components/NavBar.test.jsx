@@ -35,15 +35,17 @@ describe('NavBar', () => {
         expect(screen.getByText('Sign Out')).toBeInTheDocument();
     });
 
-    it('marks Dashboard as active at /dashboard', () => {
+    it('renders Dashboard link at /dashboard', () => {
         renderNavBar('/dashboard');
-        const link = screen.getByText('Dashboard');
-        expect(link.className).toContain('active');
+        expect(screen.getByText('Dashboard')).toBeInTheDocument();
+        // The link has aria-current="page" when active
+        const link = screen.getByText('Dashboard').closest('a');
+        expect(link).toHaveAttribute('aria-current', 'page');
     });
 
-    it('marks Manage as active at /manage', () => {
+    it('renders Manage link at /manage', () => {
         renderNavBar('/manage');
-        const link = screen.getByText('Manage');
-        expect(link.className).toContain('active');
+        const link = screen.getByText('Manage').closest('a');
+        expect(link).toHaveAttribute('aria-current', 'page');
     });
 });

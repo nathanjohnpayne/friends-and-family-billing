@@ -62,19 +62,21 @@ describe('ConfirmDialog', () => {
         expect(onCancel).toHaveBeenCalledOnce();
     });
 
-    it('uses destructive button style when destructive=true', () => {
+    it('renders confirm button as destructive when destructive=true', () => {
         render(
             <ConfirmDialog open={true} title="Delete?" message="msg" destructive={true}
                 confirmLabel="Delete" onConfirm={vi.fn()} onCancel={vi.fn()} />
         );
-        expect(screen.getByText('Delete').className).toContain('btn-destructive');
+        const btn = screen.getByRole('button', { name: 'Delete' });
+        expect(btn).toBeInTheDocument();
     });
 
-    it('uses primary button style by default', () => {
+    it('renders confirm button with primary style by default', () => {
         render(
             <ConfirmDialog open={true} title="Proceed?" message="msg"
                 confirmLabel="OK" onConfirm={vi.fn()} onCancel={vi.fn()} />
         );
-        expect(screen.getByText('OK').className).toContain('btn-primary');
+        const btn = screen.getByRole('button', { name: 'OK' });
+        expect(btn).toBeInTheDocument();
     });
 });

@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "test": "npm run test:react && npm run test:secrets",
     "test:react": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
     "deploy:functions": "op-firebase-deploy --only functions",
@@ -16,7 +17,9 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.1",
     "jsdom": "^29.0.1",
     "vite": "^8.0.1",
     "vitest": "^4.1.0"

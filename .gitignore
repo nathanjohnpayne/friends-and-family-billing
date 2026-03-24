@@ -21,6 +21,9 @@ Thumbs.db
 /script.js.map
 /app/
 
+# Test coverage
+coverage/
+
 # Logs
 *.log
 firebase-debug.log

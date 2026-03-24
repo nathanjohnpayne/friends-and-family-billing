@@ -27,8 +27,8 @@ For changes to financial logic, payment calculations, or security rules, add a b
 ## Pull Request Process
 
 1. Branch from `main`
-2. Run `npm test` — all 267+ tests must pass before opening a PR
-3. Run `npm run build` — bundle must build cleanly
+2. Run `npm test` — all ~400 React tests must pass before opening a PR
+3. Run `npm run build` — Vite build must complete cleanly
 4. Run all `scripts/ci/` checks locally before opening a PR
 5. Open a PR against `main` with a clear title and description, or run `npm run pr:auto -- --title "Your title"` from your feature branch to create one with the repo template and enable GitHub auto-merge
 6. Include a `## Self-Review` section in the PR body. The PR template and `npm run pr:auto` helper do this for you.
@@ -37,33 +37,33 @@ For changes to financial logic, payment calculations, or security rules, add a b
 
 ## Code Style
 
-- **JavaScript (src/):** ES modules, no globals. All functions called from inline HTML handlers must be assigned to `window.*` in `src/index.js`.
-- **CSS:** Use `design-tokens.css` custom properties for all colors, spacing, and typography. Do not add hard-coded values.
-- **HTML:** Keep pages in sync with the Firebase SDK loading order documented in `AGENTS.md`.
-- No framework — vanilla DOM APIs only.
+- **React (src/app/):** Functional components with hooks. Views are lazy-loaded via `React.lazy()`.
+- **Business logic (src/lib/):** Pure JavaScript modules with no React dependency. All billing mutations go through `BillingYearService`.
+- **CSS:** Use `design-tokens.css` custom properties for all colors, spacing, and typography. Component styles live in `src/app/shell.css`. Do not add hard-coded values.
 - Run `npm test` (which includes the secret scan) before committing. Failing the secret scan means API keys or tokens are present in tracked files.
 
 ## Testing
 
-The test suite uses Node's built-in test runner. Run tests with:
+The test suite uses **Vitest** with **React Testing Library**. Run tests with:
 
 ```bash
 npm test
 ```
 
-This runs `npm run build` first, then executes `tests/billing.test.js`. 267 tests across 77 suites cover all critical financial logic.
+This runs the React test suite in `tests/react/` plus a tracked-file secret scan. ~400 tests cover services, hooks, components, and views.
 
-**Tests must not be deleted to force a build to pass.** If a test is wrong, fix the test and the code together — never delete the test.
+**Tests must not be deleted to force a build to pass.** If a test is wrong, fix the test and the code together—never delete the test.
 
 **When adding new behavior:**
 - Add tests for any new calculation logic
 - Add tests for any new payment operations
 - Add tests for any security-relevant input validation
+- Add component tests for new React views/components
 
 **High-risk areas requiring tests before merge:**
-- `calculateAnnualSummary` — bill splitting math
-- `recordPayment` / `deletePaymentEntry` — ledger operations
-- `getPaymentTotalForMember` — balance derivation
+- `calculateAnnualSummary` (src/lib/calculations.js) — bill splitting math
+- `recordPayment` / `reversePayment` (src/lib/BillingYearService.js) — ledger operations
+- `getPaymentTotalForMember` (src/lib/calculations.js) — balance derivation
 - Any new Cloud Functions logic
 
 ## Agent Contributions
