@@ -14,7 +14,7 @@ vi.mock('firebase/firestore', () => ({
     query: vi.fn(), where: vi.fn(), deleteDoc: vi.fn()
 }));
 vi.mock('firebase/storage', () => ({
-    ref: vi.fn(), deleteObject: vi.fn()
+    ref: vi.fn(), deleteObject: vi.fn(), uploadBytes: vi.fn(), getDownloadURL: vi.fn()
 }));
 
 // ── Unauthenticated user suite ──────────────────────────────────────
@@ -72,61 +72,69 @@ describe('Routes — unauthenticated user', () => {
 describe('Routes — authenticated user', () => {
     beforeEach(() => { vi.resetModules(); });
 
-    it('redirects /login to /dashboard when signed in (GuestRoute)', async () => {
+    function mockAuthenticatedUser(email = 'a@b.com') {
         vi.doMock('firebase/auth', () => ({
             onAuthStateChanged: vi.fn((_auth, cb) => {
-                cb({ uid: 'u1', email: 'a@b.com' }); return () => {};
+                cb({ uid: 'u1', email }); return () => {};
             }),
             signOut: vi.fn(), signInWithEmailAndPassword: vi.fn(),
             createUserWithEmailAndPassword: vi.fn(), sendPasswordResetEmail: vi.fn(),
             signInWithPopup: vi.fn(), GoogleAuthProvider: vi.fn()
         }));
+    }
 
+    async function renderAuthenticatedRoute(entries) {
+        mockAuthenticatedUser();
         const { AppRoutes } = await import('@/app/App.jsx');
         const { AuthProvider } = await import('@/app/contexts/AuthContext.jsx');
         const { ToastProvider } = await import('@/app/contexts/ToastContext.jsx');
 
-        render(
+        return render(
             <AuthProvider>
                 <ToastProvider>
-                    <MemoryRouter initialEntries={['/login']}>
+                    <MemoryRouter initialEntries={entries}>
                         <AppRoutes />
                     </MemoryRouter>
                 </ToastProvider>
             </AuthProvider>
         );
+    }
 
-        // Should be redirected to dashboard, not see login form (lazy-loaded)
+    it('redirects /login to /dashboard when signed in (GuestRoute)', async () => {
+        await renderAuthenticatedRoute(['/login']);
         expect(await screen.findByText('Dashboard')).toBeInTheDocument();
         expect(screen.queryByText('Sign in to continue')).toBeNull();
     });
 
     it('shows dashboard with nav bar when signed in', async () => {
-        vi.doMock('firebase/auth', () => ({
-            onAuthStateChanged: vi.fn((_auth, cb) => {
-                cb({ uid: 'u1', email: 'a@b.com' }); return () => {};
-            }),
-            signOut: vi.fn(), signInWithEmailAndPassword: vi.fn(),
-            createUserWithEmailAndPassword: vi.fn(), sendPasswordResetEmail: vi.fn(),
-            signInWithPopup: vi.fn(), GoogleAuthProvider: vi.fn()
-        }));
-
-        const { AppRoutes } = await import('@/app/App.jsx');
-        const { AuthProvider } = await import('@/app/contexts/AuthContext.jsx');
-        const { ToastProvider } = await import('@/app/contexts/ToastContext.jsx');
-
-        render(
-            <AuthProvider>
-                <ToastProvider>
-                    <MemoryRouter initialEntries={['/dashboard']}>
-                        <AppRoutes />
-                    </MemoryRouter>
-                </ToastProvider>
-            </AuthProvider>
-        );
-
+        await renderAuthenticatedRoute(['/dashboard']);
         expect(await screen.findByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('a@b.com')).toBeInTheDocument();
         expect(screen.getByText('Sign Out')).toBeInTheDocument();
+    });
+
+    it('redirects / to /dashboard and renders nav', async () => {
+        await renderAuthenticatedRoute(['/']);
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+        expect(screen.getByText('Manage')).toBeInTheDocument();
+        expect(screen.getByText('Settings')).toBeInTheDocument();
+    });
+
+    it('redirects unknown routes to /dashboard', async () => {
+        await renderAuthenticatedRoute(['/unknown']);
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    });
+
+    it('renders manage view with tab navigation', async () => {
+        await renderAuthenticatedRoute(['/manage/members']);
+        expect(await screen.findByText('Members')).toBeInTheDocument();
+        expect(screen.getByText('Bills')).toBeInTheDocument();
+        expect(screen.getByText('Invoicing')).toBeInTheDocument();
+        expect(screen.getByText('Review Requests')).toBeInTheDocument();
+    });
+
+    it('renders settings view', async () => {
+        await renderAuthenticatedRoute(['/settings']);
+        expect(await screen.findByText('Settings')).toBeInTheDocument();
     });
 });

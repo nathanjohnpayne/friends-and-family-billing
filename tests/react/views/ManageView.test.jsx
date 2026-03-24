@@ -84,7 +84,7 @@ describe('ManageView', () => {
 
     it('marks current tab as active', () => {
         renderManage('bills');
-        const billsLink = screen.getByText('Bills');
-        expect(billsLink.className).toContain('active');
+        const billsLink = screen.getByText('Bills').closest('a');
+        expect(billsLink).toHaveAttribute('aria-current', 'page');
     });
 });

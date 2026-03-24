@@ -25,6 +25,14 @@ export default defineConfig({
         environment: 'jsdom',
         globals: true,
         setupFiles: ['./tests/react/setup.js'],
-        include: ['tests/react/**/*.test.{js,jsx}']
+        include: ['tests/react/**/*.test.{js,jsx}'],
+        coverage: {
+            provider: 'v8',
+            all: true,
+            reporter: ['text', 'html', 'json-summary', 'lcov'],
+            reportsDirectory: 'coverage/react',
+            include: ['src/app/**/*.{js,jsx}', 'src/lib/**/*.js'],
+            exclude: ['src/lib/firebase.js', 'src/app/main.jsx']
+        }
     }
 });

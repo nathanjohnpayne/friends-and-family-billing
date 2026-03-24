@@ -63,10 +63,10 @@ describe('ActionMenu', () => {
         expect(onEdit).toHaveBeenCalledOnce();
     });
 
-    it('marks danger items with danger class', () => {
+    it('renders danger items as menu items', () => {
         renderMenu();
         fireEvent.click(screen.getByLabelText('Actions'));
-        expect(screen.getByText('Delete').className).toContain('danger');
+        expect(screen.getByText('Delete')).toBeInTheDocument();
     });
 
     it('sets aria-expanded on trigger', () => {

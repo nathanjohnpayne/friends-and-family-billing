@@ -80,9 +80,9 @@ describe('SettlementBoard', () => {
             { memberId: 3, amount: 480, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
-        // Click "Settled" filter chip (class-based selector to avoid ambiguity with status badges)
-        const chips = document.querySelectorAll('.settlement-filter-chip');
-        const settledChip = Array.from(chips).find(c => c.textContent.includes('Settled'));
+        // Click the "Settled" filter button — find by role and text content
+        const filterButtons = screen.getAllByRole('button');
+        const settledChip = filterButtons.find(b => b.textContent.includes('Settled'));
         fireEvent.click(settledChip);
         // Alice (with Carol) is settled, Bob is not
         expect(screen.getByText('Alice')).toBeInTheDocument();
@@ -91,9 +91,9 @@ describe('SettlementBoard', () => {
 
     it('shows "no households" message when filter has no matches', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        // Click "Settled" filter — nobody is settled
-        const chips = document.querySelectorAll('.settlement-filter-chip');
-        const settledChip = Array.from(chips).find(c => c.textContent.includes('Settled'));
+        // Click the "Settled" filter — nobody is settled
+        const filterButtons = screen.getAllByRole('button');
+        const settledChip = filterButtons.find(b => b.textContent.includes('Settled'));
         fireEvent.click(settledChip);
         expect(screen.getByText('No households match this filter.')).toBeInTheDocument();
     });

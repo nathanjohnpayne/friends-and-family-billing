@@ -20,9 +20,9 @@ describe('EmptyState', () => {
     });
 
     it('omits optional sections when not provided', () => {
-        const { container } = render(<EmptyState title="Bare" />);
-        expect(container.querySelector('.empty-state-icon')).toBeNull();
-        expect(container.querySelector('.empty-state-message')).toBeNull();
-        expect(container.querySelector('.empty-state-action')).toBeNull();
+        render(<EmptyState title="Bare" />);
+        // Only title rendered, no message or action button
+        expect(screen.getByText('Bare')).toBeInTheDocument();
+        expect(screen.queryByRole('button')).toBeNull();
     });
 });

@@ -112,42 +112,24 @@ A cloud-based web application for coordinating and settling annual shared bills 
 git clone <repository-url>
 cd friends-and-family-billing
 
-# Install local dependencies (esbuild is used for the browser bundle)
+# Install dependencies
 npm install
 
-# Create a local Firebase web config filegit clone <repository-url>
-cd friends-and-family-billing
+# Create a local Firebase config file (gitignored)
+# Add VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, etc.
+cp .env.example .env.local
 
-# Create a local Firebase web config file (kept out of git, but deployed with Hosting)
-cp firebase-config.local.example.js firebase-config.local.js
-# Then fill in your Firebase web config values in firebase-config.local.js
+# Dev server with hot module replacement
+npm run dev
 
-# Install deploy tooling
-npm install -g firebase-tools
-mkdir -p ~/.local/bin
-cp ../ai_agent_repo_template/scripts/gcloud/gcloud ~/.local/bin/gcloud
-cp ../ai_agent_repo_template/scripts/firebase/op-firebase-deploy ~/.local/bin/
-cp ../ai_agent_repo_template/scripts/firebase/op-firebase-setup ~/.local/bin/
-chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-firebase-setup
-hash -r
-
-# One-time per maintainer/machine
-# Make sure 1Password CLI can read Private/GCP ADC -> credential
-
-# One-time per maintainer/project: configure impersonation-based deploy auth
-op-firebase-setup friends-and-family-billing
-
-# Build the browser bundle once
+# Production build
 npm run build
 
-# Serve locally (or keep `npm run build:watch` running in a second terminal while developing)
-firebase serve
-
-# Deploy to production
+# Deploy to production (requires 1Password CLI + deploy tooling)
 npm run deploy
 ```
 
-`npm run deploy` uses `op-firebase-deploy`, and Firebase Hosting runs the configured predeploy hook (`node stamp-version.js && npm run build`) before upload.
+`npm run deploy` uses `op-firebase-deploy`, and Firebase Hosting runs the configured predeploy hook (`npm run build && node stamp-version.js`) before upload. See `DEPLOYMENT.md` for full setup instructions.
 
 ### Uploading Images
 
@@ -277,9 +259,8 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 ## Browser Compatibility
 - Works in all modern browsers (Chrome, Firefox, Safari, Edge)
 - Requires JavaScript enabled
-- Uses FileReader API for image upload
+- React 18 SPA with code-split lazy loading
 - Canvas API for image compression
-- No build tools or bundlers required
 
 ## Example Use Cases
 
@@ -314,10 +295,10 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ### Firebase web config hygiene
 
-- Real Firebase config belongs in `firebase-config.local.js`. Keep placeholders in `firebase-config.js`.
-- Production intentionally loads `firebase-config.local.js`; do not switch back to `__/firebase/init.js`.
+- Real Firebase config belongs in `.env.local` (gitignored) as `VITE_FIREBASE_*` environment variables.
+- Do not reintroduce CDN compat scripts or `__/firebase/init.js`.
 - Firebase Web API keys are not auth secrets, but checking them into public source is still a security concern because it triggers Google abuse alerts and invites quota abuse.
-- If a key is exposed: remove it from tracked files/history, create a replacement key in Google Cloud Credentials with the same referrer/API restrictions, update `firebase-config.local.js`, redeploy Hosting, verify the live file serves the new key only, then delete the old key.
+- If a key is exposed: remove it from tracked files/history, create a replacement key in Google Cloud Credentials with the same referrer/API restrictions, update `.env.local`, redeploy Hosting, verify the live build uses the new key only, then delete the old key.
 - `npm test` includes a tracked-file secret scan so committed API keys, OAuth tokens, and private keys fail before deployment.
 
 ### Deploy auth and future-secret flow
@@ -342,7 +323,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 1. Hard refresh: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac)
 2. Check browser console for errors
 3. Verify you're logged in
-4. Use `check_data.html` to verify Firebase data
+4. Check that `.env.local` has correct Firebase config values
 
 ### Authentication Issues
 1. Check Firebase Console for enabled auth providers
@@ -367,6 +348,19 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ## Changelog
 
+### React Migration (2026-03)
+- ✅ Full rewrite from vanilla JS to React 18 SPA
+- ✅ Service-owns-state architecture: BillingYearService + useSyncExternalStore
+- ✅ Code-split lazy loading via React.lazy + Suspense
+- ✅ Vite build with ~237 KB main bundle + lazy chunks
+- ✅ React Router v7 with SPA fallback rewrites
+- ✅ ~400 Vitest + React Testing Library tests
+- ✅ Public share page ported to React route (/app/share)
+- ✅ Legacy vanilla JS monolith (src/main.js, ~5,700 lines) removed
+- ✅ Legacy VM-context test suite (tests/billing.test.js, ~3,700 lines) removed
+- ✅ Firebase modular SDK replaces CDN compat libraries
+- ✅ Firebase config moved from script tag to .env.local
+
 ### Billing Frequency & Money Integrity (2026-02)
 - ✅ Billing frequency toggle (Monthly ↔ Annual) per bill
 - ✅ Canonical amount strategy prevents rounding drift across conversions
@@ -375,7 +369,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Per-bill audit history dialog ("View History")
 - ✅ 8 event types tracked: bill CRUD, member assignment, payments, reversals, year lifecycle
 - ✅ Frequency-aware calculation breakdowns
-- ✅ 267 automated tests across 77 suites
+- ✅ Automated test suite (subsequently replaced by React tests)
 
 ### Annual Billing Experience (2026-02)
 - ✅ Billing year lifecycle (Open → Settling → Closed → Archived)
