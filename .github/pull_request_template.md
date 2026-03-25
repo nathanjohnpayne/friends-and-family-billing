@@ -1,3 +1,5 @@
+Authoring-Agent: <!-- claude | codex | cursor -->
+
 ## Summary
 - Describe the change.
 - Call out any user-visible behavior or deployment notes.
