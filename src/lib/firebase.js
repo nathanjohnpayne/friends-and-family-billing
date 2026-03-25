@@ -2,7 +2,7 @@
  * Modular Firebase initialization for the React app.
  *
  * Reads config from Vite environment variables (VITE_FIREBASE_*).
- * Values come from .env.local (gitignored, created from firebase-config.local.js).
+ * Values come from .env.local (gitignored, created from .env.example).
  */
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';

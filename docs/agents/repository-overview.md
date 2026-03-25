@@ -7,7 +7,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 **Firebase Project ID:** `friends-and-family-billing`
 
 ### Tech Stack
-- **Frontend:** React 18 SPA (Vite build, code-split via `React.lazy`)
+- **Frontend:** React 19 SPA (Vite build, code-split via `React.lazy`)
 - **State Management:** Service-owns-state pattern — `BillingYearService` owns canonical state, React subscribes via `useSyncExternalStore`
 - **Styling:** CSS3 with design tokens (`design-tokens.css` → `shell.css`)
 - **Backend/Infrastructure:** Firebase
@@ -20,7 +20,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 - **Image Processing:** Canvas API for client-side compression (max 200x200px PNG)
 - **Build:** Vite (React app → `app/` directory, code-split chunks)
 - **Testing:** Vitest + React Testing Library
-- **Dependencies:** Firebase modular SDK v10, React 18, React Router v7, Vite 6
+- **Dependencies:** Firebase SDK v12, React 19, React Router v7, Vite 8
 
 ### Project Structure
 ```

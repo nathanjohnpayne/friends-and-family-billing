@@ -49,10 +49,10 @@ done
 if [[ $FAILED -eq 1 ]]; then
   echo ""
   echo "check_spec_test_alignment: ADVISORY — one or more spec files lack corresponding tests"
-  echo "This repo uses a consolidated test pattern: tests/billing.test.js covers all spec areas."
-  echo "Spec-to-test filename mapping is advisory only. See AGENTS.md Section 5 for details."
-  # Advisory mode: this repo uses a consolidated test file (tests/billing.test.js), not per-spec
-  # test files. Upgrade to exit 1 when the test structure explicitly mirrors specs/.
+  echo "This repo uses a structured test suite under tests/react/ (Vitest + React Testing Library)."
+  echo "Spec-to-test filename mapping is advisory only. See docs/agents/testing-requirements.md."
+  # Advisory mode: tests live under tests/react/ organized by component type, not per-spec files.
+  # Upgrade to exit 1 when the test structure explicitly mirrors specs/.
   exit 0
 fi
 
