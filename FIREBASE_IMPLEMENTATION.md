@@ -1,5 +1,7 @@
 # Firebase Multi-User Implementation Summary
 
+> **Historical document.** This file describes the original vanilla-JS Firebase migration. The app has since been rewritten as a React SPA (see the React Migration changelog in README.md). File references like `firebase-config.js`, `script.js`, `login.html`, and deployment commands like `firebase deploy` no longer apply. For current architecture, see `docs/agents/repository-overview.md`. For deployment, see `DEPLOYMENT.md`.
+
 ## What Was Added
 
 Your Family Bill Splitter app now has full multi-user support with cloud storage and authentication!

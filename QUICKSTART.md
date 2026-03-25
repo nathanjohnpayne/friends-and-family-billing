@@ -50,41 +50,33 @@
 
 #### 6. Update Config File (1 minute)
 ```
-1. Open firebase-config.js
-2. Replace YOUR_API_KEY, YOUR_PROJECT_ID, etc. with your values
-3. Save the file
+1. Copy .env.example to .env.local
+2. Fill in your Firebase config values as VITE_FIREBASE_* variables
+3. Save .env.local (it is gitignored — never commit it)
 ```
 
 #### 7. Deploy (2 minutes)
 ```bash
-# Install Firebase CLI (one-time)
-npm install -g firebase-tools
+# Install dependencies
+npm install
 
-# Login
-firebase login
-
-# Deploy (hosting + Firestore rules + Storage rules + functions)
-cd friends-and-family-billing
-firebase deploy
+# Build and deploy via 1Password-backed deploy helper
+npm run deploy
 ```
 
-> **Note:** If Cloud Functions deployment shows IAM errors, that's OK — the functions deploy but can't be made publicly accessible. Share links work via direct Firestore reads instead. You can also deploy just hosting: `firebase deploy --only hosting`
+> **Note:** This repo uses `op-firebase-deploy` for deployments — see DEPLOYMENT.md for the 1Password-based credential setup. If Cloud Functions deployment shows IAM errors, that's OK — share links work via direct Firestore reads instead.
 
 #### 8. Done! 🎉
 Your app is now live at: `https://your-project-id.web.app`
 
 ### Testing Locally (Optional)
 
-Before deploying, test locally:
+Before deploying, test locally with the Vite dev server:
 
 ```bash
-# Option 1: Python
-python3 -m http.server 8000
-# Open http://localhost:8000
-
-# Option 2: Firebase emulator
-firebase serve
-# Open http://localhost:5000
+npm install
+npm run dev
+# Opens http://localhost:5173 with hot module replacement
 ```
 
 ### First Time Using the App
@@ -108,8 +100,8 @@ Just send them your deployed URL. Each person:
 
 ### Common First-Time Issues
 
-**"Firebase not defined"**
-→ Make sure you updated firebase-config.js with your real Firebase config
+**"Firebase not defined" or config errors**
+→ Make sure you created `.env.local` from `.env.example` with your real Firebase config values
 
 **"Permission denied"**
 → Check that you published the Firestore security rules

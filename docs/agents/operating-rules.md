@@ -226,7 +226,7 @@ Central service owning all billing state. React subscribes via `useSyncExternalS
 ### Cloud Functions (functions/index.js)
 All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`). They are deployed to `us-central1`.
 
-> **Note:** The GCP organization policy blocks granting `allUsers` the Cloud Run invoker role, so these functions cannot be made publicly accessible. The share page reads data directly from the `publicShares` Firestore collection instead of calling `resolveShareToken`. Dispute-related functions are still called from `share.html` via Firebase Hosting rewrites or direct URLs.
+> **Note:** The GCP organization policy blocks granting `allUsers` the Cloud Run invoker role, so these functions cannot be made publicly accessible. The React share page (`ShareView.jsx`) reads data directly from the `publicShares` Firestore collection, with a fallback to the `resolveShareToken` Cloud Function. Dispute-related functions are called via Firebase Hosting rewrites or direct URLs.
 
 - `resolveShareToken` — POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Writes audit log entry on access.
 - `submitDispute` — POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token. Writes audit log entry.
@@ -304,12 +304,10 @@ npm run build
 ```
 
 ### Analytics Events
-The app tracks these Firebase Analytics events:
-- `family_member_added` — When a new member is created
-- `bill_added` — When a new bill is created
-- `share_link_generated` — When a share link is created (includes `has_expiry`, `billing_year`)
-- `invoice_sent` — When an individual invoice is emailed
-- `login` / `sign_up` — Authentication events
+Currently implemented Firebase Analytics events:
+- `login` / `sign_up` — Authentication events (in `LoginView.jsx`)
+
+> **Not yet implemented:** `family_member_added`, `bill_added`, `share_link_generated`, `invoice_sent` are defined in the spec but not instrumented in the React codebase. Add them when the relevant views are next touched.
 
 ### Known Limitations
 - Email invoices use `mailto:` links (requires a desktop email client)

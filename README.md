@@ -259,7 +259,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 ## Browser Compatibility
 - Works in all modern browsers (Chrome, Firefox, Safari, Edge)
 - Requires JavaScript enabled
-- React 18 SPA with code-split lazy loading
+- React 19 SPA with code-split lazy loading
 - Canvas API for image compression
 
 ## Example Use Cases
@@ -349,7 +349,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 ## Changelog
 
 ### React Migration (2026-03)
-- ✅ Full rewrite from vanilla JS to React 18 SPA
+- ✅ Full rewrite from vanilla JS to React 19 SPA
 - ✅ Service-owns-state architecture: BillingYearService + useSyncExternalStore
 - ✅ Code-split lazy loading via React.lazy + Suspense
 - ✅ Vite build with ~237 KB main bundle + lazy chunks

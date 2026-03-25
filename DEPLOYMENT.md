@@ -188,7 +188,7 @@ op-firebase-deploy --only firestore:rules,storage
 ```
 
 The script:
-1. Auto-detects the Firebase project from `.firebaserc`
+1. Uses the Firebase project ID from `firebase.json` or the `--project` flag (`.firebaserc` is gitignored and not present in this repo)
 2. Reads source credentials from `GOOGLE_APPLICATION_CREDENTIALS`, then `op://Private/GCP ADC/credential`, then `~/.config/gcloud/application_default_credentials.json`
 3. Generates a temporary `impersonated_service_account` credential file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
 4. Sets `GOOGLE_APPLICATION_CREDENTIALS` to that temp file and runs `firebase deploy --non-interactive`
@@ -251,7 +251,7 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 
 ## CI/CD Integration
 
-No CI/CD pipeline is currently configured. Deploys are manual via `op-firebase-deploy`.
+The repo has GitHub Actions workflows for testing (`test.yml`), review policy enforcement (`pr-review-policy.yml`, `agent-review.yml`), PR auditing (`pr-audit.yml`), and repo linting (`repo_lint.yml`). Deploys are manual via `op-firebase-deploy`.
 
 When connecting CI, prefer Workload Identity Federation or another `external_account` credential as the source credential. If CI already exposes `GOOGLE_APPLICATION_CREDENTIALS` pointing at an `external_account` file, `op-firebase-deploy` can reuse it to impersonate the deployer service account.
 

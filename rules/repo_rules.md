@@ -59,8 +59,8 @@ The following checks are implemented in `scripts/ci/` and must pass before any c
 1. `check_required_root_files` — Verifies README.md, AGENTS.md, DEPLOYMENT.md, CONTRIBUTING.md, and .ai_context.md all exist at repository root
 2. `check_no_tool_folder_instructions` — Verifies .claude/ and .cursor/ contain no plain .md or .txt instruction files
 3. `check_no_forbidden_top_level_dirs` — Verifies no forbidden top-level directories exist (e.g., tool-instructions/, ai-rules/, agent-config/)
-4. `check_dist_not_modified` — Verifies dist/ files were not directly modified (exits cleanly if dist/ does not exist)
-5. `check_spec_test_alignment` — Verifies every file in specs/ has a corresponding test file in tests/ (skips if specs/ is empty)
+4. `check_dist_not_modified` — Verifies app/ build output files were not directly modified (exits cleanly if app/ does not exist)
+5. `check_spec_test_alignment` — Verifies every file in specs/ has a corresponding test file in tests/react/ (advisory; skips if specs/ is empty)
 6. `check_duplicate_docs` — Verifies no documentation topic is duplicated between root files and tool folders
 7. `check_review_policy_exists` — Verifies .github/review-policy.yml and REVIEW_POLICY.md both exist
 
