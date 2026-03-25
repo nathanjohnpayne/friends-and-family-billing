@@ -8,6 +8,8 @@
 - [ ] Manual verification completed when needed
 
 ## Self-Review
-- [ ] I reviewed the changed files for unintended regressions.
-- [ ] I verified the scope of the diff matches the intent of the change.
-- [ ] I called out any follow-up risk, rollout note, or reason a check was skipped.
+- [ ] Correctness: changes match stated requirements
+- [ ] Regression risk: no unintended impact on existing behavior
+- [ ] Style and conventions: follows repository standards
+- [ ] Test coverage: new paths tested, existing tests passing
+- [ ] Security and dependency hygiene: no new vulnerabilities or unnecessary deps
