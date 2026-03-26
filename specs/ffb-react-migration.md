@@ -389,6 +389,51 @@ src/
 
 ---
 
+## Current State (updated 2026-03-25)
+
+**Phase 4 was reverted in PR #37.** The React cutover deleted the legacy
+vanilla JS app, but the migration was never visually reviewed — users
+visiting `/` saw the unchanged legacy shell during each phase review.
+PR #37 restored both apps side-by-side so the React migration can be
+properly evaluated before the legacy app is retired.
+
+### What is deployed now
+
+| URL | App | Status |
+|-----|-----|--------|
+| `https://friends-and-family-billing.web.app/` | Legacy vanilla JS | **Primary** — fully functional, all features working |
+| `https://friends-and-family-billing.web.app/app/` | React SPA | **Secondary** — functional with dialog fix, needs visual review |
+
+### Known React app issues fixed in PR #37
+
+- **Dialog visibility bug**: All React dialog overlays used `display: none`
+  in CSS, expecting a `.visible` class toggle from legacy JS. React uses
+  conditional rendering instead. Fixed by changing `.dialog-overlay` to
+  `display: flex`. This affected Payment History, Email Invoice, Text
+  Invoice, Share Links, Record Payment, bill editing, member linking, and
+  all other dialog-based interactions.
+
+### Firebase config bridge
+
+Both apps share `firebase-config.local.js` which sets
+`window.__FIREBASE_CONFIG__`. This file is gitignored and must exist
+locally for builds and on the deployed site for production. The React
+app's `src/lib/firebase.js` reads from this global. The legacy app's
+`firebase-config.js` merges it with defaults.
+
+**Deploy note:** `firebase-config.local.js` must be present in the repo
+root before deploying. It is not committed to git. See DEPLOYMENT.md.
+
+### What must happen before Phase 4 can re-execute
+
+1. **Visual review of React app** — Compare every screen of the React app
+   (`/app/`) against the legacy app (`/`) and the og-image for design parity
+2. **Functional review** — Test all CRUD operations, dialogs, settlement
+   workflow, invoicing, share links in the React app
+3. **Login page design** — The React login should match the og-image
+   two-column layout, not the current minimal form
+4. **Explicit sign-off** from the project owner before deleting legacy code
+
 ## Implementation Order
 
 | Phase | Effort | Depends On | Ships | Status |
@@ -397,7 +442,9 @@ src/
 | Domain extraction (P1–3) | S | PRs 1–4 | Pure lib modules | ✅ Done |
 | Domain extraction (P4–6) | M | P1–3 | Year lifecycle, persistence, shares | ✅ Done |
 | Phase 0: Scaffold | M | Extraction done | React app boots with auth + data | ✅ Done |
-| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | 🔧 In Progress |
-| Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied | Pending |
-| Phase 3: Dialogs | M | Phase 2 | All modals ported | Pending |
-| Phase 4: Cleanup | M | Phase 3 | Vanilla JS fully removed, Playwright CI | Pending |
+| Phase 1: Shell & Nav | M | Phase 0 | Routing works, two views | ✅ Done |
+| Phase 2: Core Components | L | Phase 1 | All tabs ported, P0.3/P2.x applied | ✅ Done |
+| Phase 3: Dialogs | M | Phase 2 | All modals ported | ✅ Done |
+| Phase 4: Cleanup | M | Phase 3 | Vanilla JS fully removed | ⏪ Reverted (PR #37) |
+| **Visual parity review** | M | PR #37 | React app matches legacy design | **Pending** |
+| **Phase 4 (retry)** | M | Visual review | Vanilla JS removed after sign-off | Blocked |

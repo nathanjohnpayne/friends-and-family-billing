@@ -40,23 +40,26 @@ Alternatively, use `gh` CLI or the invite URL directly: `https://github.com/{own
 
 Go to the new repo → Settings → Secrets and variables → Actions → New repository secret. Add:
 
-| Secret name | Value |
-|---|---|
-| `CLAUDE_PAT` | Fine-grained PAT for `nathanpayne-claude` (from 1Password: `GitHub PAT (pr-review-claude)`) |
-| `CODEX_PAT` | Fine-grained PAT for `nathanpayne-codex` (from 1Password: `GitHub PAT (pr-review-codex)`) |
-| `CURSOR_PAT` | Fine-grained PAT for `nathanpayne-cursor` (from 1Password: `GitHub PAT (pr-review-cursor)`) |
-| `REVIEWER_ASSIGNMENT_TOKEN` | PAT for `nathanjohnpayne` (from 1Password: `GitHub PAT (pr-review-nathanjohnpayne)`) |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude Code headless review |
-| `OPENAI_API_KEY` | OpenAI API key for Codex headless review |
+| Secret name | Value | PAT type |
+|---|---|---|
+| `CLAUDE_PAT` | Classic PAT for `nathanpayne-claude` with `repo` scope | **Classic** (not fine-grained) |
+| `CODEX_PAT` | Classic PAT for `nathanpayne-codex` with `repo` scope | **Classic** (not fine-grained) |
+| `CURSOR_PAT` | Classic PAT for `nathanpayne-cursor` with `repo` scope | **Classic** (not fine-grained) |
+| `REVIEWER_ASSIGNMENT_TOKEN` | PAT for `nathanjohnpayne` | Fine-grained OK (owns repo) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude Code headless review | — |
+| `OPENAI_API_KEY` | OpenAI API key for Codex headless review | — |
 
-Or use the CLI (faster):
+**Why classic PATs?** Machine users are collaborators, not repo owners. Fine-grained
+PATs on personal accounts only cover owned repos. See "Token type" section below.
+
+Or use the CLI (faster). Use 1Password item IDs to avoid shell issues with parentheses:
 
 ```bash
-# From 1Password references — replace with actual values
-gh secret set CLAUDE_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/GitHub PAT (pr-review-claude)/token')"
-gh secret set CODEX_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/GitHub PAT (pr-review-codex)/token')"
-gh secret set CURSOR_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/GitHub PAT (pr-review-cursor)/token')"
-gh secret set REVIEWER_ASSIGNMENT_TOKEN --repo {owner}/{repo} --body "$(op read 'op://Private/GitHub PAT (pr-review-nathanjohnpayne)/token')"
+# Use exact 1Password item IDs (avoids shell issues with parentheses in item titles):
+gh secret set CLAUDE_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/pvbq24vl2h6gl7yjclxy2hbote/token')"
+gh secret set CURSOR_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/bslrih4spwxgookzfy6zedz5g4/token')"
+gh secret set CODEX_PAT --repo {owner}/{repo} --body "$(op read 'op://Private/o6ekjxjjl5gq6rmcneomrjahpu/token')"
+gh secret set REVIEWER_ASSIGNMENT_TOKEN --repo {owner}/{repo} --body "$(op read 'op://Private/sm5kopwk6t6p3xmu2igesndzhe/token')"
 gh secret set ANTHROPIC_API_KEY --repo {owner}/{repo} --body "$(op read 'op://Private/Anthropic API Key/credential')"
 gh secret set OPENAI_API_KEY --repo {owner}/{repo} --body "$(op read 'op://Private/OpenAI API Key/credential')"
 ```
@@ -98,6 +101,23 @@ EOF
 
 **Note:** Branch protection requires the repo to be public, or requires GitHub Pro/Team for private repos.
 
+**Known issue (as of 2026-03-25):** The `Self-Review Required` and `Label Gate`
+status checks are configured as required but never report. The CI workflows that
+should post these statuses (`pr-review-policy.yml`) fail silently when repository
+secrets (PATs) are missing or misconfigured. This blocks all merges — every PR
+requires either:
+- Fixing the CI secrets so status checks report, **or**
+- Using the GitHub web UI "Merge without waiting for requirements" bypass checkbox
+
+The `--admin` flag on `gh pr merge` does **not** bypass required status checks
+when "Do not allow bypassing the above settings" is partially enabled for checks.
+The break-glass hook (`BREAK_GLASS_ADMIN=1`) only bypasses the PreToolUse guard
+in Claude Code — it cannot override GitHub's branch protection API.
+
+**To fix:** Ensure all repository secrets listed in step 3 are correctly populated
+and that the CI workflow files reference them correctly. Verify by checking
+Actions → recent workflow runs for `pr-review-policy.yml` errors.
+
 ### 5. Create required labels
 
 The workflows expect these labels to exist. Create them if they don't:
@@ -136,12 +156,35 @@ gh label list --repo "$REPO" --search "needs-human-review"
 gh label list --repo "$REPO" --search "policy-violation"
 ```
 
+### Token type: classic PATs required
+
+Machine user reviewer identities (nathanpayne-claude, etc.) are **collaborators**,
+not repo owners. GitHub fine-grained PATs on personal accounts only cover repos
+owned by the token account — they cannot access collaborator repos. The "All
+repositories" scope in fine-grained PATs means all repos the account *owns* (zero
+for collaborators), not repos they collaborate on.
+
+**Use classic PATs with `repo` scope for all reviewer identities.** This is stored
+in 1Password with the field name `token` (not `credential` or `password`).
+
+1Password item IDs (all classic PATs with `ghp_` prefix, field `token`, vault `Private`):
+
+| Reviewer Identity | 1Password Item ID | `op read` command |
+|---|---|---|
+| `nathanpayne-claude` | `pvbq24vl2h6gl7yjclxy2hbote` | `op read "op://Private/pvbq24vl2h6gl7yjclxy2hbote/token"` |
+| `nathanpayne-cursor` | `bslrih4spwxgookzfy6zedz5g4` | `op read "op://Private/bslrih4spwxgookzfy6zedz5g4/token"` |
+| `nathanpayne-codex` | `o6ekjxjjl5gq6rmcneomrjahpu` | `op read "op://Private/o6ekjxjjl5gq6rmcneomrjahpu/token"` |
+| `nathanjohnpayne` | `sm5kopwk6t6p3xmu2igesndzhe` | `op read "op://Private/sm5kopwk6t6p3xmu2igesndzhe/token"` |
+
+Use the item ID (not the item title) to avoid shell issues with parentheses in
+1Password item names like `GitHub PAT (pr-review-claude)`.
+
 ### Token rotation (as needed)
 
 The current PATs are set to never expire. If you ever need to rotate them:
 
-1. Generate new fine-grained PATs for each machine user account
-2. Update the tokens in 1Password
+1. Generate new **classic** PATs with `repo` scope for each machine user account
+2. Update the tokens in 1Password (field name: `token`)
 3. Update `CLAUDE_PAT`, `CODEX_PAT`, `CURSOR_PAT` secrets on every repo
 4. Revoke the old tokens
 5. Verify agent access still works
@@ -160,17 +203,47 @@ There is no staging environment. All deploys go directly to production.
 
 ## Build Process
 
-Firebase Hosting deploys the repository root. The React app is built by Vite into `app/`.
+Firebase Hosting deploys the repository root (`.`). Two apps coexist:
+
+| App | Build command | Output | Served at |
+|-----|---------------|--------|-----------|
+| Legacy (vanilla JS) | `npm run build:legacy` | `script.js` (repo root) | `/` |
+| React SPA | `npm run build:react` | `app/` directory | `/app/` |
 
 ```bash
-# Build the React app
+# Build both apps
 npm run build
 ```
 
-`npm run build` runs Vite, which outputs to `app/` (matching the `/app/` base path).
-During deploys, Firebase also runs the configured hosting predeploy hook: `npm run build && node stamp-version.js`.
+`npm run build` runs `build:legacy` (esbuild) then `build:react` (Vite).
 
-Firebase config is read from `.env.local` (gitignored) as `VITE_FIREBASE_*` environment variables. Create this file from the template before building or deploying.
+### Firebase config (required before build or deploy)
+
+Both apps read Firebase config from `firebase-config.local.js` (gitignored), which
+sets `window.__FIREBASE_CONFIG__`. This file **must exist in the repo root** before
+building or deploying. Create it from the template:
+
+```bash
+cp firebase-config.local.example.js firebase-config.local.js
+# Then fill in the real values from Firebase Console → Project Settings → Web app
+```
+
+The React app also supports `.env.local` with `VITE_FIREBASE_*` variables (used by
+Vite at build time), but the runtime config bridge uses `window.__FIREBASE_CONFIG__`
+for compatibility with the legacy app.
+
+### Predeploy hook caveat
+
+The `firebase.json` predeploy hook (`npm run build && node stamp-version.js`) may
+fail under `op-firebase-deploy` because the esbuild step in `build:legacy` can't
+read stdin in the non-interactive environment. **Workaround:** build locally first,
+then deploy with the predeploy hook stripped:
+
+```bash
+npm run build && node stamp-version.js
+# Then temporarily remove predeploy from firebase.json, deploy, restore it.
+# Or use the pattern in the deploy steps below.
+```
 
 ## Deployment Steps
 
@@ -185,6 +258,26 @@ op-firebase-deploy --only hosting
 
 # Rules only
 op-firebase-deploy --only firestore:rules,storage
+```
+
+### If predeploy fails under op-firebase-deploy
+
+The `build:legacy` esbuild step can fail in the non-interactive deploy
+environment. Build locally first, then deploy without predeploy:
+
+```bash
+npm run build && node stamp-version.js
+
+# Strip predeploy, deploy, restore
+cp firebase.json firebase.json.bak
+python3 -c "
+import json
+with open('firebase.json') as f: c = json.load(f)
+del c['hosting']['predeploy']
+with open('firebase.json', 'w') as f: json.dump(c, f, indent=2); f.write('\n')
+"
+op-firebase-deploy friends-and-family-billing --only hosting
+mv firebase.json.bak firebase.json
 ```
 
 The script:
@@ -244,10 +337,27 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 
 ## Post-Deployment Verification
 
-1. Open https://friends-and-family-billing.web.app in an incognito window
-2. Create an account or sign in with Google — confirm authentication works
-3. Add a bill and split it between family members — confirm calculations render correctly
-4. Check browser DevTools → Console for any errors
+Verify both apps after each deploy:
+
+### Legacy app (primary)
+1. Open https://friends-and-family-billing.web.app/ in an incognito window
+2. Sign in — confirm the purple gradient hero and billing controls load
+3. Verify data populates (settlement board, members, bills)
+4. Check browser DevTools → Console for errors
+
+### React app (secondary)
+5. Open https://friends-and-family-billing.web.app/app/ in the same window
+6. Confirm it redirects to `/app/dashboard` and data loads
+7. Click "Payment History" on any member — confirm the dialog opens
+8. Check browser DevTools → Console for errors
+
+### Common deploy issues
+- **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it
+  exists in the repo root before deploying. It is gitignored so it won't
+  appear in `git status`.
+- **Legacy app shows "Missing Firebase web config"**: Same cause — the legacy
+  app's `firebase-config.js` loads `firebase-config.local.js` at runtime.
+- **Predeploy fails**: See "If predeploy fails" section above.
 
 ## CI/CD Integration
 
