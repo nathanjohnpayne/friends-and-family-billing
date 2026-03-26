@@ -138,15 +138,11 @@ jobs:
 
           FORMATTED_REASONS=$(echo "$REASONS" | sed 's/%0A/\n/g')
 
-          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$(cat <<EOF
-**External Review Required**
+          COMMENT_BODY=$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' \
+            '**External Review Required**' \
+            'This PR has been labeled `needs-external-review` based on .github/review-policy.yml:' \
+            "$FORMATTED_REASONS" \
+            'Per REVIEW_POLICY.md, the authoring agent must post a handoff message and alert the human. The human will coordinate external review by a different agent.' \
+            '> Automated check per .github/review-policy.yml')
 
-This PR has been labeled \`needs-external-review\` based on .github/review-policy.yml:
-
-$FORMATTED_REASONS
-
-Per REVIEW_POLICY.md, the authoring agent must post a handoff message and alert the human. The human will coordinate external review by a different agent.
-
-> Automated check per .github/review-policy.yml
-EOF
-          )"
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$COMMENT_BODY"
