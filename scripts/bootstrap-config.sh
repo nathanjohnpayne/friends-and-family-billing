@@ -1,13 +1,16 @@
-# bootstrap-config.sh — Repo-specific 1Password item mappings
+# bootstrap-config.sh — Repo-specific 1Password mappings
 #
-# Each entry: "1password_item_id:relative_file_path"
-# The item's notesPlain field stores the file contents.
+# INJECT_FILES (preferred): "template_path:output_path"
+#   Templates contain op:// references resolved by `op inject`.
+#   Templates are committed to git; output files are gitignored.
 #
-# To add a new file:
-#   1. Store it: op item create --category="Secure Note" --title="<Repo> Local Config (<filename>)" --vault=Private --tags=bootstrap "notesPlain=$(cat <file>)"
-#   2. Copy the item ID and add an entry below.
+# BOOTSTRAP_FILES (legacy): "1password_item_id:relative_file_path"
+#   Falls back to reading notesPlain from a Secure Note.
 
-BOOTSTRAP_FILES=(
-  "gtcftgwtn5f3kz2g53ymfcidim:.env.local"
-  "734wojsvpgoztyvf6ewj5vaf74:firebase-config.local.js"
+INJECT_FILES=(
+  ".env.tpl:.env.local"
+  "firebase-config.local.tpl:firebase-config.local.js"
 )
+
+# Legacy fallback (kept for backward compatibility; INJECT_FILES takes precedence)
+BOOTSTRAP_FILES=()
