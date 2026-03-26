@@ -602,14 +602,10 @@ img, svg { display: block; max-width: 100%; }
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.45);
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     z-index: var(--z-dialog, 9999);
-}
-
-.dialog-overlay.visible {
-    display: flex;
 }
 
 .dialog {

@@ -1,8 +1,9 @@
 /**
  * Modular Firebase initialization for the React app.
  *
- * Reads config from Vite environment variables (VITE_FIREBASE_*).
- * Values come from .env.local (gitignored, created from .env.example).
+ * Reads config from window.__FIREBASE_CONFIG__ (set by firebase-config.local.js
+ * loaded via <script> tag in index.html). This keeps firebase-config.local.js
+ * as the single source of truth for both the legacy and React apps.
  */
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
@@ -11,27 +12,14 @@ import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
 
 function getConfig() {
-    // Prefer Vite env vars; fall back to window.__FIREBASE_CONFIG__ for backward compat
-    const env = import.meta.env || {};
-    if (env.VITE_FIREBASE_API_KEY) {
-        return {
-            apiKey: env.VITE_FIREBASE_API_KEY,
-            authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-            projectId: env.VITE_FIREBASE_PROJECT_ID,
-            storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
-            messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-            appId: env.VITE_FIREBASE_APP_ID,
-            measurementId: env.VITE_FIREBASE_MEASUREMENT_ID
-        };
+    const config = window.__FIREBASE_CONFIG__;
+    if (!config || !config.apiKey || config.apiKey === 'YOUR_API_KEY') {
+        throw new Error(
+            'Missing Firebase config. Ensure firebase-config.local.js is loaded ' +
+            'before the React app and sets window.__FIREBASE_CONFIG__.'
+        );
     }
-    // Legacy fallback (window.__FIREBASE_CONFIG__)
-    const config = typeof window !== 'undefined' && window.__FIREBASE_CONFIG__;
-    if (config && config.apiKey && config.apiKey !== 'YOUR_API_KEY') {
-        return config;
-    }
-    throw new Error(
-        'Missing Firebase config. Ensure .env.local exists with VITE_FIREBASE_* variables.'
-    );
+    return config;
 }
 
 const app = initializeApp(getConfig());
