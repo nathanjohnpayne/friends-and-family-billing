@@ -1,12 +1,15 @@
 {
   "private": true,
   "scripts": {
-    "build": "vite build",
+    "build": "npm run build:legacy && npm run build:react",
+    "build:legacy": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
     "build:react": "vite build",
+    "build:watch": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap --watch",
     "dev": "vite --open",
     "pr:auto": "node scripts/pr-auto.mjs",
     "preview": "vite preview",
-    "test": "npm run test:react && npm run test:secrets",
+    "test": "npm run test:legacy && npm run test:react && npm run test:secrets",
+    "test:legacy": "npm run build:legacy && node --test 'tests/*.test.js'",
     "test:react": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
@@ -20,6 +23,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.1",
+    "esbuild": "^0.27.3",
     "jsdom": "^29.0.1",
     "vite": "^8.0.1",
     "vitest": "^4.1.0"
