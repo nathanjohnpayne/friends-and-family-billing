@@ -19,8 +19,11 @@
       "package-lock.json",
       "tests/**",
       "functions/**",
+      "scripts/**",
+      "specs/**",
       "stamp-version.js",
-      "enhancements/**"
+      "enhancements/**",
+      ".env*"
     ],
     "headers": [
       {
@@ -79,16 +82,6 @@
       }
     ],
     "rewrites": [
-      {
-        "source": "/",
-        "destination": "/app/",
-        "type": 302
-      },
-      {
-        "source": "/login.html",
-        "destination": "/app/login",
-        "type": 301
-      },
       {
         "source": "/share",
         "destination": "/share.html"
