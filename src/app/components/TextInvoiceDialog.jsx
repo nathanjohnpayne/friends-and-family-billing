@@ -63,6 +63,9 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
 
     if (!open || !ctx) return null;
 
+    // True when text-link variant needs a share URL but it hasn't arrived yet
+    const linkPending = variant === 'text-link' && !shareUrl && generating;
+
     function handleCopy() {
         navigator.clipboard.writeText(body).then(() => setCopied(true));
     }
@@ -104,16 +107,22 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                 <div className="payment-dialog-fields">
                     <div className="payment-field-group">
                         <label>Message</label>
-                        <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={e => setBody(e.target.value)} />
+                        {linkPending ? (
+                            <p className="link-manager-hint">Generating share link…</p>
+                        ) : (
+                            <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={e => setBody(e.target.value)} />
+                        )}
                     </div>
                 </div>
 
                 <div className="dialog-buttons">
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleCopy}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={linkPending}>
                         {copied ? 'Copied!' : 'Copy Message'}
                     </button>
-                    <button className="btn btn-sm btn-primary" onClick={handleOpenMessages}>Open Messages</button>
+                    <button className="btn btn-sm btn-primary" onClick={handleOpenMessages} disabled={linkPending}>
+                        {linkPending ? 'Generating link…' : 'Open Messages'}
+                    </button>
                 </div>
             </div>
         </div>

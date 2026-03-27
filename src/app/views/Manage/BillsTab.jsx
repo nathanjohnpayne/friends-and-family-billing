@@ -495,7 +495,7 @@ function BillCard({
                 <input
                     ref={logoInputRef}
                     type="file"
-                    accept="image/png,image/jpeg,image/svg+xml"
+                    accept="image/png,image/jpeg"
                     style={{ display: 'none' }}
                     onChange={handleLogoUpload}
                 />
