@@ -525,12 +525,15 @@ img, svg { display: block; max-width: 100%; }
 
 /* ── Status Badge ────────────────────────────────────────── */
 .status-badge {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
     font-size: 0.75rem;
     font-weight: 600;
     padding: 2px 8px;
     border-radius: 99px;
     white-space: nowrap;
+    line-height: 1.4;
+    flex-shrink: 0;
 }
 
 .status-badge--outstanding { background: var(--color-danger-bg, #fed7d7); color: var(--color-danger-fg, #9b2c2c); }
@@ -615,6 +618,52 @@ img, svg { display: block; max-width: 100%; }
     width: 90%;
     max-width: 440px;
     overflow: hidden;
+}
+
+.dialog-title {
+    padding: var(--space-3, 16px) var(--space-4, 24px) 0;
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text, #1F2430);
+}
+
+.dialog-title + * {
+    margin-top: var(--space-3, 12px);
+}
+
+.dialog-buttons {
+    padding: var(--space-3, 12px) var(--space-4, 24px) var(--space-3, 16px);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2, 8px);
+}
+
+.dialog > form,
+.dialog > .share-link-generate,
+.dialog > .share-link-manage,
+.dialog > .share-link-tabs,
+.dialog > .payment-history-summary,
+.dialog > .payment-history-list,
+.dialog > .payment-history-empty,
+.dialog > .invoice-summary-meta,
+.dialog > .invoice-variant-selector,
+.dialog > .payment-dialog-fields,
+.dialog > .audit-event-list,
+.dialog > .audit-empty,
+.dialog > .link-manager-hint,
+.dialog > .link-manager-list {
+    padding-left: var(--space-4, 24px);
+    padding-right: var(--space-4, 24px);
+}
+
+.dialog > form {
+    padding-bottom: var(--space-3, 16px);
+}
+
+.dialog > form .dialog-buttons {
+    padding-left: 0;
+    padding-right: 0;
 }
 
 .dialog-header {
@@ -943,6 +992,30 @@ img, svg { display: block; max-width: 100%; }
 .bill-header-left {
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.bill-logo-container {
+    flex-shrink: 0;
+}
+
+.bill-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    object-fit: contain;
+}
+
+.bill-logo-text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-surface-alt, #F7F8FB);
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.7rem;
+    font-weight: 600;
 }
 
 .bill-title {
@@ -1266,6 +1339,8 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-3, 16px);
     font-size: 0.75rem;
     color: var(--color-text-secondary, #5B6475);
+    align-items: center;
+    flex-wrap: wrap;
     padding-left: calc(var(--space-2, 8px) + 28px + var(--space-2, 8px) + 0.9rem);
 }
 

@@ -209,8 +209,8 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         )}
                         <button
                             className="btn btn-secondary btn-sm"
-                            onClick={() => onEmailInvoice && onEmailInvoice(member.id)}
-                            disabled={balance <= 0}
+                            onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}
+                            title={balance <= 0 ? 'No balance due' : 'Send email invoice'}
                         >
                             Email Invoice
                         </button>

@@ -154,6 +154,23 @@ export class BillingYearService {
 
         if (yearDoc.exists()) {
             const normalized = normalizeYearData(yearDoc.data(), yearId);
+
+            // Restore QR codes from publicQrCodes for methods that have hasQrCode flag
+            if (normalized.settings && normalized.settings.paymentMethods) {
+                const methodsWithQrFlag = normalized.settings.paymentMethods.filter(m => m.hasQrCode && !m.qrCode);
+                if (methodsWithQrFlag.length > 0) {
+                    await Promise.all(methodsWithQrFlag.map(async m => {
+                        const qrDocId = this._user.uid + '_' + m.id;
+                        try {
+                            const qrDoc = await getDoc(doc(db, 'publicQrCodes', qrDocId));
+                            if (qrDoc.exists() && qrDoc.data().qrCode) {
+                                m.qrCode = qrDoc.data().qrCode;
+                            }
+                        } catch (_) { /* QR doc may not exist */ }
+                    }));
+                }
+            }
+
             this._setState({
                 activeYear: normalized.year,
                 familyMembers: normalized.members,

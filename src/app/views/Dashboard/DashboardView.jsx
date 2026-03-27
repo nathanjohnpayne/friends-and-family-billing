@@ -137,7 +137,13 @@ export default function DashboardView() {
                 payments={payments}
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
-                onEmailInvoice={memberId => setDialog({ type: 'emailInvoice', memberId })}
+                onEmailInvoice={(memberId, isSettled) => {
+                    if (isSettled) {
+                        showToast('No balance due\u2014nothing to invoice.');
+                        return;
+                    }
+                    setDialog({ type: 'emailInvoice', memberId });
+                }}
                 onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
                 onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
                 onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
@@ -186,6 +192,8 @@ export default function DashboardView() {
                     payments={payments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
+                    userId={user ? user.uid : ''}
+                    billingYearId={activeYear.id}
                     showToast={showToast}
                     onClose={() => setDialog({ type: null, memberId: null })}
                 />

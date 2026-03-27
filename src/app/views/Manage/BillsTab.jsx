@@ -2,12 +2,12 @@
  * BillsTab — full CRUD for bills with member split toggles.
  * Port of renderBills() from main.js:1608.
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
 import { getBillAnnualAmount, getBillMonthlyAmount } from '../../../lib/calculations.js';
-import { getBillFrequencyLabel } from '../../../lib/formatting.js';
+import { getBillFrequencyLabel, getInitials } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
@@ -246,6 +246,14 @@ export default function BillsTab() {
                             onConvertFrequency={openFrequencyConvert}
                             onEditWebsite={openWebsiteEdit}
                             onViewHistory={setHistoryTarget}
+                            onUploadLogo={(billId, base64) => {
+                                service.updateBill(billId, { logo: base64 });
+                                showToast('Logo updated');
+                            }}
+                            onRemoveLogo={billId => {
+                                service.updateBill(billId, { logo: '' });
+                                showToast('Logo removed');
+                            }}
                         />
                     ))}
                 </div>
@@ -328,8 +336,10 @@ function BillCard({
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
-    onDelete, onConvertFrequency, onEditWebsite, onViewHistory
+    onDelete, onConvertFrequency, onEditWebsite, onViewHistory,
+    onUploadLogo, onRemoveLogo
 }) {
+    const logoInputRef = useRef(null);
     const annualAmount = getBillAnnualAmount(bill);
     const isAnnual = bill.billingFrequency === 'annual';
     const freqLabel = getBillFrequencyLabel(bill);
@@ -382,11 +392,29 @@ function BillCard({
         );
     }
 
+    function handleLogoUpload(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (onUploadLogo) onUploadLogo(bill.id, reader.result);
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    }
+
     return (
         <div className={'bill-card' + tierClass}>
             <div className="bill-header-main">
                 <div className="bill-header">
                     <div className="bill-header-left">
+                        <div className="bill-logo-container">
+                            {bill.logo ? (
+                                <img src={bill.logo} alt={bill.name} className="bill-logo" />
+                            ) : (
+                                <div className="bill-logo bill-logo-text">{getInitials(bill.name)}</div>
+                            )}
+                        </div>
                         {renderEditableField('name', bill.name, 'bill-title')}
                     </div>
                     <div className="bill-header-right">
@@ -449,11 +477,28 @@ function BillCard({
                         </ActionMenuItem>
                     )}
                     {!readOnly && (
+                        <ActionMenuItem onClick={() => logoInputRef.current && logoInputRef.current.click()}>
+                            {bill.logo ? 'Replace Logo' : 'Upload Logo'}
+                        </ActionMenuItem>
+                    )}
+                    {!readOnly && bill.logo && (
+                        <ActionMenuItem onClick={() => onRemoveLogo && onRemoveLogo(bill.id)}>
+                            Remove Logo
+                        </ActionMenuItem>
+                    )}
+                    {!readOnly && (
                         <ActionMenuItem onClick={() => onDelete(bill)} danger>
                             Remove Bill
                         </ActionMenuItem>
                     )}
                 </ActionMenu>
+                <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml"
+                    style={{ display: 'none' }}
+                    onChange={handleLogoUpload}
+                />
             </div>
         </div>
     );
