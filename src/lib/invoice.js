@@ -3,6 +3,7 @@
  * Pure functions, no DOM or global state dependencies.
  */
 import { calculateAnnualSummary, getPaymentTotalForMember } from './calculations.js';
+import { escapeHtml } from './formatting.js';
 
 /**
  * Build the full invoice context for a member (mirrors main.js:4310).
@@ -201,4 +202,134 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!';
     if (shareUrl) msg += '\n\n' + shareUrl;
     return msg;
+}
+
+// ── CommonMark subset renderer (spec: https://spec.commonmark.org/0.31.2/) ──
+
+/**
+ * Apply inline markdown formatting to an HTML-escaped line.
+ * Processes: code spans, bold, italic, links, autolinks, backslash escapes.
+ */
+function renderInlineMarkdown(escaped) {
+    // Code spans: `code` (process first — contents are literal, no nesting)
+    let text = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold: **text** or __text__
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+    // Italic: *text* or _text_ (run after bold to avoid conflicts)
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    text = text.replace(/(?<!\w)_(.+?)_(?!\w)/g, '<em>$1</em>');
+
+    // Inline links: [text](url) — only http(s) URLs for security
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // Autolinks: <https://...> or <http://...>
+    text = text.replace(/&lt;(https?:\/\/[^&]+)&gt;/g,
+        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // Backslash escapes for markdown punctuation (per CommonMark spec)
+    text = text.replace(/\\([\\`*_\[\]()#+\-.!{|}~])/g, '$1');
+
+    return text;
+}
+
+/**
+ * Render a plain text string as HTML using a CommonMark subset.
+ * Supports: paragraphs, headings (h1-h3), blockquotes, thematic breaks,
+ * unordered/ordered lists, bold, italic, code spans, links, autolinks.
+ * @param {string} text — raw preview text (with tokens already substituted)
+ * @returns {string} — safe HTML string
+ */
+export function renderPreviewHTML(text) {
+    if (!text) return '';
+
+    const lines = text.split('\n');
+    const html = [];
+    let i = 0;
+
+    function collectParagraph() {
+        const pLines = [];
+        while (i < lines.length && lines[i].trim() !== '') {
+            const line = lines[i].trim();
+            // Stop if this line starts a different block type
+            if (/^#{1,3}\s/.test(line) || /^[-*_]{3,}\s*$/.test(line) ||
+                /^>\s/.test(line) || /^[-*+]\s/.test(line) || /^\d+[.)]\s/.test(line)) {
+                break;
+            }
+            pLines.push(renderInlineMarkdown(escapeHtml(line)));
+            i++;
+        }
+        return pLines;
+    }
+
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Blank line — skip
+        if (trimmed === '') { i++; continue; }
+
+        // ATX headings: # through ###
+        const headingMatch = trimmed.match(/^(#{1,3})\s+(.+?)(?:\s+#+\s*)?$/);
+        if (headingMatch) {
+            const level = headingMatch[1].length;
+            const content = renderInlineMarkdown(escapeHtml(headingMatch[2]));
+            html.push('<h' + level + '>' + content + '</h' + level + '>');
+            i++;
+            continue;
+        }
+
+        // Thematic breaks: --- or *** or ___
+        if (/^[-*_]{3,}\s*$/.test(trimmed)) {
+            html.push('<hr>');
+            i++;
+            continue;
+        }
+
+        // Blockquote: > text
+        if (/^>\s?/.test(trimmed)) {
+            const quoteLines = [];
+            while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+                quoteLines.push(escapeHtml(lines[i].trim().replace(/^>\s?/, '')));
+                i++;
+            }
+            html.push('<blockquote><p>' + quoteLines.map(renderInlineMarkdown).join('<br>') + '</p></blockquote>');
+            continue;
+        }
+
+        // Unordered list: - item, * item, + item
+        if (/^[-*+]\s/.test(trimmed)) {
+            html.push('<ul>');
+            while (i < lines.length && /^[-*+]\s/.test(lines[i].trim())) {
+                const itemText = lines[i].trim().replace(/^[-*+]\s+/, '');
+                html.push('<li>' + renderInlineMarkdown(escapeHtml(itemText)) + '</li>');
+                i++;
+            }
+            html.push('</ul>');
+            continue;
+        }
+
+        // Ordered list: 1. item or 1) item
+        if (/^\d+[.)]\s/.test(trimmed)) {
+            html.push('<ol>');
+            while (i < lines.length && /^\d+[.)]\s/.test(lines[i].trim())) {
+                const itemText = lines[i].trim().replace(/^\d+[.)]\s+/, '');
+                html.push('<li>' + renderInlineMarkdown(escapeHtml(itemText)) + '</li>');
+                i++;
+            }
+            html.push('</ol>');
+            continue;
+        }
+
+        // Default: paragraph — collect consecutive non-blank, non-block lines
+        const pLines = collectParagraph();
+        if (pLines.length > 0) {
+            html.push('<p>' + pLines.join('<br>') + '</p>');
+        }
+    }
+
+    return html.join('\n');
 }
