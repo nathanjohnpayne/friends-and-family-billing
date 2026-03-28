@@ -14,7 +14,8 @@ import { PAYMENT_METHOD_TYPES, getPaymentMethodIcon, getPaymentMethodDetail } fr
 import { buildInvoiceBody, buildInvoiceSubject, getInvoiceSummaryContext, renderPreviewHTML } from '../../../lib/invoice.js';
 import { escapeHtml } from '../../../lib/formatting.js';
 import { generateRawToken, hashToken } from '../../../lib/validation.js';
-import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData } from '../../../lib/share.js';
+import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from '../../../lib/share.js';
+import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
@@ -79,6 +80,9 @@ export default function InvoicingTab() {
                 onSave={emailMessage => {
                     service.updateSettings({ emailMessage });
                     showToast('Email template saved');
+                }}
+                onSaveShareUrl={invoiceShareUrl => {
+                    service.updateSettings({ invoiceShareUrl });
                 }}
             />
             <PaymentMethodsSection
@@ -160,13 +164,14 @@ function extractTemplateValue(el) {
     return lines.join('\n');
 }
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, billingYearId, showToast, onSave }) {
+function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, billingYearId, showToast, onSave, onSaveShareUrl }) {
     const [template, setTemplate] = useState(settings.emailMessage || '');
     const [dirty, setDirty] = useState(false);
     const editorRef = useRef(null);
     const isEditing = useRef(false);
-    const [previewShareUrl, setPreviewShareUrl] = useState('');
+    const [previewShareUrl, setPreviewShareUrl] = useState(settings.invoiceShareUrl || '');
     const [generatingLink, setGeneratingLink] = useState(false);
+    const [shareLinkDialog, setShareLinkDialog] = useState(false);
 
     // Sync editor HTML when template changes externally (not during editing)
     useEffect(() => {
@@ -267,8 +272,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             const member = familyMembers[0];
             const rawToken = generateRawToken();
             const tokenHash = await hashToken(rawToken);
-            const scopes = buildShareScopes(false, false);
-            const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, null, scopes);
+            // Default: 1 year expiry, both review permissions enabled
+            const scopes = buildShareScopes(true, true);
+            const expiresAt = computeExpiryDate(365);
+            const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, expiresAt, scopes);
             await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
             const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings);
             if (publicData) {
@@ -276,8 +283,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             }
             const url = buildShareUrl(window.location.origin, rawToken);
             setPreviewShareUrl(url);
-            await navigator.clipboard.writeText(url);
-            if (showToast) showToast('Share link generated and copied!');
+            // Persist in settings so it survives navigation
+            if (onSaveShareUrl) onSaveShareUrl(url);
+            try { await navigator.clipboard.writeText(url); } catch (_) { /* clipboard may be blocked */ }
+            if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
             if (showToast) showToast('Failed to generate share link: ' + err.message);
@@ -362,9 +371,27 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             </div>
                             <div className="invoice-preview-meta">
                                 <span className="invoice-preview-meta-label">Link</span>
-                                <span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {previewShareUrl ? (
-                                        <span className="invoice-share-url">{previewShareUrl}</span>
+                                        <>
+                                            <span className="invoice-share-url">{previewShareUrl}</span>
+                                            <ActionMenu label="Share link options">
+                                                <ActionMenuItem onClick={() => {
+                                                    navigator.clipboard.writeText(previewShareUrl).then(
+                                                        () => showToast && showToast('Link copied!'),
+                                                        () => showToast && showToast('Failed to copy')
+                                                    );
+                                                }}>
+                                                    Copy Link
+                                                </ActionMenuItem>
+                                                <ActionMenuItem onClick={() => setShareLinkDialog(true)}>
+                                                    Manage Share Links
+                                                </ActionMenuItem>
+                                                <ActionMenuItem onClick={handleGeneratePreviewLink}>
+                                                    Generate New Link
+                                                </ActionMenuItem>
+                                            </ActionMenu>
+                                        </>
                                     ) : (
                                         <button
                                             className="btn btn-sm btn-secondary"
@@ -391,6 +418,25 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                 >
                     Save Template
                 </button>
+            )}
+
+            {shareLinkDialog && familyMembers.length > 0 && (
+                <ShareLinkDialog
+                    open
+                    memberId={familyMembers[0].id}
+                    memberName={familyMembers[0].name}
+                    userId={userId}
+                    billingYearId={billingYearId}
+                    yearLabel={activeYear ? (activeYear.label || activeYear.id) : ''}
+                    initialTab="manage"
+                    familyMembers={familyMembers}
+                    bills={bills}
+                    payments={payments}
+                    activeYear={activeYear}
+                    settings={settings}
+                    showToast={showToast}
+                    onClose={() => setShareLinkDialog(false)}
+                />
             )}
         </div>
     );
