@@ -122,17 +122,22 @@ function formatPaymentOptionsMarkdown(settings) {
 function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
     const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
-    // In markdown mode, render %share_link% as a named hyperlink
-    let shareLinkValue = shareUrl || '';
-    if (options && options.markdown && shareUrl) {
-        const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
-        shareLinkValue = '[' + linkText + '](' + shareUrl + ')';
-    }
-    return buildInvoiceTemplatePreviewText(template, {
+    let result = buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2),
-        shareLink: shareLinkValue
+        shareLink: shareUrl || ''
     }).replace(/%payment_methods%/g, formatter(ctx.settings)).trim();
+
+    // In markdown mode, convert bare share URLs (not already inside markdown links)
+    // into named hyperlinks: "Name's Year Annual Billing Summary"
+    if (options && options.markdown && shareUrl) {
+        const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
+        const escaped = shareUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Match the URL only when it's NOT inside (url) markdown link syntax
+        result = result.replace(new RegExp('(?<!\\()' + escaped + '(?!\\))', 'g'),
+            '[' + linkText + '](' + shareUrl + ')');
+    }
+    return result;
 }
 
 /**
