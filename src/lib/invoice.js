@@ -49,12 +49,18 @@ export function buildInvoiceSubject(year, member) {
  * Simple template variable replacement for invoice messages.
  */
 function buildInvoiceTemplatePreviewText(template, ctx) {
-    return String(template || '')
+    let result = String(template || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
         .replace(/%total\b/g, ctx.annualTotal)
         .replace(/%share_link%/g, ctx.shareLink || '');
+
+    // Clean up markdown links with empty URLs: [text]() → remove entire construct
+    // Also clean bare []() and lines that became empty after removal
+    result = result.replace(/\[([^\]]*)\]\(\s*\)/g, '');
+
+    return result;
 }
 
 /**
