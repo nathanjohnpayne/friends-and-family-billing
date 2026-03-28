@@ -9,7 +9,7 @@ import { getInvoiceSummaryContext, buildInvoiceBody } from '../../lib/invoice.js
 import { openSmsComposer } from '../../lib/sms.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import { generateRawToken, hashToken } from '../../lib/validation.js';
-import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData } from '../../lib/share.js';
+import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from '../../lib/share.js';
 
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, shareUrl?: string, onClose: function, showToast?: function }} props
@@ -38,8 +38,9 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
             try {
                 const rawToken = generateRawToken();
                 const tokenHash = await hashToken(rawToken);
-                const scopes = buildShareScopes(false, false);
-                const tokenDoc = buildShareTokenDoc(userId, memberId, ctx.member.name, billingYearId, rawToken, null, scopes);
+                const scopes = buildShareScopes(true, true);
+                const expiresAt = computeExpiryDate(365);
+                const tokenDoc = buildShareTokenDoc(userId, memberId, ctx.member.name, billingYearId, rawToken, expiresAt, scopes);
                 await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
                 const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings);
                 if (publicData) {
