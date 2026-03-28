@@ -122,10 +122,16 @@ function formatPaymentOptionsMarkdown(settings) {
 function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
     const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
+    // In markdown mode, render %share_link% as a named hyperlink
+    let shareLinkValue = shareUrl || '';
+    if (options && options.markdown && shareUrl) {
+        const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
+        shareLinkValue = '[' + linkText + '](' + shareUrl + ')';
+    }
     return buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2),
-        shareLink: shareUrl || ''
+        shareLink: shareLinkValue
     }).replace(/%payment_methods%/g, formatter(ctx.settings)).trim();
 }
 
