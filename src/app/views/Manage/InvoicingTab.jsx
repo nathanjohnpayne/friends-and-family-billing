@@ -13,13 +13,16 @@ import { detectDuplicatePaymentText } from '../../../lib/validation.js';
 import { PAYMENT_METHOD_TYPES, getPaymentMethodIcon, getPaymentMethodDetail } from '../../../lib/formatting.js';
 import { buildInvoiceBody, buildInvoiceSubject, getInvoiceSummaryContext, renderPreviewHTML } from '../../../lib/invoice.js';
 import { escapeHtml } from '../../../lib/formatting.js';
+import { generateRawToken, hashToken } from '../../../lib/validation.js';
+import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData } from '../../../lib/share.js';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
 const EMAIL_TEMPLATE_FIELDS = [
     { token: '%billing_year%', label: 'Billing Year' },
     { token: '%annual_total%', label: 'Household Total' },
-    { token: '%payment_methods%', label: 'Payment Methods' }
+    { token: '%payment_methods%', label: 'Payment Methods' },
+    { token: '%share_link%', label: 'Share Link' }
 ];
 
 /**
@@ -70,6 +73,9 @@ export default function InvoicingTab() {
                 payments={payments}
                 activeYear={activeYear}
                 readOnly={readOnly}
+                userId={user ? user.uid : ''}
+                billingYearId={activeYear ? activeYear.id : ''}
+                showToast={showToast}
                 onSave={emailMessage => {
                     service.updateSettings({ emailMessage });
                     showToast('Email template saved');
@@ -94,10 +100,11 @@ const EMAIL_TEMPLATE_TOKEN_LABELS = {
     '%billing_year%': 'Billing Year',
     '%annual_total%': 'Household Total',
     '%total%': 'Household Total',
-    '%payment_methods%': 'Payment Methods'
+    '%payment_methods%': 'Payment Methods',
+    '%share_link%': 'Share Link'
 };
 
-const TOKEN_PATTERN = /(%billing_year%|%annual_total%|%total%|%payment_methods%)/g;
+const TOKEN_PATTERN = /(%billing_year%|%annual_total%|%total%|%payment_methods%|%share_link%)/g;
 
 /**
  * Convert raw template string to editor HTML with inline token chips.
@@ -153,11 +160,13 @@ function extractTemplateValue(el) {
     return lines.join('\n');
 }
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, onSave }) {
+function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, billingYearId, showToast, onSave }) {
     const [template, setTemplate] = useState(settings.emailMessage || '');
     const [dirty, setDirty] = useState(false);
     const editorRef = useRef(null);
     const isEditing = useRef(false);
+    const [previewShareUrl, setPreviewShareUrl] = useState('');
+    const [generatingLink, setGeneratingLink] = useState(false);
 
     // Sync editor HTML when template changes externally (not during editing)
     useEffect(() => {
@@ -251,6 +260,31 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
         setDirty(false);
     }
 
+    async function handleGeneratePreviewLink() {
+        if (!userId || !billingYearId || familyMembers.length === 0) return;
+        setGeneratingLink(true);
+        try {
+            const member = familyMembers[0];
+            const rawToken = generateRawToken();
+            const tokenHash = await hashToken(rawToken);
+            const scopes = buildShareScopes(false, false);
+            const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, null, scopes);
+            await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
+            const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings);
+            if (publicData) {
+                await setDoc(doc(db, 'publicShares', tokenHash), { ...publicData, updatedAt: serverTimestamp() });
+            }
+            const url = buildShareUrl(window.location.origin, rawToken);
+            setPreviewShareUrl(url);
+            await navigator.clipboard.writeText(url);
+            if (showToast) showToast('Share link generated and copied!');
+        } catch (err) {
+            console.error('Failed to generate share link:', err);
+            if (showToast) showToast('Failed to generate share link: ' + err.message);
+        }
+        setGeneratingLink(false);
+    }
+
     // Build live preview with context
     let previewCtx = null;
     let previewBodyHTML = '';
@@ -259,7 +293,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
         const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, sampleMemberId, activeYear, { ...settings, emailMessage: template });
         if (ctx) {
             previewCtx = ctx;
-            const rawText = buildInvoiceBody(ctx, 'text-only', '', 'email', { markdown: true });
+            const rawText = buildInvoiceBody(ctx, 'text-only', previewShareUrl, 'email', { markdown: true });
             previewBodyHTML = renderPreviewHTML(rawText);
         }
     }
@@ -325,6 +359,22 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             <div className="invoice-preview-meta">
                                 <span className="invoice-preview-meta-label">Subject</span>
                                 <span>{buildInvoiceSubject(previewCtx.currentYear, previewCtx.member)}</span>
+                            </div>
+                            <div className="invoice-preview-meta">
+                                <span className="invoice-preview-meta-label">Link</span>
+                                <span>
+                                    {previewShareUrl ? (
+                                        <span className="invoice-share-url">{previewShareUrl}</span>
+                                    ) : (
+                                        <button
+                                            className="btn btn-sm btn-secondary"
+                                            onClick={handleGeneratePreviewLink}
+                                            disabled={generatingLink || !userId}
+                                        >
+                                            {generatingLink ? 'Generating…' : 'Generate Share Link'}
+                                        </button>
+                                    )}
+                                </span>
                             </div>
                             <div className="invoice-preview-message"
                                 dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
