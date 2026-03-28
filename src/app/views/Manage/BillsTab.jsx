@@ -396,8 +396,24 @@ function BillCard({
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = () => {
-            if (onUploadLogo) onUploadLogo(bill.id, reader.result);
+        reader.onload = (event) => {
+            // Compress and rasterize (handles SVG→PNG conversion too)
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const maxSize = 200;
+                let w = img.width, h = img.height;
+                if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } }
+                else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
+                canvas.width = w;
+                canvas.height = h;
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                if (onUploadLogo) onUploadLogo(bill.id, canvas.toDataURL('image/png'));
+            };
+            img.src = event.target.result;
         };
         reader.readAsDataURL(file);
         e.target.value = '';
@@ -495,7 +511,7 @@ function BillCard({
                 <input
                     ref={logoInputRef}
                     type="file"
-                    accept="image/png,image/jpeg"
+                    accept="image/png,image/jpeg,image/svg+xml"
                     style={{ display: 'none' }}
                     onChange={handleLogoUpload}
                 />
