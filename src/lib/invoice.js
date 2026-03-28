@@ -82,14 +82,42 @@ function formatPaymentOptionsText(settings) {
 }
 
 /**
- * Build the configured invoice message from template + context.
+ * Format enabled payment methods as a markdown list.
  */
-function buildConfiguredInvoiceMessage(ctx) {
+function formatPaymentOptionsMarkdown(settings) {
+    const methods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+    if (methods.length === 0) return '';
+
+    let text = '\n## Payment Options\n\n';
+    methods.forEach(method => {
+        let detail = '';
+        if (method.type === 'zelle') {
+            const contacts = [method.email, method.phone].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Zelle to: ' + contacts.join(' or ');
+        } else if (method.type === 'apple_cash') {
+            const contacts = [method.phone, method.email].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Messages or Wallet to: ' + contacts.join(' or ');
+        } else {
+            detail = [method.handle, method.url].filter(Boolean).join(' ');
+        }
+        text += '- **' + method.label + ':** ' + detail + '\n';
+        if (method.instructions) text += '  Note: ' + method.instructions + '\n';
+    });
+    return text.trimEnd();
+}
+
+/**
+ * Build the configured invoice message from template + context.
+ * @param {Object} ctx
+ * @param {{ markdown?: boolean }} options — when true, use markdown-formatted payment methods
+ */
+function buildConfiguredInvoiceMessage(ctx, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
+    const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
     return buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2)
-    }).replace(/%payment_methods%/g, formatPaymentOptionsText(ctx.settings)).trim();
+    }).replace(/%payment_methods%/g, formatter(ctx.settings)).trim();
 }
 
 /**
@@ -171,12 +199,13 @@ function buildFullInvoiceText(ctx, shareUrl) {
  * @param {'text-only'|'text-link'|'full'} variant
  * @param {string} shareUrl
  * @param {'email'|'sms'} channel
+ * @param {{ markdown?: boolean }} [options] — pass { markdown: true } for preview rendering
  * @returns {string}
  */
-export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
+export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
-    const configuredMessage = buildConfiguredInvoiceMessage(ctx);
+    const configuredMessage = buildConfiguredInvoiceMessage(ctx, options);
 
     if (variant === 'text-only') {
         if (isEmail && configuredMessage) {
