@@ -249,6 +249,11 @@ function PaymentMethodsSection({ settings, readOnly, onUpdate }) {
                             <div className="payment-method-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(method.type) }} />
                             <div className="payment-method-info">
                                 <strong>{method.label}</strong>
+                                {(method.qrCode || method.hasQrCode) && (
+                                    <span className="pm-qr-badge" title="QR code uploaded">
+                                        <img src="/qr-code.svg" alt="QR" className="pm-qr-icon" />
+                                    </span>
+                                )}
                                 <span className="payment-method-detail">{getPaymentMethodDetail(method)}</span>
                             </div>
                             {!readOnly && (
