@@ -3,7 +3,6 @@
  * Pure functions, no DOM or global state dependencies.
  */
 import { calculateAnnualSummary, getPaymentTotalForMember } from './calculations.js';
-import { escapeHtml } from './formatting.js';
 
 /**
  * Build the full invoice context for a member (mirrors main.js:4310).
@@ -204,132 +203,58 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     return msg;
 }
 
-// ── CommonMark subset renderer (spec: https://spec.commonmark.org/0.31.2/) ──
+// ── CommonMark renderer (spec: https://spec.commonmark.org/0.31.2/) ──
+// Uses unified + remark-parse + remark-rehype + rehype-sanitize + rehype-stringify
+// for spec-compliant parsing, with remark-breaks for email-style single-newline breaks.
 
-/**
- * Apply inline markdown formatting to an HTML-escaped line.
- * Processes: code spans, bold, italic, links, autolinks, backslash escapes.
- */
-function renderInlineMarkdown(escaped) {
-    // Code spans: `code` (process first — contents are literal, no nesting)
-    let text = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkBreaks from 'remark-breaks';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
 
-    // Bold: **text** or __text__
-    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+/** Sanitization schema: default HTML elements + target/rel on links */
+const sanitizeSchema = {
+    ...defaultSchema,
+    attributes: {
+        ...defaultSchema.attributes,
+        a: [...(defaultSchema.attributes?.a || []), 'target', 'rel']
+    }
+};
 
-    // Italic: *text* or _text_ (run after bold to avoid conflicts)
-    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    text = text.replace(/(?<!\w)_(.+?)_(?!\w)/g, '<em>$1</em>');
-
-    // Inline links: [text](url) — only http(s) URLs for security
-    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-
-    // Autolinks: <https://...> or <http://...>
-    text = text.replace(/&lt;(https?:\/\/[^&]+)&gt;/g,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-
-    // Backslash escapes for markdown punctuation (per CommonMark spec)
-    text = text.replace(/\\([\\`*_\[\]()#+\-.!{|}~])/g, '$1');
-
-    return text;
+/** rehype plugin: add target="_blank" rel="noopener noreferrer" to all <a> tags */
+function rehypeExternalLinks() {
+    return (tree) => {
+        function visit(node) {
+            if (node.type === 'element' && node.tagName === 'a') {
+                node.properties = node.properties || {};
+                node.properties.target = '_blank';
+                node.properties.rel = 'noopener noreferrer';
+            }
+            if (node.children) node.children.forEach(visit);
+        }
+        visit(tree);
+    };
 }
 
+const markdownProcessor = unified()
+    .use(remarkParse)
+    .use(remarkBreaks)
+    .use(remarkRehype)
+    .use(rehypeExternalLinks)
+    .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify);
+
 /**
- * Render a plain text string as HTML using a CommonMark subset.
- * Supports: paragraphs, headings (h1-h3), blockquotes, thematic breaks,
- * unordered/ordered lists, bold, italic, code spans, links, autolinks.
+ * Render a plain text string as HTML using CommonMark (via unified/remark).
+ * Supports: paragraphs, headings, emphasis, strong, code spans, links,
+ * autolinks, lists, blockquotes, thematic breaks, line breaks.
+ * Output is sanitized — safe for dangerouslySetInnerHTML.
  * @param {string} text — raw preview text (with tokens already substituted)
- * @returns {string} — safe HTML string
+ * @returns {string} — sanitized HTML string
  */
 export function renderPreviewHTML(text) {
     if (!text) return '';
-
-    const lines = text.split('\n');
-    const html = [];
-    let i = 0;
-
-    function collectParagraph() {
-        const pLines = [];
-        while (i < lines.length && lines[i].trim() !== '') {
-            const line = lines[i].trim();
-            // Stop if this line starts a different block type
-            if (/^#{1,3}\s/.test(line) || /^[-*_]{3,}\s*$/.test(line) ||
-                /^>\s/.test(line) || /^[-*+]\s/.test(line) || /^\d+[.)]\s/.test(line)) {
-                break;
-            }
-            pLines.push(renderInlineMarkdown(escapeHtml(line)));
-            i++;
-        }
-        return pLines;
-    }
-
-    while (i < lines.length) {
-        const line = lines[i];
-        const trimmed = line.trim();
-
-        // Blank line — skip
-        if (trimmed === '') { i++; continue; }
-
-        // ATX headings: # through ###
-        const headingMatch = trimmed.match(/^(#{1,3})\s+(.+?)(?:\s+#+\s*)?$/);
-        if (headingMatch) {
-            const level = headingMatch[1].length;
-            const content = renderInlineMarkdown(escapeHtml(headingMatch[2]));
-            html.push('<h' + level + '>' + content + '</h' + level + '>');
-            i++;
-            continue;
-        }
-
-        // Thematic breaks: --- or *** or ___
-        if (/^[-*_]{3,}\s*$/.test(trimmed)) {
-            html.push('<hr>');
-            i++;
-            continue;
-        }
-
-        // Blockquote: > text
-        if (/^>\s?/.test(trimmed)) {
-            const quoteLines = [];
-            while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-                quoteLines.push(escapeHtml(lines[i].trim().replace(/^>\s?/, '')));
-                i++;
-            }
-            html.push('<blockquote><p>' + quoteLines.map(renderInlineMarkdown).join('<br>') + '</p></blockquote>');
-            continue;
-        }
-
-        // Unordered list: - item, * item, + item
-        if (/^[-*+]\s/.test(trimmed)) {
-            html.push('<ul>');
-            while (i < lines.length && /^[-*+]\s/.test(lines[i].trim())) {
-                const itemText = lines[i].trim().replace(/^[-*+]\s+/, '');
-                html.push('<li>' + renderInlineMarkdown(escapeHtml(itemText)) + '</li>');
-                i++;
-            }
-            html.push('</ul>');
-            continue;
-        }
-
-        // Ordered list: 1. item or 1) item
-        if (/^\d+[.)]\s/.test(trimmed)) {
-            html.push('<ol>');
-            while (i < lines.length && /^\d+[.)]\s/.test(lines[i].trim())) {
-                const itemText = lines[i].trim().replace(/^\d+[.)]\s+/, '');
-                html.push('<li>' + renderInlineMarkdown(escapeHtml(itemText)) + '</li>');
-                i++;
-            }
-            html.push('</ol>');
-            continue;
-        }
-
-        // Default: paragraph — collect consecutive non-blank, non-block lines
-        const pLines = collectParagraph();
-        if (pLines.length > 0) {
-            html.push('<p>' + pLines.join('<br>') + '</p>');
-        }
-    }
-
-    return html.join('\n');
+    return String(markdownProcessor.processSync(text));
 }
