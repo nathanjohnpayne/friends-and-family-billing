@@ -2,7 +2,7 @@
  * BillsTab — full CRUD for bills with member split toggles.
  * Port of renderBills() from main.js:1608.
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
@@ -331,6 +331,52 @@ export default function BillsTab() {
     );
 }
 
+/**
+ * Extract the dominant non-white color from an image data URL via canvas sampling.
+ * Returns a CSS color string or null.
+ */
+function useDominantColor(logoSrc) {
+    const [color, setColor] = useState(null);
+    useEffect(() => {
+        if (!logoSrc) { setColor(null); return; }
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = Math.min(img.width, img.height, 64);
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, size, size);
+                const data = ctx.getImageData(0, 0, size, size).data;
+                // Tally colors in buckets, skipping near-white/near-black/transparent pixels
+                const buckets = {};
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                    if (a < 128) continue; // skip transparent
+                    const brightness = (r + g + b) / 3;
+                    if (brightness > 240 || brightness < 15) continue; // skip near-white/black
+                    // Quantize to reduce noise
+                    const qr = (r >> 4) << 4, qg = (g >> 4) << 4, qb = (b >> 4) << 4;
+                    const key = qr + ',' + qg + ',' + qb;
+                    buckets[key] = (buckets[key] || { count: 0, r: qr, g: qg, b: qb });
+                    buckets[key].count++;
+                }
+                let best = null;
+                for (const k in buckets) {
+                    if (!best || buckets[k].count > best.count) best = buckets[k];
+                }
+                if (best) {
+                    setColor('rgb(' + best.r + ',' + best.g + ',' + best.b + ')');
+                }
+            } catch (_) { /* canvas tainted or other error */ }
+        };
+        img.src = logoSrc;
+    }, [logoSrc]);
+    return color;
+}
+
 function BillCard({
     bill, familyMembers, readOnly,
     editingId, editField, editValue, setEditValue,
@@ -340,6 +386,7 @@ function BillCard({
     onUploadLogo, onRemoveLogo
 }) {
     const logoInputRef = useRef(null);
+    const dominantColor = useDominantColor(bill.logo);
     const annualAmount = getBillAnnualAmount(bill);
     const isAnnual = bill.billingFrequency === 'annual';
     const freqLabel = getBillFrequencyLabel(bill);
@@ -359,11 +406,7 @@ function BillCard({
         ? memberCount + ' member' + (memberCount !== 1 ? 's' : '') + ' · ' + perPersonDisplay
         : perPersonDisplay;
 
-    const tierClass = annualAmount >= 1000
-        ? ' bill-card--major'
-        : annualAmount >= 300
-            ? ' bill-card--medium'
-            : ' bill-card--light';
+    const accentStyle = dominantColor ? { borderLeftColor: dominantColor } : {};
 
     function renderEditableField(field, value, className) {
         if (editingId === bill.id && editField === field) {
@@ -420,7 +463,7 @@ function BillCard({
     }
 
     return (
-        <div className={'bill-card' + tierClass}>
+        <div className="bill-card" style={accentStyle}>
             <div className="bill-header-main">
                 <div className="bill-header">
                     <div className="bill-header-left">
