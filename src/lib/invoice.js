@@ -82,6 +82,31 @@ function formatPaymentOptionsText(settings) {
 }
 
 /**
+ * Format enabled payment methods as a markdown list.
+ */
+function formatPaymentOptionsMarkdown(settings) {
+    const methods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+    if (methods.length === 0) return '';
+
+    let text = '\n## Payment Options\n\n';
+    methods.forEach(method => {
+        let detail = '';
+        if (method.type === 'zelle') {
+            const contacts = [method.email, method.phone].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Zelle to: ' + contacts.join(' or ');
+        } else if (method.type === 'apple_cash') {
+            const contacts = [method.phone, method.email].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Messages or Wallet to: ' + contacts.join(' or ');
+        } else {
+            detail = [method.handle, method.url].filter(Boolean).join(' ');
+        }
+        text += '- **' + method.label + ':** ' + detail + '\n';
+        if (method.instructions) text += '  Note: ' + method.instructions + '\n';
+    });
+    return text.trimEnd();
+}
+
+/**
  * Build the configured invoice message from template + context.
  */
 function buildConfiguredInvoiceMessage(ctx) {
@@ -89,7 +114,7 @@ function buildConfiguredInvoiceMessage(ctx) {
     return buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2)
-    }).replace(/%payment_methods%/g, formatPaymentOptionsText(ctx.settings)).trim();
+    }).replace(/%payment_methods%/g, formatPaymentOptionsMarkdown(ctx.settings)).trim();
 }
 
 /**
