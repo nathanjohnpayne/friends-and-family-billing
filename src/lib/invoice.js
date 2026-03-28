@@ -202,3 +202,59 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     if (shareUrl) msg += '\n\n' + shareUrl;
     return msg;
 }
+
+// ── CommonMark renderer (spec: https://spec.commonmark.org/0.31.2/) ──
+// Uses unified + remark-parse + remark-rehype + rehype-sanitize + rehype-stringify
+// for spec-compliant parsing, with remark-breaks for email-style single-newline breaks.
+
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkBreaks from 'remark-breaks';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+
+/** Sanitization schema: default HTML elements + target/rel on links */
+const sanitizeSchema = {
+    ...defaultSchema,
+    attributes: {
+        ...defaultSchema.attributes,
+        a: [...(defaultSchema.attributes?.a || []), 'target', 'rel']
+    }
+};
+
+/** rehype plugin: add target="_blank" rel="noopener noreferrer" to all <a> tags */
+function rehypeExternalLinks() {
+    return (tree) => {
+        function visit(node) {
+            if (node.type === 'element' && node.tagName === 'a') {
+                node.properties = node.properties || {};
+                node.properties.target = '_blank';
+                node.properties.rel = 'noopener noreferrer';
+            }
+            if (node.children) node.children.forEach(visit);
+        }
+        visit(tree);
+    };
+}
+
+const markdownProcessor = unified()
+    .use(remarkParse)
+    .use(remarkBreaks)
+    .use(remarkRehype)
+    .use(rehypeExternalLinks)
+    .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify);
+
+/**
+ * Render a plain text string as HTML using CommonMark (via unified/remark).
+ * Supports: paragraphs, headings, emphasis, strong, code spans, links,
+ * autolinks, lists, blockquotes, thematic breaks, line breaks.
+ * Output is sanitized — safe for dangerouslySetInnerHTML.
+ * @param {string} text — raw preview text (with tokens already substituted)
+ * @returns {string} — sanitized HTML string
+ */
+export function renderPreviewHTML(text) {
+    if (!text) return '';
+    return String(markdownProcessor.processSync(text));
+}
