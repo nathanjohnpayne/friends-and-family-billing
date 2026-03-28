@@ -49,11 +49,18 @@ export function buildInvoiceSubject(year, member) {
  * Simple template variable replacement for invoice messages.
  */
 function buildInvoiceTemplatePreviewText(template, ctx) {
-    return String(template || '')
+    let result = String(template || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%total\b/g, ctx.annualTotal);
+        .replace(/%total\b/g, ctx.annualTotal)
+        .replace(/%share_link%/g, ctx.shareLink || '');
+
+    // Clean up markdown links with empty URLs: [text]() → remove entire construct
+    // Also clean bare []() and lines that became empty after removal
+    result = result.replace(/\[([^\]]*)\]\(\s*\)/g, '');
+
+    return result;
 }
 
 /**
@@ -109,14 +116,16 @@ function formatPaymentOptionsMarkdown(settings) {
 /**
  * Build the configured invoice message from template + context.
  * @param {Object} ctx
+ * @param {string} shareUrl
  * @param {{ markdown?: boolean }} options — when true, use markdown-formatted payment methods
  */
-function buildConfiguredInvoiceMessage(ctx, options) {
+function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
     const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
     return buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
-        annualTotal: '$' + ctx.combinedTotal.toFixed(2)
+        annualTotal: '$' + ctx.combinedTotal.toFixed(2),
+        shareLink: shareUrl || ''
     }).replace(/%payment_methods%/g, formatter(ctx.settings)).trim();
 }
 
@@ -127,7 +136,7 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const { member, firstName, combinedTotal, payment, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
-    const emailMessage = buildConfiguredInvoiceMessage(ctx);
+    const emailMessage = buildConfiguredInvoiceMessage(ctx, shareUrl);
     let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
     if (shareUrl) {
         text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
@@ -205,7 +214,7 @@ function buildFullInvoiceText(ctx, shareUrl) {
 export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
-    const configuredMessage = buildConfiguredInvoiceMessage(ctx, options);
+    const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, options);
 
     if (variant === 'text-only') {
         if (isEmail && configuredMessage) {
