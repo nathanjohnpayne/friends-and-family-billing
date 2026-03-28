@@ -2192,6 +2192,23 @@ img, svg { display: block; max-width: 100%; }
     padding: var(--space-3, 12px) 0;
 }
 
+.pm-qr-badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--color-primary-light, rgba(110, 120, 214, 0.1));
+    padding: 2px 4px;
+    border-radius: var(--radius-sm, 6px);
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.pm-qr-icon {
+    width: 18px;
+    height: 18px;
+    display: block;
+    filter: invert(31%) sepia(80%) saturate(500%) hue-rotate(210deg) brightness(90%) contrast(90%);
+}
+
 /* QR Code Preview */
 .pm-qr-preview {
     display: flex;
