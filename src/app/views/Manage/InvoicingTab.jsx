@@ -259,7 +259,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
         const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, sampleMemberId, activeYear, { ...settings, emailMessage: template });
         if (ctx) {
             previewCtx = ctx;
-            const rawText = buildInvoiceBody(ctx, 'text-only', '', 'email');
+            const rawText = buildInvoiceBody(ctx, 'text-only', '', 'email', { markdown: true });
             previewBodyHTML = renderPreviewHTML(rawText);
         }
     }
