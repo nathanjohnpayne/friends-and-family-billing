@@ -19,6 +19,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Install Cloud Functions dependencies
+        run: cd functions && npm ci
+
       - name: Run tests (React + secrets scan)
         run: npm test
 
