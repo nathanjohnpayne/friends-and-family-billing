@@ -7,7 +7,7 @@
  * 3. Logo.dev brand name lookup (/name/{brand})
  * 4. Styled initials fallback
  */
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../lib/formatting.js';
 
 const LOGODEV_KEY = import.meta.env.VITE_LOGODEV_KEY || '';
@@ -44,13 +44,23 @@ function buildLogoUrl(identifier, displaySize) {
  * @param {{ logo?: string, website?: string, name: string, size?: number, className?: string }} props
  */
 export default function CompanyLogo({ logo, website, name = '', size = 48, className = '' }) {
-    // 'custom' | 'domain' | 'name' | 'initials'
-    const [stage, setStage] = useState(logo ? 'custom' : 'domain');
-    const [loaded, setLoaded] = useState(!!logo);
-
     const safeName = name || 'Bill';
     const domain = extractDomain(website);
     const encodedName = encodeURIComponent(safeName);
+
+    // Determine the correct initial stage from current props
+    const initialStage = logo ? 'custom' : (domain ? 'domain' : 'name');
+
+    // 'custom' | 'domain' | 'name' | 'initials'
+    const [stage, setStage] = useState(initialStage);
+    const [loaded, setLoaded] = useState(!!logo);
+
+    // Reset stage when the identity-defining props change
+    useEffect(() => {
+        const target = logo ? 'custom' : (domain ? 'domain' : 'name');
+        setStage(target);
+        setLoaded(!!logo);
+    }, [logo, domain]);
 
     const handleError = useCallback(() => {
         if (stage === 'domain') {
@@ -92,17 +102,10 @@ export default function CompanyLogo({ logo, website, name = '', size = 48, class
         );
     }
 
-    // Stage 2 or 3: Logo.dev lookup
-    let src;
-    if (stage === 'domain' && domain) {
-        src = buildLogoUrl(domain, size);
-    } else if (stage === 'domain' && !domain) {
-        // No website — skip straight to name lookup
-        src = buildLogoUrl('name/' + encodedName, size);
-    } else {
-        // stage === 'name'
-        src = buildLogoUrl('name/' + encodedName, size);
-    }
+    // Stage 2: domain lookup, Stage 3: name lookup
+    const src = (stage === 'domain' && domain)
+        ? buildLogoUrl(domain, size)
+        : buildLogoUrl('name/' + encodedName, size);
 
     return (
         <div className={cls + ' company-logo-wrapper'} style={sizeStyle}>
