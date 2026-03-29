@@ -180,9 +180,29 @@
         function renderBillIdentity(bill) {
             var safeName = escapeHtml(bill.name || 'Unnamed Bill');
             var safeLogoSrc = sanitizeImageSrc(bill.logo);
-            var visual = safeLogoSrc
-                ? '<div class="annual-summary-entity-visual"><img src="' + safeLogoSrc + '" alt="' + safeName + ' logo" class="annual-summary-logo"></div>'
-                : '<div class="annual-summary-entity-visual"><div class="annual-summary-logo-fallback">' + escapeHtml(getInitials(bill.name)) + '</div></div>';
+            var visual;
+            if (safeLogoSrc) {
+                visual = '<div class="annual-summary-entity-visual"><img src="' + safeLogoSrc + '" alt="' + safeName + ' logo" class="annual-summary-logo"></div>';
+            } else {
+                var logodevKey = (window.__FIREBASE_CONFIG__ || {}).logodevKey;
+                if (logodevKey) {
+                    var domain = '';
+                    if (bill.website) { try { domain = new URL(bill.website).hostname.replace(/^www\./, ''); } catch(_) {} }
+                    var encodedName = encodeURIComponent(bill.name || '');
+                    var params = 'token=' + logodevKey + '&size=128&format=png&retina=true&fallback=404';
+                    var nameUrl = 'https://img.logo.dev/name/' + encodedName + '?' + params;
+                    var initials = escapeHtml(getInitials(bill.name));
+                    var fallbackHtml = '<div class=&quot;annual-summary-logo-fallback&quot;>' + initials + '</div>';
+                    if (domain) {
+                        var domainUrl = 'https://img.logo.dev/' + domain + '?' + params;
+                        visual = '<div class="annual-summary-entity-visual"><img src="' + domainUrl + '" alt="' + safeName + ' logo" class="annual-summary-logo" loading="lazy" onerror="this.onerror=function(){var d=document.createElement(\'div\');d.className=\'annual-summary-logo-fallback\';d.textContent=\'' + initials.replace(/'/g, "\\'") + '\';this.parentNode.replaceChild(d,this)};this.src=\'' + nameUrl + '\'"></div>';
+                    } else {
+                        visual = '<div class="annual-summary-entity-visual"><img src="' + nameUrl + '" alt="' + safeName + ' logo" class="annual-summary-logo" loading="lazy" onerror="var d=document.createElement(\'div\');d.className=\'annual-summary-logo-fallback\';d.textContent=\'' + initials.replace(/'/g, "\\'") + '\';this.parentNode.replaceChild(d,this)"></div>';
+                    }
+                } else {
+                    visual = '<div class="annual-summary-entity-visual"><div class="annual-summary-logo-fallback">' + escapeHtml(getInitials(bill.name)) + '</div></div>';
+                }
+            }
 
             return '<div class="annual-summary-entity">'
                 + visual
