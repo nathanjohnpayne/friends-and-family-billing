@@ -92,8 +92,8 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
 
             const url = buildShareUrl(window.location.origin, rawToken);
             setGeneratedUrl(url);
-            await navigator.clipboard.writeText(url);
-            if (showToast) showToast('Share link generated and copied!');
+            try { await navigator.clipboard.writeText(url); } catch (_) { /* clipboard may be blocked */ }
+            if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
             if (showToast) showToast('Failed to generate share link: ' + err.message);
