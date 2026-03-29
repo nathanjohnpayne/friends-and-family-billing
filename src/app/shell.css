@@ -970,7 +970,7 @@ img, svg { display: block; max-width: 100%; }
 .bill-card {
     background: var(--color-surface, #ffffff);
     border: 1px solid var(--color-border, #e0e0e0);
-    border-left: 3px solid var(--color-border, #e0e0e0);
+    border-left: 3px solid var(--color-primary, #4A6FA5);
     border-radius: 12px;
     padding: var(--space-3, 16px);
 }
