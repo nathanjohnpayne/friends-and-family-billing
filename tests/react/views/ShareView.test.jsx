@@ -34,7 +34,8 @@ vi.mock('@/lib/validation.js', () => ({
 }));
 
 vi.mock('@/lib/formatting.js', () => ({
-    getPaymentMethodIcon: vi.fn(() => '&#x1F4B3;')
+    getPaymentMethodIcon: vi.fn(() => '&#x1F4B3;'),
+    getInitials: vi.fn((name) => (name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')
 }));
 
 import ShareView from '@/app/views/ShareView.jsx';

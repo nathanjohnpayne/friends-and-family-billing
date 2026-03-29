@@ -43,13 +43,14 @@ function buildLogoUrl(identifier, displaySize) {
 /**
  * @param {{ logo?: string, website?: string, name: string, size?: number, className?: string }} props
  */
-export default function CompanyLogo({ logo, website, name, size = 48, className = '' }) {
+export default function CompanyLogo({ logo, website, name = '', size = 48, className = '' }) {
     // 'custom' | 'domain' | 'name' | 'initials'
     const [stage, setStage] = useState(logo ? 'custom' : 'domain');
     const [loaded, setLoaded] = useState(!!logo);
 
+    const safeName = name || 'Bill';
     const domain = extractDomain(website);
-    const encodedName = encodeURIComponent(name);
+    const encodedName = encodeURIComponent(safeName);
 
     const handleError = useCallback(() => {
         if (stage === 'domain') {
@@ -74,7 +75,7 @@ export default function CompanyLogo({ logo, website, name, size = 48, className 
         return (
             <img
                 src={logo}
-                alt={name}
+                alt={safeName}
                 className={cls + ' company-logo-img'}
                 style={sizeStyle}
                 loading="lazy"
@@ -86,7 +87,7 @@ export default function CompanyLogo({ logo, website, name, size = 48, className 
     if (stage === 'initials' || !LOGODEV_KEY) {
         return (
             <div className={cls + ' company-logo-fallback'} style={sizeStyle}>
-                {getInitials(name)}
+                {getInitials(safeName)}
             </div>
         );
     }
@@ -108,7 +109,7 @@ export default function CompanyLogo({ logo, website, name, size = 48, className 
             {!loaded && <div className="company-logo-shimmer" style={sizeStyle} />}
             <img
                 src={src}
-                alt={name}
+                alt={safeName}
                 className={'company-logo-img' + (loaded ? '' : ' company-logo-hidden')}
                 style={sizeStyle}
                 loading="lazy"
