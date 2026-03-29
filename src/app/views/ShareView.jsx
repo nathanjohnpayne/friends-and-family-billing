@@ -9,6 +9,7 @@ import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp, increment 
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { getPaymentMethodIcon } from '../../lib/formatting.js';
+import CompanyLogo from '../components/CompanyLogo.jsx';
 
 const STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
 
@@ -182,7 +183,10 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
                 <tbody>
                     {bills.map((b, i) => (
                         <tr key={b.billId || i}>
-                            <td><strong>{b.name || 'Unnamed Bill'}</strong></td>
+                            <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <CompanyLogo logo={b.logo} website={b.website} name={b.name || 'Bill'} size={28} />
+                                <strong>{b.name || 'Unnamed Bill'}</strong>
+                            </td>
                             <td className="share-cell-number">{formatCurrency(b.monthlyAmount)}</td>
                             <td className="share-cell-number">{b.splitCount} {b.splitCount === 1 ? 'member' : 'members'}</td>
                             <td className="share-cell-number">{formatCurrency(b.monthlyShare)}</td>
