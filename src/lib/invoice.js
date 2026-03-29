@@ -130,11 +130,11 @@ function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
 
     // In markdown mode, convert bare share URLs (not already inside markdown links)
     // into named hyperlinks: "Name's Year Annual Billing Summary"
+    // Skip URLs already inside [...] (link text) or (...) (link destination)
     if (options && options.markdown && shareUrl) {
         const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
         const escaped = shareUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // Match the URL only when it's NOT inside (url) markdown link syntax
-        result = result.replace(new RegExp('(?<!\\()' + escaped + '(?!\\))', 'g'),
+        result = result.replace(new RegExp('(?<![\\[\\(])' + escaped + '(?![\\]\\)])', 'g'),
             '[' + linkText + '](' + shareUrl + ')');
     }
     return result;
