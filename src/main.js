@@ -3789,6 +3789,7 @@ function computeMemberSummaryForShare(targetMemberId) {
                 billId: bill.id,
                 name: bill.name,
                 logo: sanitizeImageSrc(bill.logo),
+                website: bill.website || '',
                 monthlyAmount: getBillMonthlyAmount(bill),
                 billingFrequency: bill.billingFrequency || 'monthly',
                 canonicalAmount: bill.amount,
