@@ -8,3 +8,4 @@ VITE_FIREBASE_STORAGE_BUCKET={{ op://Private/mlhbupjcaad7on734553e252pi/Firebase
 VITE_FIREBASE_MESSAGING_SENDER_ID={{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/messaging_sender_id }}
 VITE_FIREBASE_APP_ID={{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/app_id }}
 VITE_FIREBASE_MEASUREMENT_ID={{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/measurement_id }}
+VITE_LOGODEV_KEY={{ op://Private/rtvfyomcqjigt6ezaycht3vy6i/publishable API key }}

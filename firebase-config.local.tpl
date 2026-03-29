@@ -5,5 +5,6 @@ window.__FIREBASE_CONFIG__ = {
     storageBucket: "{{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/storage_bucket }}",
     messagingSenderId: "{{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/messaging_sender_id }}",
     appId: "{{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/app_id }}",
-    measurementId: "{{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/measurement_id }}"
+    measurementId: "{{ op://Private/mlhbupjcaad7on734553e252pi/Firebase/measurement_id }}",
+    logodevKey: "{{ op://Private/rtvfyomcqjigt6ezaycht3vy6i/publishable API key }}"
 };

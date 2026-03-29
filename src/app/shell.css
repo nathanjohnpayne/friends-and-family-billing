@@ -998,9 +998,10 @@ img, svg { display: block; max-width: 100%; }
     flex-shrink: 0;
 }
 
+/* Legacy bill-logo classes (kept for compatibility) */
 .bill-logo {
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     border-radius: 8px;
     object-fit: contain;
     border: 1px solid var(--color-border, #e0e0e0);
@@ -1015,6 +1016,56 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text-secondary, #5B6475);
     font-size: 0.7rem;
     font-weight: 600;
+}
+
+/* ── CompanyLogo component ─────────────────────────────── */
+.company-logo {
+    flex-shrink: 0;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.company-logo-img {
+    border-radius: 10px;
+    object-fit: contain;
+    border: 1px solid var(--color-border, #e0e0e0);
+    display: block;
+}
+
+.company-logo-hidden {
+    position: absolute;
+    opacity: 0;
+}
+
+.company-logo-wrapper {
+    position: relative;
+}
+
+.company-logo-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 10px;
+    background: var(--color-surface-alt, #F7F8FB);
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.company-logo-shimmer {
+    border-radius: 10px;
+    background: linear-gradient(90deg,
+        var(--color-surface-alt, #F7F8FB) 25%,
+        var(--color-border-light, #f0f0f0) 50%,
+        var(--color-surface-alt, #F7F8FB) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }
 
 .bill-title {

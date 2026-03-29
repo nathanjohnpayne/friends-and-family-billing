@@ -7,11 +7,12 @@ import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
 import { getBillAnnualAmount, getBillMonthlyAmount } from '../../../lib/calculations.js';
-import { getBillFrequencyLabel, getInitials } from '../../../lib/formatting.js';
+import { getBillFrequencyLabel } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import BillAuditHistoryDialog from '../../components/BillAuditHistoryDialog.jsx';
+import CompanyLogo from '../../components/CompanyLogo.jsx';
 
 export default function BillsTab() {
     const { bills, familyMembers, activeYear, loading, service, billingEvents } = useBillingData();
@@ -419,13 +420,7 @@ function BillCard({
             <div className="bill-header-main">
                 <div className="bill-header">
                     <div className="bill-header-left">
-                        <div className="bill-logo-container">
-                            {bill.logo ? (
-                                <img src={bill.logo} alt={bill.name} className="bill-logo" />
-                            ) : (
-                                <div className="bill-logo bill-logo-text">{getInitials(bill.name)}</div>
-                            )}
-                        </div>
+                        <CompanyLogo logo={bill.logo} website={bill.website} name={bill.name} size={48} />
                         {renderEditableField('name', bill.name, 'bill-title')}
                     </div>
                     <div className="bill-header-right">
