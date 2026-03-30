@@ -34,7 +34,7 @@ export default function App() {
 /** Exported for testing without BrowserRouter (use MemoryRouter in tests). */
 export function AppRoutes() {
     return (
-        <Suspense fallback={<div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>Loading…</div>}>
+        <Suspense fallback={<RouteLoading message="Loading…" />}>
         <Routes>
             <Route path="/login" element={<GuestRoute><LoginView /></GuestRoute>} />
             <Route path="/share" element={<ShareView />} />
@@ -73,17 +73,22 @@ function GuestRoute({ children }) {
 function ProtectedRoute({ children }) {
     const { user, loading } = useAuth();
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-                <p style={{ color: '#666', fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
-            </div>
-        );
-    }
+    if (loading) return <RouteLoading message="Loading…" />;
 
     if (!user) {
         return <Navigate to="/login" replace />;
     }
 
     return children;
+}
+
+function RouteLoading({ message }) {
+    return (
+        <div className="route-loading" role="status" aria-live="polite">
+            <div className="route-loading-card">
+                <p className="route-loading-eyebrow">Friends &amp; Family Billing</p>
+                <p className="route-loading-message">{message}</p>
+            </div>
+        </div>
+    );
 }

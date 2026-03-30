@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import PageHeader from '../../components/PageHeader.jsx';
 
 const TABS = [
     { to: 'members', label: 'Members' },
@@ -13,7 +14,12 @@ const TABS = [
  */
 export default function ManageView() {
     return (
-        <div>
+        <div className="workspace-shell">
+            <PageHeader
+                kicker="Billing Workspace"
+                title="Manage Billing Year"
+                description="Keep members, bills, invoicing tools, and review workflows aligned without losing the simpler React layout."
+            />
             <nav className="manage-tabs" aria-label="Manage sections">
                 {TABS.map(tab => (
                     <NavLink
@@ -25,7 +31,9 @@ export default function ManageView() {
                     </NavLink>
                 ))}
             </nav>
-            <Outlet />
+            <div className="workspace-stack">
+                <Outlet />
+            </div>
         </div>
     );
 }

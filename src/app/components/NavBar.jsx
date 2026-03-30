@@ -11,7 +11,7 @@ export default function NavBar() {
     return (
         <nav className="nav-bar">
             <div className="nav-bar-inner">
-                <NavLink to="/" className="nav-brand">
+                <NavLink to="/dashboard" className="nav-brand" aria-label="Friends & Family Billing dashboard">
                     <svg className="nav-brand-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <defs>
                             <linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1">
@@ -25,10 +25,13 @@ export default function NavBar() {
                             <path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)" />
                         </g>
                     </svg>
-                    <span>FFB</span>
+                    <span className="nav-brand-copy">
+                        <span className="nav-brand-kicker">Settlement Workspace</span>
+                        <span className="nav-brand-title">Friends &amp; Family Billing</span>
+                    </span>
                 </NavLink>
 
-                <div className="nav-links">
+                <div className="nav-links" aria-label="Primary">
                     <NavLink to="/dashboard" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
                         Dashboard
                     </NavLink>
@@ -41,6 +44,7 @@ export default function NavBar() {
                 </div>
 
                 <div className="nav-user">
+                    <span className="nav-user-label">Signed in as</span>
                     <span className="nav-email">{user?.email}</span>
                     <button onClick={signOut} className="nav-signout">Sign Out</button>
                 </div>
