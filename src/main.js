@@ -755,6 +755,24 @@ function generateLogo(bill) {
     if (safeSrc) {
         return `<img src="${safeSrc}" alt="${escapeHtml(bill.name)}" class="logo" />`;
     }
+    // Logo.dev layered fallback: domain → name → initials
+    const logodevKey = (window.__FIREBASE_CONFIG__ || {}).logodevKey;
+    if (logodevKey) {
+        const escapedName = escapeHtml(bill.name);
+        const encodedName = encodeURIComponent(bill.name);
+        const fallbackDiv = `<div class='logo logo-text'>${escapedName}</div>`;
+        let domain = '';
+        if (bill.website) {
+            try { domain = new URL(bill.website).hostname.replace(/^www\./, ''); } catch (_) {}
+        }
+        const params = `token=${logodevKey}&size=128&format=png&retina=true&fallback=404`;
+        const nameUrl = `https://img.logo.dev/name/${encodedName}?${params}`;
+        if (domain) {
+            const domainUrl = `https://img.logo.dev/${domain}?${params}`;
+            return `<img src="${domainUrl}" alt="${escapedName}" class="logo" loading="lazy" onerror="this.onerror=function(){var d=document.createElement('div');d.className='logo logo-text';d.textContent='${escapedName.replace(/'/g, "\\'")}';this.replaceWith(d)};this.src='${nameUrl}'" />`;
+        }
+        return `<img src="${nameUrl}" alt="${escapedName}" class="logo" loading="lazy" onerror="var d=document.createElement('div');d.className='logo logo-text';d.textContent='${escapedName.replace(/'/g, "\\'")}';this.replaceWith(d)" />`;
+    }
     return `<div class="logo logo-text">${escapeHtml(bill.name)}</div>`;
 }
 
@@ -3771,6 +3789,7 @@ function computeMemberSummaryForShare(targetMemberId) {
                 billId: bill.id,
                 name: bill.name,
                 logo: sanitizeImageSrc(bill.logo),
+                website: bill.website || '',
                 monthlyAmount: getBillMonthlyAmount(bill),
                 billingFrequency: bill.billingFrequency || 'monthly',
                 canonicalAmount: bill.amount,

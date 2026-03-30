@@ -49,11 +49,18 @@ export function buildInvoiceSubject(year, member) {
  * Simple template variable replacement for invoice messages.
  */
 function buildInvoiceTemplatePreviewText(template, ctx) {
-    return String(template || '')
+    let result = String(template || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%total\b/g, ctx.annualTotal);
+        .replace(/%total\b/g, ctx.annualTotal)
+        .replace(/%share_link%/g, ctx.shareLink || '');
+
+    // Clean up markdown links with empty URLs: [text]() → remove entire construct
+    // Also clean bare []() and lines that became empty after removal
+    result = result.replace(/\[([^\]]*)\]\(\s*\)/g, '');
+
+    return result;
 }
 
 /**
@@ -82,14 +89,55 @@ function formatPaymentOptionsText(settings) {
 }
 
 /**
- * Build the configured invoice message from template + context.
+ * Format enabled payment methods as a markdown list.
  */
-function buildConfiguredInvoiceMessage(ctx) {
+function formatPaymentOptionsMarkdown(settings) {
+    const methods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+    if (methods.length === 0) return '';
+
+    let text = '\n## Payment Options\n\n';
+    methods.forEach(method => {
+        let detail = '';
+        if (method.type === 'zelle') {
+            const contacts = [method.email, method.phone].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Zelle to: ' + contacts.join(' or ');
+        } else if (method.type === 'apple_cash') {
+            const contacts = [method.phone, method.email].filter(Boolean);
+            if (contacts.length > 0) detail = 'Send via Messages or Wallet to: ' + contacts.join(' or ');
+        } else {
+            detail = [method.handle, method.url].filter(Boolean).join(' ');
+        }
+        text += '- **' + method.label + ':** ' + detail + '\n';
+        if (method.instructions) text += '  Note: ' + method.instructions + '\n';
+    });
+    return text.trimEnd();
+}
+
+/**
+ * Build the configured invoice message from template + context.
+ * @param {Object} ctx
+ * @param {string} shareUrl
+ * @param {{ markdown?: boolean }} options — when true, use markdown-formatted payment methods
+ */
+function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
-    return buildInvoiceTemplatePreviewText(template, {
+    const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
+    let result = buildInvoiceTemplatePreviewText(template, {
         billingYear: ctx.currentYear,
-        annualTotal: '$' + ctx.combinedTotal.toFixed(2)
-    }).replace(/%payment_methods%/g, formatPaymentOptionsText(ctx.settings)).trim();
+        annualTotal: '$' + ctx.combinedTotal.toFixed(2),
+        shareLink: shareUrl || ''
+    }).replace(/%payment_methods%/g, formatter(ctx.settings)).trim();
+
+    // In markdown mode, convert bare share URLs (not already inside markdown links)
+    // into named hyperlinks: "Name's Year Annual Billing Summary"
+    // Skip URLs already inside [...] (link text) or (...) (link destination)
+    if (options && options.markdown && shareUrl) {
+        const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
+        const escaped = shareUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        result = result.replace(new RegExp('(?<![\\[\\(])' + escaped + '(?![\\]\\)])', 'g'),
+            '[' + linkText + '](' + shareUrl + ')');
+    }
+    return result;
 }
 
 /**
@@ -99,7 +147,7 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const { member, firstName, combinedTotal, payment, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
-    const emailMessage = buildConfiguredInvoiceMessage(ctx);
+    const emailMessage = buildConfiguredInvoiceMessage(ctx, shareUrl);
     let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
     if (shareUrl) {
         text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
@@ -171,12 +219,13 @@ function buildFullInvoiceText(ctx, shareUrl) {
  * @param {'text-only'|'text-link'|'full'} variant
  * @param {string} shareUrl
  * @param {'email'|'sms'} channel
+ * @param {{ markdown?: boolean }} [options] — pass { markdown: true } for preview rendering
  * @returns {string}
  */
-export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
+export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
-    const configuredMessage = buildConfiguredInvoiceMessage(ctx);
+    const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, options);
 
     if (variant === 'text-only') {
         if (isEmail && configuredMessage) {
@@ -201,4 +250,60 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel) {
     let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!';
     if (shareUrl) msg += '\n\n' + shareUrl;
     return msg;
+}
+
+// ── CommonMark renderer (spec: https://spec.commonmark.org/0.31.2/) ──
+// Uses unified + remark-parse + remark-rehype + rehype-sanitize + rehype-stringify
+// for spec-compliant parsing, with remark-breaks for email-style single-newline breaks.
+
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkBreaks from 'remark-breaks';
+import remarkRehype from 'remark-rehype';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+
+/** Sanitization schema: default HTML elements + target/rel on links */
+const sanitizeSchema = {
+    ...defaultSchema,
+    attributes: {
+        ...defaultSchema.attributes,
+        a: [...(defaultSchema.attributes?.a || []), 'target', 'rel']
+    }
+};
+
+/** rehype plugin: add target="_blank" rel="noopener noreferrer" to all <a> tags */
+function rehypeExternalLinks() {
+    return (tree) => {
+        function visit(node) {
+            if (node.type === 'element' && node.tagName === 'a') {
+                node.properties = node.properties || {};
+                node.properties.target = '_blank';
+                node.properties.rel = 'noopener noreferrer';
+            }
+            if (node.children) node.children.forEach(visit);
+        }
+        visit(tree);
+    };
+}
+
+const markdownProcessor = unified()
+    .use(remarkParse)
+    .use(remarkBreaks)
+    .use(remarkRehype)
+    .use(rehypeExternalLinks)
+    .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify);
+
+/**
+ * Render a plain text string as HTML using CommonMark (via unified/remark).
+ * Supports: paragraphs, headings, emphasis, strong, code spans, links,
+ * autolinks, lists, blockquotes, thematic breaks, line breaks.
+ * Output is sanitized — safe for dangerouslySetInnerHTML.
+ * @param {string} text — raw preview text (with tokens already substituted)
+ * @returns {string} — sanitized HTML string
+ */
+export function renderPreviewHTML(text) {
+    if (!text) return '';
+    return String(markdownProcessor.processSync(text));
 }

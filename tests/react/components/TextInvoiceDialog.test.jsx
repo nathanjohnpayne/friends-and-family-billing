@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
+vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('firebase/firestore', () => ({
+    doc: vi.fn(),
+    setDoc: vi.fn(),
+    serverTimestamp: vi.fn()
+}));
+
 import TextInvoiceDialog from '@/app/components/TextInvoiceDialog.jsx';
 
 const baseProps = {

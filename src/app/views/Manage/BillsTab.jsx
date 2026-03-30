@@ -2,7 +2,7 @@
  * BillsTab — full CRUD for bills with member split toggles.
  * Port of renderBills() from main.js:1608.
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
@@ -12,6 +12,7 @@ import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import BillAuditHistoryDialog from '../../components/BillAuditHistoryDialog.jsx';
+import CompanyLogo from '../../components/CompanyLogo.jsx';
 
 export default function BillsTab() {
     const { bills, familyMembers, activeYear, loading, service, billingEvents } = useBillingData();
@@ -246,6 +247,14 @@ export default function BillsTab() {
                             onConvertFrequency={openFrequencyConvert}
                             onEditWebsite={openWebsiteEdit}
                             onViewHistory={setHistoryTarget}
+                            onUploadLogo={(billId, base64) => {
+                                service.updateBill(billId, { logo: base64 });
+                                showToast('Logo updated');
+                            }}
+                            onRemoveLogo={billId => {
+                                service.updateBill(billId, { logo: '' });
+                                showToast('Logo removed');
+                            }}
                         />
                     ))}
                 </div>
@@ -328,8 +337,10 @@ function BillCard({
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
-    onDelete, onConvertFrequency, onEditWebsite, onViewHistory
+    onDelete, onConvertFrequency, onEditWebsite, onViewHistory,
+    onUploadLogo, onRemoveLogo
 }) {
+    const logoInputRef = useRef(null);
     const annualAmount = getBillAnnualAmount(bill);
     const isAnnual = bill.billingFrequency === 'annual';
     const freqLabel = getBillFrequencyLabel(bill);
@@ -349,11 +360,6 @@ function BillCard({
         ? memberCount + ' member' + (memberCount !== 1 ? 's' : '') + ' · ' + perPersonDisplay
         : perPersonDisplay;
 
-    const tierClass = annualAmount >= 1000
-        ? ' bill-card--major'
-        : annualAmount >= 300
-            ? ' bill-card--medium'
-            : ' bill-card--light';
 
     function renderEditableField(field, value, className) {
         if (editingId === bill.id && editField === field) {
@@ -382,11 +388,39 @@ function BillCard({
         );
     }
 
+    function handleLogoUpload(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            // Compress and rasterize (handles SVG→PNG conversion too)
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const maxSize = 200;
+                let w = img.width, h = img.height;
+                if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } }
+                else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
+                canvas.width = w;
+                canvas.height = h;
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                if (onUploadLogo) onUploadLogo(bill.id, canvas.toDataURL('image/png'));
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    }
+
     return (
-        <div className={'bill-card' + tierClass}>
+        <div className="bill-card">
             <div className="bill-header-main">
                 <div className="bill-header">
                     <div className="bill-header-left">
+                        <CompanyLogo logo={bill.logo} website={bill.website} name={bill.name} size={48} />
                         {renderEditableField('name', bill.name, 'bill-title')}
                     </div>
                     <div className="bill-header-right">
@@ -449,11 +483,28 @@ function BillCard({
                         </ActionMenuItem>
                     )}
                     {!readOnly && (
+                        <ActionMenuItem onClick={() => logoInputRef.current && logoInputRef.current.click()}>
+                            {bill.logo ? 'Replace Logo' : 'Upload Logo'}
+                        </ActionMenuItem>
+                    )}
+                    {!readOnly && bill.logo && (
+                        <ActionMenuItem onClick={() => onRemoveLogo && onRemoveLogo(bill.id)}>
+                            Remove Logo
+                        </ActionMenuItem>
+                    )}
+                    {!readOnly && (
                         <ActionMenuItem onClick={() => onDelete(bill)} danger>
                             Remove Bill
                         </ActionMenuItem>
                     )}
                 </ActionMenu>
+                <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/svg+xml"
+                    style={{ display: 'none' }}
+                    onChange={handleLogoUpload}
+                />
             </div>
         </div>
     );

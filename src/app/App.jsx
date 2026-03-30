@@ -5,6 +5,7 @@ import { ToastProvider } from './contexts/ToastContext.jsx';
 import LoginView from './views/LoginView.jsx';
 import AppShell from './components/AppShell.jsx';
 import ManageView from './views/Manage/ManageView.jsx';
+import UpdateToast from './components/UpdateToast.jsx';
 import './shell.css';
 
 // Code-split heavy views — loaded on demand
@@ -26,6 +27,7 @@ export default function App() {
                 <BrowserRouter basename="/app">
                     <AppRoutes />
                 </BrowserRouter>
+                <UpdateToast />
             </ToastProvider>
         </AuthProvider>
     );
