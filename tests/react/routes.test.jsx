@@ -41,7 +41,8 @@ describe('Routes — unauthenticated user', () => {
             </AuthProvider>
         );
 
-        expect(screen.getByText('Sign in to continue')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
     });
 
     it('shows login page at /login when not signed in', async () => {
@@ -63,7 +64,7 @@ describe('Routes — unauthenticated user', () => {
             </AuthProvider>
         );
 
-        expect(screen.getByText('Sign in to continue')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     });
 });
 
@@ -103,7 +104,7 @@ describe('Routes — authenticated user', () => {
     it('redirects /login to /dashboard when signed in (GuestRoute)', async () => {
         await renderAuthenticatedRoute(['/login']);
         expect(await screen.findByText('Dashboard')).toBeInTheDocument();
-        expect(screen.queryByText('Sign in to continue')).toBeNull();
+        expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull();
     });
 
     it('shows dashboard with nav bar when signed in', async () => {
@@ -135,6 +136,6 @@ describe('Routes — authenticated user', () => {
 
     it('renders settings view', async () => {
         await renderAuthenticatedRoute(['/settings']);
-        expect(await screen.findByText('Settings')).toBeInTheDocument();
+        expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
     });
 });

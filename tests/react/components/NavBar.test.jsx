@@ -27,7 +27,8 @@ function renderNavBar(route = '/') {
 describe('NavBar', () => {
     it('renders brand, nav links, and user email', () => {
         renderNavBar();
-        expect(screen.getByText('FFB')).toBeInTheDocument();
+        expect(screen.getByText('Friends & Family Billing')).toBeInTheDocument();
+        expect(screen.getByText('Settlement Workspace')).toBeInTheDocument();
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('Manage')).toBeInTheDocument();
         expect(screen.getByText('Settings')).toBeInTheDocument();

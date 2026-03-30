@@ -29,21 +29,27 @@ export default function DashboardView() {
     // Dialog state — which dialog is open and for which member
     const [dialog, setDialog] = useState({ type: null, memberId: null });
 
-    if (loading) {
-        return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>Loading…</p>;
-    }
+    if (loading) return <div className="route-loading route-loading--panel"><div className="route-loading-card"><p className="route-loading-eyebrow">Settlement Workspace</p><p className="route-loading-message">Loading…</p></div></div>;
 
     if (!activeYear) {
-        return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>No billing year selected.</p>;
+        return (
+            <section className="dashboard-hero dashboard-hero--empty">
+                <p className="section-kicker section-kicker--inverse">Settlement Workspace</p>
+                <h1>Dashboard</h1>
+                <p className="dashboard-subtitle">No billing year selected.</p>
+            </section>
+        );
     }
 
     if (familyMembers.length === 0) {
         return (
-            <div className="dashboard-hero">
-                <p style={{ color: '#666', textAlign: 'center' }}>
+            <section className="dashboard-hero dashboard-hero--empty">
+                <p className="section-kicker section-kicker--inverse">Settlement Workspace</p>
+                <h1>Dashboard</h1>
+                <p className="dashboard-subtitle">
                     Add members and bills to start building this billing year.
                 </p>
-            </div>
+            </section>
         );
     }
 
@@ -93,10 +99,19 @@ export default function DashboardView() {
 
     return (
         <>
-            <div className="dashboard-hero">
-                <div className="dashboard-meta">
-                    <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
-                    <span className={statusBadgeClass}>{statusLabel}</span>
+            <section className="dashboard-hero">
+                <div className="dashboard-hero-top">
+                    <div className="dashboard-hero-copy">
+                        <p className="section-kicker section-kicker--inverse">Settlement Workspace</p>
+                        <h1>Dashboard</h1>
+                        <p className="dashboard-subtitle">
+                            Track balances, move the year through settlement, and close it cleanly without the usual back-and-forth.
+                        </p>
+                    </div>
+                    <div className="dashboard-meta">
+                        <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
+                        <span className={statusBadgeClass}>{statusLabel}</span>
+                    </div>
                 </div>
 
                 <LifecycleBar currentStatus={currentStatus} currentOrder={currentOrder} isReadyToClose={isReadyToClose} />
@@ -129,26 +144,38 @@ export default function DashboardView() {
                         {remaining} member{remaining === 1 ? '' : 's'} still outstanding. Send reminders via share links.
                     </div>
                 )}
-            </div>
+            </section>
 
-            <SettlementBoard
-                familyMembers={familyMembers}
-                bills={bills}
-                payments={payments}
-                readOnly={isYearReadOnly(activeYear)}
-                onRecordPayment={data => service.recordPayment(data)}
-                onEmailInvoice={(memberId, isSettled) => {
-                    if (isSettled) {
-                        showToast('No balance due\u2014nothing to invoice.');
-                        return;
-                    }
-                    setDialog({ type: 'emailInvoice', memberId });
-                }}
-                onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
-                onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
-                onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
-                onViewHistory={memberId => setDialog({ type: 'history', memberId })}
-            />
+            <section className="dashboard-workspace">
+                <div className="dashboard-workspace-head">
+                    <div>
+                        <p className="section-kicker">Annual Invoicing</p>
+                        <h2>Settlement Board</h2>
+                        <p className="section-desc dashboard-workspace-desc">
+                            Settle by household, send invoices, and expand rows for linked-member details and calculation transparency.
+                        </p>
+                    </div>
+                </div>
+
+                <SettlementBoard
+                    familyMembers={familyMembers}
+                    bills={bills}
+                    payments={payments}
+                    readOnly={isYearReadOnly(activeYear)}
+                    onRecordPayment={data => service.recordPayment(data)}
+                    onEmailInvoice={(memberId, isSettled) => {
+                        if (isSettled) {
+                            showToast('No balance due\u2014nothing to invoice.');
+                            return;
+                        }
+                        setDialog({ type: 'emailInvoice', memberId });
+                    }}
+                    onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
+                    onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
+                    onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
+                    onViewHistory={memberId => setDialog({ type: 'history', memberId })}
+                />
+            </section>
 
             {dialog.type === 'history' && (() => {
                 const member = familyMembers.find(m => m.id === dialog.memberId);
@@ -254,12 +281,22 @@ function LifecycleBar({ currentStatus, currentOrder, isReadyToClose }) {
 
 /** Single KPI metric card. */
 function KpiCard({ label, value, valueClass = '', title = '', onClick }) {
+    function handleKeyDown(event) {
+        if (!onClick) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick();
+        }
+    }
+
     return (
         <div
             className={'kpi-card' + (onClick ? ' kpi-card--clickable' : '')}
             title={title || undefined}
             onClick={onClick}
             role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={handleKeyDown}
         >
             <span className="kpi-label">{label}</span>
             <span className={'kpi-value' + (valueClass ? ' ' + valueClass : '')}>{value}</span>

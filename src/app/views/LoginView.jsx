@@ -11,6 +11,20 @@ import { auth, analytics } from '@/lib/firebase.js';
 import { logEvent } from 'firebase/analytics';
 
 const googleProvider = new GoogleAuthProvider();
+const HERO_POINTS = [
+    {
+        title: 'No more spreadsheets',
+        copy: 'See who owes what instantly for the whole year.'
+    },
+    {
+        title: 'One-tap invoicing',
+        copy: 'Send clear, itemized summaries by email or text.'
+    },
+    {
+        title: 'Built on trust',
+        copy: 'Transparent calculations everyone can verify.'
+    }
+];
 
 function getErrorMessage(code) {
     switch (code) {
@@ -122,102 +136,212 @@ export default function LoginView() {
     }
 
     return (
-        <div style={{ maxWidth: 400, margin: '4rem auto', padding: '0 1rem', fontFamily: 'system-ui, sans-serif' }}>
-            <h1 style={{ textAlign: 'center' }}>Friends &amp; Family Billing</h1>
-            <p style={{ textAlign: 'center', color: '#666', marginBottom: '2rem' }}>
-                {form === 'login' ? 'Sign in to continue' : 'Create your account'}
-            </p>
+        <div className="auth-page">
+            <main className="auth-shell">
+                <section className="auth-hero" aria-labelledby="login-title">
+                    <div className="auth-hero-badge">Split bills without splitting relationships</div>
+                    <div className="auth-hero-mark">
+                        <AppMark className="auth-hero-mark-icon" gradientId="authHeroGrad" />
+                    </div>
+                    <h1 id="login-title">Friends &amp; Family Billing</h1>
+                    <p className="auth-hero-copy">
+                        The easiest way for families and close friends to track, split, and settle shared expenses all year long in one polished workspace.
+                    </p>
 
-            {error && (
-                <div role="alert" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#FEE', border: '1px solid #C65A5A', borderRadius: 6, color: '#C65A5A' }}>
-                    {error}
-                </div>
-            )}
-            {success && (
-                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#EFE', border: '1px solid #5AC65A', borderRadius: 6, color: '#2A7A2A' }}>
-                    {success}
-                </div>
-            )}
+                    <div className="auth-hero-points" aria-label="Product highlights">
+                        {HERO_POINTS.map(point => (
+                            <div key={point.title} className="auth-hero-point">
+                                <span className="auth-hero-point-title">{point.title}</span>
+                                <span className="auth-hero-point-copy">{point.copy}</span>
+                            </div>
+                        ))}
+                    </div>
+                </section>
 
-            {form === 'login' ? (
-                <form onSubmit={handleLogin}>
-                    <label htmlFor="login-email" style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>Email</label>
-                    <input id="login-email" type="email" value={email} onChange={e => setEmail(e.target.value)}
-                        required autoFocus style={inputStyle} />
+                <section className="auth-card" aria-label="Authentication">
+                    <div className="auth-card-header">
+                        <div className="auth-card-icon">
+                            <AppMark className="auth-card-mark" gradientId="authCardGrad" />
+                        </div>
+                        <div>
+                            <h2>{form === 'login' ? 'Welcome back' : 'Create your account'}</h2>
+                            <p>{form === 'login' ? 'Pick up right where you left off.' : 'Set up your billing workspace in a minute.'}</p>
+                        </div>
+                    </div>
 
-                    <label htmlFor="login-password" style={{ display: 'block', marginBottom: 4, marginTop: 12, fontWeight: 500 }}>Password</label>
-                    <input id="login-password" type="password" value={password} onChange={e => setPassword(e.target.value)}
-                        required style={inputStyle} />
+                    <div className="auth-context-banner">
+                        Your bills, your people, one shared view.
+                    </div>
 
-                    <button type="submit" disabled={loading} style={btnPrimary}>
-                        {loading ? 'Signing in…' : 'Sign In'}
+                    {error && (
+                        <div role="alert" className="auth-message auth-message--error">
+                            {error}
+                        </div>
+                    )}
+                    {success && (
+                        <div role="status" className="auth-message auth-message--success">
+                            {success}
+                        </div>
+                    )}
+
+                    <button type="button" onClick={handleGoogleSignIn} disabled={loading} className="auth-google-btn">
+                        <GoogleMark />
+                        Continue with Google
                     </button>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: '0.875rem' }}>
-                        <button type="button" onClick={handleForgotPassword} style={linkBtn}>Forgot password?</button>
-                        <button type="button" onClick={() => { clearMessages(); setForm('signup'); }} style={linkBtn}>Create account</button>
+                    <div className="auth-divider">
+                        {form === 'login' ? 'or sign in with email' : 'or create account with email'}
                     </div>
-                </form>
-            ) : (
-                <form onSubmit={handleSignup}>
-                    <label htmlFor="signup-email" style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>Email</label>
-                    <input id="signup-email" type="email" value={email} onChange={e => setEmail(e.target.value)}
-                        required autoFocus style={inputStyle} />
 
-                    <label htmlFor="signup-password" style={{ display: 'block', marginBottom: 4, marginTop: 12, fontWeight: 500 }}>Password</label>
-                    <input id="signup-password" type="password" value={password} onChange={e => setPassword(e.target.value)}
-                        required minLength={6} style={inputStyle} />
+                    {form === 'login' ? (
+                        <form className="auth-form" onSubmit={handleLogin}>
+                            <div className="auth-field">
+                                <label className="auth-label" htmlFor="login-email">Email address</label>
+                                <input
+                                    className="auth-input"
+                                    id="login-email"
+                                    type="email"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    placeholder="you@example.com"
+                                    required
+                                    autoFocus
+                                    autoComplete="email"
+                                />
+                            </div>
 
-                    <label htmlFor="signup-confirm" style={{ display: 'block', marginBottom: 4, marginTop: 12, fontWeight: 500 }}>Confirm Password</label>
-                    <input id="signup-confirm" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                        required minLength={6} style={inputStyle} />
+                            <div className="auth-field">
+                                <label className="auth-label" htmlFor="login-password">Password</label>
+                                <input
+                                    className="auth-input"
+                                    id="login-password"
+                                    type="password"
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    placeholder="Enter your password"
+                                    required
+                                    autoComplete="current-password"
+                                />
+                            </div>
 
-                    <button type="submit" disabled={loading} style={btnPrimary}>
-                        {loading ? 'Creating account…' : 'Create Account'}
-                    </button>
+                            <button type="button" onClick={handleForgotPassword} className="auth-inline-link auth-inline-link--solo">
+                                Forgot password?
+                            </button>
 
-                    <div style={{ textAlign: 'center', marginTop: 8, fontSize: '0.875rem' }}>
-                        <button type="button" onClick={() => { clearMessages(); setForm('login'); }} style={linkBtn}>Back to sign in</button>
+                            <button type="submit" disabled={loading} className="auth-submit-btn">
+                                {loading ? 'Signing in…' : 'Sign In'}
+                            </button>
+
+                            <div className="auth-form-switch">
+                                New here?{' '}
+                                <button type="button" onClick={() => { clearMessages(); setForm('signup'); }} className="auth-inline-link">
+                                    Create an account
+                                </button>
+                            </div>
+                        </form>
+                    ) : (
+                        <form className="auth-form" onSubmit={handleSignup}>
+                            <div className="auth-field">
+                                <label className="auth-label" htmlFor="signup-email">Email address</label>
+                                <input
+                                    className="auth-input"
+                                    id="signup-email"
+                                    type="email"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    placeholder="you@example.com"
+                                    required
+                                    autoFocus
+                                    autoComplete="email"
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <label className="auth-label" htmlFor="signup-password">Password</label>
+                                <input
+                                    className="auth-input"
+                                    id="signup-password"
+                                    type="password"
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    placeholder="At least 6 characters"
+                                    required
+                                    minLength={6}
+                                    autoComplete="new-password"
+                                />
+                            </div>
+
+                            <div className="auth-field">
+                                <label className="auth-label" htmlFor="signup-confirm">Confirm password</label>
+                                <input
+                                    className="auth-input"
+                                    id="signup-confirm"
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={e => setConfirmPassword(e.target.value)}
+                                    placeholder="Re-enter your password"
+                                    required
+                                    minLength={6}
+                                    autoComplete="new-password"
+                                />
+                            </div>
+
+                            <button type="submit" disabled={loading} className="auth-submit-btn auth-submit-btn--strong">
+                                {loading ? 'Creating account…' : 'Create Account'}
+                            </button>
+
+                            <div className="auth-form-switch">
+                                Already have an account?{' '}
+                                <button type="button" onClick={() => { clearMessages(); setForm('login'); }} className="auth-inline-link">
+                                    Sign in
+                                </button>
+                            </div>
+                        </form>
+                    )}
+
+                    <div className="auth-trust-footer">
+                        <div className="auth-trust-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+                            </svg>
+                        </div>
+                        <p>Secured by Google &amp; Firebase. Your data stays private and encrypted, always.</p>
                     </div>
-                </form>
-            )}
 
-            <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', gap: 8 }}>
-                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #ddd' }} />
-                <span style={{ color: '#999', fontSize: '0.8rem' }}>or</span>
-                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #ddd' }} />
-            </div>
-
-            <button type="button" onClick={handleGoogleSignIn} disabled={loading} style={btnGoogle}>
-                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                Continue with Google
-            </button>
-
-            <p style={{ textAlign: 'center', marginTop: '2rem', fontSize: '0.75rem', color: '#999' }}>
-                The legacy app is at <a href="/login.html" style={{ color: '#999' }}>login.html</a>
-            </p>
+                    <p className="auth-legacy-link">
+                        The legacy app is at <a href="/login.html">login.html</a>
+                    </p>
+                </section>
+            </main>
         </div>
     );
 }
 
-const inputStyle = {
-    width: '100%', padding: '0.6rem 0.75rem', border: '1px solid #ccc',
-    borderRadius: 6, fontSize: '1rem', boxSizing: 'border-box'
-};
+function AppMark({ className, gradientId }) {
+    return (
+        <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true">
+            <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#6E78D6" />
+                    <stop offset="100%" stopColor="#7B5FAF" />
+                </linearGradient>
+            </defs>
+            <rect width="48" height="48" rx="12" fill={'url(#' + gradientId + ')'} />
+            <g transform="translate(6,5) scale(1.5)">
+                <path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#fff" />
+                <path d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" fill="rgba(255,255,255,0.75)" />
+            </g>
+        </svg>
+    );
+}
 
-const btnPrimary = {
-    width: '100%', padding: '0.7rem', marginTop: 16, border: 'none',
-    borderRadius: 6, background: '#6E78D6', color: '#fff', fontSize: '1rem',
-    fontWeight: 600, cursor: 'pointer'
-};
-
-const btnGoogle = {
-    width: '100%', padding: '0.65rem', border: '1px solid #ddd',
-    borderRadius: 6, background: '#fff', fontSize: '0.95rem', cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-};
-
-const linkBtn = {
-    background: 'none', border: 'none', color: '#6E78D6', cursor: 'pointer',
-    padding: 0, fontSize: 'inherit', textDecoration: 'underline'
-};
+function GoogleMark() {
+    return (
+        <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+        </svg>
+    );
+}
