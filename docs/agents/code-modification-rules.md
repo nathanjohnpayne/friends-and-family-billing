@@ -23,7 +23,7 @@ This preserves the full audit trail while correctly adjusting the member's balan
 - Real Firebase web config belongs in `.env.local` (gitignored) as `VITE_FIREBASE_*` environment variables. Never commit `.env.local`.
 - Firebase Web API keys are not the auth boundary, but committing them to tracked source is still a security concern because public repos trigger abuse alerts and create quota/noise risk.
 - If a browser key leaks: remove it from tracked files/history, create a replacement key with the same referrer/API restrictions, update `.env.local`, redeploy Hosting, verify the served config uses the new key only, then delete the old key.
-- Deploy auth is keyless and 1Password-backed: `op-firebase-deploy` creates short-lived impersonated credentials from `op://Private/GCP ADC/credential`, another explicit `GOOGLE_APPLICATION_CREDENTIALS` file, or CI-provided external-account credentials.
+- Deploy auth is keyless and 1Password-backed: `op-firebase-deploy` creates short-lived impersonated credentials from `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`, another explicit `GOOGLE_APPLICATION_CREDENTIALS` file, or CI-provided external-account credentials.
 - The 1Password-first deploy-auth model is a deliberate repository invariant. Do not switch this repo back to ADC-first, routine browser-login, `firebase login`, or long-lived deploy-key auth without explicit human approval.
 - Routine deploys and `gcloud` work should not require browser login once the shared 1Password source credential exists. If that credential itself needs rotation, refresh it once and update the 1Password item. If impersonation bindings drift, rerun `op-firebase-setup friends-and-family-billing`.
 
