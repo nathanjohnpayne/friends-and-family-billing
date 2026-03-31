@@ -14,22 +14,16 @@
     .auth-hero-points {
         grid-template-columns: 1fr;
     }
-
-    .settings-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 900px) {
     .nav-bar-inner,
-    .dashboard-hero-top,
-    .page-header {
+    .nav-user {
         flex-wrap: wrap;
     }
 
     .nav-links {
-        order: 3;
-        width: 100%;
+        flex-basis: 100%;
         justify-content: flex-start;
     }
 
@@ -43,30 +37,18 @@
         padding: 24px 16px 40px;
     }
 
-    .page-header,
-    .dashboard-workspace,
     .year-selector,
     .tab-placeholder {
         padding: 22px 20px;
         border-radius: 24px;
     }
 
-    .page-header h1,
-    .dashboard-hero h1 {
-        font-size: clamp(2rem, 8vw, 2.8rem);
-    }
-
     .dashboard-hero {
-        padding: 28px 22px 24px;
-        border-radius: 28px;
+        padding: 18px 16px 16px;
     }
 
     .dashboard-meta {
         justify-content: flex-start;
-    }
-
-    .dashboard-workspace .settlement-board {
-        margin-top: 20px;
     }
 
     .settlement-card-main,
@@ -135,18 +117,5 @@
     .nav-user {
         width: 100%;
         justify-content: space-between;
-    }
-
-    .nav-brand .nav-brand-copy {
-        display: flex;
-    }
-
-    .nav-brand .nav-brand-kicker {
-        display: none;
-    }
-
-    .nav-brand .nav-brand-title {
-        display: block;
-        font-size: 0.96rem;
     }
 }

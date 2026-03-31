@@ -100,18 +100,9 @@ export default function DashboardView() {
     return (
         <>
             <section className="dashboard-hero">
-                <div className="dashboard-hero-top">
-                    <div className="dashboard-hero-copy">
-                        <p className="section-kicker section-kicker--inverse">Settlement Workspace</p>
-                        <h1>Dashboard</h1>
-                        <p className="dashboard-subtitle">
-                            Track balances, move the year through settlement, and close it cleanly without the usual back-and-forth.
-                        </p>
-                    </div>
-                    <div className="dashboard-meta">
-                        <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
-                        <span className={statusBadgeClass}>{statusLabel}</span>
-                    </div>
+                <div className="dashboard-meta">
+                    <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
+                    <span className={statusBadgeClass}>{statusLabel}</span>
                 </div>
 
                 <LifecycleBar currentStatus={currentStatus} currentOrder={currentOrder} isReadyToClose={isReadyToClose} />
@@ -146,36 +137,24 @@ export default function DashboardView() {
                 )}
             </section>
 
-            <section className="dashboard-workspace">
-                <div className="dashboard-workspace-head">
-                    <div>
-                        <p className="section-kicker">Annual Invoicing</p>
-                        <h2>Settlement Board</h2>
-                        <p className="section-desc dashboard-workspace-desc">
-                            Settle by household, send invoices, and expand rows for linked-member details and calculation transparency.
-                        </p>
-                    </div>
-                </div>
-
-                <SettlementBoard
-                    familyMembers={familyMembers}
-                    bills={bills}
-                    payments={payments}
-                    readOnly={isYearReadOnly(activeYear)}
-                    onRecordPayment={data => service.recordPayment(data)}
-                    onEmailInvoice={(memberId, isSettled) => {
-                        if (isSettled) {
-                            showToast('No balance due\u2014nothing to invoice.');
-                            return;
-                        }
-                        setDialog({ type: 'emailInvoice', memberId });
-                    }}
-                    onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
-                    onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
-                    onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
-                    onViewHistory={memberId => setDialog({ type: 'history', memberId })}
-                />
-            </section>
+            <SettlementBoard
+                familyMembers={familyMembers}
+                bills={bills}
+                payments={payments}
+                readOnly={isYearReadOnly(activeYear)}
+                onRecordPayment={data => service.recordPayment(data)}
+                onEmailInvoice={(memberId, isSettled) => {
+                    if (isSettled) {
+                        showToast('No balance due\u2014nothing to invoice.');
+                        return;
+                    }
+                    setDialog({ type: 'emailInvoice', memberId });
+                }}
+                onTextInvoice={memberId => setDialog({ type: 'textInvoice', memberId })}
+                onGenerateShareLink={memberId => setDialog({ type: 'shareLink', memberId })}
+                onManageShareLinks={memberId => setDialog({ type: 'shareLink', memberId, tab: 'manage' })}
+                onViewHistory={memberId => setDialog({ type: 'history', memberId })}
+            />
 
             {dialog.type === 'history' && (() => {
                 const member = familyMembers.find(m => m.id === dialog.memberId);
