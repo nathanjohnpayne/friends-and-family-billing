@@ -1,0 +1,212 @@
+/* ── Hybrid Polish — Dashboard hero, KPI, lifecycle ─────── */
+
+.dashboard-hero {
+    position: relative;
+    overflow: hidden;
+    padding: 32px 30px 28px;
+    border-radius: 32px;
+    color: var(--color-text-inverse, #ffffff);
+    background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.22), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(63, 163, 124, 0.12), transparent 30%),
+        linear-gradient(140deg, rgba(88, 98, 198, 0.98) 0%, rgba(110, 120, 214, 0.96) 48%, rgba(123, 95, 175, 0.98) 100%);
+    border: 1px solid var(--polish-border-tint);
+    box-shadow: 0 20px 60px rgba(45, 52, 92, 0.18);
+}
+
+.dashboard-hero::after {
+    content: '';
+    position: absolute;
+    right: -14%;
+    bottom: -20%;
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.18), transparent 68%);
+    filter: blur(10px);
+    pointer-events: none;
+}
+
+.dashboard-hero-top,
+.dashboard-meta,
+.dashboard-status,
+.dashboard-workspace-head {
+    position: relative;
+    z-index: 1;
+}
+
+.dashboard-hero-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 18px;
+}
+
+.dashboard-hero-copy {
+    max-width: 42rem;
+}
+
+.dashboard-hero h1 {
+    color: var(--color-text-inverse, #ffffff);
+}
+
+.dashboard-subtitle {
+    margin: 12px 0 0;
+    max-width: 38rem;
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 1rem;
+    line-height: 1.65;
+}
+
+.dashboard-meta {
+    margin-bottom: 0;
+    justify-content: flex-end;
+}
+
+.dashboard-year-pill,
+.dashboard-status-badge {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: none;
+}
+
+.dashboard-year-pill {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.dashboard-status-badge--open,
+.dashboard-status-badge--settling,
+.dashboard-status-badge--closed,
+.dashboard-status-badge--archived,
+.dashboard-status-badge--ready {
+    color: var(--color-text-inverse, #ffffff);
+}
+
+.dashboard-status-badge--open { background: rgba(110, 120, 214, 0.28); }
+.dashboard-status-badge--settling { background: rgba(214, 162, 74, 0.3); }
+.dashboard-status-badge--closed,
+.dashboard-status-badge--ready { background: rgba(63, 163, 124, 0.3); }
+.dashboard-status-badge--archived { background: rgba(113, 128, 150, 0.28); }
+
+.lifecycle-bar {
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.lifecycle-step {
+    padding: 6px 10px;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.lifecycle-step.lifecycle-complete {
+    color: #dcfce7;
+    background: rgba(63, 163, 124, 0.18);
+}
+
+.lifecycle-step.lifecycle-next {
+    border: 1px dashed rgba(255, 255, 255, 0.52);
+}
+
+.lifecycle-arrow {
+    color: rgba(255, 255, 255, 0.46);
+}
+
+.kpi-grid {
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.kpi-card {
+    min-height: 112px;
+    padding: 18px 16px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(12px);
+}
+
+.kpi-card--clickable:hover {
+    background: rgba(255, 255, 255, 0.2);
+    box-shadow: none;
+}
+
+.kpi-label {
+    margin-bottom: 6px;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+}
+
+.kpi-value {
+    color: var(--color-text-inverse, #ffffff);
+    font-size: 1.7rem;
+}
+
+.progress-block {
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.progress-title {
+    color: rgba(255, 255, 255, 0.82);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.72rem;
+}
+
+.progress-figure {
+    color: rgba(255, 255, 255, 0.94);
+    font-weight: 600;
+}
+
+.progress-track {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.progress-fill {
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(209, 250, 229, 0.96));
+}
+
+.settlement-message {
+    margin-top: 14px;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 1rem;
+    line-height: 1.65;
+}
+
+.admin-hint {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 18px;
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.dashboard-workspace {
+    padding: 28px 30px;
+    border-radius: 30px;
+}
+
+.dashboard-workspace-head h2 {
+    margin: 0 0 10px;
+    font-size: 1.65rem;
+    letter-spacing: -0.03em;
+}
+
+.dashboard-workspace-desc {
+    max-width: 44rem;
+    margin-bottom: 0;
+}
+
+.dashboard-workspace .settlement-board {
+    margin-top: 24px;
+}

@@ -7,6 +7,12 @@ import AppShell from './components/AppShell.jsx';
 import ManageView from './views/Manage/ManageView.jsx';
 import UpdateToast from './components/UpdateToast.jsx';
 import './shell.css';
+import './polish-core.css';
+import './polish-nav.css';
+import './polish-dashboard.css';
+import './polish-auth.css';
+import './polish-components.css';
+import './polish-responsive.css';
 
 // Code-split heavy views — loaded on demand
 const DashboardView = lazy(() => import('./views/Dashboard/DashboardView.jsx'));

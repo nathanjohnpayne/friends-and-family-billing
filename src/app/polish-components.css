@@ -1,0 +1,225 @@
+/* ── Hybrid Polish — Cards, dialogs, forms, misc ───────── */
+
+.tab-header {
+    margin-bottom: 20px;
+}
+
+.tab-header h3 {
+    font-size: 1.25rem;
+    letter-spacing: -0.03em;
+}
+
+.composer-card,
+.member-card,
+.bill-card,
+.settlement-card,
+.dispute-card,
+.dialog,
+.action-menu-dropdown {
+    border-color: var(--polish-border-tint);
+    box-shadow: 0 18px 36px var(--polish-shadow-light);
+}
+
+.composer-card,
+.member-card,
+.bill-card,
+.settlement-card,
+.dispute-card {
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 251, 255, 0.96));
+}
+
+.composer-card {
+    padding: 18px;
+}
+
+.composer-fields {
+    gap: 10px;
+}
+
+.composer-input {
+    min-height: 46px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border-color: var(--polish-border-input);
+    background: linear-gradient(180deg, var(--polish-input-bg-start), var(--polish-input-bg-end));
+}
+
+.composer-input:focus {
+    background: var(--color-surface, #ffffff);
+    box-shadow: 0 0 0 4px var(--polish-primary-glow);
+}
+
+.frequency-toggle {
+    border-radius: 16px;
+    border-color: var(--polish-border-tint);
+    padding: 4px;
+    background: rgba(246, 248, 252, 0.8);
+}
+
+.frequency-option {
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.member-card,
+.bill-card {
+    padding: 20px 18px;
+}
+
+.member-card--child {
+    border-left-color: rgba(110, 120, 214, 0.34);
+}
+
+.member-avatar,
+.settlement-avatar {
+    background: linear-gradient(135deg, rgba(110, 120, 214, 0.14), rgba(123, 95, 175, 0.18));
+}
+
+.member-name,
+.bill-title,
+.settlement-card-info strong {
+    color: var(--color-text, #1F2430);
+}
+
+.bill-card--major { border-left-color: var(--color-danger, #C65A5A); }
+.bill-card--medium { border-left-color: var(--color-warning, #D6A24A); }
+.bill-card--light { border-left-color: rgba(110, 120, 214, 0.3); }
+
+.settlement-board {
+    margin-top: 0;
+}
+
+.settlement-header {
+    margin-bottom: 18px;
+}
+
+.settlement-header h3 {
+    font-size: 1.18rem;
+    letter-spacing: -0.03em;
+}
+
+.settlement-filter-chip {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border-color: var(--polish-border-tint);
+    background: rgba(255, 255, 255, 0.82);
+    font-weight: 600;
+}
+
+.settlement-filter-chip.active {
+    box-shadow: 0 12px 24px rgba(110, 120, 214, 0.2);
+}
+
+.settlement-card {
+    overflow: hidden;
+}
+
+.settlement-card-main {
+    padding: 18px;
+}
+
+.settlement-card-main:hover {
+    background: rgba(247, 248, 251, 0.86);
+}
+
+.settlement-card-detail {
+    border-top-color: var(--polish-border-tint-light);
+    background: rgba(246, 248, 252, 0.74);
+}
+
+.status-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.01em;
+}
+
+.empty-state {
+    border-radius: 28px;
+    padding: 38px 24px;
+}
+
+.dialog-overlay {
+    background: rgba(25, 32, 48, 0.46);
+    backdrop-filter: blur(8px);
+}
+
+.dialog {
+    width: min(92vw, 520px);
+    border-radius: 28px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 255, 0.98));
+    box-shadow: 0 26px 60px rgba(20, 26, 42, 0.28);
+}
+
+.dialog-title {
+    padding: 18px 24px 0;
+    color: var(--color-text, #1F2430);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 0 24px 24px;
+}
+
+.payment-dialog-fields,
+.link-manager-list {
+    padding: 0 24px;
+}
+
+.payment-dialog-for,
+.link-manager-hint,
+.link-manager-empty {
+    padding-inline: 24px;
+}
+
+.action-menu-dropdown {
+    border-radius: 18px;
+    padding: 8px 0;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(18px);
+}
+
+.action-menu-item {
+    padding: 10px 16px;
+}
+
+.year-selector {
+    margin-bottom: 0;
+    padding: 28px 30px;
+    border-radius: 30px;
+}
+
+.year-selector-head {
+    margin-bottom: 20px;
+}
+
+.year-select-wrap {
+    padding: 14px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--polish-border-tint-light);
+    background: rgba(246, 248, 252, 0.86);
+}
+
+.year-select-wrap select {
+    border: none;
+    background: transparent;
+    font-weight: 600;
+}
+
+.year-select-wrap select:focus {
+    outline: none;
+}
+
+.year-actions {
+    gap: 10px;
+}
+
+.tab-placeholder h3 {
+    font-size: 1.2rem;
+    letter-spacing: -0.03em;
+}
