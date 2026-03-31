@@ -135,8 +135,8 @@ If both machines modified the same 1Password item:
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) installed and signed in
 - Local `gcloud` wrapper installed on PATH (see First-Time Setup below)
 - `op-firebase-deploy` and `op-firebase-setup` on PATH
-- Access to the shared 1Password source credential `op://Private/GCP ADC/credential` or another explicit `GOOGLE_APPLICATION_CREDENTIALS` file
-- Permission to impersonate `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
+- Access to the project SA key in `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key` (preferred for CI/headless) or the shared 1Password source credential `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`, or another explicit `GOOGLE_APPLICATION_CREDENTIALS` file
+- Permission to impersonate `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` (skipped when using the project SA key directly)
 
 ## Machine User Setup (New Project)
 
@@ -408,12 +408,12 @@ mv firebase.json.bak firebase.json
 
 The script:
 1. Uses the Firebase project ID from `firebase.json` or the `--project` flag (`.firebaserc` is gitignored and not present in this repo)
-2. Reads source credentials from `GOOGLE_APPLICATION_CREDENTIALS`, then `op://Private/GCP ADC/credential`, then `~/.config/gcloud/application_default_credentials.json`
-3. Generates a temporary `impersonated_service_account` credential file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
+2. Reads source credentials from `GOOGLE_APPLICATION_CREDENTIALS`, then the project SA key from `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key`, then `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`, then `~/.config/gcloud/application_default_credentials.json`
+3. If the source credential is a `service_account` key matching the target deployer SA, uses it directly (no impersonation needed, faster). Otherwise generates a temporary `impersonated_service_account` credential file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
 4. Sets `GOOGLE_APPLICATION_CREDENTIALS` to that temp file and runs `firebase deploy --non-interactive`
 5. Cleans up credentials on exit
 
-No browser prompt is needed for routine use once `op://Private/GCP ADC/credential` exists and the 1Password CLI is unlocked.
+No browser prompt is needed for routine use once `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` exists and the 1Password CLI is unlocked.
 
 This 1Password-first source-credential model is a deliberate project decision. Do not replace it with ADC-first day-to-day docs, routine browser-login steps, `firebase login`, or long-lived deploy keys unless a human explicitly asks for that change.
 
@@ -438,7 +438,7 @@ Then bootstrap project impersonation:
 op-firebase-setup friends-and-family-billing
 ```
 
-If `op://Private/GCP ADC/credential` does not exist yet, seed it once by running `gcloud auth application-default login`, then copy the resulting `~/.config/gcloud/application_default_credentials.json` into the 1Password item `Private/GCP ADC`, field `credential`.
+If `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed it once by running `gcloud auth application-default login`, then copy the resulting `~/.config/gcloud/application_default_credentials.json` into the 1Password item `Private/GCP ADC`, field `credential`.
 
 `op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
 1. Enables the IAM Credentials API
@@ -491,6 +491,32 @@ The repo has GitHub Actions workflows for testing (`test.yml`), review policy en
 
 When connecting CI, prefer Workload Identity Federation or another `external_account` credential as the source credential. If CI already exposes `GOOGLE_APPLICATION_CREDENTIALS` pointing at an `external_account` file, `op-firebase-deploy` can reuse it to impersonate the deployer service account.
 
+### CI/CD & Headless Deploy
+
+For headless environments (Claude Code cloud tasks, GitHub Actions, etc.) where
+1Password biometric auth is unavailable, use the project SA key directly:
+
+```bash
+# Pull the SA key from 1Password (one-time, requires biometric)
+op document get "friends-and-family-billing — Firebase Deployer SA Key" \
+  --vault Firebase --out-file ~/firebase-keys/friends-and-family-billing-sa-key.json
+
+# Deploy with the SA key
+GOOGLE_APPLICATION_CREDENTIALS=~/firebase-keys/friends-and-family-billing-sa-key.json op-firebase-deploy friends-and-family-billing --only hosting
+```
+
+The SA key (`op://Firebase/friends-and-family-billing — Firebase Deployer SA Key`, item ID `edzuvkafretsjow5g6a26m6tza`) is a `service_account` credential for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`. When `op-firebase-deploy` detects that the source credential already matches the target deployer SA, it skips impersonation and uses direct auth (faster).
+
+For Claude Code cloud scheduled tasks:
+1. Retrieve the key: `op document get "friends-and-family-billing — Firebase Deployer SA Key" --vault Firebase`
+2. Copy the JSON contents
+3. In the task's cloud environment, add: `FIREBASE_SA_KEY=<paste JSON>`
+4. Add a setup script:
+   ```bash
+   echo "$FIREBASE_SA_KEY" > /tmp/sa-key.json
+   export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
+   ```
+
 ## Secrets Management
 
 - No API keys or secrets are committed to this repository.
@@ -499,7 +525,7 @@ When connecting CI, prefer Workload Identity Federation or another `external_acc
 
 ## Auth Maintenance
 
-If day-to-day auth stops working, first make sure the 1Password CLI is signed in and `op://Private/GCP ADC/credential` is readable.
+For interactive (biometric) environments, ensure the 1Password CLI is signed in and `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` is readable. For headless environments, the project SA key in `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key` is the primary credential source — set `GOOGLE_APPLICATION_CREDENTIALS` to point at the exported key file.
 
 If deploy impersonation breaks because IAM bindings or `gcloud` config drifted, rerun:
 
