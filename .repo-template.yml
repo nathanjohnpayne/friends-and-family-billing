@@ -1,0 +1,50 @@
+extra_top_level_dirs: [app]
+test_globs: ["tests/**/*.test.*"]
+generated_dirs: [dist, app]
+spec_test_map:
+  billing-calculations:
+    - "tests/react/lib/calculations.test.js"
+    - "tests/react/lib/billing-year.test.js"
+    - "tests/react/lib/BillingYearService.test.js"
+    - "tests/react/lib/BillingYearService.mutations.test.js"
+  billing-persistence:
+    - "tests/react/lib/persistence.test.js"
+    - "tests/react/lib/SaveQueue.test.js"
+    - "tests/billing.test.js"
+  settlement-board:
+    - "tests/react/components/SettlementBoard.test.jsx"
+    - "tests/react/views/BillsTab.test.jsx"
+    - "tests/react/views/DashboardView.test.jsx"
+  invoicing:
+    - "tests/react/lib/invoice.test.js"
+    - "tests/react/views/InvoicingTab.test.jsx"
+    - "tests/react/components/EmailInvoiceDialog.test.jsx"
+    - "tests/react/components/TextInvoiceDialog.test.jsx"
+  member-management:
+    - "tests/react/views/MembersTab.test.jsx"
+    - "tests/react/views/ManageView.test.jsx"
+  dispute-resolution:
+    - "tests/react/hooks/useDisputes.test.jsx"
+    - "tests/react/components/DisputeDetailDialog.test.jsx"
+    - "tests/react/views/ReviewsTab.test.jsx"
+  authentication:
+    - "tests/react/contexts/AuthContext.test.jsx"
+    - "tests/react/routes.test.jsx"
+  sharing:
+    - "tests/react/lib/share.test.js"
+    - "tests/react/components/ShareLinkDialog.test.jsx"
+    - "tests/react/views/ShareView.test.jsx"
+  ui-components:
+    - "tests/react/components/ActionMenu.test.jsx"
+    - "tests/react/components/BillAuditHistoryDialog.test.jsx"
+    - "tests/react/components/BillingYearSelector.test.jsx"
+    - "tests/react/components/ConfirmDialog.test.jsx"
+    - "tests/react/components/EmptyState.test.jsx"
+    - "tests/react/components/NavBar.test.jsx"
+    - "tests/react/components/PaymentHistoryDialog.test.jsx"
+    - "tests/react/components/StatusBadge.test.jsx"
+    - "tests/react/contexts/ToastContext.test.jsx"
+  formatting-validation:
+    - "tests/react/lib/formatting.test.js"
+    - "tests/react/lib/validation.test.js"
+  ffb-mitigation: "tests/ffb-mitigation-plan.test.js"
