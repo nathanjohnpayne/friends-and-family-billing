@@ -201,19 +201,6 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-primary, #6E78D6);
 }
 
-.dashboard-status-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 2px 10px;
-    border-radius: 99px;
-}
-
-.dashboard-status-badge--open       { background: var(--color-primary-light); color: var(--color-primary); }
-.dashboard-status-badge--settling   { background: var(--color-warning-bg); color: var(--color-warning-fg); }
-.dashboard-status-badge--closed     { background: var(--color-success-light); color: var(--color-success); }
-.dashboard-status-badge--archived   { background: var(--color-surface-inset); color: var(--color-text-muted); }
-.dashboard-status-badge--ready      { background: var(--color-success-bg); color: var(--color-success-fg); }
-
 /* Lifecycle bar */
 .lifecycle-bar {
     display: flex;
@@ -244,10 +231,23 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.75rem;
 }
 
+/* Dashboard action button */
+.dashboard-action {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-3, 16px);
+}
+
+.dashboard-action-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted, #666);
+}
+
 /* KPI grid */
 .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: var(--space-2, 8px);
     margin-bottom: var(--space-3, 16px);
 }
@@ -287,6 +287,13 @@ img, svg { display: block; max-width: 100%; }
 
 .kpi-value.outstanding { color: var(--color-danger, #C65A5A); }
 .kpi-value.all-clear   { color: var(--color-success, #3FA37C); }
+
+.kpi-subtitle {
+    display: block;
+    font-size: 0.65rem;
+    color: var(--color-text-faint, #999);
+    margin-top: 1px;
+}
 
 /* Progress bar */
 .progress-block {
