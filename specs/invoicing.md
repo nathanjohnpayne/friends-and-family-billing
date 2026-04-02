@@ -41,9 +41,25 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Renders dialog title with the member's full name ("Email Invoice for Alice Smith").
 - Shows three variant options: "Text only", "Text + link", and "Full invoice".
 - Shows Subject and Message fields.
-- Shows "Copy Email" and "Open Mail App" action buttons.
+- Shows three action buttons: "Copy", "Open Mail App", and "Send Email".
+- "Send Email" calls the `sendEmail` Cloud Function with the composed subject and body; shows loading state ("Sending...") while in flight; shows success toast and closes dialog on success; shows error toast on failure.
+- "Send Email" is disabled when the member has no email address.
+- "Open Mail App" is preserved as a fallback for users who prefer their native mail client.
 - Displays the member's email address in metadata.
 - Renders nothing when `open` is false.
+
+### Email Delivery (sendEmail Cloud Function)
+
+- Sends HTML emails via Resend from `Friends & Family Billing <billing@mail.nathanpayne.com>`.
+- Accepts `{ to, subject, body, replyTo? }` as POST JSON to `/sendEmail`.
+- Converts the body from markdown to HTML via `simpleMarkdownToHtml()`:
+  - Supports: bold (`**text**`), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, lists (`- item`), horizontal rules (`===`/`---`).
+  - Escapes HTML entities before markdown conversion to prevent XSS.
+  - `sanitizeHref()` blocks non-http(s) protocols (`javascript:`, `data:`) and escapes quotes in href attributes to prevent attribute breakout.
+  - Unescapes entity-encoded ampersands before re-escaping for attribute context to avoid double-escaping query-string parameters.
+- Wraps HTML in a responsive email template with branded gradient header and plain footer.
+- Sends both HTML and plain-text fallback to Resend for maximum email client compatibility.
+- Payment method URLs in `formatPaymentOptionsMarkdown()` are rendered as markdown links (`[url](url)`) so they appear as clickable `<a>` tags in both the sent email and the Manage-page live preview.
 
 ### TextInvoiceDialog
 
