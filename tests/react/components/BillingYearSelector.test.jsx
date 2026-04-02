@@ -66,45 +66,53 @@ describe('BillingYearSelector', () => {
         expect(mockService.switchYear).toHaveBeenCalledWith('2025');
     });
 
-    it('shows Start Settlement for open year and opens confirm dialog', () => {
+    it('does not show forward transitions (moved to dashboard)', () => {
         renderSelector();
-        fireEvent.click(screen.getByText('Start Settlement'));
-        // ConfirmDialog should appear
-        expect(screen.getByText('Confirm Action')).toBeInTheDocument();
-        expect(screen.getByText(/Start settlement for 2026/)).toBeInTheDocument();
+        // Start Settlement is now on the dashboard, not here
+        expect(screen.queryByText('Start Settlement')).toBeNull();
     });
 
-    it('calls setYearStatus when confirm dialog is accepted', async () => {
-        renderSelector();
-        fireEvent.click(screen.getByText('Start Settlement'));
-        await act(async () => {
-            fireEvent.click(screen.getByText('Confirm'));
-        });
-        expect(mockService.setYearStatus).toHaveBeenCalledWith('settling');
-    });
-
-    it('does not call setYearStatus when confirm is cancelled', () => {
-        renderSelector();
-        fireEvent.click(screen.getByText('Start Settlement'));
-        fireEvent.click(screen.getByText('Cancel'));
-        expect(mockService.setYearStatus).not.toHaveBeenCalled();
-    });
-
-    it('shows Close Year for settling year', () => {
+    it('shows Back to Open for settling year', () => {
         renderSelector({
             billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
             activeYear: { id: '2026', label: '2026', status: 'settling' }
         });
-        expect(screen.getByText('Close Year')).toBeInTheDocument();
         expect(screen.getByText('Back to Open')).toBeInTheDocument();
+        // Close Year is on the dashboard now
+        expect(screen.queryByText('Close Year')).toBeNull();
     });
 
-    it('shows Archive Year for closed year', () => {
+    it('calls setYearStatus via Back to Open with confirmation', async () => {
+        renderSelector({
+            billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
+            activeYear: { id: '2026', label: '2026', status: 'settling' }
+        });
+        fireEvent.click(screen.getByText('Back to Open'));
+        expect(screen.getByText('Confirm Action')).toBeInTheDocument();
+        await act(async () => {
+            fireEvent.click(screen.getByText('Confirm'));
+        });
+        expect(mockService.setYearStatus).toHaveBeenCalledWith('open');
+    });
+
+    it('shows Reopen to Settling for closed year (no Archive Year)', () => {
         renderSelector({
             billingYears: [{ id: '2026', label: '2026', status: 'closed' }],
             activeYear: { id: '2026', label: '2026', status: 'closed' }
         });
-        expect(screen.getByText('Archive Year')).toBeInTheDocument();
+        expect(screen.getByText('Reopen to Settling')).toBeInTheDocument();
+        // Archive Year is on the dashboard now
+        expect(screen.queryByText('Archive Year')).toBeNull();
+    });
+
+    it('does not call setYearStatus when confirm is cancelled', () => {
+        renderSelector({
+            billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
+            activeYear: { id: '2026', label: '2026', status: 'settling' }
+        });
+        fireEvent.click(screen.getByText('Back to Open'));
+        fireEvent.click(screen.getByText('Cancel'));
+        expect(mockService.setYearStatus).not.toHaveBeenCalled();
     });
 
     it('Start New Year opens label input dialog', () => {
@@ -143,18 +151,15 @@ describe('BillingYearSelector', () => {
         expect(screen.queryByText('Start New Year')).toBeNull();
     });
 
-    it('archive flow offers to start new year after archiving', async () => {
+    it('does not show archive or forward buttons for closed year', () => {
         renderSelector({
             billingYears: [{ id: '2026', label: '2026', status: 'closed' }],
             activeYear: { id: '2026', label: '2026', status: 'closed' }
         });
-        fireEvent.click(screen.getByText('Archive Year'));
-        // First confirm: archive
-        await act(async () => {
-            fireEvent.click(screen.getByText('Confirm'));
-        });
-        expect(mockService.setYearStatus).toHaveBeenCalledWith('archived');
-        // Post-archive offer dialog appears
-        expect(screen.getByText('Year Archived')).toBeInTheDocument();
+        expect(screen.queryByText('Archive Year')).toBeNull();
+        expect(screen.queryByText('Close Year')).toBeNull();
+        // But backward transition and new year are present
+        expect(screen.getByText('Reopen to Settling')).toBeInTheDocument();
+        expect(screen.getByText('Start New Year')).toBeInTheDocument();
     });
 });

@@ -49,6 +49,7 @@ export default function SettingsView() {
         <div>
             <BillingYearSelector />
 
+            {!loading && (<div className="settings-section-divider" />)}
             {!loading && (
                 <PaymentMethodsManager
                     settings={settings}
