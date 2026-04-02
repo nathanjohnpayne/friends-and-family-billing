@@ -243,10 +243,24 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                         <div className="dispute-share-actions">
                             <span className="dispute-share-label">Share Resolution:</span>
                             {member && member.email && (
-                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                <button className="btn btn-sm btn-secondary" onClick={async () => {
                                     const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
                                     const body = buildResolutionText();
-                                    window.location.href = 'mailto:' + encodeURIComponent(member.email) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+                                    try {
+                                        const res = await fetch('/sendEmail', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ to: member.email, subject, body })
+                                        });
+                                        const data = await res.json();
+                                        if (!res.ok) {
+                                            if (showToast) showToast('Send failed: ' + (data.error || 'Unknown error'));
+                                        } else {
+                                            if (showToast) showToast('Resolution emailed to ' + member.email);
+                                        }
+                                    } catch (err) {
+                                        if (showToast) showToast('Send failed: ' + err.message);
+                                    }
                                 }}>Email</button>
                             )}
                             {member && member.phone && (

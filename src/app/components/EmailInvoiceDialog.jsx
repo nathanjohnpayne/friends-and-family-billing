@@ -1,19 +1,21 @@
 /**
  * EmailInvoiceDialog — email invoice composer with variant selector.
  * Port of showEmailInvoiceDialog() from main.js:4724.
+ * Sends HTML email via Resend Cloud Function (/sendEmail).
  */
 import { useState, useEffect } from 'react';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 
 /**
- * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, shareUrl?: string, onClose: function }} props
+ * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, shareUrl?: string, showToast?: function, onClose: function }} props
  */
-export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, shareUrl, onClose }) {
+export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, shareUrl, showToast, onClose }) {
     const [variant, setVariant] = useState('text-link');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
+    const [sending, setSending] = useState(false);
 
     const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings) : null;
 
@@ -26,15 +28,48 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
 
     if (!open || !ctx) return null;
 
+    const recipientEmail = ctx.member.email || '';
+
     function handleCopy() {
         navigator.clipboard.writeText(body).then(() => setCopied(true));
     }
 
     function handleOpenMail() {
-        const mailto = 'mailto:' + encodeURIComponent(ctx.member.email || '')
+        const mailto = 'mailto:' + encodeURIComponent(recipientEmail)
             + '?subject=' + encodeURIComponent(subject)
             + '&body=' + encodeURIComponent(body);
         window.location.href = mailto;
+    }
+
+    async function handleSendEmail() {
+        if (!recipientEmail) {
+            if (showToast) showToast('No email address for this member.');
+            return;
+        }
+        setSending(true);
+        try {
+            const res = await fetch('/sendEmail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: recipientEmail,
+                    subject,
+                    body,
+                    replyTo: undefined
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                if (showToast) showToast('Send failed: ' + (data.error || 'Unknown error'));
+            } else {
+                if (showToast) showToast('Invoice emailed to ' + recipientEmail);
+                onClose();
+            }
+        } catch (err) {
+            if (showToast) showToast('Send failed: ' + err.message);
+        } finally {
+            setSending(false);
+        }
     }
 
     return (
@@ -44,7 +79,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
 
                 <div className="invoice-summary-meta">
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{ctx.member.email || 'Not provided'}</span></div>
+                    <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{recipientEmail || 'Not provided'}</span></div>
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
                     {ctx.payment > 0 && (
                         <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
@@ -83,9 +118,18 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
                 <div className="dialog-buttons">
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
                     <button className="btn btn-sm btn-secondary" onClick={handleCopy}>
-                        {copied ? 'Copied!' : 'Copy Email'}
+                        {copied ? 'Copied!' : 'Copy'}
                     </button>
-                    <button className="btn btn-sm btn-primary" onClick={handleOpenMail}>Open Mail App</button>
+                    <button className="btn btn-sm btn-secondary" onClick={handleOpenMail}>
+                        Open Mail App
+                    </button>
+                    <button
+                        className="btn btn-sm btn-primary"
+                        onClick={handleSendEmail}
+                        disabled={sending || !recipientEmail}
+                    >
+                        {sending ? 'Sending\u2026' : 'Send Email'}
+                    </button>
                 </div>
             </div>
         </div>

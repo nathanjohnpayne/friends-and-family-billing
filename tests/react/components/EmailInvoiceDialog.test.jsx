@@ -35,10 +35,11 @@ describe('EmailInvoiceDialog', () => {
         expect(screen.getByText('Message')).toBeInTheDocument();
     });
 
-    it('shows action buttons', () => {
+    it('shows action buttons including Send Email', () => {
         render(<EmailInvoiceDialog {...baseProps} />);
-        expect(screen.getByText('Copy Email')).toBeInTheDocument();
+        expect(screen.getByText('Copy')).toBeInTheDocument();
         expect(screen.getByText('Open Mail App')).toBeInTheDocument();
+        expect(screen.getByText('Send Email')).toBeInTheDocument();
     });
 
     it('shows member email in meta', () => {

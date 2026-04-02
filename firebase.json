@@ -112,6 +112,10 @@
         "function": "submitDisputeDecision"
       },
       {
+        "source": "/sendEmail",
+        "function": "sendEmail"
+      },
+      {
         "source": "/app/**",
         "destination": "/app/src/app/index.html"
       },

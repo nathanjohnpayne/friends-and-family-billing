@@ -229,6 +229,7 @@ export default function DashboardView() {
                     payments={payments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
+                    showToast={showToast}
                     onClose={() => setDialog({ type: null, memberId: null })}
                 />
             )}
