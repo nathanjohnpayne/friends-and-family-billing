@@ -402,9 +402,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                                 const rawText = buildInvoiceBody(previewCtx, 'text-only', previewShareUrl, 'email', { markdown: true });
                                 const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member);
                                 await queueEmail({ to: testEmailTo.trim(), subject, body: rawText, uid: userId });
-                                if (showToast) showToast('Test email sent to ' + testEmailTo.trim());
                                 setTestEmailOpen(false);
+                                if (showToast) showToast('Test email sent to ' + testEmailTo.trim());
                             } catch (err) {
+                                setTestEmailOpen(false);
                                 if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
                             } finally {
                                 setTestEmailSending(false);
