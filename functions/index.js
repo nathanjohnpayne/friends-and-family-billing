@@ -658,11 +658,17 @@ function wrapEmailHtml(bodyHtml) {
  * and escapes quotes to prevent attribute breakout.
  */
 function sanitizeHref(url) {
-  const trimmed = (url || "").trim();
+  // Reverse the earlier entity-escaping so we work on the raw URL
+  let raw = (url || "").trim()
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
   // Only allow http and https protocols
-  if (!/^https?:\/\//i.test(trimmed)) return "";
-  // Escape characters that could break out of the attribute context
-  return trimmed
+  if (!/^https?:\/\//i.test(raw)) return "";
+  // Escape characters that could break out of the attribute context.
+  // & is escaped ONLY in the attribute value — query strings stay valid
+  // because the browser un-escapes &amp; back to & when following the href.
+  return raw
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;")
