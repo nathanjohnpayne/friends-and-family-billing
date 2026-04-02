@@ -85,6 +85,9 @@ export class BillingYearService {
 
     /** Call when auth state changes. Loads data for the user or resets. */
     async setUser(user) {
+        // Skip reload if the same user is already bound
+        if (user?.uid && user.uid === this._user?.uid) return;
+
         this._user = user;
         if (!user) {
             this._setState({
