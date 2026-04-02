@@ -23,9 +23,6 @@ export default function BillingYearSelector() {
     const [newYearLabel, setNewYearLabel] = useState('');
     const [newYearError, setNewYearError] = useState('');
 
-    // Post-archive offer state
-    const [postArchiveOffer, setPostArchiveOffer] = useState(false);
-
     if (!activeYear) return null;
 
     const status = activeYear.status || 'open';
@@ -54,16 +51,6 @@ export default function BillingYearSelector() {
 
     function handleStatusChange(newStatus, message) {
         requestConfirm(message, () => service.setYearStatus(newStatus));
-    }
-
-    function handleArchive() {
-        const msg = 'Archive billing year ' + activeYear.label + '?\n\n'
-            + 'This will make all records read-only.\n'
-            + 'You can still view historical data later.';
-        requestConfirm(msg, async () => {
-            await service.setYearStatus('archived');
-            setPostArchiveOffer(true);
-        });
     }
 
     function handleStartNewYear() {
@@ -112,43 +99,24 @@ export default function BillingYearSelector() {
             </div>
 
             <div className="year-actions">
-                {status === 'open' && (
-                    <button className="btn btn-header-secondary btn-sm" disabled={busy}
-                        onClick={() => handleStatusChange('settling',
-                            'Start settlement for ' + activeYear.label + '?\n\nThis signals that invoices are going out and the year is moving toward collection.')}>
-                        Start Settlement
+                {/* Backward transitions — visually demoted (text-only style) */}
+                {status === 'settling' && (
+                    <button className="btn btn-header-tertiary btn-sm" disabled={busy}
+                        onClick={() => handleStatusChange('open',
+                            'Move ' + activeYear.label + ' back to Open?\n\nThis allows further edits to members, bills, and payments.')}>
+                        Back to Open
                     </button>
                 )}
 
-                {status === 'settling' && (
-                    <>
-                        <button className="btn btn-header-secondary btn-sm" disabled={busy}
-                            onClick={() => handleStatusChange('closed',
-                                'Close billing year ' + activeYear.label + '?\n\nThis makes the year read-only. Any outstanding balances will be preserved.')}>
-                            Close Year
-                        </button>
-                        <button className="btn btn-header-tertiary" disabled={busy}
-                            onClick={() => handleStatusChange('open',
-                                'Move ' + activeYear.label + ' back to Open?\n\nThis allows further edits to members, bills, and payments.')}>
-                            Back to Open
-                        </button>
-                    </>
-                )}
-
                 {status === 'closed' && (
-                    <>
-                        <button className="btn btn-header-secondary btn-sm" disabled={busy}
-                            onClick={handleArchive}>
-                            Archive Year
-                        </button>
-                        <button className="btn btn-header-tertiary" disabled={busy}
-                            onClick={() => handleStatusChange('settling',
-                                'Reopen ' + activeYear.label + ' to Settling?\n\nThis allows recording more payments.')}>
-                            Reopen to Settling
-                        </button>
-                    </>
+                    <button className="btn btn-header-tertiary btn-sm" disabled={busy}
+                        onClick={() => handleStatusChange('settling',
+                            'Reopen ' + activeYear.label + ' to Settling?\n\nThis allows recording more payments.')}>
+                        Reopen to Settling
+                    </button>
                 )}
 
+                {/* Year management */}
                 {status !== 'archived' && (
                     <button className="btn btn-primary btn-sm" disabled={busy}
                         onClick={handleStartNewYear}>
@@ -165,19 +133,6 @@ export default function BillingYearSelector() {
                 confirmLabel="Confirm"
                 onConfirm={executeConfirm}
                 onCancel={() => setConfirmState(null)}
-            />
-
-            {/* Post-archive offer to start new year */}
-            <ConfirmDialog
-                open={postArchiveOffer}
-                title="Year Archived"
-                message="Year archived successfully. Would you like to start a new billing year?"
-                confirmLabel="Start New Year"
-                onConfirm={() => {
-                    setPostArchiveOffer(false);
-                    handleStartNewYear();
-                }}
-                onCancel={() => setPostArchiveOffer(false)}
             />
 
             {/* New year label prompt */}

@@ -20,9 +20,10 @@ Covers shared, reusable UI components and contexts used across the application: 
 
 ### PaymentMethodsManager
 
-- Renders "Payment Methods" section heading.
+- Renders "Payment Methods" section heading with hint text explaining On/Off toggle behavior.
 - Renders existing payment methods with type icons and labels.
-- Shows "Add Payment Method" button; clicking calls `onUpdate` with the appended method.
+- QR code badges render inline without a colored background; show "QR code uploaded" tooltip on hover.
+- Add Payment Method dropdown filters out already-configured method types. When all types are configured, shows "All payment methods configured." instead of the add controls.
 - Shows toggle (On/Off) for each method; toggling calls `onUpdate` with the updated enabled state.
 - Three-dot action menu on each method with Edit and Remove options.
 - Edit dialog validates E.164 phone and http(s) URL; supports QR code upload.
@@ -52,11 +53,10 @@ Covers shared, reusable UI components and contexts used across the application: 
 
 - Renders a year selector combobox with all available billing years.
 - Calls `switchYear` when the selection changes.
-- Shows status-appropriate action buttons: "Start Settlement" for open years, "Close Year" and "Back to Open" for settling years, "Archive Year" for closed years.
-- Confirmation dialogs gate status transitions; cancelling does not trigger the action.
+- Shows only backward transitions: "Back to Open" for settling years, "Reopen to Settling" for closed years. Forward transitions (Start Settlement, Close Year, Archive Year) live on the dashboard.
+- Backward transitions use a muted/tertiary button style and trigger a confirmation dialog before executing.
 - "Start New Year" opens a label input dialog; calls `createYear` with the entered label; shows an error for duplicate year labels.
 - Hides "Start New Year" for archived years.
-- Archive flow offers to start a new year after archiving ("Year Archived" dialog).
 
 ### ConfirmDialog
 

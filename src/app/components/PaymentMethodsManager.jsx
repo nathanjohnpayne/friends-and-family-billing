@@ -12,19 +12,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
     const methods = settings.paymentMethods || [];
     const [editTarget, setEditTarget] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
-    const [newType, setNewType] = useState('venmo');
-
-    function addMethod() {
-        const typeDef = PAYMENT_METHOD_TYPES[newType];
-        const method = {
-            id: 'pm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            type: newType,
-            label: typeDef ? typeDef.label : newType,
-            enabled: true,
-            email: '', phone: '', handle: '', url: '', instructions: ''
-        };
-        onUpdate([...methods, method]);
-    }
+    const [newType, setNewType] = useState('');
 
     function toggleEnabled(methodId) {
         onUpdate(methods.map(m =>
@@ -48,6 +36,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
             <h3>Payment Methods</h3>
             <p className="invoicing-hint">
                 Configure payment methods shown in invoices and on the share page.
+                Toggling a method Off hides it from invoices and share pages without removing it.
             </p>
 
             {methods.length === 0 ? (
@@ -91,22 +80,40 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                 </div>
             )}
 
-            {!readOnly && (
-                <div className="payment-method-add">
-                    <select
-                        className="composer-input"
-                        value={newType}
-                        onChange={e => setNewType(e.target.value)}
-                    >
-                        {Object.entries(PAYMENT_METHOD_TYPES).map(([key, val]) => (
-                            <option key={key} value={key}>{val.label}</option>
-                        ))}
-                    </select>
-                    <button className="btn btn-sm btn-primary" onClick={addMethod}>
-                        Add Payment Method
-                    </button>
-                </div>
-            )}
+            {!readOnly && (() => {
+                const configuredTypes = new Set(methods.map(m => m.type));
+                const availableTypes = Object.entries(PAYMENT_METHOD_TYPES).filter(([key]) => !configuredTypes.has(key));
+                const allConfigured = availableTypes.length === 0;
+                return allConfigured ? (
+                    <p className="payment-method-all-configured">All payment methods configured.</p>
+                ) : (
+                    <div className="payment-method-add">
+                        <select
+                            className="composer-input"
+                            value={availableTypes.some(([key]) => key === newType) ? newType : availableTypes[0][0]}
+                            onChange={e => setNewType(e.target.value)}
+                        >
+                            {availableTypes.map(([key, val]) => (
+                                <option key={key} value={key}>{val.label}</option>
+                            ))}
+                        </select>
+                        <button className="btn btn-sm btn-primary" onClick={() => {
+                            const selectedType = availableTypes.some(([key]) => key === newType) ? newType : availableTypes[0][0];
+                            const typeDef = PAYMENT_METHOD_TYPES[selectedType];
+                            const method = {
+                                id: 'pm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                                type: selectedType,
+                                label: typeDef ? typeDef.label : selectedType,
+                                enabled: true,
+                                email: '', phone: '', handle: '', url: '', instructions: ''
+                            };
+                            onUpdate([...methods, method]);
+                        }}>
+                            Add Payment Method
+                        </button>
+                    </div>
+                );
+            })()}
 
             <ConfirmDialog
                 open={deleteTarget !== null}
