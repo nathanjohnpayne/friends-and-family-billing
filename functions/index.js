@@ -652,6 +652,24 @@ function wrapEmailHtml(bodyHtml) {
  * Converts: **bold**, headings (## / ===), links [text](url), lists (- item),
  * and wraps paragraphs in <p> tags. Newlines become <br>.
  */
+/**
+ * Sanitize a URL for use in an href attribute.
+ * Blocks non-http(s) protocols (javascript:, data:, vbscript:, etc.)
+ * and escapes quotes to prevent attribute breakout.
+ */
+function sanitizeHref(url) {
+  const trimmed = (url || "").trim();
+  // Only allow http and https protocols
+  if (!/^https?:\/\//i.test(trimmed)) return "";
+  // Escape characters that could break out of the attribute context
+  return trimmed
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function simpleMarkdownToHtml(text) {
   if (!text) return "";
   let html = text
@@ -663,10 +681,18 @@ function simpleMarkdownToHtml(text) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     // Headings (## Heading)
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    // Links [text](url)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Bare URLs (not already in an <a> tag)
-    .replace(/(?<!href="|">)(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+    // Links [text](url) — sanitize href to prevent XSS
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, linkText, url) {
+      const safe = sanitizeHref(url);
+      if (!safe) return linkText;
+      return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+    })
+    // Bare URLs (not already in an <a> tag) — already http(s) by regex
+    .replace(/(?<!href="|">)(https?:\/\/[^\s<"']+)/g, function(url) {
+      const safe = sanitizeHref(url);
+      if (!safe) return url;
+      return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + safe + '</a>';
+    })
     // List items (- item)
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     // Wrap consecutive <li> in <ul>
