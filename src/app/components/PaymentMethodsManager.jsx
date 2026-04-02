@@ -48,33 +48,35 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                             <div className="payment-method-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(method.type) }} />
                             <div className="payment-method-info">
                                 <strong>{method.label}</strong>
+                                <span className="payment-method-detail">{getPaymentMethodDetail(method)}</span>
+                            </div>
+                            <div className="payment-method-controls">
                                 {(method.qrCode || method.hasQrCode) && (
                                     <span className="pm-qr-badge" title="QR code uploaded">
                                         <img src="/qr-code.svg" alt="QR" className="pm-qr-icon" />
                                     </span>
                                 )}
-                                <span className="payment-method-detail">{getPaymentMethodDetail(method)}</span>
+                                {!readOnly && (
+                                    <>
+                                        <label className="payment-method-toggle">
+                                            <input
+                                                type="checkbox"
+                                                checked={method.enabled}
+                                                onChange={() => toggleEnabled(method.id)}
+                                            />
+                                            <span className="toggle-label">{method.enabled ? 'On' : 'Off'}</span>
+                                        </label>
+                                        <ActionMenu label={'Actions for ' + method.label}>
+                                            <ActionMenuItem onClick={() => setEditTarget({ ...method })}>
+                                                Edit
+                                            </ActionMenuItem>
+                                            <ActionMenuItem onClick={() => setDeleteTarget(method)} danger>
+                                                Remove
+                                            </ActionMenuItem>
+                                        </ActionMenu>
+                                    </>
+                                )}
                             </div>
-                            {!readOnly && (
-                                <div className="payment-method-controls">
-                                    <label className="payment-method-toggle">
-                                        <input
-                                            type="checkbox"
-                                            checked={method.enabled}
-                                            onChange={() => toggleEnabled(method.id)}
-                                        />
-                                        <span className="toggle-label">{method.enabled ? 'On' : 'Off'}</span>
-                                    </label>
-                                    <ActionMenu label={'Actions for ' + method.label}>
-                                        <ActionMenuItem onClick={() => setEditTarget({ ...method })}>
-                                            Edit
-                                        </ActionMenuItem>
-                                        <ActionMenuItem onClick={() => setDeleteTarget(method)} danger>
-                                            Remove
-                                        </ActionMenuItem>
-                                    </ActionMenu>
-                                </div>
-                            )}
                         </div>
                     ))}
                 </div>

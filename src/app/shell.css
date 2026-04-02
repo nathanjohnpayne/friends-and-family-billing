@@ -2516,8 +2516,6 @@ img, svg { display: block; max-width: 100%; }
     display: inline-flex;
     align-items: center;
     padding: 2px 4px;
-    margin-left: 6px;
-    vertical-align: middle;
 }
 
 .pm-qr-icon {
