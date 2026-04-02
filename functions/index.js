@@ -712,7 +712,7 @@ function simpleMarkdownToHtml(text) {
 }
 
 exports.sendEmail = onRequest(
-  { region: "us-central1", secrets: [resendApiKey] },
+  { region: "us-central1", secrets: [resendApiKey], invoker: "public" },
   async (req, res) => {
     setCors(req, res);
 
