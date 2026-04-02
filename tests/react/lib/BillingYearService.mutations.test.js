@@ -529,6 +529,22 @@ describe('BillingYearService — CRUD mutations', () => {
             const result = svc.reversePayment('pay_1');
             expect(() => svc.updatePayment(result.reversal.id, { method: 'zelle' })).toThrow('reversal');
         });
+
+        it('no-ops on legacy payment with missing method/note when dialog defaults are sent', () => {
+            // Legacy payments may lack method and note fields entirely.
+            // The edit dialog defaults to method='other' and note='', so saving
+            // without changes sends those defaults — should not produce a diff.
+            const svc = createService();
+            // Inject a legacy payment with no method or note
+            const state = svc.getState();
+            const legacyPayment = { id: 'pay_legacy', memberId: 1, amount: 25, receivedAt: '2025-06-01' };
+            svc._setState({ payments: [...state.payments, legacyPayment] });
+
+            const result = svc.updatePayment('pay_legacy', { method: 'other', note: '' });
+            expect(result).toEqual(legacyPayment);
+            const events = svc.getState().billingEvents.filter(e => e.eventType === 'PAYMENT_UPDATED');
+            expect(events.length).toBe(0);
+        });
     });
 
     // ── Settings ──

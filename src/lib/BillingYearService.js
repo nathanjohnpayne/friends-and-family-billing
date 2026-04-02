@@ -815,13 +815,18 @@ export class BillingYearService {
         if (original.reversed) throw new Error('Cannot edit a reversed payment.');
         if (original.type === 'reversal') throw new Error('Cannot edit a reversal entry.');
 
+        // Normalize stored values to match dialog defaults so legacy payments
+        // without explicit method/note don't produce bogus diffs on no-op saves.
+        const currentMethod = original.method || 'other';
+        const currentNote = original.note || '';
+
         const changes = {};
-        if (fields.method !== undefined && fields.method !== original.method) {
-            changes.previousMethod = original.method;
+        if (fields.method !== undefined && fields.method !== currentMethod) {
+            changes.previousMethod = currentMethod;
             changes.newMethod = fields.method;
         }
-        if (fields.note !== undefined && fields.note !== original.note) {
-            changes.previousNote = original.note || '';
+        if (fields.note !== undefined && fields.note !== currentNote) {
+            changes.previousNote = currentNote;
             changes.newNote = fields.note;
         }
 
