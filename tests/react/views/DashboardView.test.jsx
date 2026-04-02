@@ -68,8 +68,13 @@ describe('DashboardView', () => {
         expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('renders lifecycle bar', () => {
-        renderDashboard();
+    it('renders lifecycle bar with checkmarks on completed steps', () => {
+        renderDashboard({
+            activeYear: { id: '2026', label: '2026', status: 'settling' }
+        });
+        // Open is completed — should have checkmark prefix
+        expect(screen.getByText(/✓ Open/)).toBeInTheDocument();
+        // Settling is active (current) — no checkmark
         expect(screen.getByText('Settling')).toBeInTheDocument();
         expect(screen.getByText('Closed')).toBeInTheDocument();
         expect(screen.getByText('Archived')).toBeInTheDocument();
@@ -117,7 +122,7 @@ describe('DashboardView', () => {
         expect(screen.getByRole('button', { name: 'Start Settlement' })).toBeInTheDocument();
     });
 
-    it('shows Close Year button when ready to close', () => {
+    it('shows Close Year button with ready hint when ready to close', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [
@@ -128,9 +133,10 @@ describe('DashboardView', () => {
         const btn = screen.getByRole('button', { name: 'Close Year' });
         expect(btn).toBeInTheDocument();
         expect(btn).not.toBeDisabled();
+        expect(screen.getByText(/All members settled/)).toBeInTheDocument();
     });
 
-    it('shows disabled Close Year button when settling but not ready', () => {
+    it('shows disabled Close Year button with hint when settling but not ready', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
