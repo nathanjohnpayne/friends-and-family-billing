@@ -1424,6 +1424,15 @@ img, svg { display: block; max-width: 100%; }
     margin: 0;
 }
 
+.settlement-section-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary, #5B6475);
+    margin-bottom: var(--space-2, 8px);
+}
+
 .settlement-linked-section {
     margin-bottom: var(--space-2, 8px);
 }
@@ -1437,7 +1446,7 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     align-items: center;
     gap: var(--space-2, 8px);
-    margin-bottom: var(--space-1, 4px);
+    margin-bottom: var(--space-2, 8px);
 }
 
 .settlement-linked-member strong {
@@ -1449,18 +1458,15 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.9rem;
 }
 
-.settlement-linked-amounts {
-    display: flex;
-    gap: var(--space-3, 16px);
-    font-size: 0.75rem;
-    color: var(--color-text-secondary, #5B6475);
-    align-items: center;
-    flex-wrap: wrap;
-    padding-left: calc(var(--space-2, 8px) + 28px + var(--space-2, 8px) + 0.9rem);
+.settlement-summary-boxes--linked {
+    margin-left: calc(var(--space-2, 8px) + 0.9rem + var(--space-2, 8px));
 }
 
-.balance-owed { color: var(--color-danger, #C65A5A); font-weight: 600; }
-.balance-paid { color: var(--color-success, #3FA37C); font-weight: 600; }
+.settlement-breakdown-formula {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary, #5B6475);
+    font-variant-numeric: tabular-nums;
+}
 
 /* ── Settlement Card Actions ───────────────────────────── */
 .settlement-card-actions {

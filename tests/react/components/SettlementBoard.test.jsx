@@ -62,7 +62,8 @@ describe('SettlementBoard', () => {
     it('expands card to show bill breakdown', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        expect(screen.getByText(/Bill breakdown for Alice/)).toBeInTheDocument();
+        // Household members show "Primary Member Calculation" instead of "Bill breakdown for..."
+        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
         expect(screen.getByText('Internet')).toBeInTheDocument();
     });
 
@@ -109,7 +110,7 @@ describe('SettlementBoard', () => {
         expect(screen.getByText('+1')).toBeInTheDocument();
     });
 
-    it('shows summary boxes (Annual, Paid, Balance)', () => {
+    it('shows summary boxes (Annual, Paid, Balance) including when settled', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expect(screen.getAllByText('Annual').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Paid').length).toBeGreaterThanOrEqual(1);
@@ -245,6 +246,34 @@ describe('SettlementBoard', () => {
         expandCard('Alice');
         expect(screen.getByText(/Total \(Alice\)/)).toBeInTheDocument();
         expect(screen.getByText('Household Total')).toBeInTheDocument();
+    });
+
+    it('shows formula in bill breakdown', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        // Internet: $120/month × 12 ÷ 3 = $480.00
+        expect(screen.getByText(/\$120\.00 \/ month × 12 ÷ 3 = \$480\.00/)).toBeInTheDocument();
+    });
+
+    it('shows "Primary Member Calculation" label for households', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
+    });
+
+    it('shows "Linked Members" section label for households', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        expect(screen.getByText('Linked Members')).toBeInTheDocument();
+    });
+
+    it('shows Annual/Paid/Balance boxes on linked member rows', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        // Linked member (Carol) should have the same box layout
+        const annualLabels = screen.getAllByText('Annual');
+        // At least 2: one in header, one for linked member Carol
+        expect(annualLabels.length).toBeGreaterThanOrEqual(2);
     });
 
     it('shows Linked Groups count', () => {
