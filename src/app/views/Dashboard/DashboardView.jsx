@@ -12,6 +12,7 @@ import PaymentHistoryDialog from '../../components/PaymentHistoryDialog.jsx';
 import EmailInvoiceDialog from '../../components/EmailInvoiceDialog.jsx';
 import TextInvoiceDialog from '../../components/TextInvoiceDialog.jsx';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
+import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 
 /**
  * DashboardView — hero status panel + KPIs.
@@ -28,6 +29,8 @@ export default function DashboardView() {
 
     // Dialog state — which dialog is open and for which member
     const [dialog, setDialog] = useState({ type: null, memberId: null });
+    // Lifecycle action confirm dialog
+    const [confirmAction, setConfirmAction] = useState(null);
 
     if (loading) {
         return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>Loading…</p>;
@@ -59,15 +62,42 @@ export default function DashboardView() {
         ? 'Ready to Close'
         : (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label;
 
-    const statusBadgeClass = 'dashboard-status-badge dashboard-status-badge--'
-        + (isReadyToClose ? 'ready' : currentStatus);
-
     const statusHeadline = isReadyToClose
         ? 'Settlement complete'
-        : currentStatus === 'open' ? 'Planning in progress'
+        : currentStatus === 'open'
+            ? (metrics.percentage === 100 ? 'Ready to start settlement' : 'Planning in progress')
         : currentStatus === 'settling' ? 'Settlement in progress'
         : currentStatus === 'closed' ? 'Year closed'
         : 'Archive view';
+
+    // Forward lifecycle action (no backward transitions on dashboard)
+    let lifecycleAction = null;
+    if (currentStatus === 'open') {
+        lifecycleAction = {
+            label: 'Start Settlement',
+            newStatus: 'settling',
+            enabled: true,
+            title: 'Start Settlement',
+            message: 'Start settlement for ' + yearLabel + '?\n\nThis signals that invoices are going out and the year is moving toward collection.'
+        };
+    } else if (currentStatus === 'settling') {
+        lifecycleAction = {
+            label: 'Close Year',
+            newStatus: 'closed',
+            enabled: isReadyToClose,
+            disabledReason: remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding',
+            title: 'Close Year',
+            message: 'Close billing year ' + yearLabel + '?\n\nThis makes the year read-only. Any outstanding balances will be preserved.'
+        };
+    } else if (currentStatus === 'closed') {
+        lifecycleAction = {
+            label: 'Archive Year',
+            newStatus: 'archived',
+            enabled: true,
+            title: 'Archive Year',
+            message: 'Archive billing year ' + yearLabel + '?\n\nThis will make all records read-only. You can still view historical data later.'
+        };
+    }
 
     // Settlement message
     let settlementMessage = '';
@@ -96,10 +126,25 @@ export default function DashboardView() {
             <div className="dashboard-hero">
                 <div className="dashboard-meta">
                     <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
-                    <span className={statusBadgeClass}>{statusLabel}</span>
                 </div>
 
                 <LifecycleBar currentStatus={currentStatus} currentOrder={currentOrder} isReadyToClose={isReadyToClose} />
+
+                {lifecycleAction && (
+                    <div className="dashboard-action">
+                        <button
+                            className="btn btn-primary btn-sm"
+                            disabled={!lifecycleAction.enabled}
+                            title={lifecycleAction.enabled ? undefined : lifecycleAction.disabledReason}
+                            onClick={lifecycleAction.enabled ? () => setConfirmAction(lifecycleAction) : undefined}
+                        >
+                            {lifecycleAction.label}
+                        </button>
+                        {!lifecycleAction.enabled && lifecycleAction.disabledReason && (
+                            <span className="dashboard-action-hint">{lifecycleAction.disabledReason}</span>
+                        )}
+                    </div>
+                )}
 
                 <div className="kpi-grid">
                     <KpiCard label="Outstanding" value={'$' + metrics.totalOutstanding.toFixed(2)}
@@ -108,9 +153,9 @@ export default function DashboardView() {
                     <KpiCard
                         label="Open Reviews"
                         value={String(openDisputeCount)}
+                        subtitle="Review requests"
                         onClick={openDisputeCount > 0 ? () => navigate('/manage/reviews') : undefined}
                     />
-                    <KpiCard label="Status" value={statusLabel} />
                 </div>
 
                 <div className="progress-block">
@@ -220,6 +265,24 @@ export default function DashboardView() {
                     />
                 );
             })()}
+
+            <ConfirmDialog
+                open={confirmAction !== null}
+                title={confirmAction ? confirmAction.title : ''}
+                message={confirmAction ? confirmAction.message : ''}
+                confirmLabel={confirmAction ? confirmAction.label : 'Confirm'}
+                onConfirm={async () => {
+                    const { newStatus } = confirmAction;
+                    setConfirmAction(null);
+                    try {
+                        await service.setYearStatus(newStatus);
+                        showToast(BILLING_YEAR_STATUSES[newStatus].label + '\u2014status updated.');
+                    } catch (err) {
+                        showToast('Error: ' + err.message);
+                    }
+                }}
+                onCancel={() => setConfirmAction(null)}
+            />
         </>
     );
 }
@@ -253,7 +316,7 @@ function LifecycleBar({ currentStatus, currentOrder, isReadyToClose }) {
 }
 
 /** Single KPI metric card. */
-function KpiCard({ label, value, valueClass = '', title = '', onClick }) {
+function KpiCard({ label, value, valueClass = '', subtitle = '', title = '', onClick }) {
     return (
         <div
             className={'kpi-card' + (onClick ? ' kpi-card--clickable' : '')}
@@ -263,6 +326,7 @@ function KpiCard({ label, value, valueClass = '', title = '', onClick }) {
         >
             <span className="kpi-label">{label}</span>
             <span className={'kpi-value' + (valueClass ? ' ' + valueClass : '')}>{value}</span>
+            {subtitle && <span className="kpi-subtitle">{subtitle}</span>}
         </div>
     );
 }

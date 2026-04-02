@@ -26,7 +26,7 @@ const mockState = {
     settings: null,
     loading: false,
     error: null,
-    service: { getState: vi.fn(() => ({ settings: {} })), recordPayment: vi.fn(), reversePayment: vi.fn() },
+    service: { getState: vi.fn(() => ({ settings: {} })), recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn() },
     saveQueue: { subscribe: vi.fn(() => () => {}) }
 };
 
@@ -44,31 +44,26 @@ import DashboardView from '@/app/views/Dashboard/DashboardView.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
 
 function renderDashboard(overrides = {}) {
-    if (Object.keys(overrides).length > 0) {
-        useBillingData.mockReturnValue({ ...mockState, ...overrides });
-    }
+    useBillingData.mockReturnValue({ ...mockState, ...overrides });
     return render(<MemoryRouter><ToastProvider><DashboardView /></ToastProvider></MemoryRouter>);
 }
 
 describe('DashboardView', () => {
-    it('renders year pill and status badge', () => {
+    it('renders year pill without status badge', () => {
         renderDashboard();
         expect(screen.getByText('Billing Year 2026')).toBeInTheDocument();
-        // "Open" appears in badge, lifecycle, and KPI — use getAllByText
+        // "Open" appears once in the lifecycle bar only (badge removed)
         const openElements = screen.getAllByText('Open');
-        expect(openElements.length).toBeGreaterThanOrEqual(2);
-        // Status badge specifically
+        expect(openElements.length).toBe(1);
         expect(screen.getByText('Planning in progress')).toBeInTheDocument();
     });
 
-    it('renders KPI cards', () => {
+    it('renders KPI cards without Status card', () => {
         renderDashboard();
-        // "Outstanding" appears in KPI label + filter chip + status badges — use getAllByText
         expect(screen.getAllByText('Outstanding').length).toBeGreaterThanOrEqual(1);
-        // KPI labels should all be visible (some appear multiple times due to filter chips / badges)
         expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('Open Reviews')).toBeInTheDocument();
-        expect(screen.getAllByText('Status').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText('Review requests')).toBeInTheDocument();
         // Open Reviews KPI shows real dispute count
         expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(1);
     });
@@ -112,8 +107,63 @@ describe('DashboardView', () => {
                 { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
-        const readyElements = screen.getAllByText('Ready to Close');
-        expect(readyElements.length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText('Settlement complete')).toBeInTheDocument();
+    });
+
+    // Lifecycle action button tests
+
+    it('shows Start Settlement button when status is open', () => {
+        renderDashboard();
+        expect(screen.getByRole('button', { name: 'Start Settlement' })).toBeInTheDocument();
+    });
+
+    it('shows Close Year button when ready to close', () => {
+        renderDashboard({
+            activeYear: { id: '2026', label: '2026', status: 'settling' },
+            payments: [
+                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+            ]
+        });
+        const btn = screen.getByRole('button', { name: 'Close Year' });
+        expect(btn).toBeInTheDocument();
+        expect(btn).not.toBeDisabled();
+    });
+
+    it('shows disabled Close Year button when settling but not ready', () => {
+        renderDashboard({
+            activeYear: { id: '2026', label: '2026', status: 'settling' },
+            payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
+        });
+        const btn = screen.getByRole('button', { name: 'Close Year' });
+        expect(btn).toBeDisabled();
+        expect(screen.getByText('1 member still outstanding')).toBeInTheDocument();
+    });
+
+    it('shows Archive Year button when status is closed', () => {
+        renderDashboard({
+            activeYear: { id: '2026', label: '2026', status: 'closed' }
+        });
+        expect(screen.getByRole('button', { name: 'Archive Year' })).toBeInTheDocument();
+    });
+
+    it('shows no action button when status is archived', () => {
+        renderDashboard({
+            activeYear: { id: '2026', label: '2026', status: 'archived' }
+        });
+        expect(screen.queryByRole('button', { name: 'Start Settlement' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Close Year' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Archive Year' })).not.toBeInTheDocument();
+    });
+
+    it('shows corrected headline when open and 100% settled', () => {
+        renderDashboard({
+            payments: [
+                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+            ]
+        });
+        expect(screen.getByText('Ready to start settlement')).toBeInTheDocument();
+        expect(screen.queryByText('Planning in progress')).not.toBeInTheDocument();
     });
 });

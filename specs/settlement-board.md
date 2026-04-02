@@ -55,11 +55,19 @@ Covers the settlement board component for tracking household payment status, the
 
 ### DashboardView
 
-- Renders billing year pill with label and status badge.
-- Renders KPI cards for Outstanding, Settled, Open Reviews, and Status.
-- Renders lifecycle bar with all four statuses (Open, Settling, Closed, Archived).
+- Renders billing year pill (no status badge—lifecycle state is communicated solely through the stepper).
+- Renders lifecycle bar (stepper) with all four statuses: Open → Settling → Closed → Archived. The stepper is the single authoritative lifecycle indicator on the dashboard.
+- Renders a forward lifecycle action button between the stepper and KPI grid:
+  - Open state: "Start Settlement" (enabled).
+  - Settling state, not ready: "Close Year" (disabled) with hint text showing how many members are still outstanding.
+  - Settling state, all paid: "Close Year" (enabled).
+  - Closed state: "Archive Year" (enabled).
+  - Archived state: no button.
+  - Each enabled button triggers a ConfirmDialog before executing the transition.
+- Renders KPI cards for Outstanding, Settled, and Open Reviews (3 cards; Status card removed as redundant with stepper).
+- Open Reviews card shows "Review requests" subtitle text below the count.
 - Renders progress bar with percentage and settlement message.
+- Progress bar headline is accurate for every lifecycle phase: "Planning in progress" (Open, < 100%), "Ready to start settlement" (Open, 100% settled), "Settlement in progress" (Settling), "Settlement complete" (Settling, all paid), "Year closed" (Closed), "Archive view" (Archived).
 - Shows empty state ("Add members and bills") when no members exist.
 - Shows loading state ("Loading...") when data is loading.
-- Settling status shows "Settlement in progress" message.
-- When settling and all members are paid, shows "Ready to Close" and "Settlement complete".
+- Backward lifecycle transitions (Back to Open, Reopen to Settling) are not available on the dashboard; they remain exclusively in Settings → Billing Controls.
