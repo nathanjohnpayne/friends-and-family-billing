@@ -1648,8 +1648,8 @@ img, svg { display: block; max-width: 100%; }
 
 .invoice-body-textarea {
     min-height: 100px;
-    font-family: monospace;
-    font-size: 0.82rem;
+    font-family: inherit;
+    font-size: 0.875rem;
     line-height: 1.5;
     resize: vertical;
 }
