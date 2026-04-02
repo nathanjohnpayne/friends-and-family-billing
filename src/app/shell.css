@@ -1979,8 +1979,10 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .invoice-template-preview-sample {
+    flex: 1;
     font-size: 0.78rem;
     color: var(--color-text-secondary, #5B6475);
+    text-align: right;
 }
 
 .invoice-template-preview-body {
