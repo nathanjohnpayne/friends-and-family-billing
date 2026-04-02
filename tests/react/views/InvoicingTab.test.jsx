@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
-// Mock Firebase (needed by InvoicingTab for publicQrCodes sync)
+// Mock Firebase (needed by InvoicingTab for share link generation)
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 vi.mock('firebase/firestore', () => ({
-    doc: vi.fn(), setDoc: vi.fn(), deleteDoc: vi.fn(), serverTimestamp: vi.fn()
+    doc: vi.fn(), setDoc: vi.fn(), serverTimestamp: vi.fn()
 }));
 
 // Mock auth
@@ -64,28 +64,27 @@ describe('InvoicingTab', () => {
         expect(screen.getByText('Email Template')).toBeInTheDocument();
     });
 
-    it('renders payment methods section', () => {
+    it('does not render payment methods section (moved to Settings)', () => {
         renderTab();
-        // "Payment Methods" appears as both section heading and token chip — use getAllByText
-        expect(screen.getAllByText('Payment Methods').length).toBeGreaterThanOrEqual(1);
+        // Payment Methods heading should not appear as a section heading
+        // (it may still appear as a token chip label)
+        const pmElements = screen.queryAllByText('Payment Methods');
+        // Only the token chip insert button should remain, not a section heading
+        expect(pmElements.length).toBeLessThanOrEqual(2);
+        expect(screen.queryByText('Add Payment Method')).toBeNull();
     });
 
     it('shows template content in contenteditable editor', () => {
         renderTab();
         const editor = screen.getByRole('textbox');
-        // The editor renders token chips with labels, so "Household Total" chip should be present
         expect(editor).toBeInTheDocument();
         expect(editor.textContent).toContain('Household Total');
     });
 
     it('shows token insert buttons', () => {
         renderTab();
-        // Token chips appear as buttons AND in editor content — use getAllByText
         expect(screen.getAllByText('Billing Year').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Household Total').length).toBeGreaterThanOrEqual(1);
-        // "Payment Methods" also serves as token chip — confirmed by getAllByText
-        const pmElements = screen.getAllByText('Payment Methods');
-        expect(pmElements.length).toBeGreaterThanOrEqual(2); // heading + chip
     });
 
     it('shows live preview with To and Subject', () => {
@@ -101,29 +100,9 @@ describe('InvoicingTab', () => {
         expect(saveBtn).toBeInTheDocument();
     });
 
-    it('renders existing payment method', () => {
-        renderTab();
-        // "Venmo" appears in both the payment method card and the type dropdown
-        expect(screen.getAllByText('Venmo').length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('shows Add Payment Method button', () => {
-        renderTab();
-        expect(screen.getByText('Add Payment Method')).toBeInTheDocument();
-    });
-
-    it('adds a new payment method', () => {
-        renderTab();
-        fireEvent.click(screen.getByText('Add Payment Method'));
-        expect(mockService.updateSettings).toHaveBeenCalled();
-        const call = mockService.updateSettings.mock.calls[0][0];
-        expect(call.paymentMethods.length).toBe(2);
-    });
-
-    it('hides controls when year is read-only', () => {
+    it('hides save button when year is read-only', () => {
         renderTab({ activeYear: { id: '2024', label: '2024', status: 'archived' } });
         expect(screen.queryByText('Save Template')).toBeNull();
-        expect(screen.queryByText('Add Payment Method')).toBeNull();
     });
 
     it('shows duplicate payment text warning', () => {
