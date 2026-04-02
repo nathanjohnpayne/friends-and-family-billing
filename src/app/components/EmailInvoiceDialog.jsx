@@ -4,6 +4,7 @@
  * Sends HTML email via Resend Cloud Function (/sendEmail).
  */
 import { useState, useEffect } from 'react';
+import { getAuth } from 'firebase/auth';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 
@@ -48,9 +49,13 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
         }
         setSending(true);
         try {
+            const idToken = await getAuth().currentUser.getIdToken();
             const res = await fetch('/sendEmail', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + idToken
+                },
                 body: JSON.stringify({
                     to: recipientEmail,
                     subject,

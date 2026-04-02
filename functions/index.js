@@ -30,7 +30,7 @@ function setCors(req, res) {
     res.set("Access-Control-Allow-Origin", origin);
   }
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.set("Access-Control-Max-Age", "3600");
 }
 
@@ -712,7 +712,7 @@ function simpleMarkdownToHtml(text) {
 }
 
 exports.sendEmail = onRequest(
-  { region: "us-central1", secrets: [resendApiKey], invoker: "public" },
+  { region: "us-central1", secrets: [resendApiKey] },
   async (req, res) => {
     setCors(req, res);
 
@@ -723,6 +723,20 @@ exports.sendEmail = onRequest(
 
     if (req.method !== "POST") {
       res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    // Verify Firebase Auth ID token
+    const authHeader = req.headers.authorization || "";
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ error: "Authentication required." });
+      return;
+    }
+    try {
+      const { getAuth } = require("firebase-admin/auth");
+      await getAuth().verifyIdToken(authHeader.split("Bearer ")[1]);
+    } catch (err) {
+      res.status(401).json({ error: "Invalid or expired authentication token." });
       return;
     }
 

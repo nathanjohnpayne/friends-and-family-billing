@@ -3,6 +3,7 @@
  * Port of showDisputeDetail() from main.js:3294.
  */
 import { useState, useEffect, useRef } from 'react';
+import { getAuth } from 'firebase/auth';
 import { getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../../lib/firebase.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
@@ -247,9 +248,13 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                                     const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
                                     const body = buildResolutionText();
                                     try {
+                                        const idToken = await getAuth().currentUser.getIdToken();
                                         const res = await fetch('/sendEmail', {
                                             method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': 'Bearer ' + idToken
+                                            },
                                             body: JSON.stringify({ to: member.email, subject, body })
                                         });
                                         const data = await res.json();

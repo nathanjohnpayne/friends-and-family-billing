@@ -566,10 +566,11 @@ EmailInvoiceDialog / DisputeDetailDialog
 ### Cloud Function: `sendEmail`
 
 - **Endpoint:** `POST /sendEmail` (via Firebase Hosting rewrite)
+- **Auth:** Requires Firebase Auth ID token in `Authorization: Bearer <token>` header. The function verifies the token server-side via `firebase-admin/auth`. Only authenticated app users can send emails.
 - **Secret:** `RESEND_API_KEY` (Firebase Functions secret)
 - **Request body:** `{ to: string, subject: string, body: string, replyTo?: string }`
 - **Response:** `{ message: string, id: string }` on success, `{ error: string }` on failure
-- **CORS:** Restricted to `friends-and-family-billing.web.app` and `.firebaseapp.com`
+- **CORS:** Restricted to `friends-and-family-billing.web.app` and `.firebaseapp.com`; allows `Authorization` header
 
 ### Deploying Functions
 
