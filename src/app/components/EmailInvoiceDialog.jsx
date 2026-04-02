@@ -1,11 +1,11 @@
 /**
  * EmailInvoiceDialog — email invoice composer with variant selector.
  * Port of showEmailInvoiceDialog() from main.js:4724.
- * Sends HTML email via Resend callable function (httpsCallable 'sendEmail').
+ * Sends HTML email via Firestore mail queue (processed by processMailQueue Cloud Function).
  */
 import { useState, useEffect } from 'react';
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '../../lib/firebase.js';
+import { useAuth } from '../contexts/AuthContext.jsx';
+import { queueEmail } from '../../lib/mail.js';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 
@@ -13,6 +13,7 @@ import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, shareUrl?: string, showToast?: function, onClose: function }} props
  */
 export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, shareUrl, showToast, onClose }) {
+    const { user } = useAuth();
     const [variant, setVariant] = useState('text-link');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
@@ -50,13 +51,11 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
         }
         setSending(true);
         try {
-            const sendEmail = httpsCallable(functions, 'sendEmail');
-            await sendEmail({ to: recipientEmail, subject, body });
+            await queueEmail({ to: recipientEmail, subject, body, uid: user ? user.uid : '' });
             if (showToast) showToast('Invoice emailed to ' + recipientEmail);
             onClose();
         } catch (err) {
-            const msg = err.message || 'Unknown error';
-            if (showToast) showToast('Send failed: ' + msg);
+            if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
         } finally {
             setSending(false);
         }

@@ -4,8 +4,8 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../../../lib/firebase.js';
+import { db } from '../../../lib/firebase.js';
+import { queueEmail } from '../../../lib/mail.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
@@ -401,8 +401,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             try {
                                 const rawText = buildInvoiceBody(previewCtx, 'text-only', previewShareUrl, 'email', { markdown: true });
                                 const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member);
-                                const sendEmail = httpsCallable(functions, 'sendEmail');
-                                await sendEmail({ to: testEmailTo.trim(), subject, body: rawText });
+                                await queueEmail({ to: testEmailTo.trim(), subject, body: rawText, uid: userId });
                                 if (showToast) showToast('Test email sent to ' + testEmailTo.trim());
                                 setTestEmailOpen(false);
                             } catch (err) {

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {}, functions: {} }));
-vi.mock('firebase/functions', () => ({ httpsCallable: vi.fn(() => vi.fn()) }));
+vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(() => Promise.resolve({ id: 'test' })) }));
+vi.mock('@/app/contexts/AuthContext.jsx', () => ({
+    useAuth: vi.fn(() => ({ user: { uid: 'test-user', email: 'test@test.com' } }))
+}));
 
 import EmailInvoiceDialog from '@/app/components/EmailInvoiceDialog.jsx';
 

@@ -3,9 +3,10 @@
  * Port of showDisputeDetail() from main.js:3294.
  */
 import { useState, useEffect, useRef } from 'react';
-import { httpsCallable } from 'firebase/functions';
 import { getDownloadURL, ref } from 'firebase/storage';
-import { storage, functions } from '../../lib/firebase.js';
+import { storage } from '../../lib/firebase.js';
+import { useAuth } from '../contexts/AuthContext.jsx';
+import { queueEmail } from '../../lib/mail.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
 import { openSmsComposer } from '../../lib/sms.js';
@@ -25,6 +26,7 @@ function formatDate(ts) {
  * @param {{ open: boolean, dispute: Object, onUpdate: function, onStatusChange: function, onUploadEvidence: function, onRemoveEvidence: function, onClose: function, showToast?: function, familyMembers?: Array, activeYear?: Object }} props
  */
 export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusChange, onUploadEvidence, onRemoveEvidence, onClose, showToast, familyMembers, activeYear }) {
+    const { user } = useAuth();
     const [resolutionNote, setResolutionNote] = useState('');
     const [actionConfirm, setActionConfirm] = useState(null);
     const [noteError, setNoteError] = useState('');
@@ -248,8 +250,7 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                                     const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
                                     const body = buildResolutionText();
                                     try {
-                                        const sendEmail = httpsCallable(functions, 'sendEmail');
-                                        await sendEmail({ to: member.email, subject, body });
+                                        await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
                                         if (showToast) showToast('Resolution emailed to ' + member.email);
                                     } catch (err) {
                                         if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
