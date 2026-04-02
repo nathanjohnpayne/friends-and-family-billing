@@ -36,3 +36,7 @@ firebase-debug.log
 service-account.json
 firebase-adminsdk*.json
 RIPCUT_GUIDE.md
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/launch.json
