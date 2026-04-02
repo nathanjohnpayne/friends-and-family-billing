@@ -21,11 +21,12 @@ Covers the settlement board component for tracking household payment status, the
 - Shows "Linked Groups N" count in the filter bar when households with linked members exist.
 - Shows only parent and independent members as top-level cards; linked children are nested under their parent.
 - Displays "Outstanding" badge for unpaid members and "Settled" badge for fully paid members.
-- Card header shows Annual/Paid/Balance summary boxes; Balance box is hidden when zero (settled).
+- Card header shows Annual/Paid/Balance summary boxes; Balance shows $0.00 when settled.
 - Card header shows a "+N" badge next to the member name for households with linked members.
 - Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
 - Cards expand via a "Details / Hide details" toggle to show linked members and bill breakdown.
-- Expanded view shows linked members above the bill breakdown for clear hierarchy.
+- Expanded view shows "Linked Members" section with linked members above the bill breakdown; each linked member row has Annual/Paid/Balance summary boxes matching the parent card layout.
+- Bill breakdown shows "Primary Member Calculation" header for households; each bill row displays a formula showing the split math (e.g., "$300.00 / month × 12 ÷ 8 = $450.00").
 - Bill breakdown includes per-person subtotal and household grand total rows.
 - Filter chips filter the displayed cards by payment status; shows "No households match this filter." when no cards match.
 - Expanded detail shows primary actions (Record Payment, Payment History, Text Invoice) as direct buttons.

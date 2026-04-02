@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getBillAnnualAmount, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
 import { getInitials, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -123,6 +123,18 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
     );
 }
 
+/**
+ * Build a formula string showing how a bill split is calculated.
+ * e.g. "$300.00 / month × 12 ÷ 8 = $450.00" or "$1,200.00 / year ÷ 3 = $400.00"
+ */
+function formatBillFormula(bill, annualShare) {
+    const memberCount = bill.members.length;
+    if (bill.billingFrequency === 'annual') {
+        return formatAnnualSummaryCurrency(bill.amount) + ' / year ÷ ' + memberCount + ' = ' + formatAnnualSummaryCurrency(annualShare);
+    }
+    return formatAnnualSummaryCurrency(bill.amount) + ' / month × 12 ÷ ' + memberCount + ' = ' + formatAnnualSummaryCurrency(annualShare);
+}
+
 function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [expanded, setExpanded] = useState(false);
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -209,12 +221,10 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                             <span className="settlement-summary-label">Paid</span>
                             <span className="settlement-summary-value settlement-summary-paid">{formatAnnualSummaryCurrency(payment)}</span>
                         </div>
-                        {balance > 0 && (
-                            <div className="settlement-summary-box">
-                                <span className="settlement-summary-label">Balance</span>
-                                <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(balance)}</span>
-                            </div>
-                        )}
+                        <div className="settlement-summary-box">
+                            <span className="settlement-summary-label">Balance</span>
+                            <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(balance > 0 ? balance : 0)}</span>
+                        </div>
                     </div>
                     <StatusBadge status={status} />
                     <span className="settlement-expand-toggle">
@@ -229,6 +239,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                     {/* Linked members — shown before breakdown for clear hierarchy */}
                     {hasLinked && (
                         <div className="settlement-linked-section">
+                            <div className="settlement-section-label">Linked Members</div>
                             {linkedData.map(ls => {
                                 const childPayment = getPaymentTotalForMember(payments, ls.member.id);
                                 const childBalance = ls.total - childPayment;
@@ -236,7 +247,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 return (
                                     <div key={ls.member.id} className="settlement-linked-row">
                                         <div className="settlement-linked-member">
-                                            <span className="child-indicator">\u21B3</span>
+                                            <span className="child-indicator">↳</span>
                                             <div className="settlement-avatar settlement-avatar--sm">
                                                 {ls.member.avatar
                                                     ? <img src={ls.member.avatar} alt={ls.member.name} className="settlement-avatar-img" />
@@ -244,22 +255,21 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                                 }
                                             </div>
                                             <strong>{ls.member.name}</strong>
-                                        </div>
-                                        <div className="settlement-linked-amounts">
-                                            <span>{formatAnnualSummaryCurrency(ls.total)}</span>
-                                            <span>Paid {formatAnnualSummaryCurrency(childPayment)}</span>
-                                            {childBalance > 0 && (
-                                                <span className="balance-owed">
-                                                    Bal {formatAnnualSummaryCurrency(childBalance)}
-                                                </span>
-                                            )}
                                             {childStatus && <StatusBadge status={childStatus} />}
-                                            <button
-                                                className="btn btn-tertiary btn-sm"
-                                                onClick={() => onViewHistory && onViewHistory(ls.member.id)}
-                                            >
-                                                History
-                                            </button>
+                                        </div>
+                                        <div className="settlement-summary-boxes settlement-summary-boxes--linked">
+                                            <div className="settlement-summary-box">
+                                                <span className="settlement-summary-label">Annual</span>
+                                                <span className="settlement-summary-value">{formatAnnualSummaryCurrency(ls.total)}</span>
+                                            </div>
+                                            <div className="settlement-summary-box">
+                                                <span className="settlement-summary-label">Paid</span>
+                                                <span className="settlement-summary-value settlement-summary-paid">{formatAnnualSummaryCurrency(childPayment)}</span>
+                                            </div>
+                                            <div className="settlement-summary-box">
+                                                <span className="settlement-summary-label">Balance</span>
+                                                <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(childBalance > 0 ? childBalance : 0)}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -269,7 +279,9 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
 
                     {/* Bill breakdown */}
                     <div className="settlement-breakdown">
-                        <div className="settlement-breakdown-header">Bill breakdown for {member.name}</div>
+                        <div className="settlement-breakdown-header">
+                            {hasLinked ? 'Primary Member Calculation' : 'Bill breakdown for ' + member.name}
+                        </div>
                         {data.bills.length === 0 ? (
                             <p className="settlement-breakdown-empty">No bills assigned</p>
                         ) : (
@@ -277,7 +289,9 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 {data.bills.map(b => (
                                     <div key={b.bill.id} className="settlement-breakdown-row">
                                         <span>{b.bill.name}</span>
-                                        <span>{formatAnnualSummaryCurrency(b.annualShare)} / yr</span>
+                                        <span className="settlement-breakdown-formula">
+                                            {formatBillFormula(b.bill, b.annualShare)}
+                                        </span>
                                     </div>
                                 ))}
                                 <div className="settlement-breakdown-row settlement-breakdown-total">
