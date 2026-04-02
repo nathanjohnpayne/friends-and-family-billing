@@ -12,7 +12,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
     const methods = settings.paymentMethods || [];
     const [editTarget, setEditTarget] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
-    const [newType, setNewType] = useState('venmo');
+    const [newType, setNewType] = useState('');
 
     function toggleEnabled(methodId) {
         onUpdate(methods.map(m =>
