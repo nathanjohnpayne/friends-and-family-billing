@@ -25,6 +25,7 @@ export const BILLING_EVENT_LABELS = {
     MEMBER_REMOVED_FROM_BILL: 'Member removed',
     PAYMENT_RECORDED: 'Payment recorded',
     PAYMENT_REVERSED: 'Payment reversed',
+    PAYMENT_UPDATED: 'Payment updated',
     YEAR_STATUS_CHANGED: 'Year status changed'
 };
 

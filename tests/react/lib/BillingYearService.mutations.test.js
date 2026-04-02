@@ -483,6 +483,70 @@ describe('BillingYearService — CRUD mutations', () => {
         });
     });
 
+    describe('updatePayment', () => {
+        it('updates payment method and note', () => {
+            const svc = createService();
+            const updated = svc.updatePayment('pay_1', { method: 'zelle', note: 'Updated note' });
+            expect(updated.method).toBe('zelle');
+            expect(updated.note).toBe('Updated note');
+            const payment = svc.getState().payments.find(p => p.id === 'pay_1');
+            expect(payment.method).toBe('zelle');
+        });
+
+        it('emits PAYMENT_UPDATED event with before/after values', () => {
+            const svc = createService();
+            svc.updatePayment('pay_1', { method: 'zelle' });
+            const event = svc.getState().billingEvents.find(e => e.eventType === 'PAYMENT_UPDATED');
+            expect(event).toBeDefined();
+            expect(event.payload.paymentId).toBe('pay_1');
+            expect(event.payload.previousMethod).toBe('cash');
+            expect(event.payload.newMethod).toBe('zelle');
+        });
+
+        it('returns original unchanged when no fields differ', () => {
+            const svc = createService();
+            const original = svc.getState().payments.find(p => p.id === 'pay_1');
+            const result = svc.updatePayment('pay_1', { method: original.method });
+            expect(result).toEqual(original);
+            // No event emitted
+            const events = svc.getState().billingEvents.filter(e => e.eventType === 'PAYMENT_UPDATED');
+            expect(events.length).toBe(0);
+        });
+
+        it('rejects unknown payment', () => {
+            const svc = createService();
+            expect(() => svc.updatePayment('pay_999', { method: 'zelle' })).toThrow('not found');
+        });
+
+        it('rejects editing a reversed payment', () => {
+            const svc = createService();
+            svc.reversePayment('pay_1');
+            expect(() => svc.updatePayment('pay_1', { method: 'zelle' })).toThrow('reversed');
+        });
+
+        it('rejects editing a reversal entry', () => {
+            const svc = createService();
+            const result = svc.reversePayment('pay_1');
+            expect(() => svc.updatePayment(result.reversal.id, { method: 'zelle' })).toThrow('reversal');
+        });
+
+        it('no-ops on legacy payment with missing method/note when dialog defaults are sent', () => {
+            // Legacy payments may lack method and note fields entirely.
+            // The edit dialog defaults to method='other' and note='', so saving
+            // without changes sends those defaults — should not produce a diff.
+            const svc = createService();
+            // Inject a legacy payment with no method or note
+            const state = svc.getState();
+            const legacyPayment = { id: 'pay_legacy', memberId: 1, amount: 25, receivedAt: '2025-06-01' };
+            svc._setState({ payments: [...state.payments, legacyPayment] });
+
+            const result = svc.updatePayment('pay_legacy', { method: 'other', note: '' });
+            expect(result).toEqual(legacyPayment);
+            const events = svc.getState().billingEvents.filter(e => e.eventType === 'PAYMENT_UPDATED');
+            expect(events.length).toBe(0);
+        });
+    });
+
     // ── Settings ──
 
     describe('updateSettings', () => {
