@@ -718,6 +718,9 @@ function simpleMarkdownToHtml(text) {
  * This trigger picks it up, sends via Resend, and updates the document
  * with the result ({ status: 'sent', resendId } or { status: 'error', error }).
  *
+ * Uses a transactional claim step (pending → processing) to prevent
+ * duplicate sends on at-least-once Firestore trigger redelivery.
+ *
  * No Cloud Run invoker policy needed — Firestore triggers are event-driven.
  */
 exports.processMailQueue = onDocumentCreated(
@@ -726,8 +729,27 @@ exports.processMailQueue = onDocumentCreated(
     const snap = event.data;
     if (!snap) return;
 
-    const data = snap.data();
     const docRef = snap.ref;
+
+    // Atomically claim the document: pending → processing.
+    // If another invocation already claimed it, the transaction fails and we bail out.
+    let data;
+    try {
+      data = await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(docRef);
+        if (!freshSnap.exists) return null;
+        const d = freshSnap.data();
+        if (d.status !== "pending") return null; // Already claimed or processed
+        tx.update(docRef, { status: "processing" });
+        return d;
+      });
+    } catch (err) {
+      console.error("processMailQueue claim transaction failed:", err);
+      return;
+    }
+
+    if (!data) return; // Already claimed by another invocation
+
     const { to, subject, body, replyTo, uid } = data;
 
     // Validate required fields

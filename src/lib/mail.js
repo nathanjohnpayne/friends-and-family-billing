@@ -45,7 +45,7 @@ export function queueEmail({ to, subject, body, replyTo, uid }) {
                     unsubscribe();
                     reject(new Error(data.error || 'Email delivery failed.'));
                 }
-                // status === 'pending' — still waiting
+                // status === 'pending' or 'processing' — still waiting
             });
         } catch (err) {
             reject(err);
