@@ -211,6 +211,10 @@ export default function DashboardView() {
                             service.reversePayment(paymentId);
                             showToast('Payment reversed');
                         }}
+                        onEditPayment={(paymentId, fields) => {
+                            service.updatePayment(paymentId, fields);
+                            showToast('Payment updated');
+                        }}
                         onClose={() => setDialog({ type: null, memberId: null })}
                     />
                 );

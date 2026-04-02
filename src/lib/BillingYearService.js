@@ -800,6 +800,55 @@ export class BillingYearService {
         return { original: { ...original, reversed: true }, reversal: reversalEntry };
     }
 
+    /**
+     * Update a payment's editable fields (method, note).
+     * Preserves append-only integrity — the original payment is updated in place
+     * but a PAYMENT_UPDATED audit event records the before/after values.
+     * @param {string} paymentId
+     * @param {{ method?: string, note?: string }} fields
+     */
+    updatePayment(paymentId, fields) {
+        this._guardReadOnly();
+        const { payments, familyMembers } = this._state;
+        const original = payments.find(p => p.id === paymentId);
+        if (!original) throw new Error('Payment not found.');
+        if (original.reversed) throw new Error('Cannot edit a reversed payment.');
+        if (original.type === 'reversal') throw new Error('Cannot edit a reversal entry.');
+
+        const changes = {};
+        if (fields.method !== undefined && fields.method !== original.method) {
+            changes.previousMethod = original.method;
+            changes.newMethod = fields.method;
+        }
+        if (fields.note !== undefined && fields.note !== original.note) {
+            changes.previousNote = original.note || '';
+            changes.newNote = fields.note;
+        }
+
+        if (Object.keys(changes).length === 0) return original;
+
+        const updated = { ...original };
+        if (changes.newMethod !== undefined) updated.method = changes.newMethod;
+        if (changes.newNote !== undefined) updated.note = changes.newNote;
+
+        const updatedPayments = payments.map(p =>
+            p.id === paymentId ? updated : p
+        );
+
+        const member = familyMembers.find(m => m.id === original.memberId);
+        const events = this._emitEvent('PAYMENT_UPDATED', {
+            paymentId,
+            memberId: original.memberId,
+            memberName: member ? member.name : '',
+            amount: original.amount,
+            ...changes
+        });
+
+        this._setState({ payments: updatedPayments, billingEvents: events });
+        this.save();
+        return updated;
+    }
+
     // ── Settings ──
 
     /**
