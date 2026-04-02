@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
+vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {}, functions: {} }));
+vi.mock('firebase/functions', () => ({ httpsCallable: vi.fn(() => vi.fn()) }));
+
 import EmailInvoiceDialog from '@/app/components/EmailInvoiceDialog.jsx';
 
 const baseProps = {

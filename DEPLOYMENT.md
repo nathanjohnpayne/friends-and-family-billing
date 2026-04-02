@@ -556,7 +556,8 @@ Invoice and dispute resolution emails are sent server-side via [Resend](https://
 
 ```
 EmailInvoiceDialog / DisputeDetailDialog
-  → POST /sendEmail (Cloud Function via hosting rewrite)
+  → httpsCallable(functions, 'sendEmail') via Firebase Functions SDK
+    → Firebase Auth verified automatically by callable protocol
     → simpleMarkdownToHtml() converts body to HTML
     → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
     → wrapEmailHtml() wraps in responsive email template
@@ -565,11 +566,18 @@ EmailInvoiceDialog / DisputeDetailDialog
 
 ### Cloud Function: `sendEmail`
 
-- **Endpoint:** `POST /sendEmail` (via Firebase Hosting rewrite)
-- **Secret:** `RESEND_API_KEY` (Firebase Functions secret)
-- **Request body:** `{ to: string, subject: string, body: string, replyTo?: string }`
-- **Response:** `{ message: string, id: string }` on success, `{ error: string }` on failure
-- **CORS:** Restricted to `friends-and-family-billing.web.app` and `.firebaseapp.com`
+- **Type:** Firebase callable function (`onCall`) — invoked via the Firebase Functions SDK, not a raw HTTP endpoint
+- **Client usage:** `httpsCallable(functions, 'sendEmail')` — the SDK handles auth token passing and transport automatically
+- **Auth:** Firebase Auth enforced by the callable protocol. `request.auth` is populated by the SDK; unauthenticated calls are rejected before reaching application code.
+- **Secret:** `RESEND_API_KEY` (Firebase Functions secret via `defineSecret`)
+- **Request data:** `{ to: string, subject: string, body: string, replyTo?: string }`
+- **Response data:** `{ message: string, id: string }` on success; throws `HttpsError` on failure
+
+### Known Limitation: GCP Org Policy and Function Creates
+
+A GCP organization policy (`iam.allowedPolicyMemberDomains`) blocks granting `allUsers` as a Cloud Run invoker on this project. Firebase CLI attempts to set `allUsers` on all new function creates (both `onRequest` and `onCall`), which causes a non-fatal deploy warning on initial creation. The function still deploys and works — the warning only affects the invoker policy, not the function itself. Subsequent updates deploy cleanly.
+
+If `sendEmail` is ever deleted and recreated (e.g., region change, function rename), the create will produce the same warning. The function will still be created and functional. To fully resolve this, the org policy would need to be relaxed for this project, or Firebase would need to support authenticated-only callable deploys without setting `allUsers`.
 
 ### Deploying Functions
 

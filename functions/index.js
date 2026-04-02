@@ -1,4 +1,4 @@
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
@@ -711,34 +711,24 @@ function simpleMarkdownToHtml(text) {
   return html;
 }
 
-exports.sendEmail = onRequest(
-  { region: "us-central1", secrets: [resendApiKey], invoker: "public" },
-  async (req, res) => {
-    setCors(req, res);
-
-    if (req.method === "OPTIONS") {
-      res.status(204).send("");
-      return;
+exports.sendEmail = onCall(
+  { region: "us-central1", secrets: [resendApiKey] },
+  async (request) => {
+    // onCall enforces Firebase Auth automatically — unauthenticated calls are rejected
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Authentication required.");
     }
 
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "Method not allowed" });
-      return;
-    }
-
-    const { to, subject, body, replyTo } = req.body || {};
+    const { to, subject, body, replyTo } = request.data || {};
 
     if (!to || typeof to !== "string" || !to.includes("@")) {
-      res.status(400).json({ error: "Valid recipient email is required." });
-      return;
+      throw new HttpsError("invalid-argument", "Valid recipient email is required.");
     }
     if (!subject || typeof subject !== "string") {
-      res.status(400).json({ error: "Subject is required." });
-      return;
+      throw new HttpsError("invalid-argument", "Subject is required.");
     }
     if (!body || typeof body !== "string") {
-      res.status(400).json({ error: "Email body is required." });
-      return;
+      throw new HttpsError("invalid-argument", "Email body is required.");
     }
 
     try {
@@ -758,14 +748,14 @@ exports.sendEmail = onRequest(
 
       if (result.error) {
         console.error("Resend API error:", result.error);
-        res.status(502).json({ error: "Email delivery failed: " + (result.error.message || "Unknown error") });
-        return;
+        throw new HttpsError("internal", "Email delivery failed: " + (result.error.message || "Unknown error"));
       }
 
-      res.status(200).json({ message: "Email sent successfully.", id: result.data?.id });
+      return { message: "Email sent successfully.", id: result.data?.id };
     } catch (err) {
+      if (err instanceof HttpsError) throw err;
       console.error("sendEmail error:", err);
-      res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+      throw new HttpsError("internal", "An unexpected error occurred. Please try again.");
     }
   }
 );

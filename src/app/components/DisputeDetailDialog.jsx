@@ -3,8 +3,9 @@
  * Port of showDisputeDetail() from main.js:3294.
  */
 import { useState, useEffect, useRef } from 'react';
+import { httpsCallable } from 'firebase/functions';
 import { getDownloadURL, ref } from 'firebase/storage';
-import { storage } from '../../lib/firebase.js';
+import { storage, functions } from '../../lib/firebase.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
 import { openSmsComposer } from '../../lib/sms.js';
@@ -247,19 +248,11 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                                     const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
                                     const body = buildResolutionText();
                                     try {
-                                        const res = await fetch('/sendEmail', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ to: member.email, subject, body })
-                                        });
-                                        const data = await res.json();
-                                        if (!res.ok) {
-                                            if (showToast) showToast('Send failed: ' + (data.error || 'Unknown error'));
-                                        } else {
-                                            if (showToast) showToast('Resolution emailed to ' + member.email);
-                                        }
+                                        const sendEmail = httpsCallable(functions, 'sendEmail');
+                                        await sendEmail({ to: member.email, subject, body });
+                                        if (showToast) showToast('Resolution emailed to ' + member.email);
                                     } catch (err) {
-                                        if (showToast) showToast('Send failed: ' + err.message);
+                                        if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
                                     }
                                 }}>Email</button>
                             )}
