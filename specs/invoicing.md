@@ -51,9 +51,10 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 ### Email Delivery (sendEmail Cloud Function)
 
 - Sends HTML emails via Resend from `Friends & Family Billing <billing@mail.nathanpayne.com>`.
-- Implemented as a Firebase callable function (`onCall`) — Firebase Auth is enforced automatically by the callable protocol. Only authenticated app users can invoke it.
-- Called from the client via `httpsCallable(functions, 'sendEmail')` with data `{ to, subject, body, replyTo? }`.
-- Known limitation: GCP org policy blocks `allUsers` on Cloud Run, causing a non-fatal warning on fresh function creates. The function still deploys and works; updates deploy cleanly. See DEPLOYMENT.md for details.
+- Implemented as a Firestore-triggered function (`onDocumentCreated` on `mailQueue/{docId}`). No HTTP endpoint or Cloud Run invoker policy needed.
+- Client writes to `mailQueue` collection via `queueEmail()` helper (`src/lib/mail.js`), which listens for status changes via `onSnapshot` and resolves/rejects the returned promise.
+- Firestore security rules enforce that only authenticated users can create queue documents with their own `uid` and `status: 'pending'`.
+- The function validates fields, converts markdown to HTML, sends via Resend, and updates the document with `status: 'sent'` or `status: 'error'`.
 - Converts the body from markdown to HTML via `simpleMarkdownToHtml()`:
   - Supports: bold (`**text**`), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, lists (`- item`), horizontal rules (`===`/`---`).
   - Escapes HTML entities before markdown conversion to prevent XSS.

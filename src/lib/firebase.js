@@ -9,7 +9,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
-import { getFunctions } from 'firebase/functions';
 import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/analytics';
 
 function getConfig() {
@@ -28,7 +27,6 @@ const app = initializeApp(getConfig());
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-export const functions = getFunctions(app);
 
 // Analytics — guarded for environments where it's unsupported (SSR, tests)
 export let analytics = null;

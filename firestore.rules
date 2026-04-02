@@ -92,6 +92,18 @@ service cloud.firestore {
         && resource.data.ownerId == request.auth.uid;
     }
 
+    // Mail queue — authenticated users can create pending emails and read their own.
+    // Only the Cloud Function (Admin SDK) can update status.
+    match /mailQueue/{docId} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasAll(['to', 'subject', 'body', 'uid', 'status']);
+
+      allow read: if request.auth != null
+        && resource.data.uid == request.auth.uid;
+    }
+
     // Deny everything else by default (implicit, but explicit for clarity)
     match /{document=**} {
       allow read, write: if false;

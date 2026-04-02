@@ -1,4 +1,5 @@
-const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
@@ -711,24 +712,62 @@ function simpleMarkdownToHtml(text) {
   return html;
 }
 
-exports.sendEmail = onCall(
-  { region: "us-central1", secrets: [resendApiKey] },
-  async (request) => {
-    // onCall enforces Firebase Auth automatically — unauthenticated calls are rejected
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Authentication required.");
+/**
+ * Firestore-triggered email sender. The client writes a document to
+ * mailQueue/{docId} with { to, subject, body, uid, status: 'pending' }.
+ * This trigger picks it up, sends via Resend, and updates the document
+ * with the result ({ status: 'sent', resendId } or { status: 'error', error }).
+ *
+ * Uses a transactional claim step (pending → processing) to prevent
+ * duplicate sends on at-least-once Firestore trigger redelivery.
+ *
+ * No Cloud Run invoker policy needed — Firestore triggers are event-driven.
+ */
+exports.processMailQueue = onDocumentCreated(
+  { document: "mailQueue/{docId}", region: "us-central1", secrets: [resendApiKey] },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const docRef = snap.ref;
+
+    // Atomically claim the document: pending → processing.
+    // If another invocation already claimed it, the transaction fails and we bail out.
+    let data;
+    try {
+      data = await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(docRef);
+        if (!freshSnap.exists) return null;
+        const d = freshSnap.data();
+        if (d.status !== "pending") return null; // Already claimed or processed
+        tx.update(docRef, { status: "processing" });
+        return d;
+      });
+    } catch (err) {
+      console.error("processMailQueue claim transaction failed:", err);
+      return;
     }
 
-    const { to, subject, body, replyTo } = request.data || {};
+    if (!data) return; // Already claimed by another invocation
 
+    const { to, subject, body, replyTo, uid } = data;
+
+    // Validate required fields
+    if (!uid || typeof uid !== "string") {
+      await docRef.update({ status: "error", error: "Missing uid.", processedAt: FieldValue.serverTimestamp() });
+      return;
+    }
     if (!to || typeof to !== "string" || !to.includes("@")) {
-      throw new HttpsError("invalid-argument", "Valid recipient email is required.");
+      await docRef.update({ status: "error", error: "Valid recipient email is required.", processedAt: FieldValue.serverTimestamp() });
+      return;
     }
     if (!subject || typeof subject !== "string") {
-      throw new HttpsError("invalid-argument", "Subject is required.");
+      await docRef.update({ status: "error", error: "Subject is required.", processedAt: FieldValue.serverTimestamp() });
+      return;
     }
     if (!body || typeof body !== "string") {
-      throw new HttpsError("invalid-argument", "Email body is required.");
+      await docRef.update({ status: "error", error: "Email body is required.", processedAt: FieldValue.serverTimestamp() });
+      return;
     }
 
     try {
@@ -748,14 +787,14 @@ exports.sendEmail = onCall(
 
       if (result.error) {
         console.error("Resend API error:", result.error);
-        throw new HttpsError("internal", "Email delivery failed: " + (result.error.message || "Unknown error"));
+        await docRef.update({ status: "error", error: result.error.message || "Resend error", processedAt: FieldValue.serverTimestamp() });
+        return;
       }
 
-      return { message: "Email sent successfully.", id: result.data?.id };
+      await docRef.update({ status: "sent", resendId: result.data?.id || null, processedAt: FieldValue.serverTimestamp() });
     } catch (err) {
-      if (err instanceof HttpsError) throw err;
-      console.error("sendEmail error:", err);
-      throw new HttpsError("internal", "An unexpected error occurred. Please try again.");
+      console.error("processMailQueue error:", err);
+      await docRef.update({ status: "error", error: err.message || "Unknown error", processedAt: FieldValue.serverTimestamp() });
     }
   }
 );

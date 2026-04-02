@@ -11,6 +11,10 @@ vi.mock('firebase/storage', () => ({
 vi.mock('../../../src/lib/sms.js', () => ({
     openSmsComposer: vi.fn()
 }));
+vi.mock('@/app/contexts/AuthContext.jsx', () => ({
+    useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
+}));
+vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(() => Promise.resolve({ id: 'test' })) }));
 
 const defaultProps = {
     open: true,

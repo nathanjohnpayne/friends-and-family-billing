@@ -3,6 +3,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // Mock Firebase (needed by useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(() => Promise.resolve({ id: 'test' })) }));
+vi.mock('@/app/contexts/AuthContext.jsx', () => ({
+    useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
+}));
 vi.mock('firebase/firestore', () => ({
     collection: vi.fn(), doc: vi.fn(), getDocs: vi.fn(() => Promise.resolve({ docs: [] })),
     setDoc: vi.fn(), serverTimestamp: vi.fn(), deleteDoc: vi.fn()
