@@ -105,7 +105,10 @@ function formatPaymentOptionsMarkdown(settings) {
             const contacts = [method.phone, method.email].filter(Boolean);
             if (contacts.length > 0) detail = 'Send via Messages or Wallet to: ' + contacts.join(' or ');
         } else {
-            detail = [method.handle, method.url].filter(Boolean).join(' ');
+            const parts = [];
+            if (method.handle) parts.push(method.handle);
+            if (method.url) parts.push('[' + method.url + '](' + method.url + ')');
+            detail = parts.join(' ');
         }
         text += '- **' + method.label + ':** ' + detail + '\n';
         if (method.instructions) text += '  Note: ' + method.instructions + '\n';

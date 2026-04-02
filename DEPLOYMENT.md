@@ -523,6 +523,87 @@ For Claude Code cloud scheduled tasks:
 - Deploy auth uses short-lived impersonated credentials derived from a 1Password-backed GCP ADC source credential, another explicit `GOOGLE_APPLICATION_CREDENTIALS` file, or CI-provided external-account credentials.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
 
+### Cloud Functions Secrets
+
+| Secret | Purpose | 1Password Item | `op://` Reference |
+|--------|---------|----------------|-------------------|
+| `RESEND_API_KEY` | Resend email delivery API key | `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`) | `op://Private/kjkuytr4u24wwlkstwmsm5237i/credential` |
+
+Cloud Functions secrets are managed via Firebase:
+
+```bash
+# Set or rotate the Resend API key
+op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY
+
+# Verify the secret exists
+firebase functions:secrets:access RESEND_API_KEY
+```
+
+Secrets are accessed in Cloud Functions via `defineSecret()` (Firebase Functions v2 params) and are only loaded at runtime for functions that declare them.
+
+## Email Delivery (Resend)
+
+Invoice and dispute resolution emails are sent server-side via [Resend](https://resend.com) through the `sendEmail` Cloud Function.
+
+### Sending Domain
+
+- **Domain:** `mail.nathanpayne.com` (subdomain of `nathanpayne.com`)
+- **Sender:** `Friends & Family Billing <billing@mail.nathanpayne.com>`
+- **DNS records:** SPF (TXT), DKIM (TXT), MX — configured in Squarespace DNS, verified in Resend dashboard
+- **Resend account:** `nathanpayne` at resend.com
+
+### Architecture
+
+```
+EmailInvoiceDialog / DisputeDetailDialog
+  → POST /sendEmail (Cloud Function via hosting rewrite)
+    → simpleMarkdownToHtml() converts body to HTML
+    → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
+    → wrapEmailHtml() wraps in responsive email template
+    → Resend API sends HTML + plain-text fallback
+```
+
+### Cloud Function: `sendEmail`
+
+- **Endpoint:** `POST /sendEmail` (via Firebase Hosting rewrite)
+- **Secret:** `RESEND_API_KEY` (Firebase Functions secret)
+- **Request body:** `{ to: string, subject: string, body: string, replyTo?: string }`
+- **Response:** `{ message: string, id: string }` on success, `{ error: string }` on failure
+- **CORS:** Restricted to `friends-and-family-billing.web.app` and `.firebaseapp.com`
+
+### Deploying Functions
+
+```bash
+# Deploy all functions (including sendEmail)
+op-firebase-deploy --only functions
+
+# Or deploy functions + hosting together
+op-firebase-deploy
+```
+
+If `op-firebase-deploy` fails, use the gcloud token workaround:
+
+```bash
+/opt/homebrew/bin/gcloud auth activate-service-account --key-file=/tmp/sa-key.json
+TOKEN=$(/opt/homebrew/bin/gcloud auth print-access-token)
+firebase deploy --only functions --project friends-and-family-billing --token "$TOKEN"
+```
+
+### Resend Free Tier Limits
+
+| Limit | Value |
+|-------|-------|
+| Emails per month | 3,000 |
+| Emails per day | 100 |
+
+### Rotating the Resend API Key
+
+1. Generate a new key in Resend dashboard → API Keys (scope: "Sending access")
+2. Update 1Password item `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`), field `credential`
+3. Set the new secret: `op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY`
+4. Redeploy functions: `op-firebase-deploy --only functions`
+5. Revoke the old key in Resend dashboard
+
 ## Auth Maintenance
 
 For interactive (biometric) environments, ensure the 1Password CLI is signed in and `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` is readable. For headless environments, the project SA key in `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key` is the primary credential source — set `GOOGLE_APPLICATION_CREDENTIALS` to point at the exported key file.

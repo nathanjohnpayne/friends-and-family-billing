@@ -13,14 +13,15 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 - **Backend/Infrastructure:** Firebase
   - Firebase Authentication (Email/Password + Google Sign-In)
   - Cloud Firestore (NoSQL database)
-  - Cloud Functions v2 (dispute submission, evidence URLs, dispute decisions)
+  - Cloud Functions v2 (email delivery via Resend, dispute submission, evidence URLs, dispute decisions)
   - Firebase Hosting with CDN
   - Firebase Analytics
   - Firebase Storage (dispute evidence uploads)
 - **Image Processing:** Canvas API for client-side compression (max 200x200px PNG)
 - **Build:** Vite (React app → `app/` directory, code-split chunks)
 - **Testing:** Vitest + React Testing Library
-- **Dependencies:** Firebase SDK v12, React 19, React Router v7, Vite 8
+- **Email Delivery:** [Resend](https://resend.com) via Cloud Function — HTML emails from `billing@mail.nathanpayne.com` (SPF/DKIM verified)
+- **Dependencies:** Firebase SDK v12, React 19, React Router v7, Vite 8, Resend SDK
 
 ### Project Structure
 ```
@@ -81,9 +82,9 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       └── validation.js          # Input validation (E.164, URLs, amounts)
 ├── app/                           # BUILD OUTPUT (gitignored) — Vite builds here
 ├── functions/
-│   ├── index.js                   # Cloud Functions v2 entry point
+│   ├── index.js                   # Cloud Functions v2 entry point (sendEmail, resolveShareToken, submitDispute, etc.)
 │   ├── billing.js                 # Shared billing utilities for Cloud Functions
-│   └── package.json               # Cloud Functions dependencies
+│   └── package.json               # Cloud Functions dependencies (firebase-admin, firebase-functions, resend)
 ├── tests/react/                   # Vitest + React Testing Library test suite
 │   ├── app.test.jsx               # App routing tests
 │   ├── routes.test.jsx            # Route configuration tests
@@ -120,7 +121,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 |-------|:------------:|---------|
 | `/app/` | Yes | Dashboard — KPIs, settlement board, lifecycle bar |
 | `/app/manage` | Yes | Members, Bills, Invoicing, Reviews tabs |
-| `/app/settings` | Yes | Email settings, year management |
+| `/app/settings` | Yes | Year management + payment methods |
 | `/app/share` | No | Public billing summary via `publicShares` collection |
 | `/app/login` | No | Email/Password and Google Sign-In |
 

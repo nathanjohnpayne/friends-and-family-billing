@@ -1,8 +1,11 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
 const crypto = require("crypto");
+
+const resendApiKey = defineSecret("RESEND_API_KEY");
 
 initializeApp();
 const db = getFirestore();
@@ -604,3 +607,165 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
     res.status(500).json({ error: "An unexpected error occurred. Please try again." });
   }
 });
+
+// ── Send Email via Resend ──────────────────────────────────────────────────
+
+const EMAIL_FROM = "Friends & Family Billing <billing@mail.nathanpayne.com>";
+
+/**
+ * Wrap plain-text or markdown-rendered HTML in a responsive email shell.
+ * Uses inline CSS for maximum email client compatibility.
+ */
+function wrapEmailHtml(bodyHtml) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { margin: 0; padding: 0; background: #f4f5f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; }
+  .header { background: linear-gradient(135deg, #6E78D6, #7B5FAF); padding: 24px 32px; color: #ffffff; }
+  .header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  .body { padding: 24px 32px; color: #1F2430; font-size: 0.9375rem; line-height: 1.6; }
+  .body p { margin: 0 0 1em 0; }
+  .body a { color: #6E78D6; text-decoration: underline; }
+  .body h2 { font-size: 1rem; margin: 1.5em 0 0.5em; color: #1F2430; }
+  .body ul { padding-left: 1.5em; }
+  .body li { margin-bottom: 0.3em; }
+  .body pre, .body code { font-family: 'SF Mono', Menlo, monospace; font-size: 0.85em; }
+  .footer { padding: 16px 32px; font-size: 0.75rem; color: #999; border-top: 1px solid #e0e0e0; }
+</style>
+</head>
+<body>
+<div style="padding: 24px 16px; background: #f4f5f7;">
+  <div class="container">
+    <div class="header"><h1>Friends &amp; Family Billing</h1></div>
+    <div class="body">${bodyHtml}</div>
+    <div class="footer">Sent via Friends &amp; Family Billing</div>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+/**
+ * Minimal markdown-to-HTML for email bodies (handles the subset produced by invoice.js).
+ * Converts: **bold**, headings (## / ===), links [text](url), lists (- item),
+ * and wraps paragraphs in <p> tags. Newlines become <br>.
+ */
+/**
+ * Sanitize a URL for use in an href attribute.
+ * Blocks non-http(s) protocols (javascript:, data:, vbscript:, etc.)
+ * and escapes quotes to prevent attribute breakout.
+ */
+function sanitizeHref(url) {
+  // Reverse the earlier entity-escaping so we work on the raw URL
+  let raw = (url || "").trim()
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+  // Only allow http and https protocols
+  if (!/^https?:\/\//i.test(raw)) return "";
+  // Escape characters that could break out of the attribute context.
+  // & is escaped ONLY in the attribute value — query strings stay valid
+  // because the browser un-escapes &amp; back to & when following the href.
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function simpleMarkdownToHtml(text) {
+  if (!text) return "";
+  let html = text
+    // Escape HTML entities
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    // Headings (## Heading)
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    // Links [text](url) — sanitize href to prevent XSS
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, linkText, url) {
+      const safe = sanitizeHref(url);
+      if (!safe) return linkText;
+      return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';
+    })
+    // Bare URLs (not already in an <a> tag) — already http(s) by regex
+    .replace(/(?<!href="|">)(https?:\/\/[^\s<"']+)/g, function(url) {
+      const safe = sanitizeHref(url);
+      if (!safe) return url;
+      return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + safe + '</a>';
+    })
+    // List items (- item)
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    // Wrap consecutive <li> in <ul>
+    .replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>")
+    // === separator lines
+    .replace(/^={3,}$/gm, "<hr>")
+    .replace(/^-{3,}$/gm, "<hr>")
+    // Newlines to <br> (but not after block elements)
+    .replace(/\n(?!<[hul\/])/g, "<br>\n");
+  return html;
+}
+
+exports.sendEmail = onRequest(
+  { region: "us-central1", secrets: [resendApiKey] },
+  async (req, res) => {
+    setCors(req, res);
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const { to, subject, body, replyTo } = req.body || {};
+
+    if (!to || typeof to !== "string" || !to.includes("@")) {
+      res.status(400).json({ error: "Valid recipient email is required." });
+      return;
+    }
+    if (!subject || typeof subject !== "string") {
+      res.status(400).json({ error: "Subject is required." });
+      return;
+    }
+    if (!body || typeof body !== "string") {
+      res.status(400).json({ error: "Email body is required." });
+      return;
+    }
+
+    try {
+      const { Resend } = require("resend");
+      const resend = new Resend(resendApiKey.value());
+
+      const htmlBody = wrapEmailHtml(simpleMarkdownToHtml(body));
+
+      const result = await resend.emails.send({
+        from: EMAIL_FROM,
+        to: [to],
+        subject: subject,
+        html: htmlBody,
+        text: body,
+        ...(replyTo ? { replyTo: replyTo } : {}),
+      });
+
+      if (result.error) {
+        console.error("Resend API error:", result.error);
+        res.status(502).json({ error: "Email delivery failed: " + (result.error.message || "Unknown error") });
+        return;
+      }
+
+      res.status(200).json({ message: "Email sent successfully.", id: result.data?.id });
+    } catch (err) {
+      console.error("sendEmail error:", err);
+      res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+    }
+  }
+);
