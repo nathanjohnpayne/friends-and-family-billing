@@ -4,7 +4,8 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../lib/firebase.js';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../../lib/firebase.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
@@ -43,6 +44,7 @@ export default function InvoicingTab() {
                 activeYear={activeYear}
                 readOnly={readOnly}
                 userId={user ? user.uid : ''}
+                userEmail={user ? user.email : ''}
                 billingYearId={activeYear ? activeYear.id : ''}
                 showToast={showToast}
                 onSave={emailMessage => {
@@ -123,7 +125,7 @@ function extractTemplateValue(el) {
     return lines.join('\n');
 }
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, billingYearId, showToast, onSave, onSaveShareUrl }) {
+function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, showToast, onSave, onSaveShareUrl }) {
     const [template, setTemplate] = useState(settings.emailMessage || '');
     const [dirty, setDirty] = useState(false);
     const editorRef = useRef(null);
@@ -131,6 +133,9 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     const [previewShareUrl, setPreviewShareUrl] = useState(settings.invoiceShareUrl || '');
     const [generatingLink, setGeneratingLink] = useState(false);
     const [shareLinkDialog, setShareLinkDialog] = useState(false);
+    const [testEmailOpen, setTestEmailOpen] = useState(false);
+    const [testEmailTo, setTestEmailTo] = useState('');
+    const [testEmailSending, setTestEmailSending] = useState(false);
 
     // Sync editor HTML when template changes externally (not during editing)
     useEffect(() => {
@@ -317,6 +322,12 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                         <span className="invoice-template-preview-sample">
                             Previewing the default email invoice for {previewCtx.member.name} in {previewCtx.currentYear}
                         </span>
+                        <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => { setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
+                        >
+                            Send test email
+                        </button>
                     </div>
                     <div className="invoice-template-preview-body">
                         <div className="invoice-preview-shell">
@@ -377,6 +388,54 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                 >
                     Save Template
                 </button>
+            )}
+
+            {testEmailOpen && previewCtx && (
+                <div className="dialog-overlay" onClick={() => setTestEmailOpen(false)}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Send Test Email</div>
+                        <form onSubmit={async e => {
+                            e.preventDefault();
+                            if (!testEmailTo.trim()) return;
+                            setTestEmailSending(true);
+                            try {
+                                const rawText = buildInvoiceBody(previewCtx, 'text-only', previewShareUrl, 'email', { markdown: true });
+                                const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member);
+                                const sendEmail = httpsCallable(functions, 'sendEmail');
+                                await sendEmail({ to: testEmailTo.trim(), subject, body: rawText });
+                                if (showToast) showToast('Test email sent to ' + testEmailTo.trim());
+                                setTestEmailOpen(false);
+                            } catch (err) {
+                                if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
+                            } finally {
+                                setTestEmailSending(false);
+                            }
+                        }}>
+                            <div className="payment-dialog-fields">
+                                <div className="payment-field-group">
+                                    <label htmlFor="test-email-to">Send to</label>
+                                    <input
+                                        id="test-email-to"
+                                        className="composer-input"
+                                        type="email"
+                                        value={testEmailTo}
+                                        onChange={e => setTestEmailTo(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+                            </div>
+                            <p className="invoicing-hint" style={{ margin: '0 24px 8px' }}>
+                                Sends the current preview (including unsaved edits) with [Test] in the subject.
+                            </p>
+                            <div className="dialog-buttons">
+                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn btn-sm btn-primary" disabled={testEmailSending || !testEmailTo.trim()}>
+                                    {testEmailSending ? 'Sending\u2026' : 'Send'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             )}
 
             {shareLinkDialog && familyMembers.length > 0 && (
