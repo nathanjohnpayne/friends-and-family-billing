@@ -32,6 +32,7 @@ The following tool config directories must contain only configuration — no ins
 
 ## Forbidden Patterns
 
+- **Never push directly to `main`.** All changes must go through a pull request—even single-line fixes, documentation updates, and deploy config changes. The only exception is if the human explicitly authorizes a direct push in chat as a break-glass override.
 - **Never edit the `app/` output directory directly.** It is a build artifact produced by Vite from `src/`. Always edit source in `src/` and run `npm run build` to regenerate.
 - **Never commit `.env.local`.** It contains the real Firebase web config as `VITE_FIREBASE_*` variables and is gitignored.
 - **Never commit credentials.** API keys, service account JSON, ADC credentials, Firebase web config, and tokens must never appear in tracked files. The `npm test` script includes a secret scan that will fail on detected credentials.
