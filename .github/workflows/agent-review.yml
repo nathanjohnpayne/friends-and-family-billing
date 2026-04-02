@@ -327,10 +327,14 @@ jobs:
               pull_number: context.payload.pull_request.number,
             });
 
+            // Track each reviewer's last opinionated state (APPROVED or CHANGES_REQUESTED).
+            // Ignore COMMENTED reviews — they don't change a reviewer's effective position.
             const latestByReviewer = {};
             for (const review of reviews.data) {
               if (reviewerAccounts.includes(review.user.login)) {
-                latestByReviewer[review.user.login] = review.state;
+                if (review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED') {
+                  latestByReviewer[review.user.login] = review.state;
+                }
               }
             }
 
