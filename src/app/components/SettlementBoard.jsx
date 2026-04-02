@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
 import { getInitials, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
+import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
 /** Payment method options matching legacy main.js:5173 */
@@ -66,6 +67,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
     const counts = { all: rows.length, outstanding: 0, partial: 0, settled: 0 };
     rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
+    // Count households with linked members
+    const linkedGroupCount = rows.filter(r => r.linkedData.length > 0).length;
+
     const filtered = filter === 'all' ? rows : rows.filter(r => r.status === filter);
 
     const filters = [
@@ -89,6 +93,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
                             {f.label} <span className="settlement-filter-count">{counts[f.key] ?? 0}</span>
                         </button>
                     ))}
+                    {linkedGroupCount > 0 && (
+                        <span className="settlement-filter-info">Linked Groups {linkedGroupCount}</span>
+                    )}
                 </div>
             </div>
 
@@ -126,7 +133,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
     const [distribute, setDistribute] = useState(true);
 
     const { member, data, combinedTotal, linkedData, payment, balance, status } = row;
-    const hasLinked = (member.linkedMembers || []).length > 0;
+    const hasLinked = linkedData.length > 0;
     const showPaymentAction = !readOnly && balance > 0;
 
     function handleRecordPayment(e) {
@@ -168,6 +175,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
 
     return (
         <div className={'settlement-card settlement-card--' + status}>
+            {/* ── Card Header ─────────────────────────────────── */}
             <div className="settlement-card-main" onClick={() => setExpanded(!expanded)}>
                 <div className="settlement-card-left">
                     <div className="settlement-avatar">
@@ -177,98 +185,124 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         }
                     </div>
                     <div className="settlement-card-info">
-                        <strong>{member.name}</strong>
+                        <div className="settlement-card-name-row">
+                            <strong>{member.name}</strong>
+                            {hasLinked && (
+                                <span className="settlement-linked-badge">+{linkedData.length}</span>
+                            )}
+                        </div>
                         <span className="settlement-card-meta">
                             {hasLinked
-                                ? 'Household · ' + member.linkedMembers.length + ' linked'
+                                ? 'Household includes ' + linkedData.length + ' linked member' + (linkedData.length > 1 ? 's' : '')
                                 : 'Individual'}
                         </span>
                     </div>
                 </div>
                 <div className="settlement-card-right">
-                    <div className="settlement-card-amounts">
-                        <span className="settlement-card-total">{formatAnnualSummaryCurrency(combinedTotal)}</span>
-                        <span className="settlement-card-paid">Paid {formatAnnualSummaryCurrency(payment)}</span>
+                    {/* Summary boxes */}
+                    <div className="settlement-summary-boxes">
+                        <div className="settlement-summary-box">
+                            <span className="settlement-summary-label">Annual</span>
+                            <span className="settlement-summary-value">{formatAnnualSummaryCurrency(combinedTotal)}</span>
+                        </div>
+                        <div className="settlement-summary-box">
+                            <span className="settlement-summary-label">Paid</span>
+                            <span className="settlement-summary-value settlement-summary-paid">{formatAnnualSummaryCurrency(payment)}</span>
+                        </div>
+                        {balance > 0 && (
+                            <div className="settlement-summary-box">
+                                <span className="settlement-summary-label">Balance</span>
+                                <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(balance)}</span>
+                            </div>
+                        )}
                     </div>
                     <StatusBadge status={status} />
-                    <div className="settlement-card-actions" onClick={e => e.stopPropagation()}>
-                        {showPaymentAction ? (
-                            <button
-                                className="btn btn-primary btn-sm"
-                                onClick={() => setPaymentOpen(true)}
-                            >
-                                Record Payment
-                            </button>
-                        ) : (
-                            <button
-                                className="btn btn-tertiary btn-sm"
-                                onClick={() => onViewHistory && onViewHistory(member.id)}
-                            >
-                                Payment History
-                            </button>
-                        )}
-                        <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}
-                            title={balance <= 0 ? 'No balance due' : 'Send email invoice'}
-                        >
-                            Email Invoice
-                        </button>
-                    </div>
-                    <span className="settlement-expand-icon">{expanded ? '▾' : '▸'}</span>
+                    <span className="settlement-expand-toggle">
+                        {expanded ? 'Hide details \u25B2' : 'Details \u25BC'}
+                    </span>
                 </div>
             </div>
 
+            {/* ── Expanded Detail ─────────────────────────────── */}
             {expanded && (
                 <div className="settlement-card-detail">
+                    {/* Linked members — shown before breakdown for clear hierarchy */}
+                    {hasLinked && (
+                        <div className="settlement-linked-section">
+                            {linkedData.map(ls => {
+                                const childPayment = getPaymentTotalForMember(payments, ls.member.id);
+                                const childBalance = ls.total - childPayment;
+                                const childStatus = getPaymentStatus(ls.total, childPayment);
+                                return (
+                                    <div key={ls.member.id} className="settlement-linked-row">
+                                        <div className="settlement-linked-member">
+                                            <span className="child-indicator">\u21B3</span>
+                                            <div className="settlement-avatar settlement-avatar--sm">
+                                                {ls.member.avatar
+                                                    ? <img src={ls.member.avatar} alt={ls.member.name} className="settlement-avatar-img" />
+                                                    : <span className="settlement-avatar-initials">{getInitials(ls.member.name)}</span>
+                                                }
+                                            </div>
+                                            <strong>{ls.member.name}</strong>
+                                        </div>
+                                        <div className="settlement-linked-amounts">
+                                            <span>{formatAnnualSummaryCurrency(ls.total)}</span>
+                                            <span>Paid {formatAnnualSummaryCurrency(childPayment)}</span>
+                                            {childBalance > 0 && (
+                                                <span className="balance-owed">
+                                                    Bal {formatAnnualSummaryCurrency(childBalance)}
+                                                </span>
+                                            )}
+                                            {childStatus && <StatusBadge status={childStatus} />}
+                                            <button
+                                                className="btn btn-tertiary btn-sm"
+                                                onClick={() => onViewHistory && onViewHistory(ls.member.id)}
+                                            >
+                                                History
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Bill breakdown */}
                     <div className="settlement-breakdown">
                         <div className="settlement-breakdown-header">Bill breakdown for {member.name}</div>
                         {data.bills.length === 0 ? (
                             <p className="settlement-breakdown-empty">No bills assigned</p>
                         ) : (
-                            data.bills.map(b => (
-                                <div key={b.bill.id} className="settlement-breakdown-row">
-                                    <span>{b.bill.name}</span>
-                                    <span>{formatAnnualSummaryCurrency(b.annualShare)} / yr</span>
+                            <>
+                                {data.bills.map(b => (
+                                    <div key={b.bill.id} className="settlement-breakdown-row">
+                                        <span>{b.bill.name}</span>
+                                        <span>{formatAnnualSummaryCurrency(b.annualShare)} / yr</span>
+                                    </div>
+                                ))}
+                                <div className="settlement-breakdown-row settlement-breakdown-total">
+                                    <span>Total ({member.name})</span>
+                                    <span>{formatAnnualSummaryCurrency(data.total)}</span>
                                 </div>
-                            ))
+                                {hasLinked && (
+                                    <>
+                                        {linkedData.map(ls => (
+                                            <div key={ls.member.id} className="settlement-breakdown-row settlement-breakdown-linked">
+                                                <span>{ls.member.name}</span>
+                                                <span>{formatAnnualSummaryCurrency(ls.total)}</span>
+                                            </div>
+                                        ))}
+                                        <div className="settlement-breakdown-row settlement-breakdown-grand-total">
+                                            <span>Household Total</span>
+                                            <span>{formatAnnualSummaryCurrency(combinedTotal)}</span>
+                                        </div>
+                                    </>
+                                )}
+                            </>
                         )}
                     </div>
 
-                    {linkedData.map(ls => {
-                        const childPayment = getPaymentTotalForMember(payments, ls.member.id);
-                        const childBalance = ls.total - childPayment;
-                        const childStatus = getPaymentStatus(ls.total, childPayment);
-                        return (
-                            <div key={ls.member.id} className="settlement-linked-row">
-                                <div className="settlement-linked-member">
-                                    <span className="child-indicator">↳</span>
-                                    <div className="settlement-avatar settlement-avatar--sm">
-                                        {ls.member.avatar
-                                            ? <img src={ls.member.avatar} alt={ls.member.name} className="settlement-avatar-img" />
-                                            : <span className="settlement-avatar-initials">{getInitials(ls.member.name)}</span>
-                                        }
-                                    </div>
-                                    <strong>{ls.member.name}</strong>
-                                </div>
-                                <div className="settlement-linked-amounts">
-                                    <span>{formatAnnualSummaryCurrency(ls.total)}</span>
-                                    <span>Paid {formatAnnualSummaryCurrency(childPayment)}</span>
-                                    <span className={childBalance > 0 ? 'balance-owed' : 'balance-paid'}>
-                                        Bal {formatAnnualSummaryCurrency(childBalance)}
-                                    </span>
-                                    {childStatus && <StatusBadge status={childStatus} />}
-                                    <button
-                                        className="btn btn-tertiary btn-sm"
-                                        onClick={() => onViewHistory && onViewHistory(ls.member.id)}
-                                    >
-                                        History
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-
+                    {/* Actions — primary + overflow menu */}
                     <div className="settlement-detail-actions">
                         {showPaymentAction && (
                             <button
@@ -284,18 +318,6 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         >
                             Payment History
                         </button>
-                        <button
-                            className="btn btn-tertiary btn-sm"
-                            onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}
-                        >
-                            New Share Link
-                        </button>
-                        <button
-                            className="btn btn-tertiary btn-sm"
-                            onClick={() => onManageShareLinks && onManageShareLinks(member.id)}
-                        >
-                            Manage Share Links
-                        </button>
                         {member.phone && (
                             <button
                                 className="btn btn-tertiary btn-sm"
@@ -304,6 +326,17 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 Text Invoice
                             </button>
                         )}
+                        <ActionMenu label={'More actions for ' + member.name}>
+                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}>
+                                Email Invoice
+                            </ActionMenuItem>
+                            <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
+                                Generate Share Link
+                            </ActionMenuItem>
+                            <ActionMenuItem onClick={() => onManageShareLinks && onManageShareLinks(member.id)}>
+                                Manage Share Links
+                            </ActionMenuItem>
+                        </ActionMenu>
                     </div>
                 </div>
             )}

@@ -1309,25 +1309,68 @@ img, svg { display: block; max-width: 100%; }
     flex-shrink: 0;
 }
 
-.settlement-card-amounts {
-    text-align: right;
+.settlement-card-name-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 4px);
 }
 
-.settlement-card-total {
-    display: block;
+.settlement-linked-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary, #6E78D6);
+    color: var(--color-text-inverse, #ffffff);
+    font-size: 0.65rem;
     font-weight: 700;
-    font-size: 0.9rem;
+    border-radius: 99px;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 4px;
 }
 
-.settlement-card-paid {
+.settlement-summary-boxes {
+    display: flex;
+    gap: var(--space-2, 8px);
+}
+
+.settlement-summary-box {
+    text-align: center;
+    padding: var(--space-1, 4px) var(--space-2, 8px);
+    background: var(--color-surface-dim, #f9fafb);
+    border-radius: 6px;
+    min-width: 64px;
+}
+
+.settlement-summary-label {
     display: block;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--color-text-muted, #666);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.settlement-summary-value {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.settlement-summary-paid { color: var(--color-success, #3FA37C); }
+.settlement-summary-balance { color: var(--color-danger, #C65A5A); }
+
+.settlement-expand-toggle {
+    color: var(--color-primary, #6E78D6);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.settlement-filter-info {
     font-size: 0.75rem;
     color: var(--color-text-muted, #666);
-}
-
-.settlement-expand-icon {
-    color: var(--color-text-faint, #999);
-    font-size: 0.8rem;
+    padding: var(--space-1, 4px) var(--space-2, 8px);
 }
 
 .settlement-card-detail {
@@ -1356,10 +1399,33 @@ img, svg { display: block; max-width: 100%; }
     padding: 2px 0;
 }
 
+.settlement-breakdown-total {
+    font-weight: 600;
+    border-top: 1px solid var(--color-border, #e0e0e0);
+    margin-top: var(--space-1, 4px);
+    padding-top: var(--space-1, 4px);
+}
+
+.settlement-breakdown-linked {
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.75rem;
+}
+
+.settlement-breakdown-grand-total {
+    font-weight: 700;
+    border-top: 1px solid var(--color-border, #e0e0e0);
+    margin-top: var(--space-1, 4px);
+    padding-top: var(--space-1, 4px);
+}
+
 .settlement-breakdown-empty {
     font-size: 0.8rem;
     color: var(--color-text-faint, #999);
     margin: 0;
+}
+
+.settlement-linked-section {
+    margin-bottom: var(--space-2, 8px);
 }
 
 .settlement-linked-row {
