@@ -51,8 +51,8 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 ### Email Delivery (sendEmail Cloud Function)
 
 - Sends HTML emails via Resend from `Friends & Family Billing <billing@mail.nathanpayne.com>`.
-- Requires Firebase Auth ID token in the `Authorization: Bearer <token>` header. Rejects unauthenticated requests with 401. The Cloud Run service uses `invoker: "private"` — not publicly invocable; reached via Firebase Hosting rewrite with internal service-to-service auth.
-- Accepts `{ to, subject, body, replyTo? }` as POST JSON to `/sendEmail`.
+- Implemented as a Firebase callable function (`onCall`) — Firebase Auth is enforced automatically by the callable protocol. Only authenticated app users can invoke it.
+- Called from the client via `httpsCallable(functions, 'sendEmail')` with data `{ to, subject, body, replyTo? }`.
 - Converts the body from markdown to HTML via `simpleMarkdownToHtml()`:
   - Supports: bold (`**text**`), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, lists (`- item`), horizontal rules (`===`/`---`).
   - Escapes HTML entities before markdown conversion to prevent XSS.

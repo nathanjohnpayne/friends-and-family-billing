@@ -4,7 +4,8 @@
  * Sends HTML email via Resend Cloud Function (/sendEmail).
  */
 import { useState, useEffect } from 'react';
-import { getAuth } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../lib/firebase.js';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 
@@ -49,29 +50,13 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
         }
         setSending(true);
         try {
-            const idToken = await getAuth().currentUser.getIdToken();
-            const res = await fetch('/sendEmail', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + idToken
-                },
-                body: JSON.stringify({
-                    to: recipientEmail,
-                    subject,
-                    body,
-                    replyTo: undefined
-                })
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                if (showToast) showToast('Send failed: ' + (data.error || 'Unknown error'));
-            } else {
-                if (showToast) showToast('Invoice emailed to ' + recipientEmail);
-                onClose();
-            }
+            const sendEmail = httpsCallable(functions, 'sendEmail');
+            await sendEmail({ to: recipientEmail, subject, body });
+            if (showToast) showToast('Invoice emailed to ' + recipientEmail);
+            onClose();
         } catch (err) {
-            if (showToast) showToast('Send failed: ' + err.message);
+            const msg = err.message || 'Unknown error';
+            if (showToast) showToast('Send failed: ' + msg);
         } finally {
             setSending(false);
         }

@@ -565,12 +565,13 @@ EmailInvoiceDialog / DisputeDetailDialog
 
 ### Cloud Function: `sendEmail`
 
-- **Endpoint:** `POST /sendEmail` (via Firebase Hosting rewrite)
-- **Auth:** Requires Firebase Auth ID token in `Authorization: Bearer <token>` header. The function verifies the token server-side via `firebase-admin/auth`. Only authenticated app users can send emails. The Cloud Run service is configured with `invoker: "private"` — it is not publicly invocable. Requests reach it via the Firebase Hosting rewrite (`/sendEmail`), which uses internal service-to-service auth.
-- **Secret:** `RESEND_API_KEY` (Firebase Functions secret)
-- **Request body:** `{ to: string, subject: string, body: string, replyTo?: string }`
-- **Response:** `{ message: string, id: string }` on success, `{ error: string }` on failure
-- **CORS:** Restricted to `friends-and-family-billing.web.app` and `.firebaseapp.com`; allows `Authorization` header
+- **Type:** Firebase callable function (`onCall`) — not an HTTP endpoint
+- **Client usage:** Called via Firebase Functions SDK (`httpsCallable(functions, 'sendEmail')`)
+- **Auth:** Firebase Auth is enforced automatically by the callable protocol. Only authenticated app users can invoke it. No manual token handling required on the client.
+- **Secret:** `RESEND_API_KEY` (Firebase Functions secret via `defineSecret`)
+- **Request data:** `{ to: string, subject: string, body: string, replyTo?: string }`
+- **Response data:** `{ message: string, id: string }` on success; throws `HttpsError` on failure
+- **No Hosting rewrite needed** — callable functions use the Firebase SDK's built-in transport, not HTTP endpoints
 
 ### Deploying Functions
 
