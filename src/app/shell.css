@@ -223,7 +223,7 @@ img, svg { display: block; max-width: 100%; }
 .lifecycle-step.lifecycle-active.lifecycle-warning  { background: var(--color-warning-bg); color: var(--color-warning-fg); }
 .lifecycle-step.lifecycle-active.lifecycle-success  { background: var(--color-success-light); color: var(--color-success); }
 .lifecycle-step.lifecycle-active.lifecycle-muted    { background: var(--color-surface-inset); color: var(--color-text-muted); }
-.lifecycle-step.lifecycle-complete { color: var(--color-success); }
+.lifecycle-step.lifecycle-complete { color: var(--color-success); opacity: 0.65; }
 .lifecycle-step.lifecycle-next { font-weight: 600; border: 1px dashed var(--color-success); }
 
 .lifecycle-arrow {

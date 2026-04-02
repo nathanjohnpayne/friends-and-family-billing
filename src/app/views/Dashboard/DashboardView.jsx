@@ -85,7 +85,9 @@ export default function DashboardView() {
             label: 'Close Year',
             newStatus: 'closed',
             enabled: isReadyToClose,
-            disabledReason: remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding',
+            hint: isReadyToClose
+                ? 'All members settled\u2014ready to close'
+                : remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding',
             title: 'Close Year',
             message: 'Close billing year ' + yearLabel + '?\n\nThis makes the year read-only. Any outstanding balances will be preserved.'
         };
@@ -135,13 +137,13 @@ export default function DashboardView() {
                         <button
                             className="btn btn-primary btn-sm"
                             disabled={!lifecycleAction.enabled}
-                            title={lifecycleAction.enabled ? undefined : lifecycleAction.disabledReason}
+                            title={!lifecycleAction.enabled && lifecycleAction.hint ? lifecycleAction.hint : undefined}
                             onClick={lifecycleAction.enabled ? () => setConfirmAction(lifecycleAction) : undefined}
                         >
                             {lifecycleAction.label}
                         </button>
-                        {!lifecycleAction.enabled && lifecycleAction.disabledReason && (
-                            <span className="dashboard-action-hint">{lifecycleAction.disabledReason}</span>
+                        {lifecycleAction.hint && (
+                            <span className="dashboard-action-hint">{lifecycleAction.hint}</span>
                         )}
                     </div>
                 )}
@@ -307,7 +309,7 @@ function LifecycleBar({ currentStatus, currentOrder, isReadyToClose }) {
                 return (
                     <span key={s}>
                         {i > 0 && <span className="lifecycle-arrow">{'\u2192'}</span>}
-                        <span className={cls}>{meta.label}</span>
+                        <span className={cls}>{isComplete && '\u2713 '}{meta.label}</span>
                     </span>
                 );
             })}
