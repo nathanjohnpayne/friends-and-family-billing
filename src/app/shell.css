@@ -1239,7 +1239,6 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface, #ffffff);
     border: 1px solid var(--color-border, #e0e0e0);
     border-radius: 12px;
-    overflow: hidden;
 }
 
 .settlement-card--outstanding { border-left: 3px solid var(--color-danger, #C65A5A); }
@@ -2343,6 +2342,10 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* Dispute Detail Dialog */
+.dispute-detail-dialog {
+    padding: var(--space-3, 16px) var(--space-4, 24px) var(--space-3, 16px);
+}
+
 .dispute-detail-header {
     display: flex;
     justify-content: space-between;

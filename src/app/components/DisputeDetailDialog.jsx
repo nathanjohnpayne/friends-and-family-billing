@@ -103,7 +103,7 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
 
     return (
         <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
+            <div className="dialog dialog--wide dispute-detail-dialog" onClick={e => e.stopPropagation()}>
                 <div className="dispute-detail-header">
                     <div className="dispute-detail-title">
                         <strong>{dispute.billName || 'Unknown Bill'}</strong>
