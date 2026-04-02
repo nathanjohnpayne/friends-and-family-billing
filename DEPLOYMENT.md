@@ -556,7 +556,8 @@ Invoice and dispute resolution emails are sent server-side via [Resend](https://
 
 ```
 EmailInvoiceDialog / DisputeDetailDialog
-  → POST /sendEmail (Cloud Function via hosting rewrite)
+  → httpsCallable(functions, 'sendEmail') via Firebase Functions SDK
+    → Firebase Auth verified automatically by callable protocol
     → simpleMarkdownToHtml() converts body to HTML
     → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
     → wrapEmailHtml() wraps in responsive email template

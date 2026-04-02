@@ -1,7 +1,7 @@
 /**
  * EmailInvoiceDialog — email invoice composer with variant selector.
  * Port of showEmailInvoiceDialog() from main.js:4724.
- * Sends HTML email via Resend Cloud Function (/sendEmail).
+ * Sends HTML email via Resend callable function (httpsCallable 'sendEmail').
  */
 import { useState, useEffect } from 'react';
 import { httpsCallable } from 'firebase/functions';
