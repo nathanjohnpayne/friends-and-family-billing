@@ -566,7 +566,7 @@ EmailInvoiceDialog / DisputeDetailDialog
 ### Cloud Function: `sendEmail`
 
 - **Endpoint:** `POST /sendEmail` (via Firebase Hosting rewrite)
-- **Auth:** Requires Firebase Auth ID token in `Authorization: Bearer <token>` header. The function verifies the token server-side via `firebase-admin/auth`. Only authenticated app users can send emails.
+- **Auth:** Requires Firebase Auth ID token in `Authorization: Bearer <token>` header. The function verifies the token server-side via `firebase-admin/auth`. Only authenticated app users can send emails. The Cloud Run service is configured with `invoker: "private"` — it is not publicly invocable. Requests reach it via the Firebase Hosting rewrite (`/sendEmail`), which uses internal service-to-service auth.
 - **Secret:** `RESEND_API_KEY` (Firebase Functions secret)
 - **Request body:** `{ to: string, subject: string, body: string, replyTo?: string }`
 - **Response:** `{ message: string, id: string }` on success, `{ error: string }` on failure
