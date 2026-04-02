@@ -28,15 +28,13 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 ### InvoicingTab View
 
 - Renders "Email Template" section heading.
-- Renders "Payment Methods" section.
 - Shows template content in a contenteditable editor with token chips (e.g., "Household Total").
 - Shows token insert buttons for "Billing Year", "Household Total", and "Payment Methods".
 - Shows live preview panel with To and Subject fields.
 - Shows "Save Template" button.
-- Renders existing payment methods with their type labels.
-- Shows "Add Payment Method" button; clicking it calls `service.updateSettings` with an appended payment method.
-- Hides "Save Template" and "Add Payment Method" buttons when the year is read-only.
+- Hides "Save Template" button when the year is read-only.
 - Shows a duplicate payment text warning when the template contains both the `%payment_methods%` token and hardcoded provider names.
+- Payment methods management has moved to the Settings page (see `PaymentMethodsManager` component).
 
 ### EmailInvoiceDialog
 

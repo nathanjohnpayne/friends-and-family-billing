@@ -42,6 +42,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │   │   ├── EmptyState.jsx     # Empty list placeholder
 │   │   │   ├── NavBar.jsx         # Top navigation bar
 │   │   │   ├── PaymentHistoryDialog.jsx    # Payment timeline with reversal support
+│   │   │   ├── PaymentMethodsManager.jsx   # Payment methods CRUD (on Settings page)
 │   │   │   ├── SettlementBoard.jsx         # Household settlement cards with filters
 │   │   │   ├── ShareLinkDialog.jsx         # Share link generation and management
 │   │   │   ├── StatusBadge.jsx    # Payment status pill (Outstanding/Partial/Settled)
@@ -59,10 +60,10 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │       │   ├── ManageView.jsx     # Tab container (Members/Bills/Invoicing/Reviews)
 │   │       │   ├── MembersTab.jsx     # Full CRUD for family members
 │   │       │   ├── BillsTab.jsx       # Full CRUD for bills
-│   │       │   ├── InvoicingTab.jsx   # Invoice template + payment methods
+│   │       │   ├── InvoicingTab.jsx   # Invoice email template editor
 │   │       │   └── ReviewsTab.jsx     # Dispute management
 │   │       ├── Settings/
-│   │       │   └── SettingsView.jsx   # Email settings, year management
+│   │       │   └── SettingsView.jsx   # Year management + payment methods
 │   │       ├── LoginView.jsx          # Email/Password + Google Sign-In
 │   │       └── ShareView.jsx          # Public share page (React route, no auth)
 │   └── lib/                       # Pure business logic (no React dependency)
