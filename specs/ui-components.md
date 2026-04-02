@@ -18,6 +18,18 @@ Covers shared, reusable UI components and contexts used across the application: 
 - `tests/react/components/StatusBadge.test.jsx`
 - `tests/react/contexts/ToastContext.test.jsx`
 
+### PaymentMethodsManager
+
+- Renders "Payment Methods" section heading.
+- Renders existing payment methods with type icons and labels.
+- Shows "Add Payment Method" button; clicking calls `onUpdate` with the appended method.
+- Shows toggle (On/Off) for each method; toggling calls `onUpdate` with the updated enabled state.
+- Three-dot action menu on each method with Edit and Remove options.
+- Edit dialog validates E.164 phone and http(s) URL; supports QR code upload.
+- Remove confirmation dialog; calls `onUpdate` with the method filtered out.
+- Hides mutation controls (add, toggle, edit, remove) when `readOnly` is true.
+- Used on the Settings page; no longer rendered on the Invoicing tab.
+
 ## Acceptance Criteria
 
 ### ActionMenu

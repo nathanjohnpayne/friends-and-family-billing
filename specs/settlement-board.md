@@ -17,21 +17,25 @@ Covers the settlement board component for tracking household payment status, the
 ### SettlementBoard Component
 
 - Renders nothing when there are no family members.
-- Renders a "Settlement Board" header with filter chips (All, Outstanding, Settled).
+- Renders a "Settlement Board" header with filter chips (All, Outstanding, Partial, Settled).
+- Shows "Linked Groups N" count in the filter bar when households with linked members exist.
 - Shows only parent and independent members as top-level cards; linked children are nested under their parent.
 - Displays "Outstanding" badge for unpaid members and "Settled" badge for fully paid members.
-- Cards expand on click to show bill breakdown with bill names and amounts.
-- Expanded view shows linked member details for household members.
+- Card header shows Annual/Paid/Balance summary boxes; Balance box is hidden when zero (settled).
+- Card header shows a "+N" badge next to the member name for households with linked members.
+- Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
+- Cards expand via a "Details / Hide details" toggle to show linked members and bill breakdown.
+- Expanded view shows linked members above the bill breakdown for clear hierarchy.
+- Bill breakdown includes per-person subtotal and household grand total rows.
 - Filter chips filter the displayed cards by payment status; shows "No households match this filter." when no cards match.
-- Displays "Household" label with linked member count for members with linked members, and "Individual" for standalone members.
+- Expanded detail shows primary actions (Record Payment, Payment History, Text Invoice) as direct buttons.
+- Secondary actions (Email Invoice, Generate Share Link, Manage Share Links) are in a three-dot overflow menu.
 - Shows "Record Payment" button for outstanding members; hides it when `readOnly` is true or when the member is fully settled.
 - Opens a payment dialog with amount input, method selector, and "Save Payment" button on "Record Payment" click.
 - Validates payment amount before submission (shows "Enter a valid amount." for invalid input).
 - Calls `onRecordPayment` with memberId, amount, method, and note when submitted.
 - Shows a distribute checkbox (checked by default) for household members in the payment dialog; passes `distribute: true` in the callback.
-- Shows "Email Invoice" button on each card.
-- Expanded detail view shows "New Share Link" and "Payment History" action buttons.
-- When settled, shows "Payment History" instead of "Record Payment".
+- When settled, shows "Payment History" instead of "Record Payment" in the expanded detail.
 
 ### BillsTab View
 
