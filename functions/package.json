@@ -2,7 +2,7 @@
   "name": "friends-and-family-billing-functions",
   "private": true,
   "engines": {
-    "node": "22"
+    "node": "24"
   },
   "main": "index.js",
   "overrides": {
