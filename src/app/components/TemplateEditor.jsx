@@ -125,6 +125,10 @@ function parsePastedTextWithTokens(text) {
  * The parent card structure (subject row, chip bar, save bar) is in InvoicingTab.
  */
 const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, readOnly, onConfigurePaymentMethods }, ref) {
+    // Guard to prevent the content-sync useEffect from re-entrantly calling
+    // setContent when the change originated from the editor's own onUpdate.
+    const isInternalUpdate = useRef(false);
+
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
@@ -144,6 +148,7 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
         content: content || undefined,
         editable: !readOnly,
         onUpdate({ editor: ed }) {
+            isInternalUpdate.current = true;
             if (onUpdate) onUpdate(ed.getJSON());
         },
         editorProps: {
@@ -167,7 +172,6 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
     useImperativeHandle(ref, () => editor, [editor]);
 
     // Sync content when it changes externally (e.g., billing year switch)
-    const isInternalUpdate = useRef(false);
     useEffect(() => {
         if (editor && content && !isInternalUpdate.current) {
             const currentJSON = JSON.stringify(editor.getJSON());

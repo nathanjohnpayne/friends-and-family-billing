@@ -681,6 +681,10 @@ img, svg { display: block; max-width: 100%; }
     padding-right: 0;
 }
 
+.dialog-body-padded {
+    padding: 0 var(--space-4, 24px) var(--space-3, 12px);
+}
+
 .dialog-header {
     padding: var(--space-3, 16px) var(--space-4, 24px);
     border-bottom: 1px solid var(--color-border, #e0e0e0);
@@ -2352,6 +2356,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .invoice-preview-message li { margin-bottom: 4px; }
+.invoice-preview-message li p { margin-bottom: 0; }
+.invoice-preview-message li p + p { margin-top: 2px; }
 
 .invoice-preview-message hr {
     border: none;

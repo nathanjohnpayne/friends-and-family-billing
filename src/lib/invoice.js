@@ -159,25 +159,32 @@ export function docToPlainTextWithTokens(doc) {
     if (!doc || !doc.content) return '';
     const blocks = [];
 
+    function wrapMarks(text, marks) {
+        if (!marks || marks.length === 0) return text;
+        let result = text;
+        if (marks.some(m => m.type === 'bold')) result = '**' + result + '**';
+        if (marks.some(m => m.type === 'italic')) result = '*' + result + '*';
+        return result;
+    }
+
     function textFromInline(nodes) {
         if (!nodes) return '';
         return nodes.map(n => {
             if (n.type === 'text') {
-                const text = n.text || '';
+                let text = n.text || '';
                 // Preserve link marks as markdown syntax
                 const linkMark = n.marks?.find(m => m.type === 'link');
                 if (linkMark && linkMark.attrs?.href) {
-                    return '[' + text + '](' + linkMark.attrs.href + ')';
+                    text = '[' + text + '](' + linkMark.attrs.href + ')';
                 }
-                return text;
+                // Wrap bold/italic marks as markdown
+                return wrapMarks(text, n.marks?.filter(m => m.type !== 'link'));
             }
             if (n.type === 'templateToken') {
                 const rawId = n.attrs?.id || '';
                 const id = LEGACY_TOKEN_IDS[rawId] || rawId;
                 const token = '%' + id + '%';
-                // Preserve bold marks for round-trip safety
-                const hasBold = n.marks?.some(m => m.type === 'bold');
-                return hasBold ? '**' + token + '**' : token;
+                return wrapMarks(token, n.marks);
             }
             if (n.type === 'hardBreak') return '\n';
             return '';
