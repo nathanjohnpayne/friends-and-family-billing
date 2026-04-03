@@ -102,6 +102,7 @@ export function buildNewYearData(familyMembers, bills, settings, yearId) {
         billingEvents: [],
         settings: {
             emailMessage: settings.emailMessage,
+            emailSubject: settings.emailSubject || '',
             paymentLinks: (settings.paymentLinks || []).map(l => ({...l})),
             paymentMethods: (settings.paymentMethods || []).map(m => ({...m}))
         }

@@ -76,7 +76,9 @@ describe('InvoicingTab', () => {
 
     it('shows template content in contenteditable editor', () => {
         renderTab();
-        const editor = screen.getByRole('textbox');
+        const editors = screen.getAllByRole('textbox');
+        // The contenteditable editor is the one with aria-multiline
+        const editor = editors.find(el => el.getAttribute('aria-multiline') === 'true');
         expect(editor).toBeInTheDocument();
         expect(editor.textContent).toContain('Household Total');
     });

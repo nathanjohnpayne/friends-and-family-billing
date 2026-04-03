@@ -40,9 +40,19 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
 
 /**
  * Build invoice email subject line.
+ * Supports an optional template with tokens: %billing_year%, %member_name%, %annual_total%.
+ * Falls back to a default subject when no template is provided.
  */
-export function buildInvoiceSubject(year, member) {
-    return 'Annual Billing Summary ' + year + '\u2014' + member.name;
+export function buildInvoiceSubject(year, member, template, ctx) {
+    if (!template) return 'Annual Billing Summary ' + year + '\u2014' + member.name;
+    let result = template
+        .replace(/%billing_year%/g, year)
+        .replace(/%member_name%/g, member.name);
+    if (ctx) {
+        const total = ctx.combinedTotal != null ? '$' + ctx.combinedTotal.toFixed(2) : '';
+        result = result.replace(/%annual_total%/g, total);
+    }
+    return result;
 }
 
 /**
