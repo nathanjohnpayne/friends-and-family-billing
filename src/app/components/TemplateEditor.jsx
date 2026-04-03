@@ -2,7 +2,7 @@
  * TemplateEditor — TipTap WYSIWYG body editor with token pills,
  * formatting toolbar, and slash-command autocomplete.
  */
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -171,6 +171,19 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
 
     // Expose the editor instance to the parent for chip-bar insertion
     useImperativeHandle(ref, () => editor, [editor]);
+
+    // Sync content when it changes externally (e.g., billing year switch)
+    const isInternalUpdate = useRef(false);
+    useEffect(() => {
+        if (editor && content && !isInternalUpdate.current) {
+            const currentJSON = JSON.stringify(editor.getJSON());
+            const newJSON = JSON.stringify(content);
+            if (currentJSON !== newJSON) {
+                editor.commands.setContent(content);
+            }
+        }
+        isInternalUpdate.current = false;
+    }, [editor, content]);
 
     if (!editor) return null;
 

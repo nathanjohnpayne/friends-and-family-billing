@@ -14,6 +14,8 @@
  */
 export function buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings) {
     const settingsForSave = Object.assign({}, settings);
+    // Strip transient migration flag — not user data
+    delete settingsForSave._templateMigrated;
     if (settingsForSave.paymentMethods) {
         settingsForSave.paymentMethods = settingsForSave.paymentMethods.map(m => {
             if (m.qrCode) {

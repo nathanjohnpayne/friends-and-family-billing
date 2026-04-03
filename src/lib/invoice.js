@@ -78,7 +78,6 @@ function buildInvoiceTemplatePreviewText(template, ctx) {
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%household_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%total\b/g, ctx.annualTotal)
         .replace(/%share_link%/g, ctx.shareLink || '');
 
     // Clean up markdown links with empty URLs: [text]() → remove entire construct
@@ -148,6 +147,14 @@ function formatPaymentOptionsMarkdown(settings) {
  * @param {Object} doc — ProseMirror JSON document ({ type: 'doc', content: [...] })
  * @returns {string}
  */
+/** Map legacy token IDs to normalized IDs for documents saved with old names. */
+const LEGACY_TOKEN_IDS = {
+    member_first: 'first_name',
+    member_last: 'last_name',
+    member_name: 'full_name',
+    annual_total: 'household_total',
+};
+
 export function docToPlainTextWithTokens(doc) {
     if (!doc || !doc.content) return '';
     const blocks = [];
@@ -155,8 +162,20 @@ export function docToPlainTextWithTokens(doc) {
     function textFromInline(nodes) {
         if (!nodes) return '';
         return nodes.map(n => {
-            if (n.type === 'text') return n.text || '';
-            if (n.type === 'templateToken') return '%' + (n.attrs?.id || '') + '%';
+            if (n.type === 'text') {
+                const text = n.text || '';
+                // Preserve link marks as markdown syntax
+                const linkMark = n.marks?.find(m => m.type === 'link');
+                if (linkMark && linkMark.attrs?.href) {
+                    return '[' + text + '](' + linkMark.attrs.href + ')';
+                }
+                return text;
+            }
+            if (n.type === 'templateToken') {
+                const rawId = n.attrs?.id || '';
+                const id = LEGACY_TOKEN_IDS[rawId] || rawId;
+                return '%' + id + '%';
+            }
             if (n.type === 'hardBreak') return '\n';
             return '';
         }).join('');

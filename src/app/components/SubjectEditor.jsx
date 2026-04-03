@@ -2,7 +2,7 @@
  * SubjectEditor — constrained single-line TipTap editor with token pills.
  * No rich formatting, no block tokens, no line breaks.
  */
-import { forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -156,6 +156,18 @@ const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, rea
     }, [readOnly]);
 
     useImperativeHandle(ref, () => editor, [editor]);
+
+    // Sync content when it changes externally (e.g., billing year switch)
+    const isInternalUpdate = useRef(false);
+    useEffect(() => {
+        if (editor && content !== undefined && !isInternalUpdate.current) {
+            const currentText = editor.getText();
+            if (currentText !== content) {
+                editor.commands.setContent(subjectStringToDoc(content));
+            }
+        }
+        isInternalUpdate.current = false;
+    }, [editor, content]);
 
     return (
         <div className="subject-editor-wrap">
