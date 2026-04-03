@@ -2479,6 +2479,12 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text-secondary, #5B6475);
 }
 
+.dispute-notified-hint {
+    font-size: 0.75rem;
+    color: var(--color-text-faint, #999);
+    font-style: italic;
+}
+
 /* ── Audit History ─────────────────────────────────────── */
 .audit-event-list {
     display: flex;

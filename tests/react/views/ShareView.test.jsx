@@ -395,12 +395,13 @@ describe('ShareView', () => {
     // 9. DisputeFormOverlay submits successfully
     // -----------------------------------------------------------------------
     describe('DisputeFormOverlay submission', () => {
-        it('calls addDoc with correct fields and shows success message', async () => {
+        it('POSTs to /submitDispute with correct fields and shows success message', async () => {
             const user = userEvent.setup();
             setToken('abc123');
             mockPublicSharesHit();
-            mockCollection.mockReturnValue('disputes-col');
-            mockAddDoc.mockResolvedValue({ id: 'new-dispute' });
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({ ok: true, json: async () => sampleShareData }) // resolveShareToken fallback (not used when publicShares hit)
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'new-dispute' }) }); // submitDispute
 
             render(<ShareView />);
 
@@ -421,20 +422,22 @@ describe('ShareView', () => {
             const correctionInput = screen.getByPlaceholderText(/Should be/);
             await user.type(correctionInput, '$10/mo instead');
 
+            // Set up fetch mock for the submitDispute call
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'new-dispute' }) });
+
             await user.click(screen.getByRole('button', { name: 'Submit' }));
 
             await waitFor(() => {
-                expect(mockAddDoc).toHaveBeenCalledWith('disputes-col', expect.objectContaining({
-                    memberId: 'member456',
-                    memberName: 'Alice',
-                    billId: 'b1',
-                    billName: 'Netflix',
-                    message: 'The amount is incorrect',
-                    proposedCorrection: '$10/mo instead',
-                    status: 'open',
-                    createdAt: 'SERVER_TIMESTAMP',
-                    tokenHash: 'hashed_abc123'
+                expect(global.fetch).toHaveBeenCalledWith('/submitDispute', expect.objectContaining({
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
                 }));
+                const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+                expect(body.token).toBe('abc123');
+                expect(body.billId).toBe('b1');
+                expect(body.billName).toBe('Netflix');
+                expect(body.message).toBe('The amount is incorrect');
+                expect(body.proposedCorrection).toBe('$10/mo instead');
             });
 
             // Should show success message
@@ -697,11 +700,10 @@ describe('ShareView', () => {
             expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
         });
 
-        it('clicking Approve calls updateDoc and shows approved message', async () => {
+        it('clicking Approve POSTs to /submitDisputeDecision and shows approved message', async () => {
             setToken('abc123');
             const data = makeShareDataWithRequestedReview();
             mockPublicSharesHit(data);
-            mockUpdateDoc.mockResolvedValue();
 
             render(<ShareView />);
 
@@ -709,16 +711,22 @@ describe('ShareView', () => {
                 expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
             });
 
+            // Set up fetch mock for the submitDisputeDecision call
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: 'Decision recorded successfully.' }) });
+
             fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
 
             await waitFor(() => {
                 expect(screen.getByText('You approved this resolution.')).toBeInTheDocument();
             });
-            expect(mockUpdateDoc).toHaveBeenCalled();
-            const lastCall = mockUpdateDoc.mock.calls[mockUpdateDoc.mock.calls.length - 1];
-            const updatePayload = lastCall[1];
-            expect(updatePayload.status).toBe('resolved');
-            expect(updatePayload.userReview.state).toBe('approved_by_user');
+            expect(global.fetch).toHaveBeenCalledWith('/submitDisputeDecision', expect.objectContaining({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }));
+            const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+            expect(body.token).toBe('abc123');
+            expect(body.decision).toBe('approve');
+            expect(body.disputeId).toBe('disp-action');
         });
 
         it('does not show buttons when userReview.state is approved_by_user', async () => {
