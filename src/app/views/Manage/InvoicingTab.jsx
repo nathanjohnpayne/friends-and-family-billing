@@ -2,7 +2,7 @@
  * InvoicingTab — TipTap WYSIWYG email template editor with tabbed
  * Edit/Preview layout, token pills, and payment methods manager.
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { queueEmail } from '../../../lib/mail.js';
@@ -63,18 +63,22 @@ export default function InvoicingTab() {
 
 // ── Email Template Editor ───────────────────────────────────────────
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
-    // Initialize body document from TipTap JSON or legacy plaintext
-    const initialDoc = settings.emailMessageDocument
+function deriveBodyDoc(settings) {
+    return settings.emailMessageDocument
         ? settings.emailMessageDocument
         : plainTextToDoc(settings.emailMessage || '');
-    const initialText = settings.emailMessageDocument
+}
+
+function deriveBodyText(settings) {
+    return settings.emailMessageDocument
         ? docToPlainTextWithTokens(settings.emailMessageDocument)
         : (settings.emailMessage || '');
+}
 
+function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
     const [activeTab, setActiveTab] = useState('edit');
-    const [bodyDoc, setBodyDoc] = useState(initialDoc);
-    const [bodyText, setBodyText] = useState(initialText);
+    const [bodyDoc, setBodyDoc] = useState(() => deriveBodyDoc(settings));
+    const [bodyText, setBodyText] = useState(() => deriveBodyText(settings));
     const [subjectText, setSubjectText] = useState(settings.emailSubject || '');
     const [dirty, setDirty] = useState(false);
     const [savedFlash, setSavedFlash] = useState(false);
@@ -93,9 +97,28 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     const bodyEditorRef = useRef(null);
     const subjectEditorRef = useRef(null);
 
-    function handleBodyUpdate(json, text) {
+    // Resync local state when the billing year changes (route stays mounted)
+    const lastYearId = useRef(billingYearId);
+    useEffect(() => {
+        if (billingYearId !== lastYearId.current) {
+            lastYearId.current = billingYearId;
+            const newDoc = deriveBodyDoc(settings);
+            const newText = deriveBodyText(settings);
+            setBodyDoc(newDoc);
+            setBodyText(newText);
+            setSubjectText(settings.emailSubject || '');
+            setPreviewShareUrl(settings.invoiceShareUrl || '');
+            setPreviewMemberId(familyMembers.length > 0 ? familyMembers[0].id : null);
+            setDirty(false);
+            setSavedFlash(false);
+        }
+    }, [billingYearId, settings, familyMembers]);
+
+    function handleBodyUpdate(json) {
         setBodyDoc(json);
-        setBodyText(text);
+        // Derive plaintext fallback from JSON — editor.getText() has wrong
+        // spacing around block nodes and drops list markers.
+        setBodyText(docToPlainTextWithTokens(json));
         setDirty(true);
     }
 
@@ -146,10 +169,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     }
 
     async function handleGeneratePreviewLink() {
-        if (!userId || !billingYearId || familyMembers.length === 0) return;
+        const member = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
+        if (!userId || !billingYearId || !member) return;
         setGeneratingLink(true);
         try {
-            const member = familyMembers[0];
             const rawToken = generateRawToken();
             const tokenHash = await hashToken(rawToken);
             const scopes = buildShareScopes(true, true);
@@ -434,11 +457,11 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                 </div>
             )}
 
-            {shareLinkDialog && familyMembers.length > 0 && (
+            {shareLinkDialog && previewMember && (
                 <ShareLinkDialog
                     open
-                    memberId={familyMembers[0].id}
-                    memberName={familyMembers[0].name}
+                    memberId={previewMember.id}
+                    memberName={previewMember.name}
                     userId={userId}
                     billingYearId={billingYearId}
                     yearLabel={activeYear ? (activeYear.label || activeYear.id) : ''}

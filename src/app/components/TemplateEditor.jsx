@@ -149,7 +149,7 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
         content: content || undefined,
         editable: !readOnly,
         onUpdate({ editor: ed }) {
-            if (onUpdate) onUpdate(ed.getJSON(), ed.getText());
+            if (onUpdate) onUpdate(ed.getJSON());
         },
         editorProps: {
             handlePaste(view, event) {
