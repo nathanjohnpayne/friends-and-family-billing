@@ -1958,13 +1958,154 @@ img, svg { display: block; max-width: 100%; }
     user-select: none;
 }
 
-/* Legacy textarea fallback (kept for compatibility) */
-.template-editor-textarea {
-    font-family: monospace;
-    font-size: 0.85rem;
-    line-height: 1.6;
-    min-height: 100px;
-    resize: vertical;
+/* ── Tab Bar (Edit/Preview) ──────────────────────────── */
+
+.invoicing-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2, 8px);
+}
+
+.template-tab-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1, 4px);
+}
+
+.template-tab {
+    padding: var(--space-1, 4px) var(--space-3, 16px);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 999px;
+    background: var(--color-surface, #ffffff);
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.template-tab:hover {
+    background: rgba(110, 120, 214, 0.06);
+}
+
+.template-tab--active {
+    background: var(--color-primary, #6E78D6);
+    color: var(--color-text-inverse, #ffffff);
+    border-color: var(--color-primary, #6E78D6);
+}
+
+.template-dirty-indicator {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-warning-fg, #B58A00);
+    margin-left: var(--space-2, 8px);
+}
+
+/* ── Sticky Save Bar ─────────────────────────────────── */
+
+.template-save-bar {
+    position: sticky;
+    bottom: 0;
+    padding: 12px 0;
+    margin-top: var(--space-3, 12px);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--color-border-light, #f0f0f0);
+    z-index: 1;
+}
+
+/* ── Subject Field Group ─────────────────────────────── */
+
+.subject-field-group {
+    margin-bottom: var(--space-4, 24px);
+}
+
+/* ── Invoicing Hint Variants ─────────────────────────── */
+
+.invoicing-hint--compact {
+    font-size: 0.82rem;
+    margin-bottom: var(--space-2, 8px);
+}
+
+.invoicing-hint--small {
+    font-size: 0.78rem;
+    margin-top: var(--space-1, 4px);
+}
+
+.invoicing-hint--dialog {
+    margin: 0 24px 8px;
+}
+
+.invoicing-loading {
+    color: var(--color-text-secondary, #5B6475);
+}
+
+/* ── Preview Member Selector ─────────────────────────── */
+
+.preview-member-selector {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.preview-member-selector label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.preview-member-selector select {
+    font-size: 0.82rem;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+    background: var(--color-surface, #ffffff);
+}
+
+/* ── Preview Metadata Grid ───────────────────────────── */
+
+.invoice-preview-meta-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    font-size: 0.78rem;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.invoice-preview-meta-grid .invoice-preview-meta-label {
+    color: var(--color-text-secondary, #5B6475);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.7rem;
+    align-self: center;
+}
+
+/* ── Preview Link Actions ────────────────────────────── */
+
+.preview-link-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--color-primary, #6E78D6);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+}
+
+.btn-link:hover {
+    color: var(--color-primary-hover, #5A64C4);
 }
 
 /* ── Invoice Template Preview ─────────────────────────── */

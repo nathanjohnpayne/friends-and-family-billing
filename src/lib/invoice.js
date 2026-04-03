@@ -49,12 +49,16 @@ export function buildInvoiceSubject(year, member, template, ctx) {
     const nameParts = (member.name || '').split(' ');
     let result = template
         .replace(/%member_first%/g, nameParts[0] || '')
+        .replace(/%first_name%/g, nameParts[0] || '')
         .replace(/%member_last%/g, nameParts.slice(1).join(' ') || '')
+        .replace(/%last_name%/g, nameParts.slice(1).join(' ') || '')
         .replace(/%member_name%/g, member.name)
+        .replace(/%full_name%/g, member.name)
         .replace(/%billing_year%/g, year);
     if (ctx) {
         const total = ctx.combinedTotal != null ? '$' + ctx.combinedTotal.toFixed(2) : '';
         result = result.replace(/%annual_total%/g, total);
+        result = result.replace(/%household_total%/g, total);
     }
     return result;
 }
@@ -65,12 +69,15 @@ export function buildInvoiceSubject(year, member, template, ctx) {
 function buildInvoiceTemplatePreviewText(template, ctx) {
     let result = String(template || '')
         .replace(/%member_first%/g, ctx.memberFirst || '')
+        .replace(/%first_name%/g, ctx.memberFirst || '')
         .replace(/%member_last%/g, ctx.memberLast || '')
+        .replace(/%last_name%/g, ctx.memberLast || '')
         .replace(/%member_name%/g, ctx.memberName || '')
+        .replace(/%full_name%/g, ctx.memberName || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
+        .replace(/%household_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%total\b/g, ctx.annualTotal)
         .replace(/%share_link%/g, ctx.shareLink || '');
 
     // Clean up markdown links with empty URLs: [text]() → remove entire construct
@@ -134,13 +141,190 @@ function formatPaymentOptionsMarkdown(settings) {
 }
 
 /**
+ * Convert a ProseMirror JSON document to plain text with %token% markers.
+ * Walks the node tree produced by TipTap and emits the same token-bearing
+ * string that the legacy template pipeline expects.
+ * @param {Object} doc — ProseMirror JSON document ({ type: 'doc', content: [...] })
+ * @returns {string}
+ */
+/** Map legacy token IDs to normalized IDs for documents saved with old names. */
+const LEGACY_TOKEN_IDS = {
+    member_first: 'first_name',
+    member_last: 'last_name',
+    member_name: 'full_name',
+    annual_total: 'household_total',
+};
+
+export function docToPlainTextWithTokens(doc) {
+    if (!doc || !doc.content) return '';
+    const blocks = [];
+
+    function textFromInline(nodes) {
+        if (!nodes) return '';
+        return nodes.map(n => {
+            if (n.type === 'text') {
+                const text = n.text || '';
+                // Preserve link marks as markdown syntax
+                const linkMark = n.marks?.find(m => m.type === 'link');
+                if (linkMark && linkMark.attrs?.href) {
+                    return '[' + text + '](' + linkMark.attrs.href + ')';
+                }
+                return text;
+            }
+            if (n.type === 'templateToken') {
+                const rawId = n.attrs?.id || '';
+                const id = LEGACY_TOKEN_IDS[rawId] || rawId;
+                return '%' + id + '%';
+            }
+            if (n.type === 'hardBreak') return '\n';
+            return '';
+        }).join('');
+    }
+
+    function walkBlock(node) {
+        if (!node) return;
+        switch (node.type) {
+            case 'paragraph':
+                blocks.push(textFromInline(node.content));
+                break;
+            case 'blockToken':
+                blocks.push('%' + (node.attrs?.id || '') + '%');
+                break;
+            case 'bulletList':
+            case 'orderedList': {
+                const items = node.content || [];
+                items.forEach((item, i) => {
+                    const prefix = node.type === 'orderedList' ? (i + 1) + '. ' : '- ';
+                    const itemText = (item.content || []).map(p => textFromInline(p.content)).join('\n');
+                    blocks.push(prefix + itemText);
+                });
+                break;
+            }
+            case 'horizontalRule':
+                blocks.push('---');
+                break;
+            case 'blockquote':
+                (node.content || []).forEach(child => {
+                    const text = textFromInline(child.content);
+                    blocks.push('> ' + text);
+                });
+                break;
+            default:
+                if (node.content) node.content.forEach(walkBlock);
+                break;
+        }
+    }
+
+    doc.content.forEach(walkBlock);
+    return blocks.join('\n');
+}
+
+/**
+ * Convert a legacy plain-text template with %token% patterns to ProseMirror JSON.
+ * Best-effort migration: splits on newlines, recognizes tokens, converts bold
+ * and link markdown, and handles block tokens on their own lines.
+ * @param {string} text — legacy template text
+ * @returns {Object} — ProseMirror JSON document
+ */
+export function plainTextToDoc(text) {
+    if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
+
+    const tokenPattern = /%([a-z_]+)%/g;
+    const blockTokenIds = new Set(['payment_methods', 'share_link']);
+    const tokenLabels = {
+        first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
+        billing_year: 'Billing Year', household_total: 'Household Total',
+        payment_methods: 'Payment Methods', share_link: 'Share Link',
+        // Legacy aliases
+        member_first: 'First Name', member_last: 'Last Name',
+        member_name: 'Full Name', annual_total: 'Household Total',
+    };
+
+    const lines = text.split('\n');
+    const content = [];
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        // Horizontal rule
+        if (/^---+$/.test(trimmed)) {
+            content.push({ type: 'horizontalRule' });
+            continue;
+        }
+
+        // Standalone block token on its own line
+        tokenPattern.lastIndex = 0;
+        const soloMatch = trimmed.match(/^%([a-z_]+)%$/);
+        if (soloMatch && blockTokenIds.has(soloMatch[1])) {
+            const id = soloMatch[1];
+            content.push({
+                type: 'blockToken',
+                attrs: {
+                    id,
+                    label: tokenLabels[id] || id,
+                    description: id === 'payment_methods'
+                        ? 'Expands into your configured payment options.'
+                        : 'Expands into the member\u2019s share link.',
+                },
+            });
+            continue;
+        }
+
+        // Empty line → empty paragraph
+        if (trimmed === '') {
+            content.push({ type: 'paragraph' });
+            continue;
+        }
+
+        // Regular paragraph with inline tokens
+        const nodes = [];
+        let lastIdx = 0;
+        tokenPattern.lastIndex = 0;
+        let match;
+
+        while ((match = tokenPattern.exec(line)) !== null) {
+            const before = line.slice(lastIdx, match.index);
+            if (before) nodes.push({ type: 'text', text: before });
+            const tokenId = match[1];
+            if (tokenLabels[tokenId]) {
+                // Map legacy token IDs to new IDs
+                const normalizedId = tokenId === 'member_first' ? 'first_name'
+                    : tokenId === 'member_last' ? 'last_name'
+                    : tokenId === 'member_name' ? 'full_name'
+                    : tokenId === 'annual_total' ? 'household_total'
+                    : tokenId;
+                nodes.push({
+                    type: 'templateToken',
+                    attrs: { id: normalizedId, label: tokenLabels[tokenId] },
+                });
+            } else {
+                nodes.push({ type: 'text', text: match[0] });
+            }
+            lastIdx = match.index + match[0].length;
+        }
+        const remaining = line.slice(lastIdx);
+        if (remaining) nodes.push({ type: 'text', text: remaining });
+
+        content.push({ type: 'paragraph', content: nodes.length > 0 ? nodes : undefined });
+    }
+
+    return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] };
+}
+
+/**
  * Build the configured invoice message from template + context.
+ * Supports both legacy plain-text templates and TipTap JSON documents.
  * @param {Object} ctx
  * @param {string} shareUrl
  * @param {{ markdown?: boolean }} options — when true, use markdown-formatted payment methods
  */
 function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
-    const template = (ctx.settings && ctx.settings.emailMessage) || '';
+    let template;
+    if (ctx.settings && ctx.settings.emailMessageDocument) {
+        template = docToPlainTextWithTokens(ctx.settings.emailMessageDocument);
+    } else {
+        template = (ctx.settings && ctx.settings.emailMessage) || '';
+    }
     const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
     const nameParts = (ctx.member.name || '').split(' ');
     let result = buildInvoiceTemplatePreviewText(template, {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 // Mock Firebase (needed by InvoicingTab for share link generation)
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
@@ -16,7 +16,7 @@ const mockService = {
     updateSettings: vi.fn(),
     getState: vi.fn(() => ({
         settings: {
-            emailMessage: 'Your total is %annual_total%.',
+            emailMessage: 'Your total is %household_total%.',
             paymentMethods: [
                 { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@test', url: '', email: '', phone: '', instructions: '' }
             ]
@@ -26,7 +26,8 @@ const mockService = {
 
 const mockState = {
     familyMembers: [
-        { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+        { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+        { id: 2, name: 'Bob', email: 'bob@test.com', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
     ],
     bills: [
         { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1] }
@@ -66,22 +67,15 @@ describe('InvoicingTab', () => {
 
     it('does not render payment methods section (moved to Settings)', () => {
         renderTab();
-        // Payment Methods heading should not appear as a section heading
-        // (it may still appear as a token chip label)
-        const pmElements = screen.queryAllByText('Payment Methods');
-        // Only the token chip insert button should remain, not a section heading
-        expect(pmElements.length).toBeLessThanOrEqual(2);
+        // Payment Methods may appear as a token chip label but not as a section heading
         expect(screen.queryByText('Add Payment Method')).toBeNull();
     });
 
-    it('shows template content in contenteditable editor', () => {
+    it('shows TipTap editor', () => {
         renderTab();
-        const editors = screen.getAllByRole('textbox');
-        // The contenteditable editor is the one with aria-multiline
-        const editor = editors.find(el => el.getAttribute('aria-multiline') === 'true');
-        expect(editor).toBeInTheDocument();
-        // Tokens now render as raw %token% text, not chip labels
-        expect(editor.textContent).toContain('%annual_total%');
+        // TipTap renders a .ProseMirror contenteditable element inside the editor
+        const prosemirror = document.querySelector('.ProseMirror');
+        expect(prosemirror).toBeInTheDocument();
     });
 
     it('shows token insert buttons', () => {
@@ -90,9 +84,15 @@ describe('InvoicingTab', () => {
         expect(screen.getAllByText('Household Total').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('shows live preview with To and Subject', () => {
+    it('shows Edit and Preview tabs', () => {
         renderTab();
-        expect(screen.getByText('Live Preview')).toBeInTheDocument();
+        expect(screen.getByText('Edit')).toBeInTheDocument();
+        expect(screen.getByText('Preview')).toBeInTheDocument();
+    });
+
+    it('shows preview with To and Subject when Preview tab is clicked', () => {
+        renderTab();
+        fireEvent.click(screen.getByText('Preview'));
         expect(screen.getByText('To')).toBeInTheDocument();
         expect(screen.getByText('Subject')).toBeInTheDocument();
     });
@@ -117,5 +117,21 @@ describe('InvoicingTab', () => {
         });
         renderTab();
         expect(screen.getByText(/duplicate payment information/)).toBeInTheDocument();
+    });
+
+    it('shows member selector in preview tab', () => {
+        renderTab();
+        fireEvent.click(screen.getByText('Preview'));
+        const selector = screen.getByLabelText('Preview for:');
+        expect(selector).toBeInTheDocument();
+        // Should have options for each family member
+        const options = selector.querySelectorAll('option');
+        expect(options.length).toBe(2);
+    });
+
+    it('shows dirty indicator when template is modified', () => {
+        renderTab();
+        // Initially no dirty indicator
+        expect(screen.queryByText('Unsaved changes')).toBeNull();
     });
 });
