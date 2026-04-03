@@ -254,6 +254,33 @@ describe('docToPlainTextWithTokens', () => {
         expect(docToPlainTextWithTokens(null)).toBe('');
         expect(docToPlainTextWithTokens(undefined)).toBe('');
     });
+
+    it('preserves bold marks on tokens as **%token%**', () => {
+        const doc = {
+            type: 'doc',
+            content: [{
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: 'Total: ' },
+                    { type: 'templateToken', attrs: { id: 'household_total' }, marks: [{ type: 'bold' }] },
+                ]
+            }]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('Total: **%household_total%**');
+    });
+
+    it('does not add ** for non-bold tokens', () => {
+        const doc = {
+            type: 'doc',
+            content: [{
+                type: 'paragraph',
+                content: [
+                    { type: 'templateToken', attrs: { id: 'first_name' } },
+                ]
+            }]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('%first_name%');
+    });
 });
 
 describe('plainTextToDoc', () => {
@@ -297,6 +324,43 @@ describe('plainTextToDoc', () => {
         const doc = plainTextToDoc('');
         expect(doc.content.length).toBe(1);
         expect(doc.content[0].type).toBe('paragraph');
+    });
+
+    it('converts **%token%** to bold-marked token node', () => {
+        const doc = plainTextToDoc('Total: **%household_total%**');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('Total: ');
+        const token = para.content[1];
+        expect(token.type).toBe('templateToken');
+        expect(token.attrs.id).toBe('household_total');
+        expect(token.marks).toEqual([{ type: 'bold' }]);
+    });
+
+    it('does not swallow one-sided ** around tokens', () => {
+        const doc = plainTextToDoc('**Hello %first_name%**');
+        const para = doc.content[0];
+        // The ** before Hello is prose text, not consumed by the token
+        expect(para.content[0].text).toBe('**Hello ');
+        // The token is plain (no bold) because ** is only on the right side of it
+        const token = para.content[1];
+        expect(token.type).toBe('templateToken');
+        expect(token.marks).toBeUndefined();
+        // The trailing ** is left as literal text
+        expect(para.content[2].text).toBe('**');
+    });
+
+    it('round-trips bold tokens through plainTextToDoc and docToPlainTextWithTokens', () => {
+        const input = 'Your total is **%household_total%**.';
+        const doc = plainTextToDoc(input);
+        const output = docToPlainTextWithTokens(doc);
+        expect(output).toBe(input);
+    });
+
+    it('round-trips plain tokens through plainTextToDoc and docToPlainTextWithTokens', () => {
+        const input = 'Hello %first_name%, your bill is ready.';
+        const doc = plainTextToDoc(input);
+        const output = docToPlainTextWithTokens(doc);
+        expect(output).toBe(input);
     });
 });
 
