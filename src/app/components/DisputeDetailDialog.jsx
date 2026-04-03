@@ -20,12 +20,26 @@ function isTerminal(status) {
  * Build a member notification email for dispute status changes.
  * Used by both the automated send (Notification 2) and the manual resend button.
  */
-function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNote, yearLabel) {
+/**
+ * @param {Object} dispute
+ * @param {Object} member — { name, email }
+ * @param {string} statusWord — 'resolved', 'rejected', or 'under review'
+ * @param {string} resolutionNote
+ * @param {string} yearLabel
+ * @param {boolean} [userReviewRequested] — true when userReview.state === 'requested'
+ */
+function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNote, yearLabel, userReviewRequested) {
     const subject = 'Your Review Request Update\u2014' + dispute.billName + (yearLabel ? ' (' + yearLabel + ')' : '');
     let body = 'Hi ' + (member.name || 'there') + ',\n\n';
     body += 'Your review request for **' + dispute.billName + '** has been marked **' + statusWord + '**.\n\n';
     if (resolutionNote) body += '**Resolution note:** ' + resolutionNote + '\n\n';
     if (dispute.proposedCorrection) body += '**Your suggestion:** ' + dispute.proposedCorrection + '\n\n';
+    const terminal = statusWord === 'resolved' || statusWord === 'rejected';
+    if (terminal && userReviewRequested) {
+        body += 'Please review this resolution and approve or reject it using your billing share link. If you no longer have the link, contact the account owner.\n\n';
+    } else if (terminal) {
+        body += 'This is the final resolution. ';
+    }
     body += 'If you have questions, please reach out.\n\nThanks!';
     return { subject, body };
 }
@@ -85,7 +99,8 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
         if (notifyMember && notifyMember.email) {
             const statusWord = newStatus === 'resolved' ? 'resolved' : newStatus === 'rejected' ? 'rejected' : 'under review';
             const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
-            const { subject: nSubject, body: nBody } = buildMemberNotificationEmail(dispute, notifyMember, statusWord, resolutionNote.trim(), yearLabel);
+            const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
+            const { subject: nSubject, body: nBody } = buildMemberNotificationEmail(dispute, notifyMember, statusWord, resolutionNote.trim(), yearLabel, reviewRequested);
             const terminal = isTerminal(newStatus);
             queueEmail({ to: notifyMember.email, subject: nSubject, body: nBody, uid: user ? user.uid : '' })
                 .then(() => {
@@ -260,8 +275,9 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                 {terminal && dispute.resolutionNote && (() => {
                     const member = (familyMembers || []).find(m => m.id === dispute.memberId);
                     const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
-                    const statusWord = dispute.status === 'resolved' ? 'resolved' : 'reviewed';
-                    const { subject: resSubject, body: resBody } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel);
+                    const statusWord = dispute.status === 'resolved' ? 'resolved' : 'rejected';
+                    const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
+                    const { subject: resSubject, body: resBody } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested);
                     const notifiedAt = dispute.resolutionNotificationSentAt;
                     const notifiedDate = notifiedAt ? new Date(notifiedAt).toLocaleDateString() : null;
 

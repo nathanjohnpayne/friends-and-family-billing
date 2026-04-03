@@ -54,19 +54,22 @@ function appendAuditLog(ownerId, entry) {
 
 const APP_ORIGIN = "https://friends-and-family-billing.web.app";
 
-/** Fire-and-forget email queue write. Logs errors, never throws. */
-function queueEmailFromFunction(to, subject, body, uid) {
-  return db
-    .collection("mailQueue")
-    .add({
-      to,
-      subject,
-      body,
-      uid,
-      status: "pending",
-      createdAt: FieldValue.serverTimestamp(),
-    })
-    .catch((err) => console.error("queueEmailFromFunction failed:", err));
+/** Enqueue an email via Firestore mailQueue. Logs errors, never throws. Must be awaited in HTTP functions. */
+async function queueEmailFromFunction(to, subject, body, uid) {
+  try {
+    await db
+      .collection("mailQueue")
+      .add({
+        to,
+        subject,
+        body,
+        uid,
+        status: "pending",
+        createdAt: FieldValue.serverTimestamp(),
+      });
+  } catch (err) {
+    console.error("queueEmailFromFunction failed:", err);
+  }
 }
 
 /** Look up a family member's contact info from the billing year doc. */
@@ -473,7 +476,7 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
         nBody += "**Message:** " + message.trim() + "\n";
         if (proposedCorrection) nBody += "**Proposed correction:** " + proposedCorrection.trim() + "\n";
         nBody += "\n[View Review Requests](" + APP_ORIGIN + "/app/manage/reviews)";
-        queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+        await queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
       }
     } catch (emailErr) {
       console.error("Notification 1 (dispute submitted) failed:", emailErr);
@@ -699,7 +702,7 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
           nBody += "The dispute has been reopened.\n\n";
         }
         nBody += "[View Review Requests](" + APP_ORIGIN + "/app/manage/reviews)";
-        queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+        await queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
       }
     } catch (emailErr) {
       console.error("Notification 3 (user decision) failed:", emailErr);
@@ -721,7 +724,7 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
             nBody += "Use your existing billing share link or contact the account owner.\n\n";
           }
           nBody += "The account owner will follow up with you.";
-          queueEmailFromFunction(memberInfo.email, nSubject, nBody, tokenData.ownerId);
+          await queueEmailFromFunction(memberInfo.email, nSubject, nBody, tokenData.ownerId);
         }
       } catch (emailErr) {
         console.error("Notification 4 (reopened) failed:", emailErr);
