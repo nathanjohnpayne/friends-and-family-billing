@@ -58,6 +58,16 @@ Covers the dispute (review request) lifecycle: loading, creating, updating, reso
 - Evidence view: clicking "View" on evidence with storagePath resolves via `getDownloadURL` and opens in a new tab.
 - Note error is cleared on typing.
 
+### Email Notifications
+
+- When a member submits a dispute from the share page, the admin receives an email with the bill name, member name, message, and a link to the Reviews tab.
+- When the admin changes a dispute's status (In Review, Resolved, Rejected), the member receives an email with the new status and resolution note.
+- When a member approves or rejects the admin's resolution, the admin receives an email with the decision and any rejection note.
+- When a member rejects a resolution (reopening the dispute), they receive a confirmation email with their rejection note and (if available) a link to their share page.
+- Automated terminal status emails write `resolutionNotificationSentAt` to the dispute. The manual Email button shows "Re-send Email" with a hint when this field is present.
+- Email failures never block the primary action (dispute submission, status change, or user decision).
+- The share page submits disputes and records member decisions via the `/submitDispute` and `/submitDisputeDecision` Cloud Functions (not direct Firestore writes).
+
 ### ReviewsTab View
 
 - Renders dispute count in the header ("Review Requests (3)").

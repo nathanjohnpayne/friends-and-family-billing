@@ -4,6 +4,7 @@ const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { getStorage } = require("firebase-admin/storage");
+const { getAuth } = require("firebase-admin/auth");
 const crypto = require("crypto");
 
 const resendApiKey = defineSecret("RESEND_API_KEY");
@@ -49,6 +50,74 @@ function appendAuditLog(ownerId, entry) {
       timestamp: FieldValue.serverTimestamp(),
     })
     .catch((err) => console.error("Audit log write failed:", err));
+}
+
+const APP_ORIGIN = "https://friends-and-family-billing.web.app";
+
+/** Fire-and-forget email queue write. Logs errors, never throws. */
+function queueEmailFromFunction(to, subject, body, uid) {
+  return db
+    .collection("mailQueue")
+    .add({
+      to,
+      subject,
+      body,
+      uid,
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    .catch((err) => console.error("queueEmailFromFunction failed:", err));
+}
+
+/** Look up a family member's contact info from the billing year doc. */
+async function getMemberContact(ownerId, billingYearId, memberId) {
+  try {
+    const yearDoc = await db
+      .collection("users")
+      .doc(ownerId)
+      .collection("billingYears")
+      .doc(billingYearId)
+      .get();
+    if (!yearDoc.exists) return null;
+    const members = yearDoc.data().familyMembers || [];
+    const member = members.find((m) => m.id === memberId);
+    return member ? { name: member.name, email: member.email || null } : null;
+  } catch (err) {
+    console.error("getMemberContact failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Find an active share token with disputes:read scope for a specific billing year + member.
+ * Returns the rawToken string if found, null otherwise.
+ */
+async function findActiveDisputeShareToken(ownerId, billingYearId, memberId) {
+  try {
+    const snap = await db
+      .collection("shareTokens")
+      .where("ownerId", "==", ownerId)
+      .where("memberId", "==", memberId)
+      .where("revoked", "==", false)
+      .get();
+    const now = new Date();
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (!data.rawToken) continue;
+      if (data.billingYearId !== billingYearId) continue;
+      const scopes = data.scopes || [];
+      if (!scopes.includes("disputes:read")) continue;
+      if (data.expiresAt) {
+        const expiry = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
+        if (expiry < now) continue;
+      }
+      return data.rawToken;
+    }
+    return null;
+  } catch (err) {
+    console.error("findActiveDisputeShareToken failed:", err);
+    return null;
+  }
 }
 
 exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res) => {
@@ -395,6 +464,21 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
       ip: req.ip || null,
     });
 
+    // Notification 1: email admin that a new dispute was submitted
+    try {
+      const adminUser = await getAuth().getUser(tokenData.ownerId);
+      if (adminUser.email) {
+        const nSubject = "Review Request\u2014" + billName.trim() + " from " + (tokenData.memberName || "a member");
+        let nBody = "**" + (tokenData.memberName || "A member") + "** submitted a review request for **" + billName.trim() + "**.\n\n";
+        nBody += "**Message:** " + message.trim() + "\n";
+        if (proposedCorrection) nBody += "**Proposed correction:** " + proposedCorrection.trim() + "\n";
+        nBody += "\n[View Review Requests](" + APP_ORIGIN + "/app/manage/reviews)";
+        queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+      }
+    } catch (emailErr) {
+      console.error("Notification 1 (dispute submitted) failed:", emailErr);
+    }
+
     res.status(201).json({ id: docRef.id, message: "Review request submitted successfully." });
   } catch (err) {
     console.error("submitDispute error:", err);
@@ -590,6 +674,7 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
         "userReview.state": "rejected_by_user",
         "userReview.rejectionNote": note.trim(),
         "userReview.decidedAt": FieldValue.serverTimestamp(),
+        resolutionNotificationSentAt: FieldValue.delete(),
       });
     }
 
@@ -601,6 +686,47 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
       billingYearId: tokenData.billingYearId,
       ip: req.ip || null,
     });
+
+    // Notification 3: email admin with the member's decision
+    try {
+      const adminUser = await getAuth().getUser(tokenData.ownerId);
+      if (adminUser.email) {
+        const decisionWord = decision === "approve" ? "Approved" : "Rejected";
+        const nSubject = "Resolution " + decisionWord + "\u2014" + disputeData.billName + " by " + (tokenData.memberName || "member");
+        let nBody = "**" + (tokenData.memberName || "The member") + "** has **" + decisionWord.toLowerCase() + "** the resolution for **" + disputeData.billName + "**.\n\n";
+        if (decision === "reject" && note) {
+          nBody += "**Rejection note:** " + note.trim() + "\n\n";
+          nBody += "The dispute has been reopened.\n\n";
+        }
+        nBody += "[View Review Requests](" + APP_ORIGIN + "/app/manage/reviews)";
+        queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+      }
+    } catch (emailErr) {
+      console.error("Notification 3 (user decision) failed:", emailErr);
+    }
+
+    // Notification 4: on reject, confirm to member that dispute is reopened
+    if (decision === "reject") {
+      try {
+        const memberInfo = await getMemberContact(tokenData.ownerId, tokenData.billingYearId, tokenData.memberId);
+        if (memberInfo && memberInfo.email) {
+          const nSubject = "Review Request Reopened\u2014" + disputeData.billName;
+          let nBody = "Hi " + memberInfo.name + ",\n\n";
+          nBody += "You rejected the proposed resolution for **" + disputeData.billName + "**, so it has been reopened for further review.\n\n";
+          nBody += "**Your note:** " + note.trim() + "\n\n";
+          const rawToken = await findActiveDisputeShareToken(tokenData.ownerId, tokenData.billingYearId, tokenData.memberId);
+          if (rawToken) {
+            nBody += "[View your billing summary](" + APP_ORIGIN + "/share.html?token=" + rawToken + ")\n\n";
+          } else {
+            nBody += "Use your existing billing share link or contact the account owner.\n\n";
+          }
+          nBody += "The account owner will follow up with you.";
+          queueEmailFromFunction(memberInfo.email, nSubject, nBody, tokenData.ownerId);
+        }
+      } catch (emailErr) {
+        console.error("Notification 4 (reopened) failed:", emailErr);
+      }
+    }
 
     res.status(200).json({ message: "Decision recorded successfully." });
   } catch (err) {

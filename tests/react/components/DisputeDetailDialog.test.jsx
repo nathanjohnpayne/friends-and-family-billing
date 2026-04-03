@@ -14,7 +14,8 @@ vi.mock('../../../src/lib/sms.js', () => ({
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
 }));
-vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(() => Promise.resolve({ id: 'test' })) }));
+const mockQueueEmail = vi.fn(() => Promise.resolve({ id: 'test' }));
+vi.mock('@/lib/mail.js', () => ({ queueEmail: (...args) => mockQueueEmail(...args) }));
 
 const defaultProps = {
     open: true,
@@ -432,6 +433,126 @@ describe('DisputeDetailDialog', () => {
 
             expect(defaultProps.onStatusChange).not.toHaveBeenCalled();
             expect(defaultProps.onClose).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('auto-notification on status change (Notification 2)', () => {
+        it('sends email with "resolved" when resolving', async () => {
+            const user = userEvent.setup();
+            renderDialog({ dispute: { status: 'open', resolutionNote: '', evidence: [] } });
+
+            const noteInput = screen.getByPlaceholderText('Add a resolution note...');
+            await user.type(noteInput, 'Fixed the amount');
+            await user.click(screen.getAllByRole('button', { name: 'Resolve' })[0]);
+            // Confirm dialog
+            await waitFor(() => expect(screen.getByText(/Mark this dispute as resolved/)).toBeInTheDocument());
+            const confirmBtns = screen.getAllByRole('button', { name: 'Resolve' });
+            await user.click(confirmBtns[confirmBtns.length - 1]);
+
+            await waitFor(() => {
+                expect(mockQueueEmail).toHaveBeenCalledWith(expect.objectContaining({
+                    to: 'alice@test.com'
+                }));
+                const call = mockQueueEmail.mock.calls[0][0];
+                expect(call.body).toContain('resolved');
+                expect(call.body).toContain('Fixed the amount');
+            });
+        });
+
+        it('sends email with "rejected" when rejecting', async () => {
+            const user = userEvent.setup();
+            renderDialog({ dispute: { status: 'open', resolutionNote: '', evidence: [] } });
+
+            const noteInput = screen.getByPlaceholderText('Add a resolution note...');
+            await user.type(noteInput, 'Charges are correct');
+            await user.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
+            // Confirm dialog
+            await waitFor(() => expect(screen.getByText(/Reject this dispute/)).toBeInTheDocument());
+            const confirmBtns = screen.getAllByRole('button', { name: 'Reject' });
+            await user.click(confirmBtns[confirmBtns.length - 1]);
+
+            await waitFor(() => {
+                expect(mockQueueEmail).toHaveBeenCalledWith(expect.objectContaining({
+                    to: 'alice@test.com'
+                }));
+                const call = mockQueueEmail.mock.calls[0][0];
+                expect(call.body).toContain('rejected');
+            });
+        });
+
+        it('sends email with "under review" when marking In Review', async () => {
+            const user = userEvent.setup();
+            renderDialog({ dispute: { status: 'open', resolutionNote: '', evidence: [] } });
+
+            await user.click(screen.getByRole('button', { name: 'Mark In Review' }));
+
+            await waitFor(() => {
+                expect(mockQueueEmail).toHaveBeenCalledWith(expect.objectContaining({
+                    to: 'alice@test.com'
+                }));
+                const call = mockQueueEmail.mock.calls[0][0];
+                expect(call.body).toContain('under review');
+            });
+        });
+
+        it('does not send email when member has no email', async () => {
+            const user = userEvent.setup();
+            renderDialog({
+                dispute: { status: 'open', resolutionNote: '', evidence: [] },
+                familyMembers: [{ id: 'mem1', name: 'Alice' }] // no email
+            });
+
+            await user.click(screen.getByRole('button', { name: 'Mark In Review' }));
+
+            await waitFor(() => {
+                expect(defaultProps.onUpdate).toHaveBeenCalled();
+            });
+            expect(mockQueueEmail).not.toHaveBeenCalled();
+        });
+
+        it('email failure does not block the status change', async () => {
+            mockQueueEmail.mockRejectedValueOnce(new Error('Email delivery failed'));
+            const user = userEvent.setup();
+            renderDialog({ dispute: { status: 'open', resolutionNote: '', evidence: [] } });
+
+            const noteInput = screen.getByPlaceholderText('Add a resolution note...');
+            await user.type(noteInput, 'Resolved');
+            await user.click(screen.getAllByRole('button', { name: 'Resolve' })[0]);
+            await waitFor(() => expect(screen.getByText(/Mark this dispute as resolved/)).toBeInTheDocument());
+            const confirmBtns = screen.getAllByRole('button', { name: 'Resolve' });
+            await user.click(confirmBtns[confirmBtns.length - 1]);
+
+            await waitFor(() => {
+                expect(defaultProps.onStatusChange).toHaveBeenCalled();
+                expect(defaultProps.onClose).toHaveBeenCalled();
+            });
+        });
+    });
+
+    describe('dedup UI (resolutionNotificationSentAt)', () => {
+        it('shows "Re-send Email" when auto-notification was sent', () => {
+            renderDialog({
+                dispute: {
+                    status: 'resolved',
+                    resolutionNote: 'Fixed',
+                    evidence: [],
+                    resolutionNotificationSentAt: '2026-04-01T12:00:00Z'
+                }
+            });
+            expect(screen.getByRole('button', { name: 'Re-send Email' })).toBeInTheDocument();
+            expect(screen.getByText(/Auto-notified/)).toBeInTheDocument();
+        });
+
+        it('shows "Email" when no auto-notification was sent', () => {
+            renderDialog({
+                dispute: {
+                    status: 'resolved',
+                    resolutionNote: 'Fixed',
+                    evidence: []
+                }
+            });
+            expect(screen.getByRole('button', { name: 'Email' })).toBeInTheDocument();
+            expect(screen.queryByText(/Auto-notified/)).toBeNull();
         });
     });
 });

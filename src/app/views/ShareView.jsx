@@ -5,7 +5,7 @@
  * renders member summary, bill tables, payment progress, payment methods.
  */
 import { useState, useEffect } from 'react';
-import { doc, getDoc, updateDoc, collection, addDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { getPaymentMethodIcon } from '../../lib/formatting.js';
@@ -353,20 +353,23 @@ function ShareDisputeCard({ dispute, shareCtx }) {
     const label = STATUS_LABELS[d.status] || d.status;
     const created = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '';
 
-    async function submitDecision(type, note) {
-        if (!shareCtx.ownerId || !shareCtx.billingYearId) return;
-        const disputeRef = doc(db, 'users', shareCtx.ownerId, 'billingYears', shareCtx.billingYearId, 'disputes', d.id);
-        const updates = {};
-        if (type === 'approve') {
-            updates.status = 'resolved';
-            updates.userReview = { state: 'approved_by_user', decidedAt: new Date().toISOString() };
-            updates.resolvedAt = serverTimestamp();
-        } else {
-            updates.status = 'open';
-            updates.userReview = { state: 'rejected_by_user', rejectionNote: note || '', decidedAt: new Date().toISOString() };
-        }
+    async function submitDecision(type, decisionNote) {
+        if (!shareCtx.token || !shareCtx.ownerId || !shareCtx.billingYearId) return;
         try {
-            await updateDoc(disputeRef, updates);
+            const resp = await fetch('/submitDisputeDecision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    token: shareCtx.token,
+                    disputeId: d.id,
+                    decision: type === 'approve' ? 'approve' : 'reject',
+                    ...(type === 'reject' ? { note: decisionNote } : {})
+                })
+            });
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.error || 'Decision failed');
+            }
             setDecision(type === 'approve' ? 'approved_by_user' : 'rejected_by_user');
         } catch (err) {
             console.error('Decision error:', err);
@@ -461,21 +464,24 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
             setMsgError(true);
             return;
         }
-        if (!shareCtx.ownerId || !shareCtx.billingYearId || !shareCtx.memberId) return;
+        if (!shareCtx.token || !shareCtx.ownerId || !shareCtx.billingYearId || !shareCtx.memberId) return;
         setSubmitting(true);
         try {
-            const col = collection(db, 'users', shareCtx.ownerId, 'billingYears', shareCtx.billingYearId, 'disputes');
-            await addDoc(col, {
-                memberId: shareCtx.memberId,
-                memberName: shareCtx.memberName || '',
-                billId: bill.billId,
-                billName: (bill.name || '').trim(),
-                message: message.trim(),
-                proposedCorrection: correction.trim() || null,
-                status: 'open',
-                createdAt: serverTimestamp(),
-                tokenHash: shareCtx.tokenHash
+            const resp = await fetch('/submitDispute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    token: shareCtx.token,
+                    billId: bill.billId,
+                    billName: (bill.name || '').trim(),
+                    message: message.trim(),
+                    proposedCorrection: correction.trim() || null
+                })
             });
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.error || 'Submission failed');
+            }
             setSuccess(true);
         } catch (err) {
             console.error('Dispute submission error:', err);

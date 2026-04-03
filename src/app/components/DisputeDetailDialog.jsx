@@ -16,6 +16,20 @@ function isTerminal(status) {
     return status === 'resolved' || status === 'rejected';
 }
 
+/**
+ * Build a member notification email for dispute status changes.
+ * Used by both the automated send (Notification 2) and the manual resend button.
+ */
+function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNote, yearLabel) {
+    const subject = 'Your Review Request Update\u2014' + dispute.billName + (yearLabel ? ' (' + yearLabel + ')' : '');
+    let body = 'Hi ' + (member.name || 'there') + ',\n\n';
+    body += 'Your review request for **' + dispute.billName + '** has been marked **' + statusWord + '**.\n\n';
+    if (resolutionNote) body += '**Resolution note:** ' + resolutionNote + '\n\n';
+    if (dispute.proposedCorrection) body += '**Your suggestion:** ' + dispute.proposedCorrection + '\n\n';
+    body += 'If you have questions, please reach out.\n\nThanks!';
+    return { subject, body };
+}
+
 function formatDate(ts) {
     if (!ts) return '';
     const d = ts.toDate ? ts.toDate() : new Date(ts);
@@ -65,6 +79,21 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
         // Use onStatusChange (closes modal) for terminal actions, onUpdate for in_review
         const handler = (newStatus === 'resolved' || newStatus === 'rejected') ? (onStatusChange || onUpdate) : onUpdate;
         await handler(dispute.id, fields);
+
+        // Notification 2: email the member about the status change (non-blocking)
+        const notifyMember = (familyMembers || []).find(m => m.id === dispute.memberId);
+        if (notifyMember && notifyMember.email) {
+            const statusWord = newStatus === 'resolved' ? 'resolved' : newStatus === 'rejected' ? 'rejected' : 'under review';
+            const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
+            const { subject: nSubject, body: nBody } = buildMemberNotificationEmail(dispute, notifyMember, statusWord, resolutionNote.trim(), yearLabel);
+            const terminal = isTerminal(newStatus);
+            queueEmail({ to: notifyMember.email, subject: nSubject, body: nBody, uid: user ? user.uid : '' })
+                .then(() => {
+                    if (terminal) onUpdate(dispute.id, { resolutionNotificationSentAt: new Date().toISOString() });
+                })
+                .catch(err => console.error('Auto-notification to member failed:', err));
+        }
+
         if (showToast) showToast('Dispute ' + newStatus);
         setActionConfirm(null);
         if (newStatus === 'in_review') return; // keep dialog open for in_review
@@ -232,40 +261,33 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                     const member = (familyMembers || []).find(m => m.id === dispute.memberId);
                     const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
                     const statusWord = dispute.status === 'resolved' ? 'resolved' : 'reviewed';
-
-                    function buildResolutionText() {
-                        let text = 'Hi ' + (member ? member.name : 'there') + ',\n\n';
-                        text += 'Your review request for ' + dispute.billName + ' (' + yearLabel + ') has been ' + statusWord + '.\n\n';
-                        text += 'Resolution: ' + dispute.resolutionNote + '\n';
-                        if (dispute.proposedCorrection) text += 'Your suggestion: ' + dispute.proposedCorrection + '\n';
-                        text += '\nIf you have questions, please reach out.\n\nThanks!';
-                        return text;
-                    }
+                    const { subject: resSubject, body: resBody } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel);
+                    const notifiedAt = dispute.resolutionNotificationSentAt;
+                    const notifiedDate = notifiedAt ? new Date(notifiedAt).toLocaleDateString() : null;
 
                     return (
                         <div className="dispute-share-actions">
                             <span className="dispute-share-label">Share Resolution:</span>
                             {member && member.email && (
                                 <button className="btn btn-sm btn-secondary" onClick={async () => {
-                                    const subject = 'Review Request Update\u2014' + dispute.billName + ' (' + yearLabel + ')';
-                                    const body = buildResolutionText();
                                     try {
-                                        await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
+                                        await queueEmail({ to: member.email, subject: resSubject, body: resBody, uid: user ? user.uid : '' });
                                         if (showToast) showToast('Resolution emailed to ' + member.email);
                                     } catch (err) {
                                         if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
                                     }
-                                }}>Email</button>
+                                }}>{notifiedAt ? 'Re-send Email' : 'Email'}</button>
                             )}
+                            {notifiedDate && <span className="dispute-notified-hint">Auto-notified {notifiedDate}</span>}
                             {member && member.phone && (
                                 <button className="btn btn-sm btn-secondary" onClick={() => {
-                                    openSmsComposer(member.phone, buildResolutionText(), () => {
+                                    openSmsComposer(member.phone, resBody, () => {
                                         if (showToast) showToast('Resolution copied\u2014paste into your messaging app');
                                     });
                                 }}>Text</button>
                             )}
                             <button className="btn btn-sm btn-secondary" onClick={() => {
-                                navigator.clipboard.writeText(buildResolutionText()).then(() => {
+                                navigator.clipboard.writeText(resBody).then(() => {
                                     if (showToast) showToast('Resolution copied');
                                 });
                             }}>Copy</button>
