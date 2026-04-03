@@ -83,6 +83,53 @@ describe('invoice helpers', () => {
         const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '', null);
         expect(subject).toBe('Annual Billing Summary 2026\u2014Alice Smith');
     });
+
+    it('buildInvoiceSubject resolves %member_first% and %member_last%', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %member_first% %member_last%', null);
+        expect(subject).toBe('Invoice for Alice Smith');
+    });
+
+    it('buildInvoiceSubject resolves %member_first% for single-name member', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice' }, 'Hi %member_first% (%member_last%)', null);
+        expect(subject).toBe('Hi Alice ()');
+    });
+
+    it('buildInvoiceBody prepends greeting for legacy template without one', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Your annual billing summary for %billing_year% is ready.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toMatch(/^Hello Alice,/);
+        expect(body).toContain('Your annual billing summary for 2026 is ready.');
+    });
+
+    it('buildInvoiceBody does not double-greet when template starts with Hello', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %member_first%,\n\nYour summary is ready.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        // Should start with exactly one "Hello", not "Hello Alice,\n\nHello Alice,"
+        const helloCount = (body.match(/Hello/g) || []).length;
+        expect(helloCount).toBe(1);
+    });
+
+    it('buildInvoiceBody does not prepend greeting for Hi/Hey/Dear variants', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hi %member_first%, your bill is ready.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toMatch(/^Hi Alice/);
+        expect(body).not.toMatch(/^Hello/);
+    });
+
+    it('buildInvoiceBody does not prepend greeting for SMS channel', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Your summary for %billing_year% is ready.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'sms');
+        // SMS fallback uses its own format, not the template
+        expect(body).toMatch(/^Hey/);
+    });
 });
 
 describe('payment URL linkification (issue #116)', () => {
