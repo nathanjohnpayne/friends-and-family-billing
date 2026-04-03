@@ -561,18 +561,19 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .action-menu-trigger {
-    background: none;
-    border: none;
-    padding: var(--space-1, 4px);
+    background: var(--color-surface-alt, #F7F8FB);
+    border: 1px solid var(--color-border, #e0e0e0);
+    padding: var(--space-1, 4px) var(--space-2, 8px);
     cursor: pointer;
     font-size: 1rem;
     color: var(--color-text-secondary, #5B6475);
-    border-radius: 4px;
+    border-radius: 6px;
     line-height: 1;
 }
 
 .action-menu-trigger:hover {
-    background: var(--color-surface-alt, #F7F8FB);
+    background: var(--color-border-light, #f0f0f0);
+    border-color: var(--color-text-faint, #999);
 }
 
 .action-menu-dropdown {
@@ -630,7 +631,8 @@ img, svg { display: block; max-width: 100%; }
     box-shadow: var(--shadow-dialog, 0 20px 60px rgba(0,0,0,0.3));
     width: 90%;
     max-width: 440px;
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: 90vh;
 }
 
 .dialog-title {
@@ -1466,8 +1468,20 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .child-indicator {
-    color: var(--color-text-faint, #999);
-    font-size: 0.9rem;
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+}
+
+.child-indicator::before {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-left: 1.5px solid var(--color-text-faint, #999);
+    border-bottom: 1.5px solid var(--color-text-faint, #999);
+    border-bottom-left-radius: 3px;
 }
 
 .settlement-summary-boxes--linked {
@@ -2452,6 +2466,7 @@ img, svg { display: block; max-width: 100%; }
 .dispute-share-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--space-2, 8px);
     padding: var(--space-3, 12px) 0;
     border-top: 1px solid var(--color-border, #e0e0e0);

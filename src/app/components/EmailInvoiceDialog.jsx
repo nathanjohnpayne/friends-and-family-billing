@@ -24,7 +24,8 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
 
     useEffect(() => {
         if (!ctx) return;
-        setSubject(buildInvoiceSubject(ctx.currentYear, ctx.member));
+        const subjectTemplate = (settings && settings.emailSubject) || '';
+        setSubject(buildInvoiceSubject(ctx.currentYear, ctx.member, subjectTemplate, ctx));
         setBody(buildInvoiceBody(ctx, variant, shareUrl || '', 'email'));
         setCopied(false);
     }, [open, variant, memberId, shareUrl]);

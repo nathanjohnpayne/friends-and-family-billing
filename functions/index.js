@@ -700,6 +700,12 @@ function simpleMarkdownToHtml(text) {
       if (!safe) return url;
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + safe + '</a>';
     })
+    // www. URLs without protocol (not already inside an <a> tag)
+    .replace(/(?<!href="|"|\/\/)(www\.[^\s<"']+)/g, function(url) {
+      const safe = sanitizeHref("https://" + url);
+      if (!safe) return url;
+      return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
+    })
     // List items (- item)
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     // Wrap consecutive <li> in <ul>

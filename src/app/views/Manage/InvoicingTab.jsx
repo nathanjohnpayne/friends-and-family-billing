@@ -47,8 +47,10 @@ export default function InvoicingTab() {
                 userEmail={user ? user.email : ''}
                 billingYearId={activeYear ? activeYear.id : ''}
                 showToast={showToast}
-                onSave={emailMessage => {
-                    service.updateSettings({ emailMessage });
+                onSave={(emailMessage, emailSubject) => {
+                    const update = { emailMessage };
+                    if (emailSubject !== undefined) update.emailSubject = emailSubject;
+                    service.updateSettings(update);
                     showToast('Email template saved');
                 }}
                 onSaveShareUrl={invoiceShareUrl => {
@@ -125,10 +127,18 @@ function extractTemplateValue(el) {
     return lines.join('\n');
 }
 
+const SUBJECT_TOKEN_FIELDS = [
+    { token: '%billing_year%', label: 'Billing Year' },
+    { token: '%member_name%', label: 'Member Name' },
+    { token: '%annual_total%', label: 'Household Total' }
+];
+
 function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, showToast, onSave, onSaveShareUrl }) {
     const [template, setTemplate] = useState(settings.emailMessage || '');
+    const [subjectTemplate, setSubjectTemplate] = useState(settings.emailSubject || '');
     const [dirty, setDirty] = useState(false);
     const editorRef = useRef(null);
+    const subjectRef = useRef(null);
     const isEditing = useRef(false);
     const [previewShareUrl, setPreviewShareUrl] = useState(settings.invoiceShareUrl || '');
     const [generatingLink, setGeneratingLink] = useState(false);
@@ -144,6 +154,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             editorRef.current.innerHTML = buildEditorHTML(settings.emailMessage || '');
         }
     }, [settings.emailMessage]);
+
+    useEffect(() => {
+        if (!dirty) setSubjectTemplate(settings.emailSubject || '');
+    }, [settings.emailSubject]);
 
     // Initialize editor HTML on mount
     useEffect(() => {
@@ -225,8 +239,25 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     }
 
     function handleSave() {
-        onSave(template);
+        onSave(template, subjectTemplate);
         setDirty(false);
+    }
+
+    function insertSubjectToken(token) {
+        const input = subjectRef.current;
+        if (!input) return;
+        const start = input.selectionStart || 0;
+        const end = input.selectionEnd || 0;
+        const val = subjectTemplate;
+        const newVal = val.substring(0, start) + token + val.substring(end);
+        setSubjectTemplate(newVal);
+        setDirty(true);
+        // Restore cursor after the inserted token
+        requestAnimationFrame(() => {
+            input.focus();
+            const pos = start + token.length;
+            input.setSelectionRange(pos, pos);
+        });
     }
 
     async function handleGeneratePreviewLink() {
@@ -280,6 +311,38 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                 Customize the message included in email invoices. Use the field chips to insert live billing data. Markdown formatting (bold, italic, links, lists) is supported.
             </p>
 
+            <div className="payment-field-group" style={{ marginBottom: 'var(--space-3, 12px)' }}>
+                <label>Subject Line</label>
+                <input
+                    ref={subjectRef}
+                    className="composer-input"
+                    type="text"
+                    placeholder="Annual Billing Summary %billing_year%\u2014%member_name%"
+                    value={subjectTemplate}
+                    onChange={e => { setSubjectTemplate(e.target.value); setDirty(true); }}
+                    readOnly={readOnly}
+                />
+                {!readOnly && (
+                    <div className="template-token-bar" style={{ marginTop: '4px' }}>
+                        <span className="template-token-label">Insert:</span>
+                        {SUBJECT_TOKEN_FIELDS.map(f => (
+                            <button
+                                key={f.token}
+                                className="template-token-chip"
+                                type="button"
+                                onClick={() => insertSubjectToken(f.token)}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <p className="invoicing-hint" style={{ marginTop: '4px', fontSize: '0.78rem' }}>
+                    Leave blank to use the default: "Annual Billing Summary [Year]\u2014[Name]"
+                </p>
+            </div>
+
+            <label>Email Message</label>
             {!readOnly && (
                 <div className="template-token-bar">
                     <span className="template-token-label">Insert fields:</span>
@@ -337,7 +400,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             </div>
                             <div className="invoice-preview-meta">
                                 <span className="invoice-preview-meta-label">Subject</span>
-                                <span>{buildInvoiceSubject(previewCtx.currentYear, previewCtx.member)}</span>
+                                <span>{buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectTemplate, previewCtx)}</span>
                             </div>
                             <div className="invoice-preview-meta">
                                 <span className="invoice-preview-meta-label">Link</span>

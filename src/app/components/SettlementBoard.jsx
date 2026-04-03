@@ -247,7 +247,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 return (
                                     <div key={ls.member.id} className="settlement-linked-row">
                                         <div className="settlement-linked-member">
-                                            <span className="child-indicator">↳</span>
+                                            <span className="child-indicator" aria-hidden="true"></span>
                                             <div className="settlement-avatar settlement-avatar--sm">
                                                 {ls.member.avatar
                                                     ? <img src={ls.member.avatar} alt={ls.member.name} className="settlement-avatar-img" />

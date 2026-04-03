@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '@/lib/invoice.js';
+import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody, renderPreviewHTML } from '@/lib/invoice.js';
 
 const members = [
     { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [2], paymentReceived: 0 },
@@ -64,5 +64,51 @@ describe('invoice helpers', () => {
         expect(ctx.payment).toBe(300);
         expect(ctx.balance).toBe(ctx.combinedTotal - 300);
         expect(ctx.amountLabel).toBe('remaining balance');
+    });
+
+    it('buildInvoiceSubject uses template with tokens when provided', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '%billing_year% Invoice\u2014%member_name%', ctx);
+        expect(subject).toBe('2026 Invoice\u2014Alice Smith');
+    });
+
+    it('buildInvoiceSubject resolves %annual_total% token', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const subject = buildInvoiceSubject('2026', ctx.member, 'Bill for %billing_year%: %annual_total% due', ctx);
+        expect(subject).toContain('2026');
+        expect(subject).toMatch(/\$[\d,.]+/);
+    });
+
+    it('buildInvoiceSubject falls back to default when template is empty', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '', null);
+        expect(subject).toBe('Annual Billing Summary 2026\u2014Alice Smith');
+    });
+});
+
+describe('payment URL linkification (issue #116)', () => {
+    const settingsWithPayment = {
+        emailMessage: 'Your bill for %billing_year% is ready.\n\n%payment_methods%',
+        paymentMethods: [
+            { type: 'venmo', label: 'Venmo', enabled: true, handle: '@NathanPayne', url: 'https://venmo.com/u/NathanPayne' }
+        ]
+    };
+
+    it('formatPaymentOptionsMarkdown wraps URLs as markdown links in body', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, settingsWithPayment);
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email', { markdown: true });
+        expect(body).toContain('[https://venmo.com/u/NathanPayne](https://venmo.com/u/NathanPayne)');
+    });
+
+    it('renderPreviewHTML converts payment markdown links to clickable <a> tags', () => {
+        const markdown = '- **Venmo:** @NathanPayne [https://venmo.com/u/NathanPayne](https://venmo.com/u/NathanPayne)';
+        const html = renderPreviewHTML(markdown);
+        expect(html).toContain('href="https://venmo.com/u/NathanPayne"');
+    });
+
+    it('bare URLs in text-only body are present for Cloud Function auto-linking', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, settingsWithPayment);
+        // Without markdown option, body uses plain text format with bare URLs
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('https://venmo.com/u/NathanPayne');
     });
 });
