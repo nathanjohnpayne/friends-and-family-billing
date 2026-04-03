@@ -174,7 +174,10 @@ export function docToPlainTextWithTokens(doc) {
             if (n.type === 'templateToken') {
                 const rawId = n.attrs?.id || '';
                 const id = LEGACY_TOKEN_IDS[rawId] || rawId;
-                return '%' + id + '%';
+                const token = '%' + id + '%';
+                // Preserve bold marks for round-trip safety
+                const hasBold = n.marks?.some(m => m.type === 'bold');
+                return hasBold ? '**' + token + '**' : token;
             }
             if (n.type === 'hardBreak') return '\n';
             return '';
@@ -229,8 +232,9 @@ export function docToPlainTextWithTokens(doc) {
 export function plainTextToDoc(text) {
     if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
 
-    // Matches both %token% and **%token%** (bold-wrapped)
-    const tokenPattern = /(\*\*)?%([a-z_]+)%(\*\*)?/g;
+    // Matches **%token%** (bold-wrapped) or plain %token%.
+    // Bold requires both ** on each side — one-sided ** is left as literal text.
+    const tokenPattern = /\*\*%([a-z_]+)%\*\*|%([a-z_]+)%/g;
     const blockTokenIds = new Set(['payment_methods', 'share_link']);
     const tokenLabels = {
         first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
@@ -255,9 +259,10 @@ export function plainTextToDoc(text) {
 
         // Standalone block token on its own line
         tokenPattern.lastIndex = 0;
-        const soloMatch = trimmed.match(/^(?:\*\*)?%([a-z_]+)%(?:\*\*)?$/);
-        if (soloMatch && blockTokenIds.has(soloMatch[1])) {
-            const id = soloMatch[1];
+        const soloMatch = trimmed.match(/^(?:\*\*%([a-z_]+)%\*\*|%([a-z_]+)%)$/);
+        const soloId = soloMatch && (soloMatch[1] || soloMatch[2]);
+        if (soloId && blockTokenIds.has(soloId)) {
+            const id = soloId;
             content.push({
                 type: 'blockToken',
                 attrs: {
@@ -286,8 +291,8 @@ export function plainTextToDoc(text) {
         while ((match = tokenPattern.exec(line)) !== null) {
             const before = line.slice(lastIdx, match.index);
             if (before) nodes.push({ type: 'text', text: before });
-            const isBold = match[1] === '**' && match[3] === '**';
-            const tokenId = match[2];
+            const isBold = match[1] != null;
+            const tokenId = match[1] || match[2];
             if (tokenLabels[tokenId]) {
                 // Map legacy token IDs to new IDs
                 const normalizedId = tokenId === 'member_first' ? 'first_name'
