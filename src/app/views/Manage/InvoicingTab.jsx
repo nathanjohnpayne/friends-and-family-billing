@@ -101,8 +101,10 @@ function extractTemplateValue(el) {
 }
 
 const SUBJECT_TOKEN_FIELDS = [
+    { token: '%member_first%', label: 'First Name' },
+    { token: '%member_last%', label: 'Last Name' },
+    { token: '%member_name%', label: 'Full Name' },
     { token: '%billing_year%', label: 'Billing Year' },
-    { token: '%member_name%', label: 'Member Name' },
     { token: '%annual_total%', label: 'Household Total' }
 ];
 

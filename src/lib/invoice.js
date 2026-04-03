@@ -40,14 +40,18 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
 
 /**
  * Build invoice email subject line.
- * Supports an optional template with tokens: %billing_year%, %member_name%, %annual_total%.
+ * Supports an optional template with tokens: %billing_year%, %member_name%,
+ * %member_first%, %member_last%, %annual_total%.
  * Falls back to a default subject when no template is provided.
  */
 export function buildInvoiceSubject(year, member, template, ctx) {
     if (!template) return 'Annual Billing Summary ' + year + '\u2014' + member.name;
+    const nameParts = (member.name || '').split(' ');
     let result = template
-        .replace(/%billing_year%/g, year)
-        .replace(/%member_name%/g, member.name);
+        .replace(/%member_first%/g, nameParts[0] || '')
+        .replace(/%member_last%/g, nameParts.slice(1).join(' ') || '')
+        .replace(/%member_name%/g, member.name)
+        .replace(/%billing_year%/g, year);
     if (ctx) {
         const total = ctx.combinedTotal != null ? '$' + ctx.combinedTotal.toFixed(2) : '';
         result = result.replace(/%annual_total%/g, total);
@@ -168,7 +172,10 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
     const emailMessage = buildConfiguredInvoiceMessage(ctx, shareUrl);
-    let text = emailMessage + '\n\n';
+    // Ensure legacy templates (without a greeting) still get one in the full invoice
+    const greetedMessage = /^(hello|hi|hey|dear|greetings)\b/i.test((emailMessage || '').trim())
+        ? emailMessage : 'Hello ' + firstName + ',\n\n' + emailMessage;
+    let text = greetedMessage + '\n\n';
     if (shareUrl) {
         text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
     }
@@ -247,9 +254,17 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
     const isEmail = channel === 'email';
     const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, options);
 
+    // Prepend a greeting for email templates that don't already start with one.
+    // This handles legacy saved templates that predate the %member_first% token.
+    function ensureGreeting(text) {
+        if (!isEmail || !text) return text;
+        if (/^(hello|hi|hey|dear|greetings)\b/i.test(text.trim())) return text;
+        return 'Hello ' + firstName + ',\n\n' + text;
+    }
+
     if (variant === 'text-only') {
         if (isEmail && configuredMessage) {
-            return configuredMessage;
+            return ensureGreeting(configuredMessage);
         }
         const greeting = isEmail ? 'Hello' : 'Hey';
         return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
@@ -261,7 +276,7 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
 
     // Default: text-link
     if (isEmail && configuredMessage) {
-        let msg = configuredMessage;
+        let msg = ensureGreeting(configuredMessage);
         if (shareUrl) msg += '\n\nView your billing summary:\n' + shareUrl;
         return msg;
     }
