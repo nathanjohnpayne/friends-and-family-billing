@@ -80,7 +80,8 @@ describe('InvoicingTab', () => {
         // The contenteditable editor is the one with aria-multiline
         const editor = editors.find(el => el.getAttribute('aria-multiline') === 'true');
         expect(editor).toBeInTheDocument();
-        expect(editor.textContent).toContain('Household Total');
+        // Tokens now render as raw %token% text, not chip labels
+        expect(editor.textContent).toContain('%annual_total%');
     });
 
     it('shows token insert buttons', () => {
