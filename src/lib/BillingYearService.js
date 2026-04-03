@@ -19,7 +19,7 @@ import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
 const DEFAULT_SETTINGS = {
-    emailMessage: 'Your annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
+    emailMessage: 'Hello %member_first%,\n\nYour annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
     emailSubject: '',
     paymentLinks: [],
     paymentMethods: []

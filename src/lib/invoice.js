@@ -60,6 +60,9 @@ export function buildInvoiceSubject(year, member, template, ctx) {
  */
 function buildInvoiceTemplatePreviewText(template, ctx) {
     let result = String(template || '')
+        .replace(/%member_first%/g, ctx.memberFirst || '')
+        .replace(/%member_last%/g, ctx.memberLast || '')
+        .replace(/%member_name%/g, ctx.memberName || '')
         .replace(/%billing_year%/g, ctx.billingYear)
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
@@ -135,7 +138,11 @@ function formatPaymentOptionsMarkdown(settings) {
 function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const template = (ctx.settings && ctx.settings.emailMessage) || '';
     const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
+    const nameParts = (ctx.member.name || '').split(' ');
     let result = buildInvoiceTemplatePreviewText(template, {
+        memberFirst: nameParts[0] || '',
+        memberLast: nameParts.slice(1).join(' ') || '',
+        memberName: ctx.member.name || '',
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2),
         shareLink: shareUrl || ''
@@ -161,7 +168,7 @@ function buildFullInvoiceText(ctx, shareUrl) {
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
     const emailMessage = buildConfiguredInvoiceMessage(ctx, shareUrl);
-    let text = 'Hello ' + firstName + ',\n\n' + emailMessage + '\n\n';
+    let text = emailMessage + '\n\n';
     if (shareUrl) {
         text += 'View your billing summary & pay online:\n' + shareUrl + '\n\n';
     }
@@ -242,7 +249,7 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
 
     if (variant === 'text-only') {
         if (isEmail && configuredMessage) {
-            return 'Hello ' + firstName + ',\n\n' + configuredMessage;
+            return configuredMessage;
         }
         const greeting = isEmail ? 'Hello' : 'Hey';
         return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
@@ -254,7 +261,7 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
 
     // Default: text-link
     if (isEmail && configuredMessage) {
-        let msg = 'Hello ' + firstName + ',\n\n' + configuredMessage;
+        let msg = configuredMessage;
         if (shareUrl) msg += '\n\nView your billing summary:\n' + shareUrl;
         return msg;
     }

@@ -19,6 +19,9 @@ import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 
 const EMAIL_TEMPLATE_FIELDS = [
+    { token: '%member_first%', label: 'First Name' },
+    { token: '%member_last%', label: 'Last Name' },
+    { token: '%member_name%', label: 'Full Name' },
     { token: '%billing_year%', label: 'Billing Year' },
     { token: '%annual_total%', label: 'Household Total' },
     { token: '%payment_methods%', label: 'Payment Methods' },
@@ -63,67 +66,37 @@ export default function InvoicingTab() {
 
 // ── Email Template Editor ───────────────────────────────────────────
 
-const EMAIL_TEMPLATE_TOKEN_LABELS = {
-    '%billing_year%': 'Billing Year',
-    '%annual_total%': 'Household Total',
-    '%total%': 'Household Total',
-    '%payment_methods%': 'Payment Methods',
-    '%share_link%': 'Share Link'
-};
-
-const TOKEN_PATTERN = /(%billing_year%|%annual_total%|%total%|%payment_methods%|%share_link%)/g;
-
 /**
- * Convert raw template string to editor HTML with inline token chips.
- * Each token becomes a non-editable styled span; lines wrap in divs.
+ * Convert raw template string to editor HTML.
+ * Tokens stay as plain %token% text — no chips. Lines wrap in divs.
  */
 function buildEditorHTML(template) {
     if (!template) return '<div class="template-editor-line"><br></div>';
     const lines = template.split('\n');
     return lines.map(line => {
         if (line === '') return '<div class="template-editor-line"><br></div>';
-        const parts = line.split(TOKEN_PATTERN);
-        const inner = parts.map(part => {
-            if (TOKEN_PATTERN.test(part)) {
-                TOKEN_PATTERN.lastIndex = 0; // reset regex state
-                const label = EMAIL_TEMPLATE_TOKEN_LABELS[part] || part;
-                return '<span class="template-editor-token" contenteditable="false" data-token="' + escapeHtml(part) + '">' + escapeHtml(label) + '</span>';
-            }
-            return escapeHtml(part);
-        }).join('');
-        return '<div class="template-editor-line">' + inner + '</div>';
+        return '<div class="template-editor-line">' + escapeHtml(line) + '</div>';
     }).join('');
 }
 
 /**
- * Reverse-parse contenteditable div to raw template string.
- * Token chip spans become their data-token values; HTML structure becomes text.
+ * Extract plain text from contenteditable div, preserving line breaks.
  */
 function extractTemplateValue(el) {
     if (!el) return '';
-    const clone = el.cloneNode(true);
-    // Replace token spans with their data-token attribute
-    clone.querySelectorAll('.template-editor-token').forEach(chip => {
-        const token = chip.getAttribute('data-token') || '';
-        chip.replaceWith(token);
-    });
-    // Convert block structure to text lines
     const lines = [];
-    clone.childNodes.forEach(node => {
+    el.childNodes.forEach(node => {
         if (node.nodeType === Node.TEXT_NODE) {
             lines.push(node.textContent);
         } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const text = node.textContent;
-            // Empty divs with only <br> represent blank lines
             if (node.tagName === 'DIV' && node.innerHTML === '<br>') {
                 lines.push('');
             } else {
-                lines.push(text);
+                lines.push(node.textContent);
             }
         }
     });
-    // If no block children, fall back to textContent
-    if (lines.length === 0) return clone.textContent || '';
+    if (lines.length === 0) return el.textContent || '';
     return lines.join('\n');
 }
 
@@ -171,26 +144,6 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
         const value = extractTemplateValue(editorRef.current);
         setTemplate(value);
         setDirty(true);
-
-        // Detect if raw token text was pasted — normalize if so
-        const text = editorRef.current.textContent || '';
-        if (TOKEN_PATTERN.test(text)) {
-            TOKEN_PATTERN.lastIndex = 0;
-            // Check if any token is in a text node (not a chip)
-            let hasRawToken = false;
-            const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
-            while (walker.nextNode()) {
-                if (TOKEN_PATTERN.test(walker.currentNode.textContent)) {
-                    hasRawToken = true;
-                    TOKEN_PATTERN.lastIndex = 0;
-                    break;
-                }
-            }
-            if (hasRawToken) {
-                editorRef.current.innerHTML = buildEditorHTML(value);
-                placeCaretAtEnd(editorRef.current);
-            }
-        }
         isEditing.current = false;
     }
 
@@ -206,33 +159,8 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
         const editor = editorRef.current;
         if (!editor) return;
         editor.focus();
-
-        const chip = document.createElement('span');
-        chip.className = 'template-editor-token';
-        chip.contentEditable = 'false';
-        chip.dataset.token = token;
-        chip.textContent = EMAIL_TEMPLATE_TOKEN_LABELS[token] || token;
-
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
-            const range = sel.getRangeAt(0);
-            range.deleteContents();
-            range.insertNode(chip);
-            // Add a spacer text node after the chip and move cursor there
-            const spacer = document.createTextNode('\u00A0');
-            chip.parentNode.insertBefore(spacer, chip.nextSibling);
-            range.setStartAfter(spacer);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        } else {
-            // No valid selection in editor — append to end
-            const lastLine = editor.querySelector('.template-editor-line:last-child') || editor;
-            lastLine.appendChild(chip);
-            lastLine.appendChild(document.createTextNode('\u00A0'));
-            placeCaretAtEnd(editor);
-        }
-
+        // Insert raw %token% text at cursor position
+        document.execCommand('insertText', false, token);
         const value = extractTemplateValue(editor);
         setTemplate(value);
         setDirty(true);
