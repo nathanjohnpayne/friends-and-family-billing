@@ -4,10 +4,23 @@
  */
 import { useState } from 'react';
 import { calculateAnnualSummary, getBillAnnualAmount, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
-import { getInitials, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
+import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+
+/** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
+function MemberAvatar({ member }) {
+    const [gravatarFailed, setGravatarFailed] = useState(false);
+    if (member.avatar) {
+        return <img src={member.avatar} alt={member.name} className="settlement-avatar-img" />;
+    }
+    const gravatarUrl = getGravatarUrl(member.email);
+    if (gravatarUrl && !gravatarFailed) {
+        return <img src={gravatarUrl} alt={member.name} className="settlement-avatar-img" onError={() => setGravatarFailed(true)} />;
+    }
+    return <span className="settlement-avatar-initials">{getInitials(member.name)}</span>;
+}
 
 /** Payment method options matching legacy main.js:5173 */
 const PAYMENT_METHODS = [
@@ -191,10 +204,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
             <div className="settlement-card-main" onClick={() => setExpanded(!expanded)}>
                 <div className="settlement-card-left">
                     <div className="settlement-avatar">
-                        {member.avatar
-                            ? <img src={member.avatar} alt={member.name} className="settlement-avatar-img" />
-                            : <span className="settlement-avatar-initials">{getInitials(member.name)}</span>
-                        }
+                        <MemberAvatar member={member} />
                     </div>
                     <div className="settlement-card-info">
                         <div className="settlement-card-name-row">
@@ -249,10 +259,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                         <div className="settlement-linked-member">
                                             <span className="child-indicator" aria-hidden="true"></span>
                                             <div className="settlement-avatar settlement-avatar--sm">
-                                                {ls.member.avatar
-                                                    ? <img src={ls.member.avatar} alt={ls.member.name} className="settlement-avatar-img" />
-                                                    : <span className="settlement-avatar-initials">{getInitials(ls.member.name)}</span>
-                                                }
+                                                <MemberAvatar member={ls.member} />
                                             </div>
                                             <strong>{ls.member.name}</strong>
                                             {childStatus && <StatusBadge status={childStatus} />}

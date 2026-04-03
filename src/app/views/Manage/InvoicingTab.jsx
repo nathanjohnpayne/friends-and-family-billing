@@ -317,7 +317,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                     ref={subjectRef}
                     className="composer-input"
                     type="text"
-                    placeholder="Annual Billing Summary %billing_year%\u2014%member_name%"
+                    placeholder={'Annual Billing Summary %billing_year%\u2014%member_name%'}
                     value={subjectTemplate}
                     onChange={e => { setSubjectTemplate(e.target.value); setDirty(true); }}
                     readOnly={readOnly}
@@ -338,7 +338,8 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                     </div>
                 )}
                 <p className="invoicing-hint" style={{ marginTop: '4px', fontSize: '0.78rem' }}>
-                    Leave blank to use the default: "Annual Billing Summary [Year]\u2014[Name]"
+                    Leave blank to use the default: {'"'}Annual Billing Summary [Year]{'\u2014'}[Name]{'"'}.
+                    Tokens appear as %token% text in the subject and are replaced with live values when sending.
                 </p>
             </div>
 

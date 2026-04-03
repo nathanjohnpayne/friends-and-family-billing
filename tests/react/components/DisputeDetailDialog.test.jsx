@@ -8,8 +8,18 @@ vi.mock('firebase/storage', () => ({
     getDownloadURL: vi.fn(),
     ref: vi.fn()
 }));
+const mockGetDocs = vi.fn(() => Promise.resolve({ docs: [] }));
+vi.mock('firebase/firestore', () => ({
+    collection: vi.fn(),
+    query: vi.fn(),
+    where: vi.fn(),
+    getDocs: (...args) => mockGetDocs(...args)
+}));
 vi.mock('../../../src/lib/sms.js', () => ({
     openSmsComposer: vi.fn()
+}));
+vi.mock('@/lib/share.js', () => ({
+    buildShareUrl: vi.fn((origin, token) => origin + '/share.html?token=' + token)
 }));
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
@@ -553,6 +563,76 @@ describe('DisputeDetailDialog', () => {
             });
             expect(screen.getByRole('button', { name: 'Email' })).toBeInTheDocument();
             expect(screen.queryByText(/Auto-notified/)).toBeNull();
+        });
+    });
+
+    describe('share-link CTA in notification emails (issue #136)', () => {
+        it('includes share link in CTA when userReview is requested and token exists', async () => {
+            // Mock getDocs to return an active share token
+            mockGetDocs.mockResolvedValueOnce({
+                docs: [{
+                    data: () => ({
+                        rawToken: 'abc123token',
+                        billingYearId: 'y2024',
+                        scopes: ['disputes:read'],
+                        revoked: false,
+                        expiresAt: null
+                    })
+                }]
+            });
+
+            const user = userEvent.setup();
+            renderDialog({
+                dispute: {
+                    status: 'open',
+                    resolutionNote: '',
+                    evidence: [],
+                    userReview: { state: 'requested' }
+                }
+            });
+
+            const noteInput = screen.getByPlaceholderText('Add a resolution note...');
+            await user.type(noteInput, 'Fixed');
+            await user.click(screen.getAllByRole('button', { name: 'Resolve' })[0]);
+            await waitFor(() => expect(screen.getByText(/Mark this dispute as resolved/)).toBeInTheDocument());
+            const confirmBtns = screen.getAllByRole('button', { name: 'Resolve' });
+            await user.click(confirmBtns[confirmBtns.length - 1]);
+
+            await waitFor(() => {
+                expect(mockQueueEmail).toHaveBeenCalled();
+                const call = mockQueueEmail.mock.calls[0][0];
+                expect(call.body).toContain('[Review & Respond]');
+                expect(call.body).toContain('abc123token');
+            });
+        });
+
+        it('uses fallback text when no share token exists', async () => {
+            // Mock getDocs to return empty (no tokens)
+            mockGetDocs.mockResolvedValueOnce({ docs: [] });
+
+            const user = userEvent.setup();
+            renderDialog({
+                dispute: {
+                    status: 'open',
+                    resolutionNote: '',
+                    evidence: [],
+                    userReview: { state: 'requested' }
+                }
+            });
+
+            const noteInput = screen.getByPlaceholderText('Add a resolution note...');
+            await user.type(noteInput, 'Fixed');
+            await user.click(screen.getAllByRole('button', { name: 'Resolve' })[0]);
+            await waitFor(() => expect(screen.getByText(/Mark this dispute as resolved/)).toBeInTheDocument());
+            const confirmBtns = screen.getAllByRole('button', { name: 'Resolve' });
+            await user.click(confirmBtns[confirmBtns.length - 1]);
+
+            await waitFor(() => {
+                expect(mockQueueEmail).toHaveBeenCalled();
+                const call = mockQueueEmail.mock.calls[0][0];
+                expect(call.body).toContain('using your billing share link');
+                expect(call.body).not.toContain('[Review & Respond]');
+            });
         });
     });
 });
