@@ -82,6 +82,7 @@ function SubjectSlashCommands() {
  * @param {string} placeholder — optional placeholder text
  */
 const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, readOnly, placeholder }, ref) {
+    const isInternalUpdate = useRef(false);
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
@@ -107,6 +108,7 @@ const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, rea
         content: subjectStringToDoc(content),
         editable: !readOnly,
         onUpdate({ editor: ed }) {
+            isInternalUpdate.current = true;
             if (onUpdate) onUpdate(ed.getText());
         },
         editorProps: {
@@ -158,7 +160,6 @@ const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, rea
     useImperativeHandle(ref, () => editor, [editor]);
 
     // Sync content when it changes externally (e.g., billing year switch)
-    const isInternalUpdate = useRef(false);
     useEffect(() => {
         if (editor && content !== undefined && !isInternalUpdate.current) {
             const currentText = editor.getText();

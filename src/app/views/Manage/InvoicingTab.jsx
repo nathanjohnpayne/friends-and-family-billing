@@ -391,11 +391,13 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                         <p className="invoicing-hint invoicing-hint--dialog">
                             Changes here update the payment methods block used in invoice emails.
                         </p>
-                        <PaymentMethodsManager
-                            settings={settings}
-                            readOnly={readOnly}
-                            onUpdate={methods => service.updateSettings({ paymentMethods: methods })}
-                        />
+                        <div className="dialog-body-padded">
+                            <PaymentMethodsManager
+                                settings={settings}
+                                readOnly={readOnly}
+                                onUpdate={methods => service.updateSettings({ paymentMethods: methods })}
+                            />
+                        </div>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-primary" onClick={() => setPaymentMethodsModal(false)}>Done</button>
                         </div>

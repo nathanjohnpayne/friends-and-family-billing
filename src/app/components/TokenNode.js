@@ -32,11 +32,13 @@ const TokenNode = Node.create({
         return [{ tag: 'span[data-token-id]' }];
     },
 
+    selectable: true,
+    draggable: false,
+
     renderHTML({ node, HTMLAttributes }) {
         return ['span', mergeAttributes(HTMLAttributes, {
             'data-token-id': node.attrs.id,
             class: 'template-editor-token',
-            contenteditable: 'false',
         }), node.attrs.label];
     },
 
