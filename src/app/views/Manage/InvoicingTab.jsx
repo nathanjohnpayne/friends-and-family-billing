@@ -463,7 +463,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             setTestEmailSending(true);
                             try {
                                 const rawText = buildInvoiceBody(previewCtx, 'text-only', previewShareUrl, 'email', { markdown: true });
-                                const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member);
+                                const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectTemplate, previewCtx);
                                 await queueEmail({ to: testEmailTo.trim(), subject, body: rawText, uid: userId });
                                 setTestEmailOpen(false);
                                 if (showToast) showToast('Test email sent to ' + testEmailTo.trim());

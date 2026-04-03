@@ -700,8 +700,13 @@ function simpleMarkdownToHtml(text) {
       if (!safe) return url;
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + safe + '</a>';
     })
-    // www. URLs without protocol (not already inside an <a> tag)
-    .replace(/(?<!href="|"|\/\/)(www\.[^\s<"']+)/g, function(url) {
+    // www. URLs without protocol (not already inside an <a> tag or its link text)
+    .replace(/(?<!href="|"|\/\/|<a [^>]*>(?:[^<]*))(www\.[^\s<"']+)/g, function(match, url, offset, str) {
+      // Skip if we're inside an <a>...</a> tag (i.e., this is already link text)
+      const before = str.substring(0, offset);
+      const lastOpenA = before.lastIndexOf('<a ');
+      const lastCloseA = before.lastIndexOf('</a>');
+      if (lastOpenA > lastCloseA) return match;
       const safe = sanitizeHref("https://" + url);
       if (!safe) return url;
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
