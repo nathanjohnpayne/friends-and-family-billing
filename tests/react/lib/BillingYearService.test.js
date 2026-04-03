@@ -123,7 +123,7 @@ describe('BillingYearService', () => {
             const yearWrite = setDocCalls.find(c => c.path.includes('billingYears'));
             expect(yearWrite).toBeDefined();
             expect(yearWrite.data.settings.emailMessage).toContain('%billing_year%');
-            expect(yearWrite.data.settings.emailMessage).toContain('%annual_total%');
+            expect(yearWrite.data.settings.emailMessage).toContain('%household_total%');
         });
 
         it('sets error state when load fails', async () => {

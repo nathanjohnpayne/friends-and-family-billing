@@ -19,11 +19,37 @@ import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
 const DEFAULT_SETTINGS = {
-    emailMessage: 'Hello %member_first%,\n\nYour annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
+    emailMessage: 'Hello %first_name%,\n\nYour annual billing summary for %billing_year% is ready. Your annual amount due is %household_total%. Thank you for your prompt payment via any of the payment methods below.',
     emailSubject: '',
     paymentLinks: [],
     paymentMethods: []
 };
+
+/** Token rename pairs for idempotent migration. */
+const TOKEN_RENAMES = [
+    ['%member_first%', '%first_name%'],
+    ['%member_last%', '%last_name%'],
+    ['%member_name%', '%full_name%'],
+    ['%annual_total%', '%household_total%'],
+];
+
+/**
+ * Idempotent migration: rename legacy token names in email templates.
+ * Safe to re-run — new names never contain old-name substrings.
+ * Mutates settings in place. Does not persist (caller saves).
+ */
+function migrateTemplateTokens(settings) {
+    if (!settings || settings._templateMigrated) return;
+    for (const [oldToken, newToken] of TOKEN_RENAMES) {
+        if (settings.emailMessage) {
+            settings.emailMessage = settings.emailMessage.split(oldToken).join(newToken);
+        }
+        if (settings.emailSubject) {
+            settings.emailSubject = settings.emailSubject.split(oldToken).join(newToken);
+        }
+    }
+    settings._templateMigrated = true;
+}
 
 export class BillingYearService {
     constructor() {
@@ -158,6 +184,9 @@ export class BillingYearService {
 
         if (yearDoc.exists()) {
             const normalized = normalizeYearData(yearDoc.data(), yearId);
+
+            // Migrate legacy token names in email templates
+            migrateTemplateTokens(normalized.settings);
 
             // Restore QR codes from publicQrCodes for methods that have hasQrCode flag
             if (normalized.settings && normalized.settings.paymentMethods) {

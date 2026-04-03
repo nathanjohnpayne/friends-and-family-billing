@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody, renderPreviewHTML } from '@/lib/invoice.js';
+import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody, renderPreviewHTML, docToPlainTextWithTokens, plainTextToDoc } from '@/lib/invoice.js';
 
 const members = [
     { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [2], paymentReceived: 0 },
@@ -157,5 +157,178 @@ describe('payment URL linkification (issue #116)', () => {
         // Without markdown option, body uses plain text format with bare URLs
         const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
         expect(body).toContain('https://venmo.com/u/NathanPayne');
+    });
+});
+
+describe('new token name aliases', () => {
+    it('buildInvoiceSubject resolves %first_name% and %last_name%', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %first_name% %last_name%', null);
+        expect(subject).toBe('Invoice for Alice Smith');
+    });
+
+    it('buildInvoiceSubject resolves %full_name%', () => {
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '%full_name% Bill', null);
+        expect(subject).toBe('Alice Smith Bill');
+    });
+
+    it('buildInvoiceSubject resolves %household_total%', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        const subject = buildInvoiceSubject('2026', ctx.member, 'Total: %household_total%', ctx);
+        expect(subject).toMatch(/\$[\d,.]+/);
+    });
+
+    it('buildInvoiceBody resolves %first_name% in template text', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, your total is %household_total%.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('Hello Alice');
+        expect(body).toMatch(/\$[\d,.]+/);
+    });
+});
+
+describe('docToPlainTextWithTokens', () => {
+    it('converts a simple paragraph', () => {
+        const doc = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello world' }] }]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('Hello world');
+    });
+
+    it('converts inline token nodes to %token% strings', () => {
+        const doc = {
+            type: 'doc',
+            content: [{
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: 'Hello ' },
+                    { type: 'templateToken', attrs: { id: 'first_name', label: 'First Name' } },
+                    { type: 'text', text: ', your total is ' },
+                    { type: 'templateToken', attrs: { id: 'household_total', label: 'Household Total' } },
+                    { type: 'text', text: '.' },
+                ]
+            }]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('Hello %first_name%, your total is %household_total%.');
+    });
+
+    it('converts block tokens on their own line', () => {
+        const doc = {
+            type: 'doc',
+            content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Payment info:' }] },
+                { type: 'blockToken', attrs: { id: 'payment_methods', label: 'Payment Methods' } },
+            ]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('Payment info:\n%payment_methods%');
+    });
+
+    it('converts bullet lists', () => {
+        const doc = {
+            type: 'doc',
+            content: [{
+                type: 'bulletList',
+                content: [
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Item A' }] }] },
+                    { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Item B' }] }] },
+                ]
+            }]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('- Item A\n- Item B');
+    });
+
+    it('converts horizontal rules', () => {
+        const doc = {
+            type: 'doc',
+            content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Above' }] },
+                { type: 'horizontalRule' },
+                { type: 'paragraph', content: [{ type: 'text', text: 'Below' }] },
+            ]
+        };
+        expect(docToPlainTextWithTokens(doc)).toBe('Above\n---\nBelow');
+    });
+
+    it('returns empty string for null/undefined', () => {
+        expect(docToPlainTextWithTokens(null)).toBe('');
+        expect(docToPlainTextWithTokens(undefined)).toBe('');
+    });
+});
+
+describe('plainTextToDoc', () => {
+    it('converts simple text to a paragraph', () => {
+        const doc = plainTextToDoc('Hello world');
+        expect(doc.type).toBe('doc');
+        expect(doc.content[0].type).toBe('paragraph');
+        expect(doc.content[0].content[0].text).toBe('Hello world');
+    });
+
+    it('converts %token% patterns to templateToken nodes', () => {
+        const doc = plainTextToDoc('Hello %first_name%');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('Hello ');
+        expect(para.content[1].type).toBe('templateToken');
+        expect(para.content[1].attrs.id).toBe('first_name');
+        expect(para.content[1].attrs.label).toBe('First Name');
+    });
+
+    it('converts standalone block tokens to blockToken nodes', () => {
+        const doc = plainTextToDoc('Info:\n%payment_methods%\nThanks');
+        expect(doc.content[0].type).toBe('paragraph');
+        expect(doc.content[1].type).toBe('blockToken');
+        expect(doc.content[1].attrs.id).toBe('payment_methods');
+        expect(doc.content[2].type).toBe('paragraph');
+    });
+
+    it('converts horizontal rules', () => {
+        const doc = plainTextToDoc('Above\n---\nBelow');
+        expect(doc.content[1].type).toBe('horizontalRule');
+    });
+
+    it('normalizes legacy token names', () => {
+        const doc = plainTextToDoc('Hello %member_first%');
+        const token = doc.content[0].content[1];
+        expect(token.type).toBe('templateToken');
+        expect(token.attrs.id).toBe('first_name');
+    });
+
+    it('returns empty doc for empty string', () => {
+        const doc = plainTextToDoc('');
+        expect(doc.content.length).toBe(1);
+        expect(doc.content[0].type).toBe('paragraph');
+    });
+});
+
+describe('dual-format support', () => {
+    it('buildInvoiceBody prefers emailMessageDocument when present', () => {
+        const tiptapDoc = {
+            type: 'doc',
+            content: [{
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: 'Hello ' },
+                    { type: 'templateToken', attrs: { id: 'first_name' } },
+                    { type: 'text', text: ', your total is ' },
+                    { type: 'templateToken', attrs: { id: 'household_total' } },
+                    { type: 'text', text: '.' },
+                ]
+            }]
+        };
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Legacy text — should not appear',
+            emailMessageDocument: tiptapDoc,
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('Hello Alice');
+        expect(body).not.toContain('Legacy text');
+    });
+
+    it('buildInvoiceBody falls back to emailMessage when no document', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, legacy path.'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('Hello Alice, legacy path.');
     });
 });
