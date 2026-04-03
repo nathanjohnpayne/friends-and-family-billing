@@ -11,6 +11,7 @@ import {
     escapeHtml,
     sanitizeImageSrc,
     getInitials,
+    getGravatarUrl,
     getPaymentMethodDetail,
     disputeStatusClass
 } from '@/lib/formatting.js';
@@ -147,5 +148,41 @@ describe('disputeStatusClass', () => {
     it('converts status to CSS class', () => {
         expect(disputeStatusClass('in_review')).toBe('dispute-in-review');
         expect(disputeStatusClass('open')).toBe('dispute-open');
+    });
+});
+
+describe('getGravatarUrl', () => {
+    it('returns correct Gravatar URL for a known email', () => {
+        const url = getGravatarUrl('test@example.com');
+        // MD5 of 'test@example.com' is '55502f40dc8b7c769880b10874abc9d0'
+        expect(url).toBe('https://www.gravatar.com/avatar/55502f40dc8b7c769880b10874abc9d0?d=404&s=200');
+    });
+
+    it('normalizes email to lowercase and trimmed', () => {
+        const url = getGravatarUrl('  Test@Example.COM  ');
+        expect(url).toContain('55502f40dc8b7c769880b10874abc9d0');
+    });
+
+    it('returns null for empty string', () => {
+        expect(getGravatarUrl('')).toBeNull();
+    });
+
+    it('returns null for undefined', () => {
+        expect(getGravatarUrl(undefined)).toBeNull();
+    });
+
+    it('accepts custom size parameter', () => {
+        const url = getGravatarUrl('test@example.com', 80);
+        expect(url).toContain('s=80');
+    });
+
+    it('uses default size of 200 when not specified', () => {
+        const url = getGravatarUrl('test@example.com');
+        expect(url).toContain('s=200');
+    });
+
+    it('uses d=404 fallback to trigger onError in browser', () => {
+        const url = getGravatarUrl('test@example.com');
+        expect(url).toContain('d=404');
     });
 });
