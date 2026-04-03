@@ -19,6 +19,7 @@ const TokenNode = Node.create({
     group: 'inline',
     inline: true,
     atom: true,
+    marks: '_',
 
     addAttributes() {
         return {

@@ -1958,28 +1958,25 @@ img, svg { display: block; max-width: 100%; }
     user-select: none;
 }
 
-/* ── Tab Bar (Edit/Preview) ──────────────────────────── */
+/* ── Tab Row + Dirty Indicator ───────────────────────── */
 
-.invoicing-header {
+.template-tab-row {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-2, 8px);
+    align-items: center;
+    margin-bottom: 16px;
 }
 
 .template-tab-bar {
     display: flex;
-    align-items: center;
-    gap: var(--space-1, 4px);
+    gap: 4px;
 }
 
 .template-tab {
-    padding: var(--space-1, 4px) var(--space-3, 16px);
+    padding: 5px 16px;
     border: 1px solid var(--color-border, #e0e0e0);
     border-radius: 999px;
-    background: var(--color-surface, #ffffff);
-    font-size: 0.8rem;
+    background: transparent;
+    font-size: 0.82rem;
     font-weight: 500;
     color: var(--color-text-secondary, #5B6475);
     cursor: pointer;
@@ -1997,115 +1994,252 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .template-dirty-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--color-warning-fg, #B58A00);
-    margin-left: var(--space-2, 8px);
+    color: var(--color-text-tertiary, #999);
+    margin-left: 8px;
 }
 
-/* ── Sticky Save Bar ─────────────────────────────────── */
-
-.template-save-bar {
-    position: sticky;
-    bottom: 0;
-    padding: 12px 0;
-    margin-top: var(--space-3, 12px);
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(8px);
-    border-top: 1px solid var(--color-border-light, #f0f0f0);
-    z-index: 1;
+.template-dirty-indicator::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #D6A24A;
 }
 
-/* ── Subject Field Group ─────────────────────────────── */
+/* ── Editor Card ─────────────────────────────────────── */
 
-.subject-field-group {
-    margin-bottom: var(--space-4, 24px);
+.template-card {
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 12px;
+    background: var(--color-surface, #ffffff);
+    overflow: hidden;
 }
 
-/* ── Invoicing Hint Variants ─────────────────────────── */
-
-.invoicing-hint--compact {
-    font-size: 0.82rem;
-    margin-bottom: var(--space-2, 8px);
-}
-
-.invoicing-hint--small {
-    font-size: 0.78rem;
-    margin-top: var(--space-1, 4px);
-}
-
-.invoicing-hint--dialog {
-    margin: 0 24px 8px;
-}
-
-.invoicing-loading {
-    color: var(--color-text-secondary, #5B6475);
-}
-
-/* ── Preview Member Selector ─────────────────────────── */
-
-.preview-member-selector {
+/* Subject row — first row inside card */
+.template-subject-row {
     display: flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+    gap: 6px;
     font-size: 0.82rem;
-    color: var(--color-text-secondary, #5B6475);
 }
 
-.preview-member-selector label {
+.template-subject-label {
     font-weight: 500;
-    white-space: nowrap;
+    color: var(--color-text-secondary, #5B6475);
+    margin-right: 4px;
+    flex-shrink: 0;
 }
 
-.preview-member-selector select {
-    font-size: 0.82rem;
-    padding: 4px 8px;
-    border: 1px solid var(--color-border, #e0e0e0);
+.template-subject-content {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Unified chip bar inside card */
+.template-chip-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+    flex-wrap: wrap;
+}
+
+.template-chip-label {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary, #5B6475);
+    font-weight: 500;
+}
+
+.template-chip {
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(110, 120, 214, 0.2);
+    background: rgba(110, 120, 214, 0.06);
+    color: var(--color-primary, #4A6FA5);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.template-chip:hover {
+    background: rgba(110, 120, 214, 0.12);
+}
+
+/* Warning inside card */
+.template-card-warning {
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    color: var(--color-danger, #C65A5A);
+    border-top: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+/* Save bar — sticky footer inside card */
+.template-save-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-top: 1px solid var(--color-border-light, #f0f0f0);
+    background: var(--color-surface-alt, #F7F8FB);
+}
+
+.template-save-status {
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary, #999);
+}
+
+.template-save-btn {
+    padding: 6px 18px;
+    border: none;
     border-radius: 6px;
-    background: var(--color-surface, #ffffff);
+    background: var(--color-primary, #6E78D6);
+    color: var(--color-text-inverse, #ffffff);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
 }
 
-/* ── Preview Metadata Grid ───────────────────────────── */
+.template-save-btn:hover {
+    background: var(--color-primary-hover, #5F6BC2);
+}
 
-.invoice-preview-meta-grid {
+.template-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ── Preview Card ────────────────────────────────────── */
+
+.template-preview-card {
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 12px;
+    background: var(--color-surface, #ffffff);
+    overflow: hidden;
+}
+
+.template-preview-meta {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: 60px 1fr;
     gap: 4px 12px;
     font-size: 0.78rem;
     padding: 12px 14px;
     border-bottom: 1px solid var(--color-border-light, #f0f0f0);
 }
 
-.invoice-preview-meta-grid .invoice-preview-meta-label {
-    color: var(--color-text-secondary, #5B6475);
+.template-preview-label {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    color: var(--color-text-secondary, #5B6475);
     font-size: 0.7rem;
     align-self: center;
 }
 
-/* ── Preview Link Actions ────────────────────────────── */
-
-.preview-link-actions {
+.template-preview-val {
+    color: var(--color-text, #1F2430);
+    font-size: 0.82rem;
     display: flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    gap: 8px;
 }
 
-.btn-link {
+.template-preview-member-sel {
+    padding: 3px 8px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    background: var(--color-surface, #ffffff);
+    color: var(--color-text, #1F2430);
+}
+
+.template-preview-link-row {
+    font-size: 0.75rem;
+}
+
+.template-preview-url {
+    color: var(--color-primary, #4A6FA5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+
+.template-preview-copy-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+    background: var(--color-surface, #ffffff);
+    font-size: 0.7rem;
+    color: var(--color-text-secondary, #5B6475);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.template-preview-manage-btn {
     background: none;
     border: none;
-    color: var(--color-primary, #6E78D6);
-    font-size: 0.78rem;
-    font-weight: 500;
+    color: var(--color-primary, #4A6FA5);
+    font-size: 0.7rem;
     cursor: pointer;
     padding: 0;
+    text-decoration: none;
+}
+
+.template-preview-manage-btn:hover {
     text-decoration: underline;
 }
 
-.btn-link:hover {
-    color: var(--color-primary-hover, #5A64C4);
+.template-preview-body {
+    padding: 16px;
+}
+
+.template-preview-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 14px;
+    border-top: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.template-preview-test-btn {
+    padding: 5px 14px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+    background: var(--color-surface, #ffffff);
+    font-size: 0.78rem;
+    color: var(--color-text-secondary, #5B6475);
+    cursor: pointer;
+}
+
+.template-preview-test-btn:hover {
+    background: var(--color-surface-alt, #F7F8FB);
+}
+
+/* ── Invoicing Hint Variants ─────────────────────────── */
+
+.invoicing-hint--compact {
+    font-size: 0.82rem;
+    margin-bottom: 4px;
+}
+
+.invoicing-hint--dialog {
+    margin: 0 24px 8px;
+    font-size: 0.82rem;
+}
+
+.invoicing-loading {
+    color: var(--color-text-secondary, #5B6475);
 }
 
 /* ── Invoice Template Preview ─────────────────────────── */

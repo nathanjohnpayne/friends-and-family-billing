@@ -60,28 +60,29 @@ describe('InvoicingTab', () => {
         useBillingData.mockReturnValue(mockState);
     });
 
-    it('renders email template section', () => {
+    it('renders hint text and tab bar', () => {
         renderTab();
-        expect(screen.getByText('Email Template')).toBeInTheDocument();
+        expect(screen.getByText(/insert billing fields/i)).toBeInTheDocument();
+        expect(screen.getByText('Edit')).toBeInTheDocument();
+        expect(screen.getByText('Preview')).toBeInTheDocument();
     });
 
     it('does not render payment methods section (moved to Settings)', () => {
         renderTab();
-        // Payment Methods may appear as a token chip label but not as a section heading
         expect(screen.queryByText('Add Payment Method')).toBeNull();
     });
 
     it('shows TipTap editor', () => {
         renderTab();
-        // TipTap renders a .ProseMirror contenteditable element inside the editor
         const prosemirror = document.querySelector('.ProseMirror');
         expect(prosemirror).toBeInTheDocument();
     });
 
-    it('shows token insert buttons', () => {
+    it('shows unified token insert chips', () => {
         renderTab();
         expect(screen.getAllByText('Billing Year').length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText('Household Total').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Payment Methods').length).toBeGreaterThanOrEqual(1);
     });
 
     it('shows Edit and Preview tabs', () => {
@@ -90,22 +91,24 @@ describe('InvoicingTab', () => {
         expect(screen.getByText('Preview')).toBeInTheDocument();
     });
 
-    it('shows preview with To and Subject when Preview tab is clicked', () => {
+    it('shows preview metadata when Preview tab is clicked', () => {
         renderTab();
         fireEvent.click(screen.getByText('Preview'));
-        expect(screen.getByText('To')).toBeInTheDocument();
-        expect(screen.getByText('Subject')).toBeInTheDocument();
+        // Preview metadata grid has To and Link labels
+        const previewMeta = document.querySelector('.template-preview-meta');
+        expect(previewMeta).toBeInTheDocument();
+        expect(previewMeta.textContent).toContain('To');
+        expect(previewMeta.textContent).toContain('Link');
     });
 
-    it('shows save button', () => {
+    it('shows save button in edit tab', () => {
         renderTab();
-        const saveBtn = screen.getByText('Save Template');
-        expect(saveBtn).toBeInTheDocument();
+        expect(screen.getByText('Save template')).toBeInTheDocument();
     });
 
     it('hides save button when year is read-only', () => {
         renderTab({ activeYear: { id: '2024', label: '2024', status: 'archived' } });
-        expect(screen.queryByText('Save Template')).toBeNull();
+        expect(screen.queryByText('Save template')).toBeNull();
     });
 
     it('shows duplicate payment text warning', () => {
@@ -122,16 +125,20 @@ describe('InvoicingTab', () => {
     it('shows member selector in preview tab', () => {
         renderTab();
         fireEvent.click(screen.getByText('Preview'));
-        const selector = screen.getByLabelText('Preview for:');
+        const selector = document.querySelector('.template-preview-member-sel');
         expect(selector).toBeInTheDocument();
-        // Should have options for each family member
         const options = selector.querySelectorAll('option');
         expect(options.length).toBe(2);
     });
 
-    it('shows dirty indicator when template is modified', () => {
+    it('shows send test email button in preview tab', () => {
         renderTab();
-        // Initially no dirty indicator
+        fireEvent.click(screen.getByText('Preview'));
+        expect(screen.getByText('Send test email')).toBeInTheDocument();
+    });
+
+    it('does not show dirty indicator initially', () => {
+        renderTab();
         expect(screen.queryByText('Unsaved changes')).toBeNull();
     });
 });

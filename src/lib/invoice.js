@@ -229,7 +229,8 @@ export function docToPlainTextWithTokens(doc) {
 export function plainTextToDoc(text) {
     if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
 
-    const tokenPattern = /%([a-z_]+)%/g;
+    // Matches both %token% and **%token%** (bold-wrapped)
+    const tokenPattern = /(\*\*)?%([a-z_]+)%(\*\*)?/g;
     const blockTokenIds = new Set(['payment_methods', 'share_link']);
     const tokenLabels = {
         first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
@@ -254,7 +255,7 @@ export function plainTextToDoc(text) {
 
         // Standalone block token on its own line
         tokenPattern.lastIndex = 0;
-        const soloMatch = trimmed.match(/^%([a-z_]+)%$/);
+        const soloMatch = trimmed.match(/^(?:\*\*)?%([a-z_]+)%(?:\*\*)?$/);
         if (soloMatch && blockTokenIds.has(soloMatch[1])) {
             const id = soloMatch[1];
             content.push({
@@ -285,7 +286,8 @@ export function plainTextToDoc(text) {
         while ((match = tokenPattern.exec(line)) !== null) {
             const before = line.slice(lastIdx, match.index);
             if (before) nodes.push({ type: 'text', text: before });
-            const tokenId = match[1];
+            const isBold = match[1] === '**' && match[3] === '**';
+            const tokenId = match[2];
             if (tokenLabels[tokenId]) {
                 // Map legacy token IDs to new IDs
                 const normalizedId = tokenId === 'member_first' ? 'first_name'
@@ -293,10 +295,12 @@ export function plainTextToDoc(text) {
                     : tokenId === 'member_name' ? 'full_name'
                     : tokenId === 'annual_total' ? 'household_total'
                     : tokenId;
-                nodes.push({
+                const tokenNode = {
                     type: 'templateToken',
                     attrs: { id: normalizedId, label: tokenLabels[tokenId] },
-                });
+                };
+                if (isBold) tokenNode.marks = [{ type: 'bold' }];
+                nodes.push(tokenNode);
             } else {
                 nodes.push({ type: 'text', text: match[0] });
             }

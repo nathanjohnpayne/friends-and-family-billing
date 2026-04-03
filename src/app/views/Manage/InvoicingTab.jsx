@@ -2,7 +2,7 @@
  * InvoicingTab — TipTap WYSIWYG email template editor with tabbed
  * Edit/Preview layout, token pills, and payment methods manager.
  */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { queueEmail } from '../../../lib/mail.js';
@@ -24,14 +24,11 @@ import { BLOCK_TOKENS } from '../../components/BlockTokenNode.js';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 
-const EMAIL_TEMPLATE_FIELDS = [
-    ...INLINE_TOKENS.map(t => ({ token: '%' + t.id + '%', label: t.label, id: t.id })),
-    ...BLOCK_TOKENS.map(t => ({ token: '%' + t.id + '%', label: t.label, id: t.id, isBlock: true })),
+/** All tokens for the unified chip bar. */
+const ALL_TOKEN_FIELDS = [
+    ...INLINE_TOKENS.map(t => ({ id: t.id, label: t.label })),
+    ...BLOCK_TOKENS.map(t => ({ id: t.id, label: t.label, isBlock: true, description: t.description })),
 ];
-
-const SUBJECT_TOKEN_FIELDS = INLINE_TOKENS.map(t => ({
-    token: '%' + t.id + '%', label: t.label, id: t.id,
-}));
 
 export default function InvoicingTab() {
     const { familyMembers, bills, payments, activeYear, loading, service } = useBillingData();
@@ -61,7 +58,7 @@ export default function InvoicingTab() {
     );
 }
 
-// ── Email Template Editor ───────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────
 
 function deriveBodyDoc(settings) {
     return settings.emailMessageDocument
@@ -75,13 +72,25 @@ function deriveBodyText(settings) {
         : (settings.emailMessage || '');
 }
 
+function formatTimeSince(date) {
+    if (!date) return '';
+    const seconds = Math.floor((Date.now() - date) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago';
+    const hours = Math.floor(minutes / 60);
+    return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+}
+
+// ── Email Template Editor ───────────────────────────────────────────
+
 function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
     const [activeTab, setActiveTab] = useState('edit');
     const [bodyDoc, setBodyDoc] = useState(() => deriveBodyDoc(settings));
     const [bodyText, setBodyText] = useState(() => deriveBodyText(settings));
     const [subjectText, setSubjectText] = useState(settings.emailSubject || '');
     const [dirty, setDirty] = useState(false);
-    const [savedFlash, setSavedFlash] = useState(false);
+    const [lastSavedAt, setLastSavedAt] = useState(null);
     const [previewMemberId, setPreviewMemberId] = useState(
         familyMembers.length > 0 ? familyMembers[0].id : null
     );
@@ -93,31 +102,37 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     const [testEmailTo, setTestEmailTo] = useState('');
     const [testEmailSending, setTestEmailSending] = useState(false);
 
-    // TipTap editor refs for chip-bar insertion
+    // Editor refs
     const bodyEditorRef = useRef(null);
     const subjectEditorRef = useRef(null);
+    // Track which editor was last focused for unified chip bar
+    const lastFocusedEditor = useRef('body');
 
     // Resync local state when the billing year changes (route stays mounted)
     const lastYearId = useRef(billingYearId);
     useEffect(() => {
         if (billingYearId !== lastYearId.current) {
             lastYearId.current = billingYearId;
-            const newDoc = deriveBodyDoc(settings);
-            const newText = deriveBodyText(settings);
-            setBodyDoc(newDoc);
-            setBodyText(newText);
+            setBodyDoc(deriveBodyDoc(settings));
+            setBodyText(deriveBodyText(settings));
             setSubjectText(settings.emailSubject || '');
             setPreviewShareUrl(settings.invoiceShareUrl || '');
             setPreviewMemberId(familyMembers.length > 0 ? familyMembers[0].id : null);
             setDirty(false);
-            setSavedFlash(false);
+            setLastSavedAt(null);
         }
     }, [billingYearId, settings, familyMembers]);
 
+    // Tick the "last saved" display
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!lastSavedAt) return;
+        const id = setInterval(() => setTick(t => t + 1), 30000);
+        return () => clearInterval(id);
+    }, [lastSavedAt]);
+
     function handleBodyUpdate(json) {
         setBodyDoc(json);
-        // Derive plaintext fallback from JSON — editor.getText() has wrong
-        // spacing around block nodes and drops list markers.
         setBodyText(docToPlainTextWithTokens(json));
         setDirty(true);
     }
@@ -134,39 +149,31 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             emailSubject: subjectText,
         });
         setDirty(false);
-        setSavedFlash(true);
+        setLastSavedAt(Date.now());
         showToast('Email template saved');
-        setTimeout(() => setSavedFlash(false), 1500);
     }
 
-    function insertBodyToken(field) {
-        // Not implemented inline — the chip buttons are kept for discoverability
-        // but TipTap's slash command is the primary insertion mechanism.
-        // This uses the editor instance via the TemplateEditor component.
-        // We fall back to the token pattern for simplicity.
-        if (!bodyEditorRef.current) return;
-        const editor = bodyEditorRef.current;
+    /** Unified chip bar: insert into whichever editor was last focused. */
+    const insertToken = useCallback((field) => {
         if (field.isBlock) {
-            const info = BLOCK_TOKENS.find(b => b.id === field.id);
+            // Block tokens only go into body editor
+            const editor = bodyEditorRef.current;
+            if (!editor) return;
             editor.chain().focus().insertContent({
                 type: 'blockToken',
-                attrs: { id: field.id, label: field.label, description: info?.description || '' },
+                attrs: { id: field.id, label: field.label, description: field.description || '' },
             }).run();
-        } else {
-            editor.chain().focus().insertContent({
-                type: 'templateToken',
-                attrs: { id: field.id, label: field.label },
-            }).run();
+            return;
         }
-    }
-
-    function insertSubjectToken(field) {
-        if (!subjectEditorRef.current) return;
-        subjectEditorRef.current.chain().focus().insertContent({
+        const editor = lastFocusedEditor.current === 'subject'
+            ? subjectEditorRef.current
+            : bodyEditorRef.current;
+        if (!editor) return;
+        editor.chain().focus().insertContent({
             type: 'templateToken',
             attrs: { id: field.id, label: field.label },
         }).run();
-    }
+    }, []);
 
     async function handleGeneratePreviewLink() {
         const member = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
@@ -200,11 +207,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     let previewCtx = null;
     let previewBodyHTML = '';
     if (previewMember) {
-        const previewSettings = {
-            ...settings,
-            emailMessage: bodyText,
-            emailMessageDocument: bodyDoc,
-        };
+        const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
         const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings);
         if (ctx) {
             previewCtx = ctx;
@@ -217,8 +220,12 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
 
     return (
         <div className="invoicing-section">
-            <div className="invoicing-header">
-                <h3>Email Template</h3>
+            <p className="invoicing-hint invoicing-hint--compact">
+                Use / to insert billing fields. Formatting is applied as you type.
+            </p>
+
+            {/* ── Tab bar ── */}
+            <div className="template-tab-row">
                 <div className="template-tab-bar">
                     <button
                         className={'template-tab' + (activeTab === 'edit' ? ' template-tab--active' : '')}
@@ -230,101 +237,92 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                         onClick={() => setActiveTab('preview')}
                         type="button"
                     >Preview</button>
-                    {dirty && <span className="template-dirty-indicator">Unsaved changes</span>}
                 </div>
+                {dirty && <span className="template-dirty-indicator">Unsaved changes</span>}
             </div>
 
             {/* ── Edit Tab ── */}
             <div style={{ display: activeTab === 'edit' ? 'block' : 'none' }}>
-                <p className="invoicing-hint invoicing-hint--compact">
-                    Use / to insert billing fields. Formatting is applied as you type.
-                </p>
-
-                <div className="payment-field-group subject-field-group">
-                    <label>Subject Line</label>
-                    <SubjectEditor
-                        content={subjectText}
-                        onUpdate={handleSubjectUpdate}
-                        readOnly={readOnly}
-                        ref={subjectEditorRef}
-                    />
-                    {!readOnly && (
-                        <div className="template-token-bar">
-                            <span className="template-token-label">Insert:</span>
-                            {SUBJECT_TOKEN_FIELDS.map(f => (
-                                <button
-                                    key={f.token}
-                                    className="template-token-chip"
-                                    type="button"
-                                    onClick={() => insertSubjectToken(f)}
-                                >
-                                    {f.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                    <p className="invoicing-hint invoicing-hint--small">
-                        Leave blank to use the default: {'"'}Annual Billing Summary [Year]{'\u2014'}[Name]{'"'}.
-                    </p>
-                </div>
-
-                <div className="payment-field-group">
-                    <label>Email Message</label>
-                    {!readOnly && (
-                        <div className="template-token-bar">
-                            <span className="template-token-label">Insert:</span>
-                            {EMAIL_TEMPLATE_FIELDS.map(f => (
-                                <button
-                                    key={f.token}
-                                    className="template-token-chip"
-                                    type="button"
-                                    onClick={() => insertBodyToken(f)}
-                                >
-                                    {f.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    <TemplateEditor
-                        content={bodyDoc}
-                        onUpdate={handleBodyUpdate}
-                        readOnly={readOnly}
-                        onConfigurePaymentMethods={() => setPaymentMethodsModal(true)}
-                        ref={bodyEditorRef}
-                    />
-                </div>
-
-                {hasDuplicate && (
-                    <p className="composer-error">
-                        Warning: Your template contains both the %payment_methods% token and hardcoded payment text.
-                        This may cause duplicate payment information in invoices.
-                    </p>
-                )}
-
-                {!readOnly && (
-                    <div className="template-save-bar">
-                        <button
-                            className="btn btn-sm btn-primary"
-                            onClick={handleSave}
-                            disabled={!dirty}
+                <div className="template-card">
+                    {/* Subject row */}
+                    <div className="template-subject-row">
+                        <span className="template-subject-label">Subject</span>
+                        <div
+                            className="template-subject-content"
+                            onFocus={() => { lastFocusedEditor.current = 'subject'; }}
                         >
-                            {savedFlash ? 'Saved \u2713' : 'Save Template'}
-                        </button>
+                            <SubjectEditor
+                                content={subjectText}
+                                onUpdate={handleSubjectUpdate}
+                                readOnly={readOnly}
+                                ref={subjectEditorRef}
+                            />
+                        </div>
                     </div>
-                )}
+
+                    {/* Unified chip bar */}
+                    {!readOnly && (
+                        <div className="template-chip-bar">
+                            <span className="template-chip-label">Insert:</span>
+                            {ALL_TOKEN_FIELDS.map(f => (
+                                <button
+                                    key={f.id}
+                                    className="template-chip"
+                                    type="button"
+                                    onClick={() => insertToken(f)}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Body editor with toolbar */}
+                    <div onFocus={() => { lastFocusedEditor.current = 'body'; }}>
+                        <TemplateEditor
+                            content={bodyDoc}
+                            onUpdate={handleBodyUpdate}
+                            readOnly={readOnly}
+                            onConfigurePaymentMethods={() => setPaymentMethodsModal(true)}
+                            ref={bodyEditorRef}
+                        />
+                    </div>
+
+                    {hasDuplicate && (
+                        <div className="template-card-warning">
+                            Warning: Your template contains both the %payment_methods% token and hardcoded payment text.
+                            This may cause duplicate payment information in invoices.
+                        </div>
+                    )}
+
+                    {/* Save bar */}
+                    {!readOnly && (
+                        <div className="template-save-bar">
+                            <span className="template-save-status">
+                                {lastSavedAt ? 'Last saved ' + formatTimeSince(lastSavedAt) : ''}
+                            </span>
+                            <button
+                                className="template-save-btn"
+                                onClick={handleSave}
+                                disabled={!dirty}
+                            >
+                                Save template
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* ── Preview Tab ── */}
             <div style={{ display: activeTab === 'preview' ? 'block' : 'none' }}>
                 {previewCtx ? (
-                    <div className="invoice-template-preview">
-                        <div className="invoice-template-preview-head">
-                            <div className="preview-member-selector">
-                                <label htmlFor="preview-member">Preview for:</label>
+                    <div className="template-preview-card">
+                        <div className="template-preview-meta">
+                            <span className="template-preview-label">To</span>
+                            <div className="template-preview-val">
+                                {previewCtx.member.email || previewCtx.member.name}
                                 <select
-                                    id="preview-member"
-                                    className="composer-input"
+                                    className="template-preview-member-sel"
                                     value={previewMemberId || ''}
                                     onChange={e => setPreviewMemberId(Number(e.target.value))}
                                 >
@@ -333,55 +331,51 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                                     ))}
                                 </select>
                             </div>
+                            <span className="template-preview-label">Subject</span>
+                            <div className="template-preview-val">
+                                {buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)}
+                            </div>
+                            <span className="template-preview-label">Link</span>
+                            <div className="template-preview-val template-preview-link-row">
+                                {previewShareUrl ? (
+                                    <>
+                                        <span className="template-preview-url">{previewShareUrl}</span>
+                                        <button
+                                            className="template-preview-copy-btn"
+                                            type="button"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(previewShareUrl).then(
+                                                    () => showToast('Link copied!'),
+                                                    () => showToast('Failed to copy')
+                                                );
+                                            }}
+                                        >Copy</button>
+                                        <button
+                                            className="template-preview-manage-btn"
+                                            type="button"
+                                            onClick={() => setShareLinkDialog(true)}
+                                        >Manage</button>
+                                    </>
+                                ) : (
+                                    <button
+                                        className="template-preview-copy-btn"
+                                        onClick={handleGeneratePreviewLink}
+                                        disabled={generatingLink || !userId}
+                                    >
+                                        {generatingLink ? 'Generating\u2026' : 'Generate share link'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="template-preview-body invoice-preview-message"
+                            dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
+                        <div className="template-preview-actions">
                             <button
-                                className="btn btn-sm btn-secondary"
+                                className="template-preview-test-btn"
                                 onClick={() => { setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
                             >
                                 Send test email
                             </button>
-                        </div>
-                        <div className="invoice-template-preview-body">
-                            <div className="invoice-preview-shell">
-                                <div className="invoice-preview-meta-grid">
-                                    <span className="invoice-preview-meta-label">To</span>
-                                    <span>{previewCtx.member.email || previewCtx.member.name}</span>
-                                    <span className="invoice-preview-meta-label">Subject</span>
-                                    <span>{buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)}</span>
-                                    <span className="invoice-preview-meta-label">Link</span>
-                                    <span className="preview-link-actions">
-                                        {previewShareUrl ? (
-                                            <>
-                                                <span className="invoice-share-url">{previewShareUrl}</span>
-                                                <button
-                                                    className="btn btn-sm btn-secondary"
-                                                    type="button"
-                                                    onClick={() => {
-                                                        navigator.clipboard.writeText(previewShareUrl).then(
-                                                            () => showToast('Link copied!'),
-                                                            () => showToast('Failed to copy')
-                                                        );
-                                                    }}
-                                                >Copy</button>
-                                                <button
-                                                    className="btn-link"
-                                                    type="button"
-                                                    onClick={() => setShareLinkDialog(true)}
-                                                >Manage links</button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                className="btn btn-sm btn-secondary"
-                                                onClick={handleGeneratePreviewLink}
-                                                disabled={generatingLink || !userId}
-                                            >
-                                                {generatingLink ? 'Generating\u2026' : 'Generate share link'}
-                                            </button>
-                                        )}
-                                    </span>
-                                </div>
-                                <div className="invoice-preview-message"
-                                    dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
-                            </div>
                         </div>
                     </div>
                 ) : (
@@ -394,7 +388,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                 <div className="dialog-overlay" onClick={() => setPaymentMethodsModal(false)}>
                     <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
                         <div className="dialog-title">Payment Methods</div>
-                        <p className="invoicing-hint" style={{ padding: '0 24px 8px' }}>
+                        <p className="invoicing-hint invoicing-hint--dialog">
                             Changes here update the payment methods block used in invoice emails.
                         </p>
                         <PaymentMethodsManager
@@ -443,7 +437,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                                     />
                                 </div>
                             </div>
-                            <p className="invoicing-hint invoicing-hint--small invoicing-hint--dialog">
+                            <p className="invoicing-hint invoicing-hint--dialog">
                                 Sends the current preview (including unsaved edits) with [Test] in the subject.
                             </p>
                             <div className="dialog-buttons">

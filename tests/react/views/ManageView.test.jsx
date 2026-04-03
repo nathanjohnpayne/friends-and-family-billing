@@ -74,7 +74,7 @@ describe('ManageView', () => {
 
     it('renders InvoicingTab content', () => {
         renderManage('invoicing');
-        expect(screen.getByText('Email Template')).toBeInTheDocument();
+        expect(screen.getByText(/insert billing fields/i)).toBeInTheDocument();
     });
 
     it('renders ReviewsTab content', () => {

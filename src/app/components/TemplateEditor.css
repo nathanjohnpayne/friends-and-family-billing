@@ -1,21 +1,29 @@
 /* ── TemplateEditor + SubjectEditor styles ──────────────────────── */
 
-/* ProseMirror surface inside the .template-editor container */
-.template-editor .ProseMirror {
+/* ProseMirror surface inside the card */
+.template-editor-surface {
+    padding: 16px;
+    min-height: 260px;
+}
+
+.template-editor-surface .ProseMirror {
     outline: none;
-    min-height: 120px;
+    min-height: 220px;
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: var(--color-text, #1F2430);
 }
 
-.template-editor .ProseMirror p {
-    margin: 0 0 8px;
+.template-editor-surface .ProseMirror p {
+    margin: 0 0 12px;
 }
 
-.template-editor .ProseMirror p:last-child {
+.template-editor-surface .ProseMirror p:last-child {
     margin-bottom: 0;
 }
 
 /* Placeholder text */
-.template-editor .ProseMirror p.is-editor-empty:first-child::before {
+.template-editor-surface .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     float: left;
     color: var(--color-text-tertiary, #9CA3AF);
@@ -24,40 +32,48 @@
     height: 0;
 }
 
-/* Formatting toolbar */
+/* Formatting toolbar — sits between chip bar and editor content */
 .template-toolbar {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 4px 0;
-    margin-bottom: 4px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+    background: var(--color-surface-alt, #F7F8FB);
 }
 
-.template-toolbar-btn {
+.template-tb {
+    width: 30px;
+    height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 32px;
-    min-height: 32px;
-    padding: 0 8px;
-    border: 1px solid transparent;
-    border-radius: 6px;
+    border: none;
     background: transparent;
-    color: var(--color-text-secondary, #5B6475);
-    font-size: 0.82rem;
-    font-weight: 600;
+    border-radius: 6px;
     cursor: pointer;
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    font-weight: 500;
     transition: background 0.15s, color 0.15s;
 }
 
-.template-toolbar-btn:hover {
+.template-tb:hover {
     background: rgba(110, 120, 214, 0.08);
     color: var(--color-text, #1F2430);
 }
 
-.template-toolbar-btn--active {
-    background: rgba(110, 120, 214, 0.12);
-    color: var(--color-primary, #6E78D6);
+.template-tb--active {
+    background: rgba(110, 120, 214, 0.14);
+    color: var(--color-primary, #4A6FA5);
+}
+
+.template-tb-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--color-border, #e0e0e0);
+    margin: 0 4px;
+    flex-shrink: 0;
 }
 
 /* Block token card (inside ProseMirror) */
@@ -65,11 +81,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
-    margin: 8px 0;
-    border: 1.5px dashed rgba(110, 120, 214, 0.35);
+    padding: 12px 14px;
+    margin: 12px 0;
+    border: 1px dashed rgba(110, 120, 214, 0.35);
+    border-left: 3px solid rgba(110, 120, 214, 0.4);
     border-radius: 10px;
-    background: rgba(110, 120, 214, 0.04);
+    background: rgba(110, 120, 214, 0.03);
     user-select: none;
 }
 
@@ -80,14 +97,14 @@
 }
 
 .block-token-card-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--color-primary, #6E78D6);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-primary, #4A6FA5);
 }
 
 .block-token-card-desc {
     font-size: 0.75rem;
-    color: var(--color-text-secondary, #5B6475);
+    color: var(--color-text-tertiary, #999);
 }
 
 /* Slash-command popup */
@@ -144,30 +161,30 @@
     background: var(--color-border-light, #f0f0f0);
 }
 
-/* Subject editor — single-line constrained variant */
+/* Subject editor — inline within the subject row */
 .subject-editor-wrap {
-    position: relative;
+    flex: 1;
+    min-width: 0;
 }
 
 .subject-editor .ProseMirror {
     outline: none;
-    padding: var(--space-2, 8px) var(--space-3, 16px);
-    border: 1px solid var(--color-border, #e0e0e0);
-    border-radius: 6px;
     font-size: 0.875rem;
-    background: var(--color-surface, #ffffff);
-    min-height: 0;
+    color: var(--color-text, #1F2430);
     white-space: nowrap;
     overflow: hidden;
-}
-
-.subject-editor .ProseMirror:focus {
-    border-color: var(--color-primary, #6E78D6);
-    box-shadow: 0 0 0 2px var(--color-primary-light);
+    min-height: 0;
+    padding: 0;
+    border: none;
 }
 
 .subject-editor .ProseMirror p {
     margin: 0;
+}
+
+.subject-editor .ProseMirror:focus {
+    border: none;
+    box-shadow: none;
 }
 
 .subject-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -178,16 +195,16 @@
     float: left;
 }
 
-/* Inline token pill in editors — augment existing .template-editor-token */
+/* Inline token pill in editors */
 .subject-editor .template-editor-token,
-.template-editor .template-editor-token {
+.template-editor-surface .template-editor-token {
     cursor: default;
 }
 
 /* Link styling inside the editor */
-.template-editor .ProseMirror a,
-.template-editor .ProseMirror .template-link {
-    color: var(--color-primary, #6E78D6);
+.template-editor-surface .ProseMirror a,
+.template-editor-surface .ProseMirror .template-link {
+    color: var(--color-primary, #4A6FA5);
     text-decoration: underline;
     cursor: text;
 }

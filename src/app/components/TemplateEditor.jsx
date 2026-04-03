@@ -21,7 +21,7 @@ const ALL_TOKENS = [
     ...BLOCK_TOKENS.map(t => ({ ...t, type: 'block' })),
 ];
 
-/** Token ID → label lookup for paste conversion. */
+/** Token ID -> label lookup for paste conversion. */
 const TOKEN_LOOKUP = Object.fromEntries([
     ...INLINE_TOKENS.map(t => [t.id, t]),
     ...BLOCK_TOKENS.map(t => [t.id, t]),
@@ -68,7 +68,6 @@ function PercentCommands(tokens) {
 
 /**
  * Convert pasted text containing %token% patterns into a ProseMirror fragment.
- * Returns null if no tokens are found (let TipTap handle normally).
  */
 function parsePastedTextWithTokens(text) {
     if (!TOKEN_PATTERN.test(text)) return null;
@@ -91,7 +90,6 @@ function parsePastedTextWithTokens(text) {
             if (info) {
                 const isBlock = BLOCK_TOKENS.some(b => b.id === tokenId);
                 if (isBlock) {
-                    // Flush current paragraph, insert block token, start new paragraph
                     if (para.content.length > 0) content.push({ ...para });
                     content.push({
                         type: 'blockToken',
@@ -105,7 +103,6 @@ function parsePastedTextWithTokens(text) {
                     });
                 }
             } else {
-                // Unknown token — keep as raw text
                 para.content.push({ type: 'text', text: match[0] });
             }
             lastIdx = match.index + match[0].length;
@@ -124,10 +121,8 @@ function parsePastedTextWithTokens(text) {
 
 /**
  * TemplateEditor component.
- * @param {Object|null} content — ProseMirror JSON document (or null for empty)
- * @param {Function} onUpdate — (json, plainText) callback
- * @param {boolean} readOnly
- * @param {Function} onConfigurePaymentMethods — callback to open PM modal
+ * Renders: toolbar (inside card) + ProseMirror editor surface.
+ * The parent card structure (subject row, chip bar, save bar) is in InvoicingTab.
  */
 const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, readOnly, onConfigurePaymentMethods }, ref) {
     const editor = useEditor({
@@ -169,7 +164,6 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
         },
     }, [readOnly, onConfigurePaymentMethods]);
 
-    // Expose the editor instance to the parent for chip-bar insertion
     useImperativeHandle(ref, () => editor, [editor]);
 
     // Sync content when it changes externally (e.g., billing year switch)
@@ -188,26 +182,26 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
     if (!editor) return null;
 
     return (
-        <div className="template-editor-wrap">
+        <>
             {!readOnly && <FormattingToolbar editor={editor} />}
-            <div className="template-editor">
+            <div className="template-editor-surface">
                 <EditorContent editor={editor} />
             </div>
-        </div>
+        </>
     );
 });
 
 export default TemplateEditor;
 
 function FormattingToolbar({ editor }) {
-    function btn(label, command, isActive) {
+    function btn(label, command, isActive, title) {
         return (
             <button
-                key={label}
+                key={title || label}
                 type="button"
-                className={'template-toolbar-btn' + (isActive ? ' template-toolbar-btn--active' : '')}
+                className={'template-tb' + (isActive ? ' template-tb--active' : '')}
                 onMouseDown={e => { e.preventDefault(); command(); }}
-                title={label}
+                title={title || label}
             >
                 {label}
             </button>
@@ -216,8 +210,8 @@ function FormattingToolbar({ editor }) {
 
     return (
         <div className="template-toolbar">
-            {btn('B', () => editor.chain().focus().toggleBold().run(), editor.isActive('bold'))}
-            {btn('I', () => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'))}
+            {btn(<strong>B</strong>, () => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), 'Bold')}
+            {btn(<em>I</em>, () => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), 'Italic')}
             {btn('Link', () => {
                 if (editor.isActive('link')) {
                     editor.chain().focus().unsetLink().run();
@@ -225,10 +219,12 @@ function FormattingToolbar({ editor }) {
                     const url = window.prompt('URL');
                     if (url) editor.chain().focus().setLink({ href: url }).run();
                 }
-            }, editor.isActive('link'))}
-            {btn('\u2022', () => editor.chain().focus().toggleBulletList().run(), editor.isActive('bulletList'))}
-            {btn('1.', () => editor.chain().focus().toggleOrderedList().run(), editor.isActive('orderedList'))}
-            {btn('\u2500', () => editor.chain().focus().setHorizontalRule().run(), false)}
+            }, editor.isActive('link'), 'Link')}
+            <span className="template-tb-sep" />
+            {btn('\u2022', () => editor.chain().focus().toggleBulletList().run(), editor.isActive('bulletList'), 'Bullet list')}
+            {btn('1.', () => editor.chain().focus().toggleOrderedList().run(), editor.isActive('orderedList'), 'Numbered list')}
+            <span className="template-tb-sep" />
+            {btn('\u2014', () => editor.chain().focus().setHorizontalRule().run(), false, 'Horizontal rule')}
         </div>
     );
 }
