@@ -15,13 +15,13 @@ jobs:
     name: Audit Merged PRs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install js-yaml
         run: npm install js-yaml
 
       - name: Audit merged PRs for review policy compliance
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
