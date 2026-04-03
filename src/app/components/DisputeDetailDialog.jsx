@@ -4,13 +4,48 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { getDownloadURL, ref } from 'firebase/storage';
-import { storage } from '../../lib/firebase.js';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db, storage } from '../../lib/firebase.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { queueEmail } from '../../lib/mail.js';
+import { buildShareUrl } from '../../lib/share.js';
 import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
 import { openSmsComposer } from '../../lib/sms.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+
+/**
+ * Look up an active share token with disputes:read scope for a member in a billing year.
+ * Returns the share page URL or null.
+ */
+async function findMemberShareUrl(ownerId, billingYearId, memberId) {
+    try {
+        const q = query(
+            collection(db, 'shareTokens'),
+            where('ownerId', '==', ownerId),
+            where('memberId', '==', memberId),
+            where('revoked', '==', false)
+        );
+        const snap = await getDocs(q);
+        const now = new Date();
+        for (const doc of snap.docs) {
+            const data = doc.data();
+            if (!data.rawToken) continue;
+            if (data.billingYearId !== billingYearId) continue;
+            const scopes = data.scopes || [];
+            if (!scopes.includes('disputes:read')) continue;
+            if (data.expiresAt) {
+                const expiry = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
+                if (expiry < now) continue;
+            }
+            return buildShareUrl(window.location.origin, data.rawToken);
+        }
+        return null;
+    } catch (err) {
+        console.error('findMemberShareUrl failed:', err);
+        return null;
+    }
+}
 
 function isTerminal(status) {
     return status === 'resolved' || status === 'rejected';
@@ -28,7 +63,16 @@ function isTerminal(status) {
  * @param {string} yearLabel
  * @param {boolean} [userReviewRequested] — true when userReview.state === 'requested'
  */
-function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNote, yearLabel, userReviewRequested) {
+/**
+ * @param {Object} dispute
+ * @param {Object} member — { name, email }
+ * @param {string} statusWord — 'resolved', 'rejected', or 'under review'
+ * @param {string} resolutionNote
+ * @param {string} yearLabel
+ * @param {boolean} [userReviewRequested] — true when userReview.state === 'requested'
+ * @param {string|null} [shareUrl] — share page URL for review CTA
+ */
+function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNote, yearLabel, userReviewRequested, shareUrl) {
     const subject = 'Your Review Request Update\u2014' + dispute.billName + (yearLabel ? ' (' + yearLabel + ')' : '');
     let body = 'Hi ' + (member.name || 'there') + ',\n\n';
     body += 'Your review request for **' + dispute.billName + '** has been marked **' + statusWord + '**.\n\n';
@@ -36,7 +80,11 @@ function buildMemberNotificationEmail(dispute, member, statusWord, resolutionNot
     if (dispute.proposedCorrection) body += '**Your suggestion:** ' + dispute.proposedCorrection + '\n\n';
     const terminal = statusWord === 'resolved' || statusWord === 'rejected';
     if (terminal && userReviewRequested) {
-        body += 'Please review this resolution and approve or reject it using your billing share link. If you no longer have the link, contact the account owner.\n\n';
+        if (shareUrl) {
+            body += 'Please review this resolution and approve or reject it:\n[Review & Respond](' + shareUrl + ')\n\n';
+        } else {
+            body += 'Please review this resolution and approve or reject it using your billing share link. If you no longer have the link, contact the account owner.\n\n';
+        }
     } else if (terminal) {
         body += 'This is the final resolution. ';
     }
@@ -100,13 +148,21 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
             const statusWord = newStatus === 'resolved' ? 'resolved' : newStatus === 'rejected' ? 'rejected' : 'under review';
             const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
             const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
-            const { subject: nSubject, body: nBody } = buildMemberNotificationEmail(dispute, notifyMember, statusWord, resolutionNote.trim(), yearLabel, reviewRequested);
             const terminal = isTerminal(newStatus);
-            queueEmail({ to: notifyMember.email, subject: nSubject, body: nBody, uid: user ? user.uid : '' })
-                .then(() => {
+            // Async IIFE so share-token lookup + email send don't block dialog close
+            (async () => {
+                try {
+                    let shareUrl = null;
+                    if (terminal && reviewRequested && user && activeYear) {
+                        shareUrl = await findMemberShareUrl(user.uid, activeYear.id, dispute.memberId);
+                    }
+                    const { subject: nSubject, body: nBody } = buildMemberNotificationEmail(dispute, notifyMember, statusWord, resolutionNote.trim(), yearLabel, reviewRequested, shareUrl);
+                    await queueEmail({ to: notifyMember.email, subject: nSubject, body: nBody, uid: user ? user.uid : '' });
                     if (terminal) onUpdate(dispute.id, { resolutionNotificationSentAt: new Date().toISOString() });
-                })
-                .catch(err => console.error('Auto-notification to member failed:', err));
+                } catch (err) {
+                    console.error('Auto-notification to member failed:', err);
+                }
+            })();
         }
 
         if (showToast) showToast('Dispute ' + newStatus);
@@ -277,9 +333,21 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                     const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
                     const statusWord = dispute.status === 'resolved' ? 'resolved' : 'rejected';
                     const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
-                    const { subject: resSubject, body: resBody } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested);
                     const notifiedAt = dispute.resolutionNotificationSentAt;
                     const notifiedDate = notifiedAt ? new Date(notifiedAt).toLocaleDateString() : null;
+
+                    // Build email content with share URL lookup at send time
+                    async function buildAndSendResolutionEmail() {
+                        let shareUrl = null;
+                        if (reviewRequested && user && activeYear) {
+                            shareUrl = await findMemberShareUrl(user.uid, activeYear.id, dispute.memberId);
+                        }
+                        const { subject, body } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, shareUrl);
+                        return { subject, body };
+                    }
+
+                    // Plain text version (no share URL) for SMS/clipboard
+                    const { body: resBodyText } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, null);
 
                     return (
                         <div className="dispute-share-actions">
@@ -287,7 +355,8 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                             {member && member.email && (
                                 <button className="btn btn-sm btn-secondary" onClick={async () => {
                                     try {
-                                        await queueEmail({ to: member.email, subject: resSubject, body: resBody, uid: user ? user.uid : '' });
+                                        const { subject, body } = await buildAndSendResolutionEmail();
+                                        await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
                                         if (showToast) showToast('Resolution emailed to ' + member.email);
                                     } catch (err) {
                                         if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
@@ -297,13 +366,13 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                             {notifiedDate && <span className="dispute-notified-hint">Auto-notified {notifiedDate}</span>}
                             {member && member.phone && (
                                 <button className="btn btn-sm btn-secondary" onClick={() => {
-                                    openSmsComposer(member.phone, resBody, () => {
+                                    openSmsComposer(member.phone, resBodyText, () => {
                                         if (showToast) showToast('Resolution copied\u2014paste into your messaging app');
                                     });
                                 }}>Text</button>
                             )}
                             <button className="btn btn-sm btn-secondary" onClick={() => {
-                                navigator.clipboard.writeText(resBody).then(() => {
+                                navigator.clipboard.writeText(resBodyText).then(() => {
                                     if (showToast) showToast('Resolution copied');
                                 });
                             }}>Copy</button>
