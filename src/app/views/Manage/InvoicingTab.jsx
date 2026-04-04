@@ -12,8 +12,9 @@ import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
 import { detectDuplicatePaymentText } from '../../../lib/validation.js';
 import {
-    buildInvoiceBody, buildInvoiceSubject, getInvoiceSummaryContext,
-    renderPreviewHTML, docToPlainTextWithTokens, plainTextToDoc
+    buildInvoiceSubject, getInvoiceSummaryContext,
+    buildInvoiceTemplateEmailPayload, renderInvoiceTemplate,
+    docToPlainTextWithTokens, plainTextToDoc
 } from '../../../lib/invoice.js';
 import { generateRawToken, hashToken } from '../../../lib/validation.js';
 import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from '../../../lib/share.js';
@@ -205,14 +206,15 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     // Build preview context for the selected member
     const previewMember = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
     let previewCtx = null;
+    let previewEmailPayload = null;
     let previewBodyHTML = '';
     if (previewMember) {
         const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
         const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings);
         if (ctx) {
             previewCtx = ctx;
-            const rawText = buildInvoiceBody(ctx, 'text-only', previewShareUrl, 'email', { markdown: true });
-            previewBodyHTML = renderPreviewHTML(rawText);
+            previewEmailPayload = buildInvoiceTemplateEmailPayload(ctx, previewShareUrl);
+            previewBodyHTML = previewEmailPayload.html || renderInvoiceTemplate(ctx, previewShareUrl);
         }
     }
 
@@ -414,9 +416,15 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             if (!testEmailTo.trim()) return;
                             setTestEmailSending(true);
                             try {
-                                const rawText = buildInvoiceBody(previewCtx, 'text-only', previewShareUrl, 'email', { markdown: true });
+                                const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
                                 const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
-                                await queueEmail({ to: testEmailTo.trim(), subject, body: rawText, uid: userId });
+                                await queueEmail({
+                                    to: testEmailTo.trim(),
+                                    subject,
+                                    body: payload.text,
+                                    html: payload.html,
+                                    uid: userId
+                                });
                                 setTestEmailOpen(false);
                                 showToast('Test email sent to ' + testEmailTo.trim());
                             } catch (err) {

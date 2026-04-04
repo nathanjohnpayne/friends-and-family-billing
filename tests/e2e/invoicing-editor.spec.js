@@ -64,11 +64,12 @@ test.describe('InvoicingTab Editor', () => {
         // Switch to Preview tab
         await page.locator('.template-tab', { hasText: 'Preview' }).click();
 
-        // The preview body should contain <strong> tags
+        // The preview should contain bold semantics without depending on an exact
+        // raw HTML string match for the opening tag.
         const previewBody = page.locator('.template-preview-body');
         await expect(previewBody).toBeVisible();
         const previewHTML = await previewBody.innerHTML();
-        expect(previewHTML).toContain('<strong>');
+        expect(previewHTML).toContain('<strong');
     });
 
     test('token pills are visible with correct styling', async ({ page }) => {

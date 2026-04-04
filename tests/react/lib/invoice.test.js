@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody, renderPreviewHTML, docToPlainTextWithTokens, plainTextToDoc } from '@/lib/invoice.js';
+import {
+    getInvoiceSummaryContext,
+    buildInvoiceSubject,
+    buildInvoiceBody,
+    buildInvoiceTemplateEmailPayload,
+    renderInvoiceTemplate,
+    docToPlainTextWithTokens,
+    plainTextToDoc
+} from '@/lib/invoice.js';
 
 const members = [
     { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [2], paymentReceived: 0 },
@@ -144,12 +152,6 @@ describe('payment URL linkification (issue #116)', () => {
         const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, settingsWithPayment);
         const body = buildInvoiceBody(ctx, 'text-only', '', 'email', { markdown: true });
         expect(body).toContain('[https://venmo.com/u/NathanPayne](https://venmo.com/u/NathanPayne)');
-    });
-
-    it('renderPreviewHTML converts payment markdown links to clickable <a> tags', () => {
-        const markdown = '- **Venmo:** @NathanPayne [https://venmo.com/u/NathanPayne](https://venmo.com/u/NathanPayne)';
-        const html = renderPreviewHTML(markdown);
-        expect(html).toContain('href="https://venmo.com/u/NathanPayne"');
     });
 
     it('bare URLs in text-only body are present for Cloud Function auto-linking', () => {
@@ -500,5 +502,97 @@ describe('dual-format support', () => {
         });
         const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
         expect(body).toContain('Hello Alice, legacy path.');
+    });
+});
+
+describe('invoice template HTML rendering', () => {
+    function parseHtml(html) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = html;
+        return wrapper;
+    }
+
+    const issueMembers = [
+        { id: 1, name: 'John Payne', email: 'john@example.com', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+    ];
+    const issueBills = [
+        { id: 201, name: 'Annual Household Share', amount: 1069.76, billingFrequency: 'annual', members: [1] }
+    ];
+    const issueYear = { id: '2026', label: '2026' };
+    const issueTemplateDoc = {
+        type: 'doc',
+        content: [
+            {
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: 'Hello ' },
+                    { type: 'templateToken', attrs: { id: 'first_name', label: 'First Name' } },
+                    { type: 'text', text: ',' },
+                ],
+            },
+            {
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: 'A link to your ' },
+                    { type: 'templateToken', attrs: { id: 'billing_year', label: 'Billing Year' } },
+                    { type: 'text', text: ' bill summary is below. Thank you for your prompt payment of ' },
+                    { type: 'templateToken', attrs: { id: 'household_total', label: 'Household Total' } },
+                    { type: 'text', text: '.' },
+                ],
+            },
+            { type: 'blockToken', attrs: { id: 'share_link', label: 'Share Link' } },
+            { type: 'horizontalRule' },
+            { type: 'blockToken', attrs: { id: 'payment_methods', label: 'Payment Methods' } },
+            { type: 'horizontalRule' },
+            { type: 'paragraph', content: [{ type: 'text', text: 'Thank you,' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'Nathan!' }] },
+            {
+                type: 'paragraph',
+                content: [{
+                    type: 'text',
+                    text: 'https://nathanpayne.com',
+                    marks: [{ type: 'link', attrs: { href: 'https://nathanpayne.com' } }],
+                }],
+            },
+        ],
+    };
+    const issueSettings = {
+        emailMessageDocument: issueTemplateDoc,
+        paymentMethods: [
+            { type: 'venmo', label: 'Venmo', enabled: true, handle: '', url: 'https://venmo.com/u/NathanPayne' },
+            { type: 'cashapp', label: 'Cash App', enabled: true, handle: '', url: 'https://cash.app/$nathanpayne' },
+            { type: 'paypal', label: 'PayPal', enabled: true, handle: '', url: 'https://paypal.me/nathanjohnpayne' },
+            { type: 'apple_cash', label: 'Apple Cash', enabled: true, phone: '+12022537070' },
+            { type: 'zelle', label: 'Zelle', enabled: true, email: 'nathan@nathanpayne.com', phone: '+12022537070' }
+        ]
+    };
+
+    it('keeps intro copy as normal paragraphs and preserves divider structure', () => {
+        const ctx = getInvoiceSummaryContext(issueMembers, issueBills, [], 1, issueYear, issueSettings);
+        const html = renderInvoiceTemplate(ctx, 'https://friends-and-family-billing.web.app/share.html?token=abc');
+        const root = parseHtml(html);
+        const paragraphs = [...root.querySelectorAll('p')];
+
+        expect(root.querySelectorAll('h1, h2, h3')).toHaveLength(0);
+        expect(root.querySelectorAll('hr')).toHaveLength(2);
+        expect(root.textContent).not.toContain('---');
+        expect(paragraphs[0].textContent).toBe('Hello John,');
+        expect(paragraphs[1].textContent).toBe('A link to your 2026 bill summary is below. Thank you for your prompt payment of $1069.76.');
+        expect(paragraphs[0].querySelector('strong')).toBeNull();
+        expect(paragraphs[1].querySelector('strong')).toBeNull();
+        expect(root.querySelector('ul')).not.toBeNull();
+        expect(root.textContent).toContain('Payment Options');
+        expect(root.innerHTML).toContain('href="https://venmo.com/u/NathanPayne"');
+    });
+
+    it('uses the same canonical HTML for preview and sent email payloads', () => {
+        const ctx = getInvoiceSummaryContext(issueMembers, issueBills, [], 1, issueYear, issueSettings);
+        const shareUrl = 'https://friends-and-family-billing.web.app/share.html?token=abc';
+        const payload = buildInvoiceTemplateEmailPayload(ctx, shareUrl);
+
+        expect(payload.html).toBe(renderInvoiceTemplate(ctx, shareUrl));
+        expect(payload.text).toContain('Hello John,');
+        expect(payload.text).toContain('Payment methods:');
+        expect(payload.html).toContain('John Payne’s 2026 Annual Billing Summary');
     });
 });
