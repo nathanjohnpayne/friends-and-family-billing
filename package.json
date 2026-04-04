@@ -15,7 +15,7 @@
     "test:legacy": "npm run build:legacy && node --test 'tests/*.test.js'",
     "test:react": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "npm run build:react && npx playwright test",
+    "test:e2e": "VITE_E2E_MODE=true npm run build:react && npx playwright test",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
     "deploy:functions": "op-firebase-deploy --only functions",

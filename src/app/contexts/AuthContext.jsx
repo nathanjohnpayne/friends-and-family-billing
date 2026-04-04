@@ -9,7 +9,7 @@ const AuthContext = createContext(null);
  * Listens to Firebase onAuthStateChanged and exposes { user, loading, signOut }.
  */
 export function AuthProvider({ children }) {
-    const isE2E = typeof window !== 'undefined' && window.__E2E_USER__;
+    const isE2E = import.meta.env.VITE_E2E_MODE && typeof window !== 'undefined' && window.__E2E_USER__;
     const [user, setUser] = useState(isE2E ? window.__E2E_USER__ : null);
     const [loading, setLoading] = useState(!isE2E);
 

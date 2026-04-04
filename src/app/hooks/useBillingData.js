@@ -8,8 +8,8 @@ import { useAuth } from '../contexts/AuthContext.jsx';
  */
 const service = new BillingYearService();
 
-// E2E mode: inject test data before React renders
-if (typeof window !== 'undefined' && window.__E2E_DATA__) {
+// E2E mode: inject test data before React renders (gated behind build flag)
+if (import.meta.env.VITE_E2E_MODE && typeof window !== 'undefined' && window.__E2E_DATA__) {
     service._injectTestState(window.__E2E_DATA__);
 }
 
