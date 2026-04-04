@@ -37,7 +37,7 @@ export default function InvoicingTab() {
     const readOnly = isYearReadOnly(activeYear);
     const settings = service.getState().settings || {};
 
-    if (loading) return <p className="invoicing-loading">Loading\u2026</p>;
+    if (loading) return <p className="invoicing-loading">Loading…</p>;
 
     return (
         <div className="invoicing-tab">
