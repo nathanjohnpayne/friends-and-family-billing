@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Mock Firebase (needed by InvoicingTab for share link generation)
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 vi.mock('firebase/firestore', () => ({
     doc: vi.fn(), setDoc: vi.fn(), serverTimestamp: vi.fn()
+}));
+vi.mock('@/lib/mail.js', () => ({
+    queueEmail: vi.fn(async () => ({ id: 'mail_1' }))
 }));
 
 // Mock auth
@@ -44,6 +47,7 @@ vi.mock('@/app/hooks/useBillingData.js', () => ({
 }));
 
 import { useBillingData } from '@/app/hooks/useBillingData.js';
+import { queueEmail } from '@/lib/mail.js';
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import InvoicingTab from '@/app/views/Manage/InvoicingTab.jsx';
 
@@ -135,6 +139,26 @@ describe('InvoicingTab', () => {
         renderTab();
         fireEvent.click(screen.getByText('Preview'));
         expect(screen.getByText('Send test email')).toBeInTheDocument();
+    });
+
+    it('sends the same HTML shown in preview when sending a test email', async () => {
+        renderTab();
+        fireEvent.click(screen.getByText('Preview'));
+
+        const previewBody = document.querySelector('.template-preview-body');
+        expect(previewBody).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Send test email'));
+        fireEvent.change(screen.getByLabelText('Send to'), { target: { value: 'qa@example.com' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+        await waitFor(() => expect(queueEmail).toHaveBeenCalledTimes(1));
+        expect(queueEmail).toHaveBeenCalledWith(expect.objectContaining({
+            to: 'qa@example.com',
+            uid: 'test-user',
+            html: previewBody.innerHTML,
+            body: expect.any(String),
+        }));
     });
 
     it('does not show dirty indicator initially', () => {

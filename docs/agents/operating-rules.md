@@ -213,7 +213,7 @@ Central service owning all billing state. React subscribes via `useSyncExternalS
 - `calculations.js` — `calculateAnnualSummary()`, `calculateSettlementMetrics()`, `getPaymentTotalForMember()`, `getBillAnnualAmount()`, `getBillMonthlyAmount()`
 - `validation.js` — `isValidE164()`, `isYearReadOnly()`, `yearReadOnlyMessage()`
 - `share.js` — `generateRawToken()`, `hashToken()`, `buildPublicShareData()`, `refreshPublicShares()`
-- `invoice.js` — `buildInvoiceSubject()`, `buildInvoiceBody()`, `buildFullInvoiceText()`, `getInvoiceSummaryContext()`
+- `invoice.js` — `buildInvoiceSubject()`, `buildInvoiceBody()`, `buildFullInvoiceText()`, `getInvoiceSummaryContext()`, `renderInvoiceTemplate()`, `buildInvoiceTemplateEmailPayload()`; `renderInvoiceTemplate()` is the canonical HTML path for Invoicing preview and template-generated email output
 - `sms.js` — `buildSmsDeepLink()`, `openSmsComposer()`
 - `formatting.js` — Currency, date, and number formatting utilities
 - `billing-year.js` — Year lifecycle utilities, status constants
@@ -324,4 +324,3 @@ Currently implemented Firebase Analytics events:
 - **Billing year issues:** Check browser console for service errors; use year selector to switch years
 - **Share links not loading:** Regenerate the share link — older links created before the `publicShares` migration won't have data in Firestore
 - **Cloud Functions 403:** Expected due to GCP org policy; share page reads from Firestore directly, not Cloud Functions
-

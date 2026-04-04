@@ -10,14 +10,15 @@ import { db } from './firebase.js';
  * Queue an email for delivery via the Firestore mail queue.
  * Returns a promise that resolves when the email is sent (or rejects on error).
  *
- * @param {{ to: string, subject: string, body: string, replyTo?: string, uid: string }} params
+ * @param {{ to: string, subject: string, body: string, html?: string, replyTo?: string, uid: string }} params
  * @returns {Promise<{ id: string }>} — resolves with the Resend email ID
  */
-export async function queueEmail({ to, subject, body, replyTo, uid }) {
+export async function queueEmail({ to, subject, body, html, replyTo, uid }) {
     const docRef = await addDoc(collection(db, 'mailQueue'), {
         to,
         subject,
         body,
+        ...(html ? { html } : {}),
         ...(replyTo ? { replyTo } : {}),
         uid,
         status: 'pending',

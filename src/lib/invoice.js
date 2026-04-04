@@ -3,6 +3,7 @@
  * Pure functions, no DOM or global state dependencies.
  */
 import { calculateAnnualSummary, getPaymentTotalForMember } from './calculations.js';
+import { escapeHtml } from './formatting.js';
 
 /**
  * Build the full invoice context for a member (mirrors main.js:4310).
@@ -147,7 +148,245 @@ function formatPaymentOptionsMarkdown(settings) {
 // Defined in template-doc.js to avoid pulling the heavy unified/remark
 // markdown pipeline into BillingYearService's import chain.
 export { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
-import { docToPlainTextWithTokens } from './template-doc.js';
+import { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
+
+const TEMPLATE_TOKEN_ALIASES = {
+    member_first: 'first_name',
+    member_last: 'last_name',
+    member_name: 'full_name',
+    annual_total: 'household_total',
+};
+
+const INVOICE_TEMPLATE_STYLES = {
+    paragraph: 'margin:0 0 14px 0;color:#1F2430;font-size:15px;line-height:1.6;font-weight:400;',
+    spacer: 'margin:0 0 14px 0;color:#1F2430;font-size:15px;line-height:1.6;font-weight:400;',
+    strong: 'font-weight:600;',
+    emphasis: 'font-style:italic;',
+    link: 'color:#6E78D6;text-decoration:underline;',
+    sectionLabel: 'margin:0 0 12px 0;color:#1F2430;font-size:15px;line-height:1.6;font-weight:600;',
+    list: 'margin:0 0 16px 22px;padding:0;color:#1F2430;font-size:15px;line-height:1.6;',
+    orderedList: 'margin:0 0 16px 22px;padding:0;color:#1F2430;font-size:15px;line-height:1.6;',
+    listItem: 'margin:0 0 8px 0;',
+    hr: 'border:none;border-top:1px solid rgba(31,36,48,0.45);margin:14px 0;',
+    blockquote: 'margin:0 0 14px 0;padding:0 0 0 12px;border-left:3px solid rgba(110,120,214,0.4);color:#5B6475;',
+};
+
+function getInvoiceTemplateDocument(settings) {
+    if (settings?.emailMessageDocument) return settings.emailMessageDocument;
+    if (settings?.emailMessage) return plainTextToDoc(settings.emailMessage);
+    return null;
+}
+
+function normalizeTemplateTokenId(id) {
+    return TEMPLATE_TOKEN_ALIASES[id] || id;
+}
+
+function resolveTemplateTokenValue(id, ctx, shareUrl) {
+    switch (normalizeTemplateTokenId(id)) {
+        case 'first_name':
+            return ctx.firstName || '';
+        case 'last_name': {
+            const parts = (ctx.member?.name || '').split(' ');
+            return parts.slice(1).join(' ') || '';
+        }
+        case 'full_name':
+            return ctx.member?.name || '';
+        case 'billing_year':
+            return ctx.currentYear || '';
+        case 'household_total':
+            return ctx.combinedTotal != null ? '$' + ctx.combinedTotal.toFixed(2) : '';
+        case 'share_link':
+            return shareUrl || '';
+        default:
+            return '';
+    }
+}
+
+function sanitizeInvoiceHref(url) {
+    const raw = String(url || '').trim();
+    if (!/^https?:\/\//i.test(raw)) return '';
+    return raw
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function wrapInlineHtml(html, marks) {
+    if (!html) return '';
+    const safeMarks = marks || [];
+    let result = html;
+
+    if (safeMarks.some(mark => mark.type === 'bold')) {
+        result = '<strong style="' + INVOICE_TEMPLATE_STYLES.strong + '">' + result + '</strong>';
+    }
+    if (safeMarks.some(mark => mark.type === 'italic')) {
+        result = '<em style="' + INVOICE_TEMPLATE_STYLES.emphasis + '">' + result + '</em>';
+    }
+
+    const linkMark = safeMarks.find(mark => mark.type === 'link' && mark.attrs?.href);
+    if (linkMark) {
+        const href = sanitizeInvoiceHref(linkMark.attrs.href);
+        if (href) {
+            result = '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + result + '</a>';
+        }
+    }
+
+    return result;
+}
+
+function renderTemplateInlineNodes(nodes, ctx, shareUrl) {
+    if (!nodes || nodes.length === 0) return '';
+
+    return nodes.map(node => {
+        if (node.type === 'text') {
+            return wrapInlineHtml(escapeHtml(node.text || ''), node.marks);
+        }
+
+        if (node.type === 'templateToken') {
+            const value = resolveTemplateTokenValue(node.attrs?.id, ctx, shareUrl);
+            return wrapInlineHtml(escapeHtml(value), node.marks);
+        }
+
+        if (node.type === 'hardBreak') {
+            return '<br>';
+        }
+
+        return '';
+    }).join('');
+}
+
+function renderPaymentMethodDetailHtml(method) {
+    if (method.type === 'zelle') {
+        const contacts = [method.email, method.phone].filter(Boolean).map(escapeHtml);
+        return contacts.length > 0 ? 'Send via Zelle to: ' + contacts.join(' or ') : '';
+    }
+
+    if (method.type === 'apple_cash') {
+        const contacts = [method.phone, method.email].filter(Boolean).map(escapeHtml);
+        return contacts.length > 0 ? 'Send via Messages or Wallet to: ' + contacts.join(' or ') : '';
+    }
+
+    const parts = [];
+    if (method.handle) parts.push(escapeHtml(method.handle));
+    if (method.url) {
+        const href = sanitizeInvoiceHref(method.url);
+        const label = escapeHtml(method.url);
+        parts.push(href
+            ? '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + label + '</a>'
+            : label);
+    }
+
+    return parts.join(' ');
+}
+
+function renderPaymentMethodsHtml(settings) {
+    const methods = ((settings && settings.paymentMethods) || []).filter(method => method.enabled);
+    if (methods.length === 0) return '';
+
+    const items = methods.map(method => {
+        const detail = renderPaymentMethodDetailHtml(method);
+        const instruction = method.instructions
+            ? '<br><span>' + escapeHtml('Note: ' + method.instructions) + '</span>'
+            : '';
+
+        return '<li style="' + INVOICE_TEMPLATE_STYLES.listItem + '">'
+            + '<strong style="' + INVOICE_TEMPLATE_STYLES.strong + '">' + escapeHtml(method.label) + ':</strong>'
+            + (detail ? ' ' + detail : '')
+            + instruction
+            + '</li>';
+    }).join('');
+
+    return '<p style="' + INVOICE_TEMPLATE_STYLES.sectionLabel + '">Payment Options</p>'
+        + '<ul style="' + INVOICE_TEMPLATE_STYLES.list + '">' + items + '</ul>';
+}
+
+function renderShareLinkHtml(ctx, shareUrl) {
+    if (!shareUrl) return '';
+    const href = sanitizeInvoiceHref(shareUrl);
+    if (!href) return '';
+    const linkText = escapeHtml(ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary');
+
+    return '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">'
+        + '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + linkText + '</a>'
+        + '</p>';
+}
+
+function renderTemplateListItems(items, ordered, ctx, shareUrl) {
+    const tagName = ordered ? 'ol' : 'ul';
+    const listStyle = ordered ? INVOICE_TEMPLATE_STYLES.orderedList : INVOICE_TEMPLATE_STYLES.list;
+    const html = (items || []).map(item => {
+        const parts = (item.content || []).map(child => {
+            if (child.type === 'paragraph') return renderTemplateInlineNodes(child.content, ctx, shareUrl);
+            if (child.type === 'bulletList') return renderTemplateListItems(child.content, false, ctx, shareUrl);
+            if (child.type === 'orderedList') return renderTemplateListItems(child.content, true, ctx, shareUrl);
+            return '';
+        }).filter(Boolean);
+
+        return '<li style="' + INVOICE_TEMPLATE_STYLES.listItem + '">' + parts.join('<br>') + '</li>';
+    }).join('');
+
+    return html ? '<' + tagName + ' style="' + listStyle + '">' + html + '</' + tagName + '>' : '';
+}
+
+function renderTemplateBlocks(nodes, ctx, shareUrl) {
+    if (!nodes || nodes.length === 0) return '';
+
+    return nodes.map(node => {
+        switch (node.type) {
+            case 'paragraph': {
+                const contentHtml = renderTemplateInlineNodes(node.content, ctx, shareUrl);
+                const body = contentHtml || '&nbsp;';
+                return '<p style="' + (contentHtml ? INVOICE_TEMPLATE_STYLES.paragraph : INVOICE_TEMPLATE_STYLES.spacer) + '">' + body + '</p>';
+            }
+            case 'blockToken': {
+                const id = normalizeTemplateTokenId(node.attrs?.id);
+                if (id === 'share_link') return renderShareLinkHtml(ctx, shareUrl);
+                if (id === 'payment_methods') return renderPaymentMethodsHtml(ctx.settings);
+                return '';
+            }
+            case 'bulletList':
+                return renderTemplateListItems(node.content, false, ctx, shareUrl);
+            case 'orderedList':
+                return renderTemplateListItems(node.content, true, ctx, shareUrl);
+            case 'horizontalRule':
+                return '<hr style="' + INVOICE_TEMPLATE_STYLES.hr + '">';
+            case 'blockquote': {
+                const contentHtml = renderTemplateBlocks(node.content, ctx, shareUrl);
+                return contentHtml ? '<blockquote style="' + INVOICE_TEMPLATE_STYLES.blockquote + '">' + contentHtml + '</blockquote>' : '';
+            }
+            default:
+                return node.content ? renderTemplateBlocks(node.content, ctx, shareUrl) : '';
+        }
+    }).filter(Boolean).join('');
+}
+
+/**
+ * Canonical HTML renderer for invoice templates.
+ * This is the single source of truth for the Invoicing preview and template email HTML.
+ * @param {Object} ctx
+ * @param {string} shareUrl
+ * @returns {string}
+ */
+export function renderInvoiceTemplate(ctx, shareUrl) {
+    const doc = getInvoiceTemplateDocument(ctx?.settings);
+    if (!doc) return '';
+    return renderTemplateBlocks(doc.content, ctx, shareUrl || '').trim();
+}
+
+/**
+ * Shared preview/email payload builder for template-authored invoice messages.
+ * @param {Object} ctx
+ * @param {string} shareUrl
+ * @returns {{ html: string, text: string }}
+ */
+export function buildInvoiceTemplateEmailPayload(ctx, shareUrl) {
+    return {
+        html: renderInvoiceTemplate(ctx, shareUrl),
+        text: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email'),
+    };
+}
 
 /**
  * Build the configured invoice message from template + context.
@@ -307,60 +546,4 @@ export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
     let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!';
     if (shareUrl) msg += '\n\n' + shareUrl;
     return msg;
-}
-
-// ── CommonMark renderer (spec: https://spec.commonmark.org/0.31.2/) ──
-// Uses unified + remark-parse + remark-rehype + rehype-sanitize + rehype-stringify
-// for spec-compliant parsing, with remark-breaks for email-style single-newline breaks.
-
-import { unified } from 'unified';
-import remarkParse from 'remark-parse';
-import remarkBreaks from 'remark-breaks';
-import remarkRehype from 'remark-rehype';
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import rehypeStringify from 'rehype-stringify';
-
-/** Sanitization schema: default HTML elements + target/rel on links */
-const sanitizeSchema = {
-    ...defaultSchema,
-    attributes: {
-        ...defaultSchema.attributes,
-        a: [...(defaultSchema.attributes?.a || []), 'target', 'rel']
-    }
-};
-
-/** rehype plugin: add target="_blank" rel="noopener noreferrer" to all <a> tags */
-function rehypeExternalLinks() {
-    return (tree) => {
-        function visit(node) {
-            if (node.type === 'element' && node.tagName === 'a') {
-                node.properties = node.properties || {};
-                node.properties.target = '_blank';
-                node.properties.rel = 'noopener noreferrer';
-            }
-            if (node.children) node.children.forEach(visit);
-        }
-        visit(tree);
-    };
-}
-
-const markdownProcessor = unified()
-    .use(remarkParse)
-    .use(remarkBreaks)
-    .use(remarkRehype)
-    .use(rehypeExternalLinks)
-    .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeStringify);
-
-/**
- * Render a plain text string as HTML using CommonMark (via unified/remark).
- * Supports: paragraphs, headings, emphasis, strong, code spans, links,
- * autolinks, lists, blockquotes, thematic breaks, line breaks.
- * Output is sanitized — safe for dangerouslySetInnerHTML.
- * @param {string} text — raw preview text (with tokens already substituted)
- * @returns {string} — sanitized HTML string
- */
-export function renderPreviewHTML(text) {
-    if (!text) return '';
-    return String(markdownProcessor.processSync(text));
 }

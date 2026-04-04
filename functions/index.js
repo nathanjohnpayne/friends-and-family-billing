@@ -893,7 +893,7 @@ exports.processMailQueue = onDocumentCreated(
 
     if (!data) return; // Already claimed by another invocation
 
-    const { to, subject, body, replyTo, uid } = data;
+    const { to, subject, body, html, replyTo, uid } = data;
 
     // Validate required fields
     if (!uid || typeof uid !== "string") {
@@ -917,7 +917,9 @@ exports.processMailQueue = onDocumentCreated(
       const { Resend } = require("resend");
       const resend = new Resend(resendApiKey.value());
 
-      const htmlBody = wrapEmailHtml(simpleMarkdownToHtml(body));
+      const htmlBody = wrapEmailHtml(typeof html === "string" && html.trim()
+        ? html
+        : simpleMarkdownToHtml(body));
 
       const result = await resend.emails.send({
         from: EMAIL_FROM,
