@@ -437,7 +437,10 @@ describe('serializer round-trip matrix (plainTextToDoc → docToPlainTextWithTok
         ['plain token', '%first_name%'],
         ['token in sentence', 'Hi %first_name%, welcome.'],
         ['bold token', '**%household_total%**'],
+        ['italic token', '*%first_name%*'],
+        ['bold+italic token', '***%first_name%***'],
         ['bold token in sentence', 'Your total is **%household_total%**.'],
+        ['italic token in sentence', 'Hi *%first_name%*, welcome.'],
         // Text marks
         ['bold text', '**Nathan!**'],
         ['italic text', '*important*'],

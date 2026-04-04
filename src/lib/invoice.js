@@ -239,9 +239,9 @@ export function docToPlainTextWithTokens(doc) {
 export function plainTextToDoc(text) {
     if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
 
-    // Matches **%token%** (bold-wrapped) or plain %token%.
-    // Bold requires both ** on each side — one-sided ** is left as literal text.
-    const tokenPattern = /\*\*%([a-z_]+)%\*\*|%([a-z_]+)%/g;
+    // Matches marked tokens in order: ***%t%*** (bold+italic), **%t%** (bold),
+    // *%t%* (italic), %t% (plain). Longest-first so *** matches before ** or *.
+    const tokenPattern = /\*\*\*%([a-z_]+)%\*\*\*|\*\*%([a-z_]+)%\*\*|\*%([a-z_]+)%\*|%([a-z_]+)%/g;
     const blockTokenIds = new Set(['payment_methods', 'share_link']);
     const tokenLabels = {
         first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
@@ -298,8 +298,8 @@ export function plainTextToDoc(text) {
         while ((match = tokenPattern.exec(line)) !== null) {
             const before = line.slice(lastIdx, match.index);
             if (before) rawNodes.push({ type: 'text', text: before });
-            const isBold = match[1] != null;
-            const tokenId = match[1] || match[2];
+            // Groups: 1=bold+italic, 2=bold, 3=italic, 4=plain
+            const tokenId = match[1] || match[2] || match[3] || match[4];
             if (tokenLabels[tokenId]) {
                 const normalizedId = tokenId === 'member_first' ? 'first_name'
                     : tokenId === 'member_last' ? 'last_name'
@@ -310,7 +310,10 @@ export function plainTextToDoc(text) {
                     type: 'templateToken',
                     attrs: { id: normalizedId, label: tokenLabels[tokenId] },
                 };
-                if (isBold) tokenNode.marks = [{ type: 'bold' }];
+                const marks = [];
+                if (match[1] != null || match[2] != null) marks.push({ type: 'bold' });
+                if (match[1] != null || match[3] != null) marks.push({ type: 'italic' });
+                if (marks.length > 0) tokenNode.marks = marks;
                 rawNodes.push(tokenNode);
             } else {
                 rawNodes.push({ type: 'text', text: match[0] });
