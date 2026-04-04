@@ -289,19 +289,18 @@ export function plainTextToDoc(text) {
             continue;
         }
 
-        // Regular paragraph with inline tokens
-        const nodes = [];
+        // Regular paragraph — parse tokens, then post-process for markdown marks
+        const rawNodes = [];
         let lastIdx = 0;
         tokenPattern.lastIndex = 0;
         let match;
 
         while ((match = tokenPattern.exec(line)) !== null) {
             const before = line.slice(lastIdx, match.index);
-            if (before) nodes.push({ type: 'text', text: before });
+            if (before) rawNodes.push({ type: 'text', text: before });
             const isBold = match[1] != null;
             const tokenId = match[1] || match[2];
             if (tokenLabels[tokenId]) {
-                // Map legacy token IDs to new IDs
                 const normalizedId = tokenId === 'member_first' ? 'first_name'
                     : tokenId === 'member_last' ? 'last_name'
                     : tokenId === 'member_name' ? 'full_name'
@@ -312,19 +311,68 @@ export function plainTextToDoc(text) {
                     attrs: { id: normalizedId, label: tokenLabels[tokenId] },
                 };
                 if (isBold) tokenNode.marks = [{ type: 'bold' }];
-                nodes.push(tokenNode);
+                rawNodes.push(tokenNode);
             } else {
-                nodes.push({ type: 'text', text: match[0] });
+                rawNodes.push({ type: 'text', text: match[0] });
             }
             lastIdx = match.index + match[0].length;
         }
         const remaining = line.slice(lastIdx);
-        if (remaining) nodes.push({ type: 'text', text: remaining });
+        if (remaining) rawNodes.push({ type: 'text', text: remaining });
 
+        // Post-process text nodes: convert **bold**, *italic*, and [text](url)
+        const nodes = parseInlineMarkdown(rawNodes);
         content.push({ type: 'paragraph', content: nodes.length > 0 ? nodes : undefined });
     }
 
     return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] };
+}
+
+/**
+ * Parse inline markdown in text nodes: **bold**, *italic*, [text](url).
+ * Non-text nodes (tokens) pass through unchanged.
+ */
+function parseInlineMarkdown(nodes) {
+    const result = [];
+    // Pattern matches: **bold**, *italic*, [text](url)
+    const mdPattern = /\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]+)\]\(([^)]+)\)/g;
+
+    for (const node of nodes) {
+        if (node.type !== 'text') {
+            result.push(node);
+            continue;
+        }
+        const text = node.text;
+        let lastIdx = 0;
+        let match;
+        mdPattern.lastIndex = 0;
+
+        while ((match = mdPattern.exec(text)) !== null) {
+            // Push any text before the match
+            const before = text.slice(lastIdx, match.index);
+            if (before) result.push({ type: 'text', text: before });
+
+            if (match[1] != null) {
+                // **bold**
+                result.push({ type: 'text', text: match[1], marks: [{ type: 'bold' }] });
+            } else if (match[2] != null) {
+                // *italic*
+                result.push({ type: 'text', text: match[2], marks: [{ type: 'italic' }] });
+            } else if (match[3] != null && match[4] != null) {
+                // [text](url)
+                result.push({
+                    type: 'text',
+                    text: match[3],
+                    marks: [{ type: 'link', attrs: { href: match[4], target: '_blank', rel: 'noopener noreferrer' } }],
+                });
+            }
+            lastIdx = match.index + match[0].length;
+        }
+
+        const remaining = text.slice(lastIdx);
+        if (remaining) result.push({ type: 'text', text: remaining });
+    }
+    return result;
 }
 
 /**
