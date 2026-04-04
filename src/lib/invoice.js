@@ -378,6 +378,7 @@ function splitByPattern(nodes, pattern, matchHandler) {
             continue;
         }
         const text = node.text;
+        const inheritedMarks = node.marks || [];
         let lastIdx = 0;
         let match;
         let matched = false;
@@ -386,18 +387,33 @@ function splitByPattern(nodes, pattern, matchHandler) {
         while ((match = pattern.exec(text)) !== null) {
             matched = true;
             const before = text.slice(lastIdx, match.index);
-            if (before) result.push({ type: 'text', text: before });
+            if (before) {
+                const beforeNode = { type: 'text', text: before };
+                if (inheritedMarks.length > 0) beforeNode.marks = [...inheritedMarks];
+                result.push(beforeNode);
+            }
             const produced = matchHandler(match[1], match);
-            result.push(...produced);
+            // Merge the source node's marks onto each produced node
+            for (const p of produced) {
+                if (inheritedMarks.length > 0) {
+                    const existing = p.marks || [];
+                    result.push({ ...p, marks: [...inheritedMarks, ...existing] });
+                } else {
+                    result.push(p);
+                }
+            }
             lastIdx = match.index + match[0].length;
         }
 
         if (!matched) {
-            // No matches — pass through the original node (preserving marks)
             result.push(node);
         } else {
             const remaining = text.slice(lastIdx);
-            if (remaining) result.push({ type: 'text', text: remaining });
+            if (remaining) {
+                const remNode = { type: 'text', text: remaining };
+                if (inheritedMarks.length > 0) remNode.marks = [...inheritedMarks];
+                result.push(remNode);
+            }
         }
     }
     return result;

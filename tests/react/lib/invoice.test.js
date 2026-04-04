@@ -407,6 +407,64 @@ describe('plainTextToDoc', () => {
         expect(markTypes).toEqual(['bold', 'link']);
         expect(linked.marks.find(m => m.type === 'link').attrs.href).toBe('https://example.com');
     });
+
+    it('converts *[italic link](url)* to italic+link marked text', () => {
+        const doc = plainTextToDoc('See *[here](https://example.com)*');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('See ');
+        const linked = para.content[1];
+        expect(linked.text).toBe('here');
+        const markTypes = linked.marks.map(m => m.type).sort();
+        expect(markTypes).toEqual(['italic', 'link']);
+    });
+
+    it('round-trips *[italic link](url)* through serialize and parse', () => {
+        const input = '*[site](https://example.com)*';
+        const doc = plainTextToDoc(input);
+        const output = docToPlainTextWithTokens(doc);
+        expect(output).toBe(input);
+    });
+});
+
+describe('serializer round-trip matrix (plainTextToDoc → docToPlainTextWithTokens)', () => {
+    // Every form that docToPlainTextWithTokens can emit must survive a round-trip
+    // through plainTextToDoc. This catches mark-inheritance and regex mismatches
+    // that individual unit tests can miss.
+    const cases = [
+        // Plain text
+        ['plain text', 'Hello world'],
+        // Tokens
+        ['plain token', '%first_name%'],
+        ['token in sentence', 'Hi %first_name%, welcome.'],
+        ['bold token', '**%household_total%**'],
+        ['bold token in sentence', 'Your total is **%household_total%**.'],
+        // Text marks
+        ['bold text', '**Nathan!**'],
+        ['italic text', '*important*'],
+        ['bold+italic text', '***both***'],
+        // Links
+        ['plain link', '[click](https://example.com)'],
+        ['link with parens in URL', '[wiki](https://en.wikipedia.org/wiki/Foo_(bar))'],
+        // Combined marks + links
+        ['bold link', '**[site](https://example.com)**'],
+        ['italic link', '*[site](https://example.com)*'],
+        // Block tokens
+        ['block token', 'Info:\n%payment_methods%\nThanks'],
+        // Horizontal rule
+        ['horizontal rule', 'Above\n---\nBelow'],
+        // Multi-paragraph
+        ['multi-paragraph', 'First paragraph.\n\nSecond paragraph.'],
+        // Mixed content
+        ['mixed marks and tokens', 'Hi **%first_name%**, your *total* is **%household_total%**.'],
+    ];
+
+    for (const [label, input] of cases) {
+        it('round-trips: ' + label, () => {
+            const doc = plainTextToDoc(input);
+            const output = docToPlainTextWithTokens(doc);
+            expect(output).toBe(input);
+        });
+    }
 });
 
 describe('dual-format support', () => {
