@@ -129,6 +129,15 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
     // setContent when the change originated from the editor's own onUpdate.
     const isInternalUpdate = useRef(false);
 
+    // Store callbacks in refs so they're always current without appearing in
+    // useEditor's dependency array. A new onConfigurePaymentMethods function
+    // reference on every render (inline arrow in parent) would otherwise cause
+    // useEditor to tear down and recreate the editor on every keystroke.
+    const onUpdateRef = useRef(onUpdate);
+    const onConfigurePMRef = useRef(onConfigurePaymentMethods);
+    onUpdateRef.current = onUpdate;
+    onConfigurePMRef.current = onConfigurePaymentMethods;
+
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
@@ -141,7 +150,9 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
                 placeholder: 'Type your message, or press / to insert a field\u2026',
             }),
             TokenNode,
-            BlockTokenNode.configure({ onConfigurePaymentMethods }),
+            BlockTokenNode.configure({
+                onConfigurePaymentMethods: () => onConfigurePMRef.current?.(),
+            }),
             SlashCommands(ALL_TOKENS),
             PercentCommands(ALL_TOKENS),
         ],
@@ -149,7 +160,7 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
         editable: !readOnly,
         onUpdate({ editor: ed }) {
             isInternalUpdate.current = true;
-            if (onUpdate) onUpdate(ed.getJSON());
+            onUpdateRef.current?.(ed.getJSON());
         },
         editorProps: {
             handlePaste(view, event) {
@@ -167,7 +178,7 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
                 return false;
             },
         },
-    }, [readOnly, onConfigurePaymentMethods]);
+    }, [readOnly]);
 
     useImperativeHandle(ref, () => editor, [editor]);
 

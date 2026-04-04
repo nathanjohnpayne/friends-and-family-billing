@@ -83,6 +83,9 @@ function SubjectSlashCommands() {
  */
 const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, readOnly, placeholder }, ref) {
     const isInternalUpdate = useRef(false);
+    const onUpdateRef = useRef(onUpdate);
+    onUpdateRef.current = onUpdate;
+
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
@@ -109,7 +112,7 @@ const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, rea
         editable: !readOnly,
         onUpdate({ editor: ed }) {
             isInternalUpdate.current = true;
-            if (onUpdate) onUpdate(ed.getText());
+            onUpdateRef.current?.(ed.getText());
         },
         editorProps: {
             handleKeyDown(view, event) {
