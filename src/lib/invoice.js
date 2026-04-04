@@ -239,9 +239,9 @@ export function docToPlainTextWithTokens(doc) {
 export function plainTextToDoc(text) {
     if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
 
-    // Matches **%token%** (bold-wrapped) or plain %token%.
-    // Bold requires both ** on each side — one-sided ** is left as literal text.
-    const tokenPattern = /\*\*%([a-z_]+)%\*\*|%([a-z_]+)%/g;
+    // Matches marked tokens in order: ***%t%*** (bold+italic), **%t%** (bold),
+    // *%t%* (italic), %t% (plain). Longest-first so *** matches before ** or *.
+    const tokenPattern = /\*\*\*%([a-z_]+)%\*\*\*|\*\*%([a-z_]+)%\*\*|\*%([a-z_]+)%\*|%([a-z_]+)%/g;
     const blockTokenIds = new Set(['payment_methods', 'share_link']);
     const tokenLabels = {
         first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
@@ -289,19 +289,18 @@ export function plainTextToDoc(text) {
             continue;
         }
 
-        // Regular paragraph with inline tokens
-        const nodes = [];
+        // Regular paragraph — parse tokens, then post-process for markdown marks
+        const rawNodes = [];
         let lastIdx = 0;
         tokenPattern.lastIndex = 0;
         let match;
 
         while ((match = tokenPattern.exec(line)) !== null) {
             const before = line.slice(lastIdx, match.index);
-            if (before) nodes.push({ type: 'text', text: before });
-            const isBold = match[1] != null;
-            const tokenId = match[1] || match[2];
+            if (before) rawNodes.push({ type: 'text', text: before });
+            // Groups: 1=bold+italic, 2=bold, 3=italic, 4=plain
+            const tokenId = match[1] || match[2] || match[3] || match[4];
             if (tokenLabels[tokenId]) {
-                // Map legacy token IDs to new IDs
                 const normalizedId = tokenId === 'member_first' ? 'first_name'
                     : tokenId === 'member_last' ? 'last_name'
                     : tokenId === 'member_name' ? 'full_name'
@@ -311,20 +310,140 @@ export function plainTextToDoc(text) {
                     type: 'templateToken',
                     attrs: { id: normalizedId, label: tokenLabels[tokenId] },
                 };
-                if (isBold) tokenNode.marks = [{ type: 'bold' }];
-                nodes.push(tokenNode);
+                const marks = [];
+                if (match[1] != null || match[2] != null) marks.push({ type: 'bold' });
+                if (match[1] != null || match[3] != null) marks.push({ type: 'italic' });
+                if (marks.length > 0) tokenNode.marks = marks;
+                rawNodes.push(tokenNode);
             } else {
-                nodes.push({ type: 'text', text: match[0] });
+                rawNodes.push({ type: 'text', text: match[0] });
             }
             lastIdx = match.index + match[0].length;
         }
         const remaining = line.slice(lastIdx);
-        if (remaining) nodes.push({ type: 'text', text: remaining });
+        if (remaining) rawNodes.push({ type: 'text', text: remaining });
 
+        // Post-process text nodes: convert **bold**, *italic*, and [text](url)
+        const nodes = parseInlineMarkdown(rawNodes);
         content.push({ type: 'paragraph', content: nodes.length > 0 ? nodes : undefined });
     }
 
     return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] };
+}
+
+/**
+ * Parse inline markdown in text nodes: **bold**, *italic*, [text](url).
+ * Handles combined forms: ***bold+italic***, **[bold link](url)**.
+ * Non-text nodes (tokens) pass through unchanged.
+ *
+ * Strategy: multi-pass. Bold first (outermost), then recurse into bold
+ * content for italic and links. This handles nesting like **[text](url)**.
+ */
+function parseInlineMarkdown(nodes) {
+    // Pass 0: extract ***bold+italic*** (must come before separate bold/italic)
+    let result = splitByPattern(nodes, /\*\*\*(.+?)\*\*\*/g, (inner) => {
+        const innerNodes = [{ type: 'text', text: inner }];
+        const parsed = applyLinks(innerNodes);
+        return parsed.map(n => addMark(addMark(n, { type: 'italic' }), { type: 'bold' }));
+    });
+
+    // Pass 1: extract **bold** spans (may contain [text](url))
+    result = splitByPattern(result, /\*\*(.+?)\*\*/g, (inner) => {
+        const innerNodes = [{ type: 'text', text: inner }];
+        const parsed = applyLinks(innerNodes);
+        return parsed.map(n => addMark(n, { type: 'bold' }));
+    });
+
+    // Pass 2: extract *italic* spans
+    result = applyItalic(result);
+
+    // Pass 3: extract [text](url) links
+    result = applyLinks(result);
+
+    return result;
+}
+
+/** Add a mark to a node, merging with existing marks. */
+function addMark(node, mark) {
+    const existing = node.marks || [];
+    return { ...node, marks: [...existing, mark] };
+}
+
+/**
+ * Split text nodes by a regex pattern. Non-text nodes pass through.
+ * matchHandler receives the first capture group and returns an array of nodes.
+ */
+function splitByPattern(nodes, pattern, matchHandler) {
+    const result = [];
+    for (const node of nodes) {
+        if (node.type !== 'text') {
+            result.push(node);
+            continue;
+        }
+        const text = node.text;
+        const inheritedMarks = node.marks || [];
+        let lastIdx = 0;
+        let match;
+        let matched = false;
+        pattern.lastIndex = 0;
+
+        while ((match = pattern.exec(text)) !== null) {
+            matched = true;
+            const before = text.slice(lastIdx, match.index);
+            if (before) {
+                const beforeNode = { type: 'text', text: before };
+                if (inheritedMarks.length > 0) beforeNode.marks = [...inheritedMarks];
+                result.push(beforeNode);
+            }
+            const produced = matchHandler(match[1], match);
+            // Merge the source node's marks onto each produced node
+            for (const p of produced) {
+                if (inheritedMarks.length > 0) {
+                    const existing = p.marks || [];
+                    result.push({ ...p, marks: [...inheritedMarks, ...existing] });
+                } else {
+                    result.push(p);
+                }
+            }
+            lastIdx = match.index + match[0].length;
+        }
+
+        if (!matched) {
+            result.push(node);
+        } else {
+            const remaining = text.slice(lastIdx);
+            if (remaining) {
+                const remNode = { type: 'text', text: remaining };
+                if (inheritedMarks.length > 0) remNode.marks = [...inheritedMarks];
+                result.push(remNode);
+            }
+        }
+    }
+    return result;
+}
+
+/** Apply *italic* parsing to text nodes. */
+function applyItalic(nodes) {
+    return splitByPattern(nodes, /\*(.+?)\*/g, (inner) => {
+        return [{ type: 'text', text: inner, marks: [{ type: 'italic' }] }];
+    });
+}
+
+/**
+ * Apply [text](url) link parsing to text nodes.
+ * URL pattern allows balanced parentheses (e.g., Wikipedia URLs).
+ */
+function applyLinks(nodes) {
+    // Allow one level of balanced parens inside the URL: (foo) within the outer ()
+    const linkPattern = /\[([^\]]+)\]\(((?:[^()]*|\([^()]*\))*)\)/g;
+    return splitByPattern(nodes, linkPattern, (linkText, match) => {
+        const href = match[2];
+        return [{
+            type: 'text',
+            text: linkText,
+            marks: [{ type: 'link', attrs: { href, target: '_blank', rel: 'noopener noreferrer' } }],
+        }];
+    });
 }
 
 /**
