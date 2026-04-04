@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
+import { plainTextToDoc } from './invoice.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
@@ -34,21 +35,44 @@ const TOKEN_RENAMES = [
 ];
 
 /**
+ * Current migration version for emailMessageDocument.
+ * Bump this when plainTextToDoc is fixed and existing documents need re-deriving.
+ *   v1: initial TipTap migration (no markdown mark parsing)
+ *   v2: added bold/italic/link markdown parsing in plainTextToDoc
+ */
+const TEMPLATE_DOC_VERSION = 2;
+
+/**
  * Idempotent migration: rename legacy token names in email templates.
- * Safe to re-run — new names never contain old-name substrings.
+ * Also re-derives emailMessageDocument from emailMessage when the document
+ * was created by an older version of plainTextToDoc.
  * Mutates settings in place. Does not persist (caller saves).
  */
 function migrateTemplateTokens(settings) {
-    if (!settings || settings._templateMigrated) return;
-    for (const [oldToken, newToken] of TOKEN_RENAMES) {
-        if (settings.emailMessage) {
-            settings.emailMessage = settings.emailMessage.split(oldToken).join(newToken);
+    if (!settings) return;
+
+    // Phase 1: rename legacy token names in plaintext fields
+    if (!settings._templateMigrated) {
+        for (const [oldToken, newToken] of TOKEN_RENAMES) {
+            if (settings.emailMessage) {
+                settings.emailMessage = settings.emailMessage.split(oldToken).join(newToken);
+            }
+            if (settings.emailSubject) {
+                settings.emailSubject = settings.emailSubject.split(oldToken).join(newToken);
+            }
         }
-        if (settings.emailSubject) {
-            settings.emailSubject = settings.emailSubject.split(oldToken).join(newToken);
-        }
+        settings._templateMigrated = true;
     }
-    settings._templateMigrated = true;
+
+    // Phase 2: re-derive TipTap document if it was created by an older migration.
+    // This re-runs plainTextToDoc (now with markdown parsing) on the plaintext
+    // fallback, replacing documents that have raw **bold** or [link](url) text.
+    if (settings.emailMessageDocument && (settings._templateDocVersion || 0) < TEMPLATE_DOC_VERSION) {
+        if (settings.emailMessage) {
+            settings.emailMessageDocument = plainTextToDoc(settings.emailMessage);
+        }
+        settings._templateDocVersion = TEMPLATE_DOC_VERSION;
+    }
 }
 
 export class BillingYearService {
