@@ -99,6 +99,17 @@ export class BillingYearService {
         this._listeners = new Set();
     }
 
+    // ────────── E2E test support ──────────
+
+    /**
+     * Inject test state directly, bypassing Firestore.
+     * Only used by E2E tests via window.__E2E_DATA__.
+     */
+    _injectTestState(data) {
+        this._e2eMode = true;
+        this._setState({ ...data, loading: false, error: null });
+    }
+
     // ────────── Public read API ──────────
 
     /** Get a snapshot of current state (immutable from the consumer's perspective). */
@@ -136,6 +147,8 @@ export class BillingYearService {
 
     /** Call when auth state changes. Loads data for the user or resets. */
     async setUser(user) {
+        // E2E mode: state is injected, skip Firestore loading
+        if (this._e2eMode) return;
         // Skip reload if the same user is already bound
         if (user?.uid && user.uid === this._user?.uid) return;
 
@@ -267,6 +280,8 @@ export class BillingYearService {
      * Callers mutate state through the service, then call save().
      */
     save() {
+        // E2E mode: no-op, don't write to Firestore
+        if (this._e2eMode) return Promise.resolve();
         const { activeYear, familyMembers, bills, payments, billingEvents, settings } = this._state;
         if (!this._user || !activeYear) return Promise.resolve();
         if (activeYear.status === 'closed' || activeYear.status === 'archived') {

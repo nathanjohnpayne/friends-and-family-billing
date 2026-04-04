@@ -40,3 +40,7 @@ RIPCUT_GUIDE.md
 # Claude Code local settings
 .claude/settings.local.json
 .claude/launch.json
+
+# Playwright
+test-results/
+playwright-report/
