@@ -362,6 +362,51 @@ describe('plainTextToDoc', () => {
         const output = docToPlainTextWithTokens(doc);
         expect(output).toBe(input);
     });
+
+    it('converts **bold text** to bold-marked text node', () => {
+        const doc = plainTextToDoc('Hello **Nathan!**');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('Hello ');
+        expect(para.content[1].text).toBe('Nathan!');
+        expect(para.content[1].marks).toEqual([{ type: 'bold' }]);
+    });
+
+    it('converts [text](url) to link-marked text node', () => {
+        const doc = plainTextToDoc('[click here](https://example.com)');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('click here');
+        expect(para.content[0].marks[0].type).toBe('link');
+        expect(para.content[0].marks[0].attrs.href).toBe('https://example.com');
+    });
+
+    it('handles URLs with balanced parentheses', () => {
+        const doc = plainTextToDoc('[wiki](https://en.wikipedia.org/wiki/Foo_(bar))');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('wiki');
+        expect(para.content[0].marks[0].attrs.href).toBe('https://en.wikipedia.org/wiki/Foo_(bar)');
+    });
+
+    it('converts ***bold+italic*** to text with both marks', () => {
+        const doc = plainTextToDoc('This is ***important***.');
+        const para = doc.content[0];
+        // ***text*** → bold pass extracts *text* as bold content,
+        // then italic pass extracts text from *text*
+        const marked = para.content[1];
+        expect(marked.text).toBe('important');
+        const markTypes = marked.marks.map(m => m.type).sort();
+        expect(markTypes).toEqual(['bold', 'italic']);
+    });
+
+    it('converts **[bold link](url)** to bold+link marked text', () => {
+        const doc = plainTextToDoc('Visit **[our site](https://example.com)**');
+        const para = doc.content[0];
+        expect(para.content[0].text).toBe('Visit ');
+        const linked = para.content[1];
+        expect(linked.text).toBe('our site');
+        const markTypes = linked.marks.map(m => m.type).sort();
+        expect(markTypes).toEqual(['bold', 'link']);
+        expect(linked.marks.find(m => m.type === 'link').attrs.href).toBe('https://example.com');
+    });
 });
 
 describe('dual-format support', () => {

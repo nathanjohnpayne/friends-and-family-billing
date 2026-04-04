@@ -330,13 +330,48 @@ export function plainTextToDoc(text) {
 
 /**
  * Parse inline markdown in text nodes: **bold**, *italic*, [text](url).
+ * Handles combined forms: ***bold+italic***, **[bold link](url)**.
  * Non-text nodes (tokens) pass through unchanged.
+ *
+ * Strategy: multi-pass. Bold first (outermost), then recurse into bold
+ * content for italic and links. This handles nesting like **[text](url)**.
  */
 function parseInlineMarkdown(nodes) {
-    const result = [];
-    // Pattern matches: **bold**, *italic*, [text](url)
-    const mdPattern = /\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]+)\]\(([^)]+)\)/g;
+    // Pass 0: extract ***bold+italic*** (must come before separate bold/italic)
+    let result = splitByPattern(nodes, /\*\*\*(.+?)\*\*\*/g, (inner) => {
+        const innerNodes = [{ type: 'text', text: inner }];
+        const parsed = applyLinks(innerNodes);
+        return parsed.map(n => addMark(addMark(n, { type: 'italic' }), { type: 'bold' }));
+    });
 
+    // Pass 1: extract **bold** spans (may contain [text](url))
+    result = splitByPattern(result, /\*\*(.+?)\*\*/g, (inner) => {
+        const innerNodes = [{ type: 'text', text: inner }];
+        const parsed = applyLinks(innerNodes);
+        return parsed.map(n => addMark(n, { type: 'bold' }));
+    });
+
+    // Pass 2: extract *italic* spans
+    result = applyItalic(result);
+
+    // Pass 3: extract [text](url) links
+    result = applyLinks(result);
+
+    return result;
+}
+
+/** Add a mark to a node, merging with existing marks. */
+function addMark(node, mark) {
+    const existing = node.marks || [];
+    return { ...node, marks: [...existing, mark] };
+}
+
+/**
+ * Split text nodes by a regex pattern. Non-text nodes pass through.
+ * matchHandler receives the first capture group and returns an array of nodes.
+ */
+function splitByPattern(nodes, pattern, matchHandler) {
+    const result = [];
     for (const node of nodes) {
         if (node.type !== 'text') {
             result.push(node);
@@ -345,34 +380,51 @@ function parseInlineMarkdown(nodes) {
         const text = node.text;
         let lastIdx = 0;
         let match;
-        mdPattern.lastIndex = 0;
+        let matched = false;
+        pattern.lastIndex = 0;
 
-        while ((match = mdPattern.exec(text)) !== null) {
-            // Push any text before the match
+        while ((match = pattern.exec(text)) !== null) {
+            matched = true;
             const before = text.slice(lastIdx, match.index);
             if (before) result.push({ type: 'text', text: before });
-
-            if (match[1] != null) {
-                // **bold**
-                result.push({ type: 'text', text: match[1], marks: [{ type: 'bold' }] });
-            } else if (match[2] != null) {
-                // *italic*
-                result.push({ type: 'text', text: match[2], marks: [{ type: 'italic' }] });
-            } else if (match[3] != null && match[4] != null) {
-                // [text](url)
-                result.push({
-                    type: 'text',
-                    text: match[3],
-                    marks: [{ type: 'link', attrs: { href: match[4], target: '_blank', rel: 'noopener noreferrer' } }],
-                });
-            }
+            const produced = matchHandler(match[1], match);
+            result.push(...produced);
             lastIdx = match.index + match[0].length;
         }
 
-        const remaining = text.slice(lastIdx);
-        if (remaining) result.push({ type: 'text', text: remaining });
+        if (!matched) {
+            // No matches — pass through the original node (preserving marks)
+            result.push(node);
+        } else {
+            const remaining = text.slice(lastIdx);
+            if (remaining) result.push({ type: 'text', text: remaining });
+        }
     }
     return result;
+}
+
+/** Apply *italic* parsing to text nodes. */
+function applyItalic(nodes) {
+    return splitByPattern(nodes, /\*(.+?)\*/g, (inner) => {
+        return [{ type: 'text', text: inner, marks: [{ type: 'italic' }] }];
+    });
+}
+
+/**
+ * Apply [text](url) link parsing to text nodes.
+ * URL pattern allows balanced parentheses (e.g., Wikipedia URLs).
+ */
+function applyLinks(nodes) {
+    // Allow one level of balanced parens inside the URL: (foo) within the outer ()
+    const linkPattern = /\[([^\]]+)\]\(((?:[^()]*|\([^()]*\))*)\)/g;
+    return splitByPattern(nodes, linkPattern, (linkText, match) => {
+        const href = match[2];
+        return [{
+            type: 'text',
+            text: linkText,
+            marks: [{ type: 'link', attrs: { href, target: '_blank', rel: 'noopener noreferrer' } }],
+        }];
+    });
 }
 
 /**
