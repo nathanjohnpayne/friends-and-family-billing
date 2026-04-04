@@ -5,7 +5,7 @@ export default defineConfig({
     timeout: 30000,
     retries: 0,
     use: {
-        baseURL: 'http://localhost:5174',
+        baseURL: 'http://localhost:4174',
         headless: true,
         trace: 'on-first-retry',
     },
@@ -13,9 +13,11 @@ export default defineConfig({
         { name: 'chromium', use: { browserName: 'chromium' } },
     ],
     webServer: {
-        command: 'npx vite --port 5174 --mode e2e',
-        port: 5174,
-        reuseExistingServer: false,
-        timeout: 15000,
+        // Serve the production build with SPA fallback for /app/* routes.
+        // `npm run test:e2e` builds before running.
+        command: 'node scripts/e2e-server.mjs',
+        port: 4174,
+        reuseExistingServer: true,
+        timeout: 10000,
     },
 });

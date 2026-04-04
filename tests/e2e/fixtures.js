@@ -98,6 +98,13 @@ export const E2E_DATA = {
  * - Injects mock user and billing data onto window for AuthContext and useBillingData
  */
 export async function seedPage(page) {
+    // Block Firebase network calls to prevent analytics retry loops
+    // and any Firestore/Auth API calls against the real project
+    await page.route('**/*.googleapis.com/**', route => route.abort());
+    await page.route('**/*.google-analytics.com/**', route => route.abort());
+    await page.route('**/firebaseinstallations.googleapis.com/**', route => route.abort());
+    await page.route('**/firebaselogging-pa.googleapis.com/**', route => route.abort());
+
     // Block the real Firebase config script and replace with a dummy
     await page.route('**/firebase-config.local.js', route => {
         route.fulfill({

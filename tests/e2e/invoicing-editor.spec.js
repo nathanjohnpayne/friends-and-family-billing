@@ -18,10 +18,10 @@ test.describe('InvoicingTab Editor', () => {
         const editor = page.locator('.template-editor-surface .ProseMirror');
         await expect(editor).toBeVisible();
 
-        // Inline token pills should be rendered
-        await expect(page.locator('[data-token-id="first_name"]')).toBeVisible();
-        await expect(page.locator('[data-token-id="billing_year"]')).toBeVisible();
-        await expect(page.locator('[data-token-id="household_total"]')).toBeVisible();
+        // Inline token pills should be rendered (scope to body editor to avoid subject dupes)
+        await expect(editor.locator('[data-token-id="first_name"]')).toBeVisible();
+        await expect(editor.locator('[data-token-id="billing_year"]')).toBeVisible();
+        await expect(editor.locator('[data-token-id="household_total"]')).toBeVisible();
 
         // Block token cards should be rendered
         const blockLabels = page.locator('.block-token-card-label');
