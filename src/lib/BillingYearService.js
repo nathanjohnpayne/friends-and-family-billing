@@ -12,7 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
-import { plainTextToDoc } from './invoice.js';
+import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
