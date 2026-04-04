@@ -9,10 +9,13 @@ const AuthContext = createContext(null);
  * Listens to Firebase onAuthStateChanged and exposes { user, loading, signOut }.
  */
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const isE2E = typeof window !== 'undefined' && window.__E2E_USER__;
+    const [user, setUser] = useState(isE2E ? window.__E2E_USER__ : null);
+    const [loading, setLoading] = useState(!isE2E);
 
     useEffect(() => {
+        // E2E mode: user is already set from initial state, skip Firebase auth
+        if (isE2E) return;
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
             setUser(firebaseUser);
             setLoading(false);
