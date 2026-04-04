@@ -49,7 +49,8 @@ function wrapWithMarkdown(text, marks) {
 function textFromInline(nodes) {
     if (!nodes) return '';
 
-    // Phase 1: serialize each node to its text representation (without mark wrappers)
+    // Phase 1: serialize each node to its text representation (without mark wrappers).
+    // Tag each segment with its source type so tokens are never merged with text.
     const segments = [];
     for (const n of nodes) {
         if (n.type === 'text') {
@@ -58,29 +59,31 @@ function textFromInline(nodes) {
             if (linkMark && linkMark.attrs?.href) {
                 text = '[' + text + '](' + linkMark.attrs.href + ')';
             }
-            segments.push({ text, marks: n.marks || [] });
+            segments.push({ text, marks: n.marks || [], nodeType: 'text' });
         } else if (n.type === 'templateToken') {
             const rawId = n.attrs?.id || '';
             const id = LEGACY_TOKEN_IDS[rawId] || rawId;
-            segments.push({ text: '%' + id + '%', marks: n.marks || [] });
+            segments.push({ text: '%' + id + '%', marks: n.marks || [], nodeType: 'token' });
         } else if (n.type === 'hardBreak') {
-            segments.push({ text: '\n', marks: [] });
+            segments.push({ text: '\n', marks: [], nodeType: 'break' });
         }
     }
 
-    // Phase 2: merge adjacent segments with the same non-link marks
+    // Phase 2: merge adjacent TEXT segments with the same non-link marks.
+    // Token segments are never merged — each token must be independently
+    // wrapped so plainTextToDoc can recognize **%token%** as a marked token.
     const merged = [];
     for (const seg of segments) {
         const key = markKey(seg.marks);
         const last = merged.length > 0 ? merged[merged.length - 1] : null;
-        if (last && last.key === key) {
+        if (last && last.nodeType === 'text' && seg.nodeType === 'text' && last.key === key) {
             last.text += seg.text;
         } else {
-            merged.push({ text: seg.text, key, marks: seg.marks });
+            merged.push({ text: seg.text, key, marks: seg.marks, nodeType: seg.nodeType });
         }
     }
 
-    // Phase 3: wrap each merged run with markdown marks
+    // Phase 3: wrap each segment with markdown marks
     return merged.map(s => wrapWithMarkdown(s.text, s.marks)).join('');
 }
 
