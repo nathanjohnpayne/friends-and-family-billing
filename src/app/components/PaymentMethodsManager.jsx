@@ -20,6 +20,10 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
         ));
     }
 
+    function setPreferred(methodId) {
+        onUpdate(methods.map(m => ({ ...m, preferred: m.id === methodId })));
+    }
+
     function removeMethod() {
         if (!deleteTarget) return;
         onUpdate(methods.filter(m => m.id !== deleteTarget.id));
@@ -51,6 +55,15 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 <span className="payment-method-detail">{getPaymentMethodDetail(method)}</span>
                             </div>
                             <div className="payment-method-controls">
+                                <button
+                                    className={'payment-method-preferred-btn' + (method.preferred ? ' active' : '')}
+                                    title={method.preferred ? 'Preferred method' : 'Set as preferred'}
+                                    onClick={() => !readOnly && setPreferred(method.id)}
+                                    disabled={readOnly}
+                                    aria-label={method.preferred ? 'Preferred method' : 'Set as preferred'}
+                                >
+                                    {method.preferred ? '\u2605' : '\u2606'}
+                                </button>
                                 {(method.qrCode || method.hasQrCode) && (
                                     <span className="pm-qr-badge" title="QR code uploaded">
                                         <img src="/qr-code.svg" alt="QR" className="pm-qr-icon" />
@@ -107,6 +120,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 type: selectedType,
                                 label: typeDef ? typeDef.label : selectedType,
                                 enabled: true,
+                                preferred: false,
                                 email: '', phone: '', handle: '', url: '', instructions: ''
                             };
                             onUpdate([...methods, method]);

@@ -111,7 +111,7 @@ export default function ShareView() {
     return (
         <div className="share-page">
             <ShareHeader data={data} />
-            {data.summary && <BillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
+            {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} />}
             {data.disputes && data.disputes.length > 0 && <DisputesSection disputes={data.disputes} shareCtx={shareCtx} />}
@@ -119,46 +119,70 @@ export default function ShareView() {
     );
 }
 
+function deriveLastName(fullName) {
+    if (!fullName) return '';
+    const parts = fullName.trim().split(/\s+/);
+    return parts.length > 1 ? parts[parts.length - 1] : fullName;
+}
+
 function ShareHeader({ data }) {
+    const lastName = deriveLastName(data.memberName);
     return (
         <header className="share-header">
-            <h1>{data.memberName}'s Annual Billing Summary</h1>
+            <h1>{lastName}'s Annual Billing Summary</h1>
             <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
     );
 }
 
-function LinkedMemberBlock({ lm, canDispute, onRequestReview }) {
-    const [expanded, setExpanded] = useState(false);
-    const billCount = lm.bills ? lm.bills.length : 0;
-    const monthlyTotal = lm.bills ? lm.bills.reduce((s, b) => s + (b.monthlyShare || 0), 0) : 0;
+function MemberRow({ member, canDispute, onRequestReview, defaultExpanded }) {
+    const [expanded, setExpanded] = useState(defaultExpanded);
+    const billCount = member.bills ? member.bills.length : 0;
+    const monthlyTotal = member.bills ? member.bills.reduce((s, b) => s + (b.monthlyShare || 0), 0) : 0;
+
+    if (defaultExpanded) {
+        return (
+            <div className="share-member-row">
+                <h3 className="share-member-name">{member.name}</h3>
+                <BillsTable bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
+            </div>
+        );
+    }
 
     return (
-        <div className="share-linked-block">
-            <button className="share-linked-toggle" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-                <span className={'share-linked-arrow' + (expanded ? ' expanded' : '')}>&#9654;</span>
-                <span>{lm.name}—{billCount} shared {billCount === 1 ? 'bill' : 'bills'} ({formatCurrency(monthlyTotal)}/mo)</span>
+        <div className="share-member-row">
+            <button className="share-member-toggle" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+                <span className={'share-member-arrow' + (expanded ? ' expanded' : '')}>&#9654;</span>
+                <span>{member.name}—{billCount} {billCount === 1 ? 'bill' : 'bills'} ({formatCurrency(monthlyTotal)}/mo)</span>
             </button>
             {expanded && (
-                <>
-                    <p className="share-hint">Included in the linked-member portion of this annual summary.</p>
-                    <BillsTable bills={lm.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
-                </>
+                <BillsTable bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
             )}
         </div>
     );
 }
 
-function BillsSection({ data, canDispute, shareCtx }) {
+function HouseholdBillsSection({ data, canDispute, shareCtx }) {
     const [disputeForm, setDisputeForm] = useState(null);
+    const allMembers = [data.summary, ...(data.linkedMembers || [])];
+    const isSingleMember = allMembers.length === 1;
 
     return (
         <div className="share-section">
-            <h2>{data.memberName}'s Bills</h2>
-            <BillsTable bills={data.summary.bills} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
+            {!isSingleMember && data.paymentSummary && (
+                <div className="share-household-total">
+                    Household Total: {formatCurrency(data.paymentSummary.combinedMonthlyTotal)}/mo · {formatCurrency(data.paymentSummary.combinedAnnualTotal)}/yr
+                </div>
+            )}
 
-            {data.linkedMembers && data.linkedMembers.map(lm => (
-                <LinkedMemberBlock key={lm.memberId || lm.name} lm={lm} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
+            {allMembers.map(member => (
+                <MemberRow
+                    key={member.memberId || member.name}
+                    member={member}
+                    canDispute={canDispute}
+                    onRequestReview={bill => setDisputeForm(bill)}
+                    defaultExpanded={isSingleMember}
+                />
             ))}
 
             {disputeForm && (
@@ -280,11 +304,12 @@ function PaymentMethodsSection({ methods, ownerId }) {
             <h2>Payment Methods</h2>
             <p className="share-trust-note">Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.</p>
             <div className="share-pm-grid">
-                {methods.map((pm, i) => (
-                    <div key={pm.id || i} className="share-pm-card">
+                {[...methods].sort((a, b) => (b.preferred ? 1 : 0) - (a.preferred ? 1 : 0)).map((pm, i) => (
+                    <div key={pm.id || i} className={'share-pm-card' + (pm.preferred ? ' share-pm-card--preferred' : '')}>
                         <div className="share-pm-header">
                             <span className="share-pm-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(pm.type) }} />
                             <strong>{pm.label}</strong>
+                            {pm.preferred && <span className="share-pm-preferred-badge">Preferred</span>}
                         </div>
                         <div className="share-pm-body">
                             {pm.type === 'zelle' && [pm.email, pm.phone].filter(Boolean).map(c => (
