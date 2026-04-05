@@ -57,16 +57,20 @@ function generate() {
         return false;
     }
 
-    const content = `window.__FIREBASE_CONFIG__ = {
-    apiKey: ${JSON.stringify(apiKey)},
-    authDomain: ${JSON.stringify(env.VITE_FIREBASE_AUTH_DOMAIN || '')},
-    projectId: ${JSON.stringify(env.VITE_FIREBASE_PROJECT_ID || '')},
-    storageBucket: ${JSON.stringify(env.VITE_FIREBASE_STORAGE_BUCKET || '')},
-    messagingSenderId: ${JSON.stringify(env.VITE_FIREBASE_MESSAGING_SENDER_ID || '')},
-    appId: ${JSON.stringify(env.VITE_FIREBASE_APP_ID || '')},
-    measurementId: ${JSON.stringify(env.VITE_FIREBASE_MEASUREMENT_ID || '')}
-};
-`;
+    // Build config object — include logodevKey for the legacy app (src/main.js)
+    const lines = [
+        `    apiKey: ${JSON.stringify(apiKey)}`,
+        `    authDomain: ${JSON.stringify(env.VITE_FIREBASE_AUTH_DOMAIN || '')}`,
+        `    projectId: ${JSON.stringify(env.VITE_FIREBASE_PROJECT_ID || '')}`,
+        `    storageBucket: ${JSON.stringify(env.VITE_FIREBASE_STORAGE_BUCKET || '')}`,
+        `    messagingSenderId: ${JSON.stringify(env.VITE_FIREBASE_MESSAGING_SENDER_ID || '')}`,
+        `    appId: ${JSON.stringify(env.VITE_FIREBASE_APP_ID || '')}`,
+        `    measurementId: ${JSON.stringify(env.VITE_FIREBASE_MEASUREMENT_ID || '')}`,
+    ];
+    if (env.VITE_LOGODEV_KEY) {
+        lines.push(`    logodevKey: ${JSON.stringify(env.VITE_LOGODEV_KEY)}`);
+    }
+    const content = `window.__FIREBASE_CONFIG__ = {\n${lines.join(',\n')}\n};\n`;
 
     fs.writeFileSync(OUT_PATH, content, 'utf8');
     console.log('  Generated firebase-config.local.js from .env.local');
