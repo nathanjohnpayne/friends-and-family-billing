@@ -40,16 +40,25 @@ export default function ShareView() {
             const tokenHash = await hashToken(token);
             let shareData = null;
 
-            // Try publicShares first (eager cache)
+            // Try publicShares first (eager cache), skip if stale (>1 hour)
+            const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
             const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
+            let cacheHit = false;
             if (publicDoc.exists()) {
-                shareData = publicDoc.data();
-                // Bump access count
-                updateDoc(doc(db, 'publicShares', tokenHash), {
-                    accessCount: increment(1),
-                    lastAccessedAt: new Date().toISOString()
-                }).catch(() => {});
-            } else {
+                const cached = publicDoc.data();
+                const updatedAt = cached.updatedAt && cached.updatedAt.toDate ? cached.updatedAt.toDate() : null;
+                const isStale = !updatedAt || (Date.now() - updatedAt.getTime() > CACHE_MAX_AGE_MS);
+                if (!isStale) {
+                    shareData = cached;
+                    cacheHit = true;
+                    // Bump access count
+                    updateDoc(doc(db, 'publicShares', tokenHash), {
+                        accessCount: increment(1),
+                        lastAccessedAt: new Date().toISOString()
+                    }).catch(() => {});
+                }
+            }
+            if (!cacheHit) {
                 // Fall back to Cloud Function
                 const resp = await fetch('/resolveShareToken', {
                     method: 'POST',

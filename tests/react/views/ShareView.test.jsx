@@ -111,7 +111,8 @@ function setToken(token) {
 
 /** Helper: configure getDoc to return an existing publicShares doc with given data. */
 function mockPublicSharesHit(data = sampleShareData) {
-    mockGetDoc.mockResolvedValue({ exists: () => true, data: () => data });
+    const freshTimestamp = { toDate: () => new Date() };
+    mockGetDoc.mockResolvedValue({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) });
     mockUpdateDoc.mockResolvedValue();
     mockDoc.mockReturnValue('doc-ref');
 }
