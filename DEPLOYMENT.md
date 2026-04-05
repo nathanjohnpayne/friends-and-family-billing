@@ -580,18 +580,25 @@ Invoice and dispute resolution emails are sent server-side via [Resend](https://
 ```
 Client (EmailInvoiceDialog / DisputeDetailDialog / InvoicingTab)
   → queueEmail() writes to Firestore: mailQueue/{docId}
-    → { to, subject, body, uid, status: 'pending' }
+    → { to, subject, body, html?, uid, status: 'pending' }
   → Client listens to the document for status changes
 
 processMailQueue Cloud Function (Firestore trigger)
   → Fires on mailQueue/{docId} creation
   → Validates fields and uid
-  → simpleMarkdownToHtml() converts body to HTML
+  → If html field present: uses it directly (trusted path)
+  → Otherwise: simpleMarkdownToHtml() converts body to HTML
   → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
   → wrapEmailHtml() wraps in responsive email template
   → Resend API sends HTML + plain-text fallback
   → Updates document: { status: 'sent' } or { status: 'error' }
 ```
+
+**Trusted HTML path:** The `html` field in mailQueue documents bypasses
+`simpleMarkdownToHtml()` and is used as-is. This field must only contain
+app-generated HTML from `buildInvoiceTemplateEmailPayload()` (in
+`src/lib/invoice.js`). Do not add new producers without reviewing the trust
+boundary—pre-rendered HTML is not re-sanitized in the Cloud Function.
 
 ### Cloud Function: `processMailQueue`
 

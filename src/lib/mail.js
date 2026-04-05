@@ -11,6 +11,9 @@ import { db } from './firebase.js';
  * Returns a promise that resolves when the email is sent (or rejects on error).
  *
  * @param {{ to: string, subject: string, body: string, html?: string, replyTo?: string, uid: string }} params
+ *   - html: Optional pre-rendered HTML that bypasses simpleMarkdownToHtml() in
+ *     the Cloud Function. Must only contain trusted, app-generated content
+ *     (e.g., from buildInvoiceTemplateEmailPayload in src/lib/invoice.js).
  * @returns {Promise<{ id: string }>} — resolves with the Resend email ID
  */
 export async function queueEmail({ to, subject, body, html, replyTo, uid }) {

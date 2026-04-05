@@ -21,10 +21,13 @@ export default function ShareView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [data, setData] = useState(null);
+    const [timedOut, setTimedOut] = useState(false);
     const [shareCtx, setShareCtx] = useState({ token: null, tokenHash: null, ownerId: null, billingYearId: null, memberId: null, memberName: '', canDispute: false, canDisputeRead: false });
 
     useEffect(() => {
         loadShareData();
+        const timer = setTimeout(() => setTimedOut(true), 12000);
+        return () => clearTimeout(timer);
     }, []);
 
     async function loadShareData() {
@@ -100,8 +103,15 @@ export default function ShareView() {
         return (
             <div className="share-page share-loading">
                 <div className="share-state-card">
+                    <div className="share-spinner" />
                     <h2>Loading your annual billing summary...</h2>
                     <p>This secure page is preparing your latest billing details.</p>
+                    {timedOut && (
+                        <div className="share-timeout-hint">
+                            <p>This is taking longer than expected.</p>
+                            <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()}>Retry</button>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -288,6 +298,7 @@ function PaymentSummarySection({ ps, year }) {
 
 function PaymentMethodsSection({ methods, ownerId }) {
     const [qrModal, setQrModal] = useState(null);
+    const [loadingQr, setLoadingQr] = useState(null);
 
     function copyText(text, e) {
         const btn = e.currentTarget;
@@ -300,15 +311,21 @@ function PaymentMethodsSection({ methods, ownerId }) {
 
     async function loadQrCode(methodId, label) {
         if (!ownerId || !methodId) return;
+        if (loadingQr) return; // prevent duplicate clicks
+        setLoadingQr(methodId);
         const docId = ownerId + '_' + methodId;
         try {
             const qrDoc = await getDoc(doc(db, 'publicQrCodes', docId));
             if (qrDoc.exists() && qrDoc.data().qrCode) {
                 setQrModal({ src: qrDoc.data().qrCode, label });
+            } else {
+                setQrModal({ src: null, label, missing: true });
             }
         } catch (err) {
             console.error('Failed to load QR code:', err);
+            setQrModal({ src: null, label, missing: true });
         }
+        setLoadingQr(null);
     }
 
     const preferredMethod = methods.find(m => m.preferred);
@@ -350,13 +367,13 @@ function PaymentMethodsSection({ methods, ownerId }) {
                     {pm.instructions && <p className="share-pm-instructions">{pm.instructions}</p>}
                 </div>
                 {(pm.qrCode || pm.hasQrCode) && (
-                    <button className="share-qr-btn" onClick={() => {
+                    <button className="share-qr-btn" disabled={loadingQr === pm.id} onClick={() => {
                         if (pm.qrCode) {
                             setQrModal({ src: pm.qrCode, label: pm.label });
                         } else {
                             loadQrCode(pm.id, pm.label);
                         }
-                    }}>Show QR Code</button>
+                    }}>{loadingQr === pm.id ? 'Loading...' : 'Show QR Code'}</button>
                 )}
             </div>
         );
@@ -377,7 +394,15 @@ function PaymentMethodsSection({ methods, ownerId }) {
                 <div className="dialog-overlay" onClick={() => setQrModal(null)}>
                     <div className="dialog" onClick={e => e.stopPropagation()}>
                         <div className="dialog-title">QR Code — {qrModal.label}</div>
-                        {qrModal.src && <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />}
+                        {qrModal.src ? (
+                            <div className="dialog-body-padded">
+                                <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />
+                            </div>
+                        ) : (
+                            <p className="dialog-body-padded" style={{ color: 'var(--color-text-secondary, #5B6475)' }}>
+                                No QR code available for this payment method.
+                            </p>
+                        )}
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => setQrModal(null)}>Close</button>
                         </div>

@@ -52,6 +52,14 @@ if (fs.existsSync(path.join(ROOT, 'script.js.map'))) {
     copy('script.js.map', path.join(siteDir, 'script.js.map'));
 }
 
+// --- Generate firebase-config.local.js if missing ---
+const { generate: generateFirebaseConfig } = require('./generate-firebase-config.js');
+console.log('\nEnsuring firebase-config.local.js exists:');
+if (!generateFirebaseConfig()) {
+    console.error('\nBuild aborted: firebase-config.local.js is required for deploy.');
+    process.exit(1);
+}
+
 // --- Shared assets → app/ root ---
 console.log('\nCopying shared assets into app/:');
 const sharedFiles = [
