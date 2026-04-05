@@ -40,25 +40,28 @@ export default function ShareView() {
             const tokenHash = await hashToken(token);
             let shareData = null;
 
-            // Try publicShares first (eager cache), skip if stale (>1 hour)
-            const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+            // Try publicShares first (eager cache)
             const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
-            let cacheHit = false;
             if (publicDoc.exists()) {
-                const cached = publicDoc.data();
-                const updatedAt = cached.updatedAt && cached.updatedAt.toDate ? cached.updatedAt.toDate() : null;
-                const isStale = !updatedAt || (Date.now() - updatedAt.getTime() > CACHE_MAX_AGE_MS);
-                if (!isStale) {
-                    shareData = cached;
-                    cacheHit = true;
-                    // Bump access count
-                    updateDoc(doc(db, 'publicShares', tokenHash), {
-                        accessCount: increment(1),
-                        lastAccessedAt: new Date().toISOString()
+                shareData = publicDoc.data();
+                // Bump access count
+                updateDoc(doc(db, 'publicShares', tokenHash), {
+                    accessCount: increment(1),
+                    lastAccessedAt: new Date().toISOString()
+                }).catch(() => {});
+
+                // If cache is stale (>1 hour), refresh in background via Cloud Function
+                // so next visit gets fresh data (e.g., preferred payment method changes)
+                const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+                const updatedAt = shareData.updatedAt && shareData.updatedAt.toDate ? shareData.updatedAt.toDate() : null;
+                if (!updatedAt || (Date.now() - updatedAt.getTime() > CACHE_MAX_AGE_MS)) {
+                    fetch('/resolveShareToken', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token })
                     }).catch(() => {});
                 }
-            }
-            if (!cacheHit) {
+            } else {
                 // Fall back to Cloud Function
                 const resp = await fetch('/resolveShareToken', {
                     method: 'POST',
