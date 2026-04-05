@@ -55,6 +55,11 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 <span className="payment-method-detail">{getPaymentMethodDetail(method)}</span>
                             </div>
                             <div className="payment-method-controls">
+                                {(method.qrCode || method.hasQrCode) && (
+                                    <span className="pm-qr-badge" title="QR code uploaded">
+                                        <img src="/qr-code.svg" alt="QR" className="pm-qr-icon" />
+                                    </span>
+                                )}
                                 <button
                                     className={'payment-method-preferred-btn' + (method.preferred ? ' active' : '')}
                                     title={method.preferred ? 'Preferred method' : 'Set as preferred'}
@@ -64,11 +69,6 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 >
                                     {method.preferred ? '\u2605' : '\u2606'}
                                 </button>
-                                {(method.qrCode || method.hasQrCode) && (
-                                    <span className="pm-qr-badge" title="QR code uploaded">
-                                        <img src="/qr-code.svg" alt="QR" className="pm-qr-icon" />
-                                    </span>
-                                )}
                                 {!readOnly && (
                                     <>
                                         <label className="payment-method-toggle">
