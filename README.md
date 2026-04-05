@@ -314,8 +314,8 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 - **[AGENTS.md](AGENTS.md)** - AI agent instructions and technical reference
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment instructions
-- **[QUICKSTART.md](QUICKSTART.md)** - Fast 10-minute setup
-- **[FIREBASE_IMPLEMENTATION.md](FIREBASE_IMPLEMENTATION.md)** - Firebase migration details
+- **[QUICKSTART.md](docs/QUICKSTART.md)** - Fast 10-minute setup
+- **[FIREBASE_IMPLEMENTATION.md](docs/FIREBASE_IMPLEMENTATION.md)** - Firebase migration details
 
 ## Troubleshooting
 
