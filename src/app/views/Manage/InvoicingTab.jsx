@@ -401,9 +401,18 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                                     service.updateSettings({ paymentMethods: methods });
                                     // Sync to publicShares so share pages reflect changes immediately
                                     if (user && user.uid) {
-                                        const enabled = methods.filter(m => m.enabled);
-                                        getDocs(query(collection(db, 'publicShares'), where('ownerId', '==', user.uid)))
-                                            .then(snap => Promise.all(snap.docs.map(d => updateDoc(d.ref, { paymentMethods: enabled, updatedAt: serverTimestamp() }))))
+                                        const enabled = methods.filter(m => m.enabled).map(m => {
+                                            const copy = { ...m };
+                                            if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
+                                            return copy;
+                                        });
+                                        getDocs(query(collection(db, 'shareTokens'), where('ownerId', '==', user.uid)))
+                                            .then(snap => {
+                                                const hashes = snap.docs.filter(d => !d.data().revoked).map(d => d.id);
+                                                return Promise.all(hashes.map(h =>
+                                                    updateDoc(doc(db, 'publicShares', h), { paymentMethods: enabled, updatedAt: serverTimestamp() }).catch(() => {})
+                                                ));
+                                            })
                                             .catch(() => {});
                                     }
                                 }}

@@ -37,16 +37,31 @@ async function syncPublicQrCodes(userId, methods) {
 
 /**
  * Sync payment methods to all publicShares docs for this owner.
- * Ensures share pages reflect changes (e.g., preferred method) immediately.
+ * Looks up active share token hashes via shareTokens collection,
+ * then updates the corresponding publicShares docs by ID.
  */
 async function syncPublicSharesPaymentMethods(userId, methods) {
     if (!userId) return;
     try {
-        const enabledMethods = (methods || []).filter(m => m.enabled);
-        const q = query(collection(db, 'publicShares'), where('ownerId', '==', userId));
-        const snap = await getDocs(q);
-        const updates = snap.docs.map(d =>
-            updateDoc(d.ref, { paymentMethods: enabledMethods, updatedAt: serverTimestamp() })
+        const enabledMethods = (methods || []).filter(m => m.enabled).map(m => {
+            const copy = { ...m };
+            if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
+            return copy;
+        });
+        // Find all active share token hashes for this user
+        const tokensSnap = await getDocs(query(
+            collection(db, 'shareTokens'),
+            where('ownerId', '==', userId)
+        ));
+        const activeHashes = tokensSnap.docs
+            .filter(d => !d.data().revoked)
+            .map(d => d.id);
+        // Update each corresponding publicShares doc
+        const updates = activeHashes.map(hash =>
+            updateDoc(doc(db, 'publicShares', hash), {
+                paymentMethods: enabledMethods,
+                updatedAt: serverTimestamp()
+            }).catch(() => {}) // doc may not exist yet
         );
         await Promise.all(updates);
     } catch (err) {
