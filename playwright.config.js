@@ -13,7 +13,7 @@ export default defineConfig({
         { name: 'chromium', use: { browserName: 'chromium' } },
     ],
     webServer: {
-        // Serve the production build with SPA fallback for /app/* routes.
+        // Serve the production build with SPA fallback.
         // `npm run test:e2e` builds before running.
         command: 'node scripts/e2e-server.mjs',
         port: 4174,

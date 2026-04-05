@@ -8,7 +8,7 @@ import { seedPage } from './fixtures.js';
 
 test.beforeEach(async ({ page }) => {
     await seedPage(page);
-    await page.goto('/app/manage/invoicing');
+    await page.goto('/manage/invoicing');
     // Wait for the TipTap editor to mount
     await page.waitForSelector('.ProseMirror', { timeout: 10000 });
 });
