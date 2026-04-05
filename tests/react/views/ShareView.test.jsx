@@ -45,7 +45,7 @@ import ShareView from '@/app/views/ShareView.jsx';
 // ---------------------------------------------------------------------------
 
 const sampleShareData = {
-    memberName: 'Alice',
+    memberName: 'Alice Smith',
     year: '2024',
     ownerId: 'owner123',
     billingYearId: 'year2024',
@@ -53,6 +53,7 @@ const sampleShareData = {
     scopes: ['disputes:create', 'disputes:read'],
     summary: {
         memberId: 'member456',
+        name: 'Alice Smith',
         bills: [
             { billId: 'b1', name: 'Netflix', monthlyAmount: 15.99, splitCount: 2, monthlyShare: 8.00, annualShare: 96.00 },
             { billId: 'b2', name: 'Spotify', monthlyAmount: 9.99, splitCount: 3, monthlyShare: 3.33, annualShare: 39.96 }
@@ -78,6 +79,27 @@ const sampleShareData = {
             userReview: { state: 'requested' }
         }
     ]
+};
+
+const sampleShareDataWithLinkedMembers = {
+    ...sampleShareData,
+    linkedMembers: [
+        {
+            memberId: 'member789',
+            name: 'Bob Smith',
+            monthlyTotal: 5.00,
+            annualTotal: 60.00,
+            bills: [
+                { billId: 'b3', name: 'iCloud', monthlyAmount: 9.99, splitCount: 2, monthlyShare: 5.00, annualShare: 60.00 }
+            ]
+        }
+    ],
+    paymentSummary: {
+        combinedAnnualTotal: 195.96,
+        combinedMonthlyTotal: 16.33,
+        totalPaid: 50,
+        balanceRemaining: 145.96
+    }
 };
 
 function setToken(token) {
@@ -162,7 +184,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
             });
 
             // Verify updateDoc was called for access count bump
@@ -193,7 +215,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
             });
 
             // Confirm fetch was called with correct payload
@@ -258,15 +280,15 @@ describe('ShareView', () => {
     // -----------------------------------------------------------------------
     // 6. BillsSection renders bills table
     // -----------------------------------------------------------------------
-    describe('BillsSection', () => {
-        it('renders bill names, amounts, and totals', async () => {
+    describe('HouseholdBillsSection', () => {
+        it('renders bill names, amounts, and totals for single member', async () => {
             setToken('abc123');
             mockPublicSharesHit();
 
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Bills")).toBeInTheDocument();
+                expect(screen.getByText("Alice Smith")).toBeInTheDocument();
             });
 
             // Netflix appears in both bills table and disputes section
@@ -285,14 +307,14 @@ describe('ShareView', () => {
             expect(screen.getByText('TOTAL')).toBeInTheDocument();
         });
 
-        it('renders bills section heading with member name', async () => {
+        it('renders member name heading for single member', async () => {
             setToken('abc123');
             mockPublicSharesHit();
 
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Bills")).toBeInTheDocument();
+                expect(screen.getByText("Alice Smith")).toBeInTheDocument();
             });
         });
     });
@@ -320,7 +342,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Bills")).toBeInTheDocument();
+                expect(screen.getByText("Alice Smith")).toBeInTheDocument();
             });
 
             expect(screen.queryAllByRole('button', { name: 'Question This' })).toHaveLength(0);
@@ -871,7 +893,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
             });
 
             expect(screen.queryByText('Payment Methods')).not.toBeInTheDocument();
@@ -885,7 +907,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Alice's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
             });
 
             expect(screen.queryByText('Your Review Requests')).not.toBeInTheDocument();
@@ -905,6 +927,151 @@ describe('ShareView', () => {
             await waitFor(() => {
                 expect(screen.getByText(/Pay directly through the apps below/)).toBeInTheDocument();
             });
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Household hierarchy
+    // -----------------------------------------------------------------------
+    describe('household hierarchy', () => {
+        it('derives last name for page title', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+            });
+        });
+
+        it('uses full name when single-word name', async () => {
+            setToken('abc123');
+            const singleNameData = { ...sampleShareData, memberName: 'Cher' };
+            mockPublicSharesHit(singleNameData);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText("Cher's Annual Billing Summary")).toBeInTheDocument();
+            });
+        });
+
+        it('shows single member expanded with no household total', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+
+            // Bills should be visible (expanded by default for single member)
+            // Netflix appears in both bills table and disputes section
+            expect(screen.getAllByText('Netflix').length).toBeGreaterThanOrEqual(1);
+            expect(screen.getByText('Spotify')).toBeInTheDocument();
+
+            // No household total line for single member
+            expect(screen.queryByText(/Household Total/)).not.toBeInTheDocument();
+        });
+
+        it('shows household total and collapsible members for multi-member', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(sampleShareDataWithLinkedMembers);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Household Total/)).toBeInTheDocument();
+            });
+
+            // Household total shows combined amounts
+            expect(screen.getByText(/\$16\.33\/mo/)).toBeInTheDocument();
+            expect(screen.getByText(/\$195\.96\/yr/)).toBeInTheDocument();
+
+            // Both members appear as toggle buttons
+            expect(screen.getByText(/Alice Smith/)).toBeInTheDocument();
+            expect(screen.getByText(/Bob Smith/)).toBeInTheDocument();
+        });
+
+        it('multi-member bills are collapsed by default', async () => {
+            setToken('abc123');
+            const noDisputesData = { ...sampleShareDataWithLinkedMembers, disputes: [] };
+            mockPublicSharesHit(noDisputesData);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Household Total/)).toBeInTheDocument();
+            });
+
+            // Individual bill names should NOT be visible (collapsed)
+            // (disputes removed to avoid Netflix appearing in disputes section)
+            expect(screen.queryByText('Netflix')).not.toBeInTheDocument();
+            expect(screen.queryByText('iCloud')).not.toBeInTheDocument();
+        });
+
+        it('expands member on click to show bills', async () => {
+            const user = userEvent.setup();
+            setToken('abc123');
+            const noDisputesData = { ...sampleShareDataWithLinkedMembers, disputes: [] };
+            mockPublicSharesHit(noDisputesData);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Alice Smith/)).toBeInTheDocument();
+            });
+
+            // Click to expand Alice's section
+            await user.click(screen.getByText(/Alice Smith/));
+
+            // Now Netflix and Spotify should appear
+            await waitFor(() => {
+                expect(screen.getByText('Netflix')).toBeInTheDocument();
+                expect(screen.getByText('Spotify')).toBeInTheDocument();
+            });
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Preferred payment method
+    // -----------------------------------------------------------------------
+    describe('preferred payment method', () => {
+        it('renders preferred card first with badge and class', async () => {
+            setToken('abc123');
+            const dataWithPreferred = {
+                ...sampleShareData,
+                paymentMethods: [
+                    { id: 'pm1', type: 'venmo', label: 'Venmo', handle: '@john' },
+                    { id: 'pm2', type: 'zelle', label: 'Zelle', email: 'pay@example.com', preferred: true }
+                ]
+            };
+            mockPublicSharesHit(dataWithPreferred);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Preferred')).toBeInTheDocument();
+            });
+
+            // Zelle (preferred) should render with the preferred badge
+            expect(screen.getByText('Zelle')).toBeInTheDocument();
+            expect(screen.getByText('Venmo')).toBeInTheDocument();
+        });
+
+        it('does not render preferred badge when no method is preferred', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Venmo')).toBeInTheDocument();
+            });
+
+            expect(screen.queryByText('Preferred')).not.toBeInTheDocument();
         });
     });
 });

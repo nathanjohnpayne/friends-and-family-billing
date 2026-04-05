@@ -2458,6 +2458,24 @@ img, svg { display: block; max-width: 100%; }
     flex-shrink: 0;
 }
 
+.payment-method-preferred-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: var(--color-text-secondary, #5B6475);
+    padding: 0;
+    line-height: 1;
+}
+
+.payment-method-preferred-btn.active {
+    color: var(--color-warning, #E0A84D);
+}
+
+.payment-method-preferred-btn:disabled {
+    cursor: default;
+}
+
 .payment-method-toggle {
     display: flex;
     align-items: center;
@@ -2906,11 +2924,24 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-2, 8px);
 }
 
-.share-linked-block {
+.share-household-total {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: var(--space-3, 12px);
+    color: var(--color-text, #1F2430);
+}
+
+.share-member-row {
     margin-top: var(--space-3, 12px);
 }
 
-.share-linked-toggle {
+.share-member-name {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 var(--space-2, 8px);
+}
+
+.share-member-toggle {
     display: flex;
     align-items: center;
     gap: var(--space-2, 8px);
@@ -2924,13 +2955,13 @@ img, svg { display: block; max-width: 100%; }
     text-align: left;
 }
 
-.share-linked-arrow {
+.share-member-arrow {
     display: inline-block;
     font-size: 0.65rem;
     transition: transform 0.15s ease;
 }
 
-.share-linked-arrow.expanded {
+.share-member-arrow.expanded {
     transform: rotate(90deg);
 }
 
@@ -3063,6 +3094,26 @@ img, svg { display: block; max-width: 100%; }
     padding: var(--space-3, 12px);
     display: flex;
     flex-direction: column;
+}
+
+.share-pm-card--preferred {
+    grid-column: span 2;
+    border-color: var(--color-primary, #4A6FA5);
+}
+
+@media (max-width: 550px) {
+    .share-pm-card--preferred {
+        grid-column: span 1;
+    }
+}
+
+.share-pm-preferred-badge {
+    font-size: 0.68rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-pill, 20px);
+    background: rgba(74, 111, 165, 0.1);
+    color: var(--color-primary, #4A6FA5);
+    font-weight: 500;
 }
 
 .share-pm-header {
