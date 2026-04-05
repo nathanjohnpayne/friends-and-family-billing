@@ -43,6 +43,16 @@ function generate() {
         return true;
     }
 
+    // E2E / CI: firebase.js already uses a dummy config when VITE_E2E_MODE is
+    // set, but the HTML still loads firebase-config.local.js via <script>.
+    // Write a stub so the <script> tag doesn't 404 and get rewritten to HTML.
+    if (process.env.VITE_E2E_MODE) {
+        const stub = 'window.__FIREBASE_CONFIG__ = { apiKey: "e2e-test-key", authDomain: "e2e-test.firebaseapp.com", projectId: "e2e-test", storageBucket: "e2e-test.appspot.com", messagingSenderId: "000000000000", appId: "1:000000000000:web:0000000000000000" };\n';
+        fs.writeFileSync(OUT_PATH, stub, 'utf8');
+        console.log('  Generated E2E stub firebase-config.local.js');
+        return true;
+    }
+
     const env = parseEnvFile(ENV_PATH);
     if (!env) {
         console.error('ERROR: Neither firebase-config.local.js nor .env.local found.');
