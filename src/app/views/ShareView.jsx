@@ -129,7 +129,7 @@ function ShareHeader({ data }) {
     const lastName = deriveLastName(data.memberName);
     return (
         <header className="share-header">
-            <h1>{lastName}'s Annual Billing Summary</h1>
+            <h1>{lastName} Family's Annual Billing Summary</h1>
             <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
     );
@@ -299,57 +299,67 @@ function PaymentMethodsSection({ methods, ownerId }) {
         }
     }
 
+    const preferredMethod = methods.find(m => m.preferred);
+    const otherMethods = methods.filter(m => !m.preferred).sort((a, b) => a.label.localeCompare(b.label));
+
+    function renderCard(pm, className) {
+        return (
+            <div key={pm.id} className={className}>
+                <div className="share-pm-header">
+                    <span className="share-pm-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(pm.type) }} />
+                    <strong>{pm.label}</strong>
+                    {pm.preferred && <span className="share-pm-preferred-badge">&#9733; Preferred</span>}
+                </div>
+                <div className="share-pm-body">
+                    {pm.type === 'zelle' && [pm.email, pm.phone].filter(Boolean).map(c => (
+                        <div key={c} className="share-pm-detail">
+                            <span>{c}</span>
+                            <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
+                        </div>
+                    ))}
+                    {pm.type === 'apple_cash' && [pm.phone, pm.email].filter(Boolean).map(c => (
+                        <div key={c} className="share-pm-detail">
+                            <span>{c}</span>
+                            <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
+                        </div>
+                    ))}
+                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.handle && (
+                        <div className="share-pm-detail">
+                            <span>{pm.handle}</span>
+                            <button className="share-copy-btn" onClick={e => copyText(pm.handle, e)}>Copy</button>
+                        </div>
+                    )}
+                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.url && (
+                        <div className="share-pm-detail">
+                            <a href={pm.url} target="_blank" rel="noopener noreferrer">{pm.url}</a>
+                            <button className="share-copy-btn" onClick={e => copyText(pm.url, e)}>Copy link</button>
+                        </div>
+                    )}
+                    {pm.instructions && <p className="share-pm-instructions">{pm.instructions}</p>}
+                </div>
+                {(pm.qrCode || pm.hasQrCode) && (
+                    <button className="share-qr-btn" onClick={() => {
+                        if (pm.qrCode) {
+                            setQrModal({ src: pm.qrCode, label: pm.label });
+                        } else {
+                            loadQrCode(pm.id, pm.label);
+                        }
+                    }}>Show QR Code</button>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="share-section">
             <h2>Payment Methods</h2>
             <p className="share-trust-note">Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.</p>
-            <div className="share-pm-grid">
-                {[...methods].sort((a, b) => (b.preferred ? 1 : 0) - (a.preferred ? 1 : 0)).map((pm, i) => (
-                    <div key={pm.id || i} className={'share-pm-card' + (pm.preferred ? ' share-pm-card--preferred' : '')}>
-                        <div className="share-pm-header">
-                            <span className="share-pm-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(pm.type) }} />
-                            <strong>{pm.label}</strong>
-                            {pm.preferred && <span className="share-pm-preferred-badge">Preferred</span>}
-                        </div>
-                        <div className="share-pm-body">
-                            {pm.type === 'zelle' && [pm.email, pm.phone].filter(Boolean).map(c => (
-                                <div key={c} className="share-pm-detail">
-                                    <span>{c}</span>
-                                    <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
-                                </div>
-                            ))}
-                            {pm.type === 'apple_cash' && [pm.phone, pm.email].filter(Boolean).map(c => (
-                                <div key={c} className="share-pm-detail">
-                                    <span>{c}</span>
-                                    <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
-                                </div>
-                            ))}
-                            {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.handle && (
-                                <div className="share-pm-detail">
-                                    <span>{pm.handle}</span>
-                                    <button className="share-copy-btn" onClick={e => copyText(pm.handle, e)}>Copy</button>
-                                </div>
-                            )}
-                            {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.url && (
-                                <div className="share-pm-detail">
-                                    <a href={pm.url} target="_blank" rel="noopener noreferrer">{pm.url}</a>
-                                    <button className="share-copy-btn" onClick={e => copyText(pm.url, e)}>Copy link</button>
-                                </div>
-                            )}
-                            {pm.instructions && <p className="share-pm-instructions">{pm.instructions}</p>}
-                        </div>
-                        {(pm.qrCode || pm.hasQrCode) && (
-                            <button className="share-qr-btn" onClick={() => {
-                                if (pm.qrCode) {
-                                    setQrModal({ src: pm.qrCode, label: pm.label });
-                                } else {
-                                    loadQrCode(pm.id, pm.label);
-                                }
-                            }}>Show QR Code</button>
-                        )}
-                    </div>
-                ))}
-            </div>
+            {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
+            {otherMethods.length > 0 && (
+                <div className="share-pm-grid">
+                    {otherMethods.map(pm => renderCard(pm, 'share-pm-card'))}
+                </div>
+            )}
 
             {qrModal && (
                 <div className="dialog-overlay" onClick={() => setQrModal(null)}>

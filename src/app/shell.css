@@ -3097,14 +3097,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-pm-card--preferred {
-    grid-column: span 2;
     border-color: var(--color-primary, #4A6FA5);
-}
-
-@media (max-width: 550px) {
-    .share-pm-card--preferred {
-        grid-column: span 1;
-    }
+    margin-bottom: var(--space-3, 12px);
 }
 
 .share-pm-preferred-badge {

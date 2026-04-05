@@ -184,7 +184,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith Family's Annual Billing Summary")).toBeInTheDocument();
             });
 
             // Verify updateDoc was called for access count bump
@@ -215,7 +215,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith Family's Annual Billing Summary")).toBeInTheDocument();
             });
 
             // Confirm fetch was called with correct payload
@@ -893,7 +893,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith Family's Annual Billing Summary")).toBeInTheDocument();
             });
 
             expect(screen.queryByText('Payment Methods')).not.toBeInTheDocument();
@@ -907,7 +907,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith Family's Annual Billing Summary")).toBeInTheDocument();
             });
 
             expect(screen.queryByText('Your Review Requests')).not.toBeInTheDocument();
@@ -941,7 +941,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Smith's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Smith Family's Annual Billing Summary")).toBeInTheDocument();
             });
         });
 
@@ -953,7 +953,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText("Cher's Annual Billing Summary")).toBeInTheDocument();
+                expect(screen.getByText("Cher Family's Annual Billing Summary")).toBeInTheDocument();
             });
         });
 
@@ -1053,7 +1053,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText('Preferred')).toBeInTheDocument();
+                expect(screen.getByText(/Preferred/)).toBeInTheDocument();
             });
 
             // Zelle (preferred) should render with the preferred badge
@@ -1071,7 +1071,7 @@ describe('ShareView', () => {
                 expect(screen.getByText('Venmo')).toBeInTheDocument();
             });
 
-            expect(screen.queryByText('Preferred')).not.toBeInTheDocument();
+            expect(screen.queryByText(/Preferred/)).not.toBeInTheDocument();
         });
     });
 });
