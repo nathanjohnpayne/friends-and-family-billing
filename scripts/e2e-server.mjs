@@ -1,15 +1,15 @@
 /**
  * Minimal static server with SPA fallback for E2E tests.
- * Serves the built React app from app/ with proper /app/ routing.
- * All /app/* paths that don't match a static file fall back to
- * app/src/app/index.html (the React SPA entry point).
+ * Serves the built app from app/ (the Firebase public directory).
+ * All paths that don't match a static file fall back to
+ * app/index.html (the React SPA entry point).
  */
 import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 
 const PORT = process.env.PORT || 4174;
-const ROOT = process.cwd();
+const ROOT = join(process.cwd(), 'app');
 
 const MIME_TYPES = {
     '.html': 'text/html',
@@ -22,13 +22,13 @@ const MIME_TYPES = {
     '.woff2': 'font/woff2',
 };
 
-const SPA_INDEX = join(ROOT, 'app', 'src', 'app', 'index.html');
+const SPA_INDEX = join(ROOT, 'index.html');
 
 createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     let filePath;
 
-    // Try to serve the exact file from the repo root
+    // Try to serve the exact file from app/
     filePath = join(ROOT, url.pathname);
     if (existsSync(filePath) && !filePath.endsWith('/')) {
         const ext = extname(filePath);
@@ -38,16 +38,16 @@ createServer((req, res) => {
         return;
     }
 
-    // SPA fallback: any /app/* path → app/src/app/index.html
-    if (url.pathname.startsWith('/app/')) {
+    // SPA fallback: any path → app/index.html
+    if (existsSync(SPA_INDEX)) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(readFileSync(SPA_INDEX));
         return;
     }
 
-    // 404 for everything else
+    // 404 if index.html doesn't exist (build not run)
     res.writeHead(404);
-    res.end('Not Found');
+    res.end('Not Found — run npm run build first');
 }).listen(PORT, () => {
-    console.log(`E2E server running at http://localhost:${PORT}/app/`);
+    console.log(`E2E server running at http://localhost:${PORT}/`);
 });

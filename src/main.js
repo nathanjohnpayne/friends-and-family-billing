@@ -3484,7 +3484,7 @@ async function generateResolutionShareLink(memberId) {
         await db.collection('publicShares').doc(tokenHash).set(publicData);
     }
 
-    return window.location.origin + '/share.html?token=' + rawToken;
+    return window.location.origin + '/share?token=' + rawToken;
 }
 
 async function emailDisputeResolution(disputeId) {
@@ -4257,7 +4257,7 @@ async function showShareLinks(memberId) {
                 let linkUrlHtml = '';
                 const isActive = !link.revoked && !(link.expiresAt && ((link.expiresAt.toDate ? link.expiresAt.toDate() : new Date(link.expiresAt)) < new Date()));
                 if (isActive && link.rawToken) {
-                    const url = window.location.origin + '/share.html?token=' + link.rawToken;
+                    const url = window.location.origin + '/share?token=' + link.rawToken;
                     const displayUrl = url.replace(/^https?:\/\//, '');
                     const truncated = displayUrl.length > 40 ? displayUrl.substring(0, 37) + '...' : displayUrl;
                     linkUrlHtml = `<div class="share-link-url-row"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="share-link-url-text" title="${escapeHtml(displayUrl)}">${escapeHtml(truncated)}</a><button class="btn btn-sm share-link-copy-btn" onclick="navigator.clipboard.writeText('${escapeHtml(url)}').then(function(){showChangeToast('Link copied')})">Copy</button></div>`;

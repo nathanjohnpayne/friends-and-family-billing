@@ -14,7 +14,7 @@ export default function UpdateToast() {
     useEffect(() => {
         async function check() {
             try {
-                const resp = await fetch('/app/version.json?_=' + Date.now());
+                const resp = await fetch('/version.json?_=' + Date.now());
                 if (!resp.ok) return;
                 const data = await resp.json();
                 if (knownVersion.current && data.version !== knownVersion.current) {
