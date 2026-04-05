@@ -64,7 +64,7 @@ npm install
 npm run deploy
 ```
 
-> **Note:** This repo uses `op-firebase-deploy` for deployments — see DEPLOYMENT.md for the 1Password-based credential setup. If Cloud Functions deployment shows IAM errors, that's OK — share links work via direct Firestore reads instead.
+> **Note:** This repo uses `op-firebase-deploy` for deployments — see [DEPLOYMENT.md](../DEPLOYMENT.md) for the 1Password-based credential setup. If Cloud Functions deployment shows IAM errors, that's OK — share links work via direct Firestore reads instead.
 
 #### 8. Done! 🎉
 Your app is now live at: `https://your-project-id.web.app`
@@ -94,7 +94,7 @@ Just send them your deployed URL. Each person:
 
 ### Need Help?
 
-- Check DEPLOYMENT.md for detailed instructions
+- Check [DEPLOYMENT.md](../DEPLOYMENT.md) for detailed instructions
 - Browser console (F12) shows error messages
 - Firebase console shows database activity
 

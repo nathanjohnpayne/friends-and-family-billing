@@ -1,6 +1,6 @@
 # Firebase Multi-User Implementation Summary
 
-> **Historical document.** This file describes the original vanilla-JS Firebase migration. The app has since been rewritten as a React SPA (see the React Migration changelog in README.md). File references like `firebase-config.js`, `script.js`, `login.html`, and deployment commands like `firebase deploy` no longer apply. For current architecture, see `docs/agents/repository-overview.md`. For deployment, see `DEPLOYMENT.md`.
+> **Historical document.** This file describes the original vanilla-JS Firebase migration. The app has since been rewritten as a React SPA (see the React Migration changelog in README.md). File references like `firebase-config.js`, `script.js`, `login.html`, and deployment commands like `firebase deploy` no longer apply. For current architecture, see `agents/repository-overview.md`. For deployment, see `../DEPLOYMENT.md`.
 
 ## What Was Added
 
@@ -210,8 +210,8 @@ You'd need thousands of daily active users to exceed the free tier!
 
 ## Support & Troubleshooting
 
-1. **Check QUICKSTART.md** for fast setup guide
-2. **Check DEPLOYMENT.md** for detailed instructions
+1. **Check QUICKSTART.md** (in this directory) for fast setup guide
+2. **Check [DEPLOYMENT.md](../DEPLOYMENT.md)** for detailed instructions
 3. **Browser console (F12)** shows error messages
 4. **Firebase Console** shows database activity and errors
 
