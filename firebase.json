@@ -1,29 +1,40 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "app",
     "predeploy": [
       "npm run build && node stamp-version.js"
     ],
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "src/**",
-      "vite.config.js",
-      "DEPLOYMENT.md",
-      "AGENTS.md",
-      "QUICKSTART.md",
-      "FIREBASE_IMPLEMENTATION.md",
-      "README.md",
-      "package.json",
-      "package-lock.json",
-      "tests/**",
-      "functions/**",
-      "scripts/**",
-      "specs/**",
-      "stamp-version.js",
-      "enhancements/**",
-      ".env*"
+      "**/node_modules/**"
+    ],
+    "redirects": [
+      {
+        "regex": "/app/(?P<path>.*)",
+        "destination": "/:path",
+        "type": 301
+      },
+      {
+        "source": "/app",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/login.html",
+        "destination": "/site/login.html",
+        "type": 301
+      },
+      {
+        "source": "/check_data.html",
+        "destination": "/site/check_data.html",
+        "type": 301
+      },
+      {
+        "source": "/share.html",
+        "destination": "/share",
+        "type": 301
+      }
     ],
     "headers": [
       {
@@ -45,7 +56,7 @@
         ]
       },
       {
-        "source": "app/version.json",
+        "source": "site/version.json",
         "headers": [
           {
             "key": "Cache-Control",
@@ -54,7 +65,7 @@
         ]
       },
       {
-        "source": "share.html",
+        "source": "site/share.html",
         "headers": [
           {
             "key": "Cache-Control",
@@ -92,10 +103,6 @@
     ],
     "rewrites": [
       {
-        "source": "/share",
-        "destination": "/share.html"
-      },
-      {
         "source": "/resolveShareToken",
         "function": "resolveShareToken"
       },
@@ -112,12 +119,8 @@
         "function": "submitDisputeDecision"
       },
       {
-        "source": "/app/**",
-        "destination": "/app/src/app/index.html"
-      },
-      {
-        "source": "/app",
-        "destination": "/app/src/app/index.html"
+        "source": "/site/**",
+        "destination": "/site/index.html"
       },
       {
         "source": "**",

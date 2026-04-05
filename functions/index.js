@@ -719,7 +719,7 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
           nBody += "**Your note:** " + note.trim() + "\n\n";
           const rawToken = await findActiveDisputeShareToken(tokenData.ownerId, tokenData.billingYearId, tokenData.memberId);
           if (rawToken) {
-            nBody += "[View your billing summary](" + APP_ORIGIN + "/share.html?token=" + rawToken + ")\n\n";
+            nBody += "[View your billing summary](" + APP_ORIGIN + "/share?token=" + rawToken + ")\n\n";
           } else {
             nBody += "Use your existing billing share link or contact the account owner.\n\n";
           }

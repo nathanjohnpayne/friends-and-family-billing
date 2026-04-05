@@ -24,7 +24,7 @@ export default function App() {
     return (
         <AuthProvider>
             <ToastProvider>
-                <BrowserRouter basename="/app">
+                <BrowserRouter basename="/">
                     <AppRoutes />
                 </BrowserRouter>
                 <UpdateToast />

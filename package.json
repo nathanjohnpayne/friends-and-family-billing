@@ -4,9 +4,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run build:legacy && npm run build:react",
+    "build": "npm run build:react && npm run build:legacy && npm run build:assemble",
     "build:legacy": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap",
     "build:react": "vite build",
+    "build:assemble": "node scripts/assemble-deploy.js",
     "build:watch": "esbuild src/index.js --bundle --format=iife --outfile=script.js --sourcemap --watch",
     "dev": "vite --open",
     "pr:auto": "node scripts/pr-auto.mjs",

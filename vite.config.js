@@ -4,7 +4,7 @@ import path from 'path';
 
 export default defineConfig({
     plugins: [react()],
-    base: '/app/',
+    base: '/',
     root: '.',
     build: {
         // Output to app/ so deployed paths match URL paths.

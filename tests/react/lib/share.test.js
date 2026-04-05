@@ -59,7 +59,7 @@ describe('buildShareTokenDoc', () => {
 describe('buildShareUrl', () => {
     it('constructs the share URL', () => {
         expect(buildShareUrl('https://example.com', 'abc123')).toBe(
-            'https://example.com/share.html?token=abc123'
+            'https://example.com/share?token=abc123'
         );
     });
 });
