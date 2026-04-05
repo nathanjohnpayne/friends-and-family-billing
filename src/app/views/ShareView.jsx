@@ -122,17 +122,30 @@ export default function ShareView() {
 function ShareHeader({ data }) {
     return (
         <header className="share-header">
-            <div className="share-header-meta">
-                <span className="share-pill">Friends &amp; Family Billing</span>
-                <span className="share-pill">{data.year ? 'Billing Year ' + data.year : 'Shared billing summary'}</span>
-            </div>
             <h1>{data.memberName}'s Annual Billing Summary</h1>
-            <p className="share-subtitle">You are viewing your annual shared billing summary for {data.year}.</p>
-            <div className="share-trust-banner">
-                <span>&#128274;</span>
-                <span>This is a secure annual billing summary. Payments happen in the listed apps or services, not inside Friends &amp; Family Billing.</span>
-            </div>
+            <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
+    );
+}
+
+function LinkedMemberBlock({ lm, canDispute, onRequestReview }) {
+    const [expanded, setExpanded] = useState(false);
+    const billCount = lm.bills ? lm.bills.length : 0;
+    const monthlyTotal = lm.bills ? lm.bills.reduce((s, b) => s + (b.monthlyShare || 0), 0) : 0;
+
+    return (
+        <div className="share-linked-block">
+            <button className="share-linked-toggle" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+                <span className={'share-linked-arrow' + (expanded ? ' expanded' : '')}>&#9654;</span>
+                <span>{lm.name}—{billCount} shared {billCount === 1 ? 'bill' : 'bills'} ({formatCurrency(monthlyTotal)}/mo)</span>
+            </button>
+            {expanded && (
+                <>
+                    <p className="share-hint">Included in the linked-member portion of this annual summary.</p>
+                    <BillsTable bills={lm.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
+                </>
+            )}
+        </div>
     );
 }
 
@@ -145,11 +158,7 @@ function BillsSection({ data, canDispute, shareCtx }) {
             <BillsTable bills={data.summary.bills} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
 
             {data.linkedMembers && data.linkedMembers.map(lm => (
-                <div key={lm.memberId || lm.name} className="share-linked-block">
-                    <h3>{lm.name}'s Bills</h3>
-                    <p className="share-hint">Included in the linked-member portion of this annual summary.</p>
-                    <BillsTable bills={lm.bills} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
-                </div>
+                <LinkedMemberBlock key={lm.memberId || lm.name} lm={lm} canDispute={canDispute} onRequestReview={bill => setDisputeForm(bill)} />
             ))}
 
             {disputeForm && (
@@ -192,7 +201,7 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
                             <td className="share-cell-number">{formatCurrency(b.monthlyShare)}</td>
                             <td className="share-cell-number">{formatCurrency(b.annualShare)}</td>
                             {canDispute && (
-                                <td><button className="share-review-btn" onClick={() => onRequestReview(b)}>Request Review</button></td>
+                                <td><button className="share-review-btn" onClick={() => onRequestReview(b)}>Question This</button></td>
                             )}
                         </tr>
                     ))}
@@ -210,7 +219,7 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
 
 function PaymentSummarySection({ ps, year }) {
     const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
-    const balClass = ps.balanceRemaining > 0 ? 'owed' : 'paid';
+    const balClass = ps.balanceRemaining > 0 ? 'owed' : '';
 
     return (
         <div className="share-section">
@@ -269,6 +278,7 @@ function PaymentMethodsSection({ methods, ownerId }) {
     return (
         <div className="share-section">
             <h2>Payment Methods</h2>
+            <p className="share-trust-note">Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.</p>
             <div className="share-pm-grid">
                 {methods.map((pm, i) => (
                     <div key={pm.id || i} className="share-pm-card">
@@ -494,7 +504,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
             <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
                 {success ? (
                     <>
-                        <div className="dialog-title">Review Request Submitted</div>
+                        <div className="dialog-title">Question Submitted</div>
                         <p>The account owner will be notified of your request.</p>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-primary" onClick={onClose}>Close</button>
@@ -502,7 +512,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
                     </>
                 ) : (
                     <>
-                        <div className="dialog-title">Request Review</div>
+                        <div className="dialog-title">Question This Charge</div>
                         <p className="share-hint">Flagging <strong>{bill.name}</strong> for review.</p>
                         <div className="payment-dialog-fields">
                             <div className="payment-field-group">

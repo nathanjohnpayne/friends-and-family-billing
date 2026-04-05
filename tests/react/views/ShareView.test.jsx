@@ -170,14 +170,14 @@ describe('ShareView', () => {
             expect(mockIncrement).toHaveBeenCalledWith(1);
         });
 
-        it('renders year in header pill', async () => {
+        it('renders year in subtitle', async () => {
             setToken('abc123');
             mockPublicSharesHit();
 
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText('Billing Year 2024')).toBeInTheDocument();
+                expect(screen.getByText(/billing summary for 2024/)).toBeInTheDocument();
             });
         });
     });
@@ -298,9 +298,9 @@ describe('ShareView', () => {
     });
 
     // -----------------------------------------------------------------------
-    // 7. Request Review button
+    // 7. Question This button
     // -----------------------------------------------------------------------
-    describe('Request Review button', () => {
+    describe('Question This button', () => {
         it('shows when canDispute is true (scopes include disputes:create)', async () => {
             setToken('abc123');
             mockPublicSharesHit();
@@ -308,7 +308,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getAllByRole('button', { name: 'Request Review' })).toHaveLength(2);
+                expect(screen.getAllByRole('button', { name: 'Question This' })).toHaveLength(2);
             });
         });
 
@@ -323,7 +323,7 @@ describe('ShareView', () => {
                 expect(screen.getByText("Alice's Bills")).toBeInTheDocument();
             });
 
-            expect(screen.queryAllByRole('button', { name: 'Request Review' })).toHaveLength(0);
+            expect(screen.queryAllByRole('button', { name: 'Question This' })).toHaveLength(0);
         });
     });
 
@@ -339,16 +339,16 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getAllByRole('button', { name: 'Request Review' }).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
             });
 
             // Open dispute form for first bill
-            const reviewBtns = screen.getAllByRole('button', { name: 'Request Review' });
+            const reviewBtns = screen.getAllByRole('button', { name: 'Question This' });
             await user.click(reviewBtns[0]);
 
-            // Overlay should appear with "Request Review" title
+            // Overlay should appear with "Question This Charge" title
             await waitFor(() => {
-                expect(screen.getByText('Request Review', { selector: '.dialog-title' })).toBeInTheDocument();
+                expect(screen.getByText('Question This Charge', { selector: '.dialog-title' })).toBeInTheDocument();
             });
 
             // Click Submit without typing anything
@@ -371,10 +371,10 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getAllByRole('button', { name: 'Request Review' }).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
             });
 
-            await user.click(screen.getAllByRole('button', { name: 'Request Review' })[0]);
+            await user.click(screen.getAllByRole('button', { name: 'Question This' })[0]);
 
             await waitFor(() => {
                 expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument();
@@ -406,10 +406,10 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getAllByRole('button', { name: 'Request Review' }).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
             });
 
-            await user.click(screen.getAllByRole('button', { name: 'Request Review' })[0]);
+            await user.click(screen.getAllByRole('button', { name: 'Question This' })[0]);
 
             await waitFor(() => {
                 expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument();
@@ -442,7 +442,7 @@ describe('ShareView', () => {
 
             // Should show success message
             await waitFor(() => {
-                expect(screen.getByText('Review Request Submitted')).toBeInTheDocument();
+                expect(screen.getByText('Question Submitted')).toBeInTheDocument();
                 expect(screen.getByText(/account owner will be notified/)).toBeInTheDocument();
             });
         });
@@ -455,19 +455,19 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getAllByRole('button', { name: 'Request Review' }).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
             });
 
-            await user.click(screen.getAllByRole('button', { name: 'Request Review' })[0]);
+            await user.click(screen.getAllByRole('button', { name: 'Question This' })[0]);
 
             await waitFor(() => {
-                expect(screen.getByText('Request Review', { selector: '.dialog-title' })).toBeInTheDocument();
+                expect(screen.getByText('Question This Charge', { selector: '.dialog-title' })).toBeInTheDocument();
             });
 
             await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
             await waitFor(() => {
-                expect(screen.queryByText('Request Review', { selector: '.dialog-title' })).not.toBeInTheDocument();
+                expect(screen.queryByText('Question This Charge', { selector: '.dialog-title' })).not.toBeInTheDocument();
             });
         });
     });
@@ -895,15 +895,15 @@ describe('ShareView', () => {
     // -----------------------------------------------------------------------
     // Trust banner
     // -----------------------------------------------------------------------
-    describe('trust banner', () => {
-        it('renders secure billing notice', async () => {
+    describe('trust note', () => {
+        it('renders payment disclaimer in Payment Methods section', async () => {
             setToken('abc123');
             mockPublicSharesHit();
 
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText(/secure annual billing summary/)).toBeInTheDocument();
+                expect(screen.getByText(/Pay directly through the apps below/)).toBeInTheDocument();
             });
         });
     });
