@@ -3,7 +3,7 @@
  * Edit/Preview layout, token pills, and payment methods manager.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { queueEmail } from '../../../lib/mail.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -397,7 +397,16 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                             <PaymentMethodsManager
                                 settings={settings}
                                 readOnly={readOnly}
-                                onUpdate={methods => service.updateSettings({ paymentMethods: methods })}
+                                onUpdate={methods => {
+                                    service.updateSettings({ paymentMethods: methods });
+                                    // Sync to publicShares so share pages reflect changes immediately
+                                    if (user && user.uid) {
+                                        const enabled = methods.filter(m => m.enabled);
+                                        getDocs(query(collection(db, 'publicShares'), where('ownerId', '==', user.uid)))
+                                            .then(snap => Promise.all(snap.docs.map(d => updateDoc(d.ref, { paymentMethods: enabled, updatedAt: serverTimestamp() }))))
+                                            .catch(() => {});
+                                    }
+                                }}
                             />
                         </div>
                         <div className="dialog-buttons">

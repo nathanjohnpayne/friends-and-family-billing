@@ -1,4 +1,4 @@
-import { doc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useBillingData } from '../../hooks/useBillingData.js';
@@ -36,6 +36,25 @@ async function syncPublicQrCodes(userId, methods) {
 }
 
 /**
+ * Sync payment methods to all publicShares docs for this owner.
+ * Ensures share pages reflect changes (e.g., preferred method) immediately.
+ */
+async function syncPublicSharesPaymentMethods(userId, methods) {
+    if (!userId) return;
+    try {
+        const enabledMethods = (methods || []).filter(m => m.enabled);
+        const q = query(collection(db, 'publicShares'), where('ownerId', '==', userId));
+        const snap = await getDocs(q);
+        const updates = snap.docs.map(d =>
+            updateDoc(d.ref, { paymentMethods: enabledMethods, updatedAt: serverTimestamp() })
+        );
+        await Promise.all(updates);
+    } catch (err) {
+        console.error('Error syncing publicShares payment methods:', err);
+    }
+}
+
+/**
  * SettingsView — billing year controls + payment methods management.
  */
 export default function SettingsView() {
@@ -57,6 +76,7 @@ export default function SettingsView() {
                     onUpdate={paymentMethods => {
                         service.updateSettings({ paymentMethods });
                         syncPublicQrCodes(user ? user.uid : null, paymentMethods);
+                        syncPublicSharesPaymentMethods(user ? user.uid : null, paymentMethods);
                         showToast('Payment methods updated');
                     }}
                 />
