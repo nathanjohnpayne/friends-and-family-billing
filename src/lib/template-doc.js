@@ -3,8 +3,7 @@
  * Pure functions for converting between ProseMirror JSON documents
  * and plain text with %token% markers.
  *
- * Extracted from invoice.js to avoid pulling the heavy unified/remark
- * markdown pipeline into BillingYearService's import chain.
+ * Extracted from invoice.js to keep BillingYearService's import chain light.
  */
 
 /** Map legacy token IDs to normalized IDs. */

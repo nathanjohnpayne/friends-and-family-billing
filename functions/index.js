@@ -864,6 +864,15 @@ function simpleMarkdownToHtml(text) {
  * Uses a transactional claim step (pending → processing) to prevent
  * duplicate sends on at-least-once Firestore trigger redelivery.
  *
+ * Trusted HTML path:
+ *   When `html` is provided in the queue document, it is used as-is
+ *   (bypassing simpleMarkdownToHtml). This field MUST only contain
+ *   app-generated, sanitized HTML from the canonical invoice template
+ *   renderer (src/lib/invoice.js → renderInvoiceTemplate). Allowed
+ *   producers: buildInvoiceTemplateEmailPayload() via queueEmail() in
+ *   src/lib/mail.js. Do not add new producers without reviewing the
+ *   trust boundary—pre-rendered HTML is not re-sanitized here.
+ *
  * No Cloud Run invoker policy needed — Firestore triggers are event-driven.
  */
 exports.processMailQueue = onDocumentCreated(

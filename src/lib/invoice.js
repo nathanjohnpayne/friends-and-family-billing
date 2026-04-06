@@ -142,11 +142,7 @@ function formatPaymentOptionsMarkdown(settings) {
 }
 
 // Re-export template document utilities from the lightweight module.
-// These are defined in template-doc.js to avoid pulling the heavy
-// unified/remark markdown pipeline into BillingYearService's import chain.
-// Re-export template document utilities from the lightweight module.
-// Defined in template-doc.js to avoid pulling the heavy unified/remark
-// markdown pipeline into BillingYearService's import chain.
+// Defined in template-doc.js to keep BillingYearService's import chain light.
 export { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
 import { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
 
@@ -357,6 +353,11 @@ function renderTemplateBlocks(nodes, ctx, shareUrl) {
                 return contentHtml ? '<blockquote style="' + INVOICE_TEMPLATE_STYLES.blockquote + '">' + contentHtml + '</blockquote>' : '';
             }
             default:
+                if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV !== 'production') {
+                    console.warn('[invoice] Unknown template node type: ' + JSON.stringify(node.type));
+                } else if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+                    console.warn('[invoice] Unknown template node type: ' + JSON.stringify(node.type));
+                }
                 return node.content ? renderTemplateBlocks(node.content, ctx, shareUrl) : '';
         }
     }).filter(Boolean).join('');

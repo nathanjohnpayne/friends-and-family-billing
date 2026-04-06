@@ -654,6 +654,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+.dialog > p,
 .dialog > form,
 .dialog > .share-link-generate,
 .dialog > .share-link-manage,
@@ -2887,6 +2888,30 @@ img, svg { display: block; max-width: 100%; }
 .share-state-card {
     text-align: center;
     padding: var(--space-6, 24px);
+}
+
+.share-spinner {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto var(--space-3, 12px);
+    border: 3px solid var(--color-border, #e0e0e0);
+    border-top-color: var(--color-primary, #6C63FF);
+    border-radius: 50%;
+    animation: share-spin 0.8s linear infinite;
+}
+
+@keyframes share-spin {
+    to { transform: rotate(360deg); }
+}
+
+.share-timeout-hint {
+    margin-top: var(--space-3, 12px);
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.share-timeout-hint p {
+    margin: 0 0 var(--space-2, 8px);
 }
 
 .share-header {
