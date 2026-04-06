@@ -64,9 +64,10 @@ describe('InvoicingTab', () => {
         useBillingData.mockReturnValue(mockState);
     });
 
-    it('renders hint text and tab bar', () => {
+    it('renders segmented control with Edit and Preview', () => {
         renderTab();
-        expect(screen.getByText(/insert billing fields/i)).toBeInTheDocument();
+        const segControl = document.querySelector('.template-segmented-control');
+        expect(segControl).toBeInTheDocument();
         expect(screen.getByText('Edit')).toBeInTheDocument();
         expect(screen.getByText('Preview')).toBeInTheDocument();
     });

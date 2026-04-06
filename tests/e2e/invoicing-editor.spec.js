@@ -6,6 +6,23 @@
 import { test, expect } from '@playwright/test';
 import { seedPage } from './fixtures.js';
 
+/**
+ * Click a segmented-control button via a direct DOM click.
+ *
+ * The sticky nav-bar (56px, z-index 100) and manage-tabs (~40px, z-index 90)
+ * cover the segmented control when Playwright scrolls it into view.
+ * Playwright dispatches mouse events at page coordinates, so the browser's
+ * hit-testing routes the click to the sticky element on top.
+ *
+ * el.click() dispatches the event directly on the target element via the DOM
+ * (no coordinates, no hit-testing), and React's delegation picks it up via
+ * normal event bubbling.
+ */
+async function clickSegment(page, label) {
+    const btn = page.locator('.template-segment', { hasText: label });
+    await btn.evaluate(el => el.click());
+}
+
 test.beforeEach(async ({ page }) => {
     await seedPage(page);
     await page.goto('/manage/invoicing');
@@ -62,7 +79,7 @@ test.describe('InvoicingTab Editor', () => {
         await page.locator('button[title="Bold"]').click();
 
         // Switch to Preview tab
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
 
         // The preview should contain bold semantics without depending on an exact
         // raw HTML string match for the opening tag.
@@ -84,7 +101,7 @@ test.describe('InvoicingTab Editor', () => {
     test('bold on existing text shows correctly in preview', async ({ page }) => {
         // The fixture has "prompt" as bold text in the document.
         // Switch to Preview and verify only "prompt" is bold, not the whole paragraph.
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
 
         const previewBody = page.locator('.template-preview-body');
         await expect(previewBody).toBeVisible();
@@ -108,11 +125,11 @@ test.describe('InvoicingTab Editor', () => {
         await page.keyboard.type('Preserved text');
 
         // Switch to Preview
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
         await expect(page.locator('.template-preview-body')).toBeVisible();
 
         // Switch back to Edit
-        await page.locator('.template-tab', { hasText: 'Edit' }).click();
+        await clickSegment(page, 'Edit');
 
         // Verify our typed text is still there
         const content = await editor.textContent();

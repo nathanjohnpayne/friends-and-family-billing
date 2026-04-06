@@ -74,7 +74,8 @@ describe('ManageView', () => {
 
     it('renders InvoicingTab content', () => {
         renderManage('invoicing');
-        expect(screen.getByText(/insert billing fields/i)).toBeInTheDocument();
+        const segControl = document.querySelector('.template-segmented-control');
+        expect(segControl).toBeInTheDocument();
     });
 
     it('renders ReviewsTab content', () => {
