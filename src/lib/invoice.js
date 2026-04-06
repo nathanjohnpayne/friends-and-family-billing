@@ -320,7 +320,7 @@ function renderShareLinkInlineHtml(ctx, shareUrl, marks) {
     const href = sanitizeInvoiceHref(shareUrl);
     if (!href) return '';
     const linkText = escapeHtml(ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary');
-    let html = '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + linkText + '</a>';
+    const html = '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + linkText + '</a>';
     return wrapInlineHtml(html, marks);
 }
 
