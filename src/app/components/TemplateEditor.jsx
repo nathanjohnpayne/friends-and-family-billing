@@ -3,7 +3,7 @@
  * formatting toolbar, and slash-command autocomplete.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -214,6 +214,20 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
 export default TemplateEditor;
 
 function FormattingToolbar({ editor }) {
+    // useEditorState subscribes to editor transactions so the toolbar
+    // re-renders whenever the cursor moves or formatting changes.
+    // Without this, buttons get stuck in their last-rendered active state.
+    const active = useEditorState({
+        editor,
+        selector: ({ editor: e }) => ({
+            bold: e.isActive('bold'),
+            italic: e.isActive('italic'),
+            link: e.isActive('link'),
+            bulletList: e.isActive('bulletList'),
+            orderedList: e.isActive('orderedList'),
+        }),
+    });
+
     function btn(label, command, isActive, title) {
         return (
             <button
@@ -230,8 +244,8 @@ function FormattingToolbar({ editor }) {
 
     return (
         <div className="template-formatting-btns">
-            {btn(<strong>B</strong>, () => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), 'Bold')}
-            {btn(<em>I</em>, () => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), 'Italic')}
+            {btn(<strong>B</strong>, () => editor.chain().focus().toggleBold().run(), active.bold, 'Bold')}
+            {btn(<em>I</em>, () => editor.chain().focus().toggleItalic().run(), active.italic, 'Italic')}
             {btn('Link', () => {
                 if (editor.isActive('link')) {
                     editor.chain().focus().unsetLink().run();
@@ -239,10 +253,10 @@ function FormattingToolbar({ editor }) {
                     const url = window.prompt('URL');
                     if (url) editor.chain().focus().setLink({ href: url }).run();
                 }
-            }, editor.isActive('link'), 'Link')}
+            }, active.link, 'Link')}
             <span className="template-tb-sep" />
-            {btn('\u2022', () => editor.chain().focus().toggleBulletList().run(), editor.isActive('bulletList'), 'Bullet list')}
-            {btn('1.', () => editor.chain().focus().toggleOrderedList().run(), editor.isActive('orderedList'), 'Numbered list')}
+            {btn('\u2022', () => editor.chain().focus().toggleBulletList().run(), active.bulletList, 'Bullet list')}
+            {btn('1.', () => editor.chain().focus().toggleOrderedList().run(), active.orderedList, 'Numbered list')}
             <span className="template-tb-sep" />
             {btn('\u2014', () => editor.chain().focus().setHorizontalRule().run(), false, 'Horizontal rule')}
         </div>
