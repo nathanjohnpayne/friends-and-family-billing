@@ -18,6 +18,37 @@ function expandCard(name) {
     fireEvent.click(card);
 }
 
+/** Toggle a linked member's bill breakdown by clicking their row */
+function toggleLinkedMember(name) {
+    const all = screen.getAllByText(name);
+    const el = all.map(n => n.closest('.settlement-linked-member')).find(Boolean);
+    fireEvent.click(el);
+}
+
+/** Members with different bill sets: Alice on Internet only, Carol on Streaming only */
+const differentBillMembers = [
+    { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [3], paymentReceived: 0 },
+    { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+    { id: 3, name: 'Carol', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+];
+
+const differentBills = [
+    { id: 101, name: 'Internet', amount: 120, billingFrequency: 'monthly', members: [1, 2] },
+    { id: 102, name: 'Streaming', amount: 24, billingFrequency: 'monthly', members: [2, 3] }
+];
+
+/** Household with two linked members for independence testing */
+const twoLinkedMembers = [
+    { id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [3, 4], paymentReceived: 0 },
+    { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+    { id: 3, name: 'Carol', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+    { id: 4, name: 'Dave', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+];
+
+const twoLinkedBills = [
+    { id: 101, name: 'Internet', amount: 120, billingFrequency: 'monthly', members: [1, 2, 3, 4] }
+];
+
 describe('SettlementBoard', () => {
     it('renders nothing when no members', () => {
         const { container } = render(
@@ -251,8 +282,8 @@ describe('SettlementBoard', () => {
     it('shows formula in bill breakdown', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        // Internet: $120/month × 12 ÷ 3 = $480.00
-        expect(screen.getByText(/\$120\.00 \/ month × 12 ÷ 3 = \$480\.00/)).toBeInTheDocument();
+        // Internet: $120/month × 12 ÷ 3 members = $480.00
+        expect(screen.getByText(/\$120\.00 \/ month × 12 ÷ 3 members = \$480\.00/)).toBeInTheDocument();
     });
 
     it('shows "Primary Member Calculation" label for households', () => {
@@ -265,6 +296,67 @@ describe('SettlementBoard', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
         expect(screen.getByText('Linked Members')).toBeInTheDocument();
+    });
+
+    it('linked member row shows expand/collapse toggle indicator', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        const hint = document.querySelector('.settlement-linked-toggle-hint');
+        expect(hint).not.toBeNull();
+    });
+
+    it('linked member breakdown defaults to collapsed', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        expect(document.querySelector('.settlement-linked-breakdown')).toBeNull();
+    });
+
+    it('clicking linked member row expands their bill breakdown', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        toggleLinkedMember('Carol');
+        expect(document.querySelector('.settlement-linked-breakdown')).not.toBeNull();
+    });
+
+    it('shows "Same bills as [primary]" when bill sets match', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        toggleLinkedMember('Carol');
+        expect(screen.getByText('Same bills as Alice')).toBeInTheDocument();
+    });
+
+    it('shows individual formulas when bill sets differ', () => {
+        render(<SettlementBoard familyMembers={differentBillMembers} bills={differentBills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        toggleLinkedMember('Carol');
+        expect(screen.getByText('Streaming')).toBeInTheDocument();
+        expect(screen.queryByText(/Same bills as/)).toBeNull();
+    });
+
+    it('linked member breakdown total matches Annual figure', () => {
+        render(<SettlementBoard familyMembers={differentBillMembers} bills={differentBills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        toggleLinkedMember('Carol');
+        // Carol's Streaming: $24/month × 12 ÷ 2 members = $144.00
+        const totalRow = screen.getByText(/Total \(Carol\)/).closest('.settlement-breakdown-total');
+        expect(totalRow).not.toBeNull();
+        expect(totalRow.textContent).toContain('$144.00');
+    });
+
+    it('linked member expand/collapse is independent per member', () => {
+        render(<SettlementBoard familyMembers={twoLinkedMembers} bills={twoLinkedBills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        toggleLinkedMember('Carol');
+        // Carol expanded, Dave still collapsed
+        const breakdowns = document.querySelectorAll('.settlement-linked-breakdown');
+        expect(breakdowns.length).toBe(1);
+    });
+
+    it('all linked breakdowns default to collapsed across cards', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        expandCard('Bob');
+        expect(document.querySelectorAll('.settlement-linked-breakdown').length).toBe(0);
     });
 
     it('shows Annual/Paid/Balance boxes on linked member rows', () => {
