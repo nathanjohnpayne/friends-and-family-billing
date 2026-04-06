@@ -121,8 +121,8 @@ function parsePastedTextWithTokens(text) {
 
 /**
  * TemplateEditor component.
- * Renders: toolbar (inside card) + ProseMirror editor surface.
- * The parent card structure (subject row, chip bar, save bar) is in InvoicingTab.
+ * Renders: composer bar (formatting toolbar + optional extras) + ProseMirror editor surface.
+ * The parent card structure (subject row, header actions) is in InvoicingTab.
  */
 const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, readOnly, onConfigurePaymentMethods, toolbarExtra }, ref) {
     // Guard to prevent the content-sync useEffect from re-entrantly calling

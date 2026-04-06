@@ -73,16 +73,6 @@ function deriveBodyText(settings) {
         : (settings.emailMessage || '');
 }
 
-function formatTimeSince(date) {
-    if (!date) return '';
-    const seconds = Math.floor((Date.now() - date) / 1000);
-    if (seconds < 60) return 'just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago';
-    const hours = Math.floor(minutes / 60);
-    return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
-}
-
 // ── Email Template Editor ───────────────────────────────────────────
 
 function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
@@ -91,7 +81,6 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
     const [bodyText, setBodyText] = useState(() => deriveBodyText(settings));
     const [subjectText, setSubjectText] = useState(settings.emailSubject || '');
     const [dirty, setDirty] = useState(false);
-    const [lastSavedAt, setLastSavedAt] = useState(null);
     const [previewMemberId, setPreviewMemberId] = useState(
         familyMembers.length > 0 ? familyMembers[0].id : null
     );
@@ -120,17 +109,8 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             setPreviewShareUrl(settings.invoiceShareUrl || '');
             setPreviewMemberId(familyMembers.length > 0 ? familyMembers[0].id : null);
             setDirty(false);
-            setLastSavedAt(null);
         }
     }, [billingYearId, settings, familyMembers]);
-
-    // Tick the "last saved" display
-    const [, setTick] = useState(0);
-    useEffect(() => {
-        if (!lastSavedAt) return;
-        const id = setInterval(() => setTick(t => t + 1), 30000);
-        return () => clearInterval(id);
-    }, [lastSavedAt]);
 
     function handleBodyUpdate(json) {
         setBodyDoc(json);
@@ -150,7 +130,6 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             emailSubject: subjectText,
         });
         setDirty(false);
-        setLastSavedAt(Date.now());
         showToast('Email template saved');
     }
 

@@ -2111,7 +2111,7 @@ img, svg { display: block; max-width: 100%; }
 .template-chip {
     display: inline-flex;
     align-items: center;
-    height: 26px;
+    height: 24px;
     padding: 0 10px;
     border-radius: 999px;
     border: 1px solid rgba(110, 120, 214, 0.2);
