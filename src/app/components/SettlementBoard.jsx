@@ -233,7 +233,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         </div>
                         <div className="settlement-summary-box">
                             <span className="settlement-summary-label">Balance</span>
-                            <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(balance > 0 ? balance : 0)}</span>
+                            <span className={'settlement-summary-value' + (balance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
                         </div>
                     </div>
                     <StatusBadge status={status} />
@@ -275,7 +275,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                             </div>
                                             <div className="settlement-summary-box">
                                                 <span className="settlement-summary-label">Balance</span>
-                                                <span className="settlement-summary-value settlement-summary-balance">{formatAnnualSummaryCurrency(childBalance > 0 ? childBalance : 0)}</span>
+                                                <span className={'settlement-summary-value' + (childBalance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{childBalance > 0 ? formatAnnualSummaryCurrency(childBalance) : 'Paid'}</span>
                                             </div>
                                         </div>
                                     </div>

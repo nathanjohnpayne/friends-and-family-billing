@@ -287,6 +287,7 @@ img, svg { display: block; max-width: 100%; }
 
 .kpi-value.outstanding { color: var(--color-danger, #C65A5A); }
 .kpi-value.all-clear   { color: var(--color-success, #3FA37C); }
+.kpi-value.settled-zero { color: var(--color-text-secondary, #5B6475); }
 
 .kpi-subtitle {
     display: block;
@@ -1378,6 +1379,10 @@ img, svg { display: block; max-width: 100%; }
 
 .settlement-summary-paid { color: var(--color-success, #3FA37C); }
 .settlement-summary-balance { color: var(--color-danger, #C65A5A); }
+
+/* Three-state balance model: owed=red, settled=grey, credit=green */
+.settled-zero { color: var(--color-text-secondary, #5B6475); }
+.balance-owed { color: var(--color-danger, #C65A5A); }
 
 .settlement-expand-toggle {
     color: var(--color-primary, #6E78D6);
@@ -3066,6 +3071,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-stat-value.paid { color: var(--color-success, #3FA37C); }
 .share-stat-value.owed { color: var(--color-danger, #C65A5A); }
+.share-stat-value.settled-zero { color: var(--color-text-secondary, #5B6475); }
 
 .share-progress {
     height: 8px;

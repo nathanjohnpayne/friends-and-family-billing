@@ -265,7 +265,10 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
 
 function PaymentSummarySection({ ps, year }) {
     const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
-    const balClass = ps.balanceRemaining > 0 ? 'owed' : (ps.totalPaid > 0 ? 'paid' : '');
+    const isOwed = ps.balanceRemaining > 0;
+    const isSettled = !isOwed && ps.totalPaid > 0;
+    const balClass = isOwed ? 'owed' : (isSettled ? 'settled-zero' : '');
+    const balLabel = isSettled ? 'Paid' : formatCurrency(ps.balanceRemaining);
 
     return (
         <div className="share-section">
@@ -274,7 +277,7 @@ function PaymentSummarySection({ ps, year }) {
                 <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
                 <div className="share-stat-card"><div className="share-stat-label">Monthly</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}</div></div>
                 <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>
-                <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{formatCurrency(ps.balanceRemaining)}</div></div>
+                <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{balLabel}</div></div>
             </div>
             <div className="share-progress">
                 <div className="share-progress-bar" style={{ width: pctPaid + '%' }} />

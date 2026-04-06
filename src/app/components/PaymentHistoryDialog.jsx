@@ -53,8 +53,8 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
                     </div>
                     <div className="payment-history-stat">
                         <span className="payment-history-stat-label">Remaining Balance</span>
-                        <span className={'payment-history-stat-value' + (balance > 0 ? ' balance-owed' : ' balance-paid')}>
-                            {formatAnnualSummaryCurrency(balance)}
+                        <span className={'payment-history-stat-value' + (balance > 0 ? ' balance-owed' : ' settled-zero')}>
+                            {balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}
                         </span>
                     </div>
                 </div>

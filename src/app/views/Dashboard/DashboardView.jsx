@@ -148,8 +148,8 @@ export default function DashboardView() {
                 )}
 
                 <div className="kpi-grid">
-                    <KpiCard label="Outstanding" value={'$' + metrics.totalOutstanding.toFixed(2)}
-                        valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'all-clear'} />
+                    <KpiCard label="Outstanding" value={metrics.totalOutstanding > 0 ? '$' + metrics.totalOutstanding.toFixed(2) : 'Paid'}
+                        valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'settled-zero'} />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers} />
                     <KpiCard
                         label="Open Reviews"
