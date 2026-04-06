@@ -7,13 +7,20 @@ import { test, expect } from '@playwright/test';
 import { seedPage } from './fixtures.js';
 
 /**
- * Click a segmented-control button, scrolling it to viewport centre first
- * so sticky nav-bar + manage-tabs don't intercept the click.
+ * Click a segmented-control button via a direct DOM click.
+ *
+ * The sticky nav-bar (56px, z-index 100) and manage-tabs (~40px, z-index 90)
+ * cover the segmented control when Playwright scrolls it into view.
+ * Playwright dispatches mouse events at page coordinates, so the browser's
+ * hit-testing routes the click to the sticky element on top.
+ *
+ * el.click() dispatches the event directly on the target element via the DOM
+ * (no coordinates, no hit-testing), and React's delegation picks it up via
+ * normal event bubbling.
  */
 async function clickSegment(page, label) {
     const btn = page.locator('.template-segment', { hasText: label });
-    await btn.evaluate(el => el.scrollIntoView({ block: 'center' }));
-    await btn.click();
+    await btn.evaluate(el => el.click());
 }
 
 test.beforeEach(async ({ page }) => {
