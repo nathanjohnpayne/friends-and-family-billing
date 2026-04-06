@@ -51,8 +51,10 @@ export const E2E_DATA = {
                 },
                 { type: 'paragraph' },
                 {
-                    type: 'blockToken',
-                    attrs: { id: 'share_link', label: 'Share Link', description: 'Expands into the member\u2019s share link.' },
+                    type: 'paragraph',
+                    content: [
+                        { type: 'templateToken', attrs: { id: 'share_link', label: 'Share Link' } },
+                    ],
                 },
                 { type: 'paragraph' },
                 {

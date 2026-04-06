@@ -39,10 +39,10 @@ test.describe('InvoicingTab Editor', () => {
         await expect(editor.locator('[data-token-id="first_name"]')).toBeVisible();
         await expect(editor.locator('[data-token-id="billing_year"]')).toBeVisible();
         await expect(editor.locator('[data-token-id="household_total"]')).toBeVisible();
+        await expect(editor.locator('[data-token-id="share_link"]')).toBeVisible();
 
-        // Block token cards should be rendered
+        // Block token cards should be rendered (only Payment Methods remains as block)
         const blockLabels = page.locator('.block-token-card-label');
-        await expect(blockLabels.filter({ hasText: 'Share Link' })).toBeVisible();
         await expect(blockLabels.filter({ hasText: 'Payment Methods' })).toBeVisible();
     });
 

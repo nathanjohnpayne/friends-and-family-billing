@@ -6,6 +6,15 @@
       "runtimeExecutable": "/opt/homebrew/bin/node",
       "runtimeArgs": ["node_modules/.bin/vite", "--open=false"],
       "port": 5173
+    },
+    {
+      "name": "e2e-preview",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["scripts/e2e-server.mjs"],
+      "port": 4174,
+      "env": {
+        "VITE_E2E_MODE": "true"
+      }
     }
   ]
 }

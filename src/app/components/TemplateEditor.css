@@ -98,6 +98,29 @@
     flex-shrink: 0;
 }
 
+/* Lists inside ProseMirror */
+.template-editor-surface .ProseMirror ul,
+.template-editor-surface .ProseMirror ol {
+    padding-left: 24px;
+    margin: 0 0 12px;
+}
+
+.template-editor-surface .ProseMirror ul {
+    list-style-type: disc;
+}
+
+.template-editor-surface .ProseMirror ol {
+    list-style-type: decimal;
+}
+
+.template-editor-surface .ProseMirror li {
+    margin-bottom: 4px;
+}
+
+.template-editor-surface .ProseMirror li p {
+    margin: 0;
+}
+
 /* Block token card (inside ProseMirror) */
 .block-token-card {
     display: flex;
