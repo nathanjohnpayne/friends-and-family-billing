@@ -12,6 +12,7 @@ export const INLINE_TOKENS = [
     { id: 'full_name', label: 'Full Name' },
     { id: 'billing_year', label: 'Billing Year' },
     { id: 'household_total', label: 'Household Total' },
+    { id: 'share_link', label: 'Share Link' },
 ];
 
 const TokenNode = Node.create({

@@ -48,7 +48,7 @@ img, svg { display: block; max-width: 100%; }
     width: 100%;
     margin: 0 auto;
     padding: var(--space-4, 24px) var(--space-3, 16px);
-    overflow-x: hidden;
+    overflow-x: clip;
 }
 
 /* ── Nav Bar ─────────────────────────────────────────────── */

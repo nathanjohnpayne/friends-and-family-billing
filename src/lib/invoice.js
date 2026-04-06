@@ -241,6 +241,10 @@ function renderTemplateInlineNodes(nodes, ctx, shareUrl) {
         }
 
         if (node.type === 'templateToken') {
+            const id = normalizeTemplateTokenId(node.attrs?.id);
+            if (id === 'share_link') {
+                return renderShareLinkInlineHtml(ctx, shareUrl, node.marks);
+            }
             const value = resolveTemplateTokenValue(node.attrs?.id, ctx, shareUrl);
             return wrapInlineHtml(escapeHtml(value), node.marks);
         }
@@ -298,6 +302,7 @@ function renderPaymentMethodsHtml(settings) {
         + '<ul style="' + INVOICE_TEMPLATE_STYLES.list + '">' + items + '</ul>';
 }
 
+/** Block-level share link rendering (backward compat for existing blockToken documents). */
 function renderShareLinkHtml(ctx, shareUrl) {
     if (!shareUrl) return '';
     const href = sanitizeInvoiceHref(shareUrl);
@@ -307,6 +312,16 @@ function renderShareLinkHtml(ctx, shareUrl) {
     return '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">'
         + '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + linkText + '</a>'
         + '</p>';
+}
+
+/** Inline share link rendering — produces a clickable <a> with marks (bold/italic). */
+function renderShareLinkInlineHtml(ctx, shareUrl, marks) {
+    if (!shareUrl) return '';
+    const href = sanitizeInvoiceHref(shareUrl);
+    if (!href) return '';
+    const linkText = escapeHtml(ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary');
+    let html = '<a href="' + href + '" target="_blank" rel="noopener noreferrer" style="' + INVOICE_TEMPLATE_STYLES.link + '">' + linkText + '</a>';
+    return wrapInlineHtml(html, marks);
 }
 
 function renderTemplateListItems(items, ordered, ctx, shareUrl) {

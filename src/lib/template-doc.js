@@ -141,7 +141,7 @@ export function plainTextToDoc(text) {
     if (!text) return { type: 'doc', content: [{ type: 'paragraph' }] };
 
     const tokenPattern = /\*\*\*%([a-z_]+)%\*\*\*|\*\*%([a-z_]+)%\*\*|\*%([a-z_]+)%\*|%([a-z_]+)%/g;
-    const blockTokenIds = new Set(['payment_methods', 'share_link']);
+    const blockTokenIds = new Set(['payment_methods']);
     const tokenLabels = {
         first_name: 'First Name', last_name: 'Last Name', full_name: 'Full Name',
         billing_year: 'Billing Year', household_total: 'Household Total',
