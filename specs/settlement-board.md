@@ -26,7 +26,12 @@ Covers the settlement board component for tracking household payment status, the
 - Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
 - Cards expand via a "Details / Hide details" toggle to show linked members and bill breakdown.
 - Expanded view shows "Linked Members" section with linked members above the bill breakdown; each linked member row has Annual/Paid/Balance summary boxes matching the parent card layout.
-- Bill breakdown shows "Primary Member Calculation" header for households; each bill row displays a formula showing the split math (e.g., "$300.00 / month × 12 ÷ 8 = $450.00").
+- Each linked member row is clickable and toggles an individual bill breakdown section; all linked member breakdowns default to collapsed.
+- Expanded linked member breakdown shows each bill with a formula and result, matching the primary member breakdown format.
+- When a linked member shares the same bill set as the primary member, the expanded breakdown shows "Same bills as [primary name]" instead of individual formulas.
+- When a linked member has a different bill set, the expanded breakdown shows their unique bill formulas and a per-member total.
+- Linked member expand/collapse state is independent per member within a household.
+- Bill breakdown shows "Primary Member Calculation" header for households; each bill row displays a formula showing the split math (e.g., "$300.00 / month × 12 ÷ 8 members = $450.00").
 - Bill breakdown includes per-person subtotal and household grand total rows.
 - Filter chips filter the displayed cards by payment status; shows "No households match this filter." when no cards match.
 - Expanded detail shows primary actions (Record Payment, Payment History, Text Invoice) as direct buttons.

@@ -1471,6 +1471,7 @@ img, svg { display: block; max-width: 100%; }
     align-items: center;
     gap: var(--space-2, 8px);
     margin-bottom: var(--space-2, 8px);
+    cursor: pointer;
 }
 
 .settlement-linked-member strong {
@@ -1502,6 +1503,27 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.75rem;
     color: var(--color-text-secondary, #5B6475);
     font-variant-numeric: tabular-nums;
+}
+
+.settlement-linked-toggle-hint {
+    font-size: 0.65rem;
+    color: var(--color-text-faint, #999);
+    margin-left: auto;
+}
+
+.settlement-linked-breakdown {
+    margin-left: calc(var(--space-2, 8px) + 0.9rem + var(--space-2, 8px));
+    padding-top: var(--space-1, 4px);
+    border-top: 1px dashed var(--color-border-light, #f0f0f0);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.settlement-same-bills-note {
+    font-size: 0.75rem;
+    font-style: italic;
+    color: var(--color-text-secondary, #5B6475);
+    margin: 0;
+    padding: var(--space-1, 4px) 0;
 }
 
 /* ── Settlement Card Actions ───────────────────────────── */
