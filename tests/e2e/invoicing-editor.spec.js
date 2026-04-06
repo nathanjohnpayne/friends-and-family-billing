@@ -62,7 +62,7 @@ test.describe('InvoicingTab Editor', () => {
         await page.locator('button[title="Bold"]').click();
 
         // Switch to Preview tab
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await page.locator('.template-segment', { hasText: 'Preview' }).click();
 
         // The preview should contain bold semantics without depending on an exact
         // raw HTML string match for the opening tag.
@@ -84,7 +84,7 @@ test.describe('InvoicingTab Editor', () => {
     test('bold on existing text shows correctly in preview', async ({ page }) => {
         // The fixture has "prompt" as bold text in the document.
         // Switch to Preview and verify only "prompt" is bold, not the whole paragraph.
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await page.locator('.template-segment', { hasText: 'Preview' }).click();
 
         const previewBody = page.locator('.template-preview-body');
         await expect(previewBody).toBeVisible();
@@ -108,11 +108,11 @@ test.describe('InvoicingTab Editor', () => {
         await page.keyboard.type('Preserved text');
 
         // Switch to Preview
-        await page.locator('.template-tab', { hasText: 'Preview' }).click();
+        await page.locator('.template-segment', { hasText: 'Preview' }).click();
         await expect(page.locator('.template-preview-body')).toBeVisible();
 
         // Switch back to Edit
-        await page.locator('.template-tab', { hasText: 'Edit' }).click();
+        await page.locator('.template-segment', { hasText: 'Edit' }).click();
 
         // Verify our typed text is still there
         const content = await editor.textContent();
