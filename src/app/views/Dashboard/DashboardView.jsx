@@ -268,6 +268,7 @@ export default function DashboardView() {
                         settings={service.getState().settings || {}}
                         showToast={showToast}
                         onClose={() => setDialog({ type: null, memberId: null })}
+                        onLinkGenerated={url => service.updateSettings({ invoiceShareUrl: url })}
                     />
                 );
             })()}

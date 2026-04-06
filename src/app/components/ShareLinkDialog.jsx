@@ -11,7 +11,7 @@ import { buildShareScopes, buildShareTokenDoc, buildShareUrl, computeExpiryDate,
 /**
  * @param {{ open: boolean, memberId: number, memberName: string, userId: string, billingYearId: string, yearLabel: string, initialTab?: string, familyMembers?: Array, bills?: Array, payments?: Array, activeYear?: Object, settings?: Object, onClose: function, showToast?: function }} props
  */
-export default function ShareLinkDialog({ open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, activeYear, settings, onClose, showToast }) {
+export default function ShareLinkDialog({ open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, activeYear, settings, onClose, showToast, onLinkGenerated }) {
     const [tab, setTab] = useState(initialTab || 'generate');
     const [expiryDays, setExpiryDays] = useState(0);
     const [allowDispute, setAllowDispute] = useState(false);
@@ -93,6 +93,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
             const url = buildShareUrl(window.location.origin, rawToken);
             setGeneratedUrl(url);
             try { await navigator.clipboard.writeText(url); } catch (_) { /* clipboard may be blocked */ }
+            if (onLinkGenerated) onLinkGenerated(url);
             if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);

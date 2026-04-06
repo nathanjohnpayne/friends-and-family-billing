@@ -265,7 +265,7 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
 
 function PaymentSummarySection({ ps, year }) {
     const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
-    const balClass = ps.balanceRemaining > 0 ? 'owed' : '';
+    const balClass = ps.balanceRemaining > 0 ? 'owed' : (ps.totalPaid > 0 ? 'paid' : '');
 
     return (
         <div className="share-section">

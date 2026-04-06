@@ -495,6 +495,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                     settings={settings}
                     showToast={showToast}
                     onClose={() => setShareLinkDialog(false)}
+                    onLinkGenerated={url => {
+                        setPreviewShareUrl(url);
+                        service.updateSettings({ invoiceShareUrl: url });
+                    }}
                 />
             )}
         </div>
