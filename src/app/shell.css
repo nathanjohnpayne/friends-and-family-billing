@@ -1995,6 +1995,8 @@ img, svg { display: block; max-width: 100%; }
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
+    /* Clear sticky nav-bar (56px) + manage-tabs (~40px) on scroll-into-view */
+    scroll-margin-top: 104px;
 }
 
 .template-header-actions {

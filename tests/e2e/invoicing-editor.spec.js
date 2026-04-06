@@ -6,6 +6,16 @@
 import { test, expect } from '@playwright/test';
 import { seedPage } from './fixtures.js';
 
+/**
+ * Click a segmented-control button, scrolling it to viewport centre first
+ * so sticky nav-bar + manage-tabs don't intercept the click.
+ */
+async function clickSegment(page, label) {
+    const btn = page.locator('.template-segment', { hasText: label });
+    await btn.evaluate(el => el.scrollIntoView({ block: 'center' }));
+    await btn.click();
+}
+
 test.beforeEach(async ({ page }) => {
     await seedPage(page);
     await page.goto('/manage/invoicing');
@@ -62,7 +72,7 @@ test.describe('InvoicingTab Editor', () => {
         await page.locator('button[title="Bold"]').click();
 
         // Switch to Preview tab
-        await page.locator('.template-segment', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
 
         // The preview should contain bold semantics without depending on an exact
         // raw HTML string match for the opening tag.
@@ -84,7 +94,7 @@ test.describe('InvoicingTab Editor', () => {
     test('bold on existing text shows correctly in preview', async ({ page }) => {
         // The fixture has "prompt" as bold text in the document.
         // Switch to Preview and verify only "prompt" is bold, not the whole paragraph.
-        await page.locator('.template-segment', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
 
         const previewBody = page.locator('.template-preview-body');
         await expect(previewBody).toBeVisible();
@@ -108,11 +118,11 @@ test.describe('InvoicingTab Editor', () => {
         await page.keyboard.type('Preserved text');
 
         // Switch to Preview
-        await page.locator('.template-segment', { hasText: 'Preview' }).click();
+        await clickSegment(page, 'Preview');
         await expect(page.locator('.template-preview-body')).toBeVisible();
 
         // Switch back to Edit
-        await page.locator('.template-segment', { hasText: 'Edit' }).click();
+        await clickSegment(page, 'Edit');
 
         // Verify our typed text is still there
         const content = await editor.textContent();
