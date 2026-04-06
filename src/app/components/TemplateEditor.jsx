@@ -124,7 +124,7 @@ function parsePastedTextWithTokens(text) {
  * Renders: toolbar (inside card) + ProseMirror editor surface.
  * The parent card structure (subject row, chip bar, save bar) is in InvoicingTab.
  */
-const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, readOnly, onConfigurePaymentMethods }, ref) {
+const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, readOnly, onConfigurePaymentMethods, toolbarExtra }, ref) {
     // Guard to prevent the content-sync useEffect from re-entrantly calling
     // setContent when the change originated from the editor's own onUpdate.
     const isInternalUpdate = useRef(false);
@@ -198,7 +198,12 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
 
     return (
         <>
-            {!readOnly && <FormattingToolbar editor={editor} />}
+            {!readOnly && (
+                <div className="template-composer-bar">
+                    <FormattingToolbar editor={editor} />
+                    {toolbarExtra}
+                </div>
+            )}
             <div className="template-editor-surface">
                 <EditorContent editor={editor} />
             </div>
@@ -224,7 +229,7 @@ function FormattingToolbar({ editor }) {
     }
 
     return (
-        <div className="template-toolbar">
+        <div className="template-formatting-btns">
             {btn(<strong>B</strong>, () => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), 'Bold')}
             {btn(<em>I</em>, () => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), 'Italic')}
             {btn('Link', () => {

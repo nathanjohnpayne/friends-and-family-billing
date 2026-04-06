@@ -222,35 +222,100 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
 
     return (
         <div className="invoicing-section">
-            <p className="invoicing-hint invoicing-hint--compact">
-                Use / to insert billing fields. Formatting is applied as you type.
-            </p>
-
-            {/* ── Tab bar ── */}
-            <div className="template-tab-row">
-                <div className="template-tab-bar">
+            {/* ── Header bar ── */}
+            <div className="template-header-bar">
+                <div className="template-segmented-control">
                     <button
-                        className={'template-tab' + (activeTab === 'edit' ? ' template-tab--active' : '')}
+                        className={'template-segment' + (activeTab === 'edit' ? ' template-segment--active' : '')}
                         onClick={() => setActiveTab('edit')}
                         type="button"
                     >Edit</button>
                     <button
-                        className={'template-tab' + (activeTab === 'preview' ? ' template-tab--active' : '')}
+                        className={'template-segment' + (activeTab === 'preview' ? ' template-segment--active' : '')}
                         onClick={() => setActiveTab('preview')}
                         type="button"
                     >Preview</button>
                 </div>
                 {dirty && <span className="template-dirty-indicator">Unsaved changes</span>}
+                <div className="template-header-actions">
+                    {activeTab === 'edit' && !readOnly && (
+                        <button
+                            className="template-save-btn"
+                            onClick={handleSave}
+                            disabled={!dirty}
+                        >
+                            Save template
+                        </button>
+                    )}
+                    {activeTab === 'preview' && (
+                        <button
+                            className="template-header-action-btn"
+                            onClick={() => { setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
+                        >
+                            Send test email
+                        </button>
+                    )}
+                </div>
             </div>
 
-            {/* ── Edit Tab ── */}
-            <div style={{ display: activeTab === 'edit' ? 'block' : 'none' }}>
-                <div className="template-card">
-                    {/* Subject row */}
-                    <div className="template-subject-row">
-                        <span className="template-subject-label">Subject</span>
+            {/* ── Unified card ── */}
+            <div className="template-card">
+                {/* Preview: metadata bar (To + Link) */}
+                {activeTab === 'preview' && previewCtx && (
+                    <div className="template-preview-meta">
+                        <span className="template-preview-label">To</span>
+                        <div className="template-preview-val">
+                            {previewCtx.member.email || previewCtx.member.name}
+                            <select
+                                className="template-preview-member-sel"
+                                value={previewMemberId || ''}
+                                onChange={e => setPreviewMemberId(Number(e.target.value))}
+                            >
+                                {familyMembers.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <span className="template-preview-label">Link</span>
+                        <div className="template-preview-val template-preview-link-row">
+                            {previewShareUrl ? (
+                                <>
+                                    <span className="template-preview-url">{previewShareUrl}</span>
+                                    <button
+                                        className="template-preview-copy-btn"
+                                        type="button"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(previewShareUrl).then(
+                                                () => showToast('Link copied!'),
+                                                () => showToast('Failed to copy')
+                                            );
+                                        }}
+                                    >Copy</button>
+                                    <button
+                                        className="template-preview-manage-btn"
+                                        type="button"
+                                        onClick={() => setShareLinkDialog(true)}
+                                    >Manage</button>
+                                </>
+                            ) : (
+                                <button
+                                    className="template-preview-copy-btn"
+                                    onClick={handleGeneratePreviewLink}
+                                    disabled={generatingLink || !userId}
+                                >
+                                    {generatingLink ? 'Generating\u2026' : 'Generate share link'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Subject row (shared between Edit and Preview) */}
+                <div className="template-subject-row">
+                    <span className="template-subject-label">Subject</span>
+                    <div className="template-subject-content">
                         <div
-                            className="template-subject-content"
+                            style={{ display: activeTab === 'edit' ? 'block' : 'none' }}
                             onFocus={() => { lastFocusedEditor.current = 'subject'; }}
                         >
                             <SubjectEditor
@@ -260,128 +325,64 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
                                 ref={subjectEditorRef}
                             />
                         </div>
-                    </div>
-
-                    {/* Unified chip bar */}
-                    {!readOnly && (
-                        <div className="template-chip-bar">
-                            <span className="template-chip-label">Insert:</span>
-                            {ALL_TOKEN_FIELDS.map(f => (
-                                <button
-                                    key={f.id}
-                                    className="template-chip"
-                                    type="button"
-                                    onClick={() => insertToken(f)}
-                                >
-                                    {f.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Body editor with toolbar */}
-                    <div onFocus={() => { lastFocusedEditor.current = 'body'; }}>
-                        <TemplateEditor
-                            content={bodyDoc}
-                            onUpdate={handleBodyUpdate}
-                            readOnly={readOnly}
-                            onConfigurePaymentMethods={() => setPaymentMethodsModal(true)}
-                            ref={bodyEditorRef}
-                        />
-                    </div>
-
-                    {hasDuplicate && (
-                        <div className="template-card-warning">
-                            Warning: Your template contains both the %payment_methods% token and hardcoded payment text.
-                            This may cause duplicate payment information in invoices.
-                        </div>
-                    )}
-
-                    {/* Save bar */}
-                    {!readOnly && (
-                        <div className="template-save-bar">
-                            <span className="template-save-status">
-                                {lastSavedAt ? 'Last saved ' + formatTimeSince(lastSavedAt) : ''}
+                        {activeTab === 'preview' && (
+                            <span className="template-subject-preview-text">
+                                {previewCtx
+                                    ? buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)
+                                    : subjectText || '\u2014'}
                             </span>
-                            <button
-                                className="template-save-btn"
-                                onClick={handleSave}
-                                disabled={!dirty}
-                            >
-                                Save template
-                            </button>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            {/* ── Preview Tab ── */}
-            <div style={{ display: activeTab === 'preview' ? 'block' : 'none' }}>
-                {previewCtx ? (
-                    <div className="template-preview-card">
-                        <div className="template-preview-meta">
-                            <span className="template-preview-label">To</span>
-                            <div className="template-preview-val">
-                                {previewCtx.member.email || previewCtx.member.name}
-                                <select
-                                    className="template-preview-member-sel"
-                                    value={previewMemberId || ''}
-                                    onChange={e => setPreviewMemberId(Number(e.target.value))}
-                                >
-                                    {familyMembers.map(m => (
-                                        <option key={m.id} value={m.id}>{m.name}</option>
+                {/* Edit: body editor (always mounted, hidden in preview) */}
+                <div
+                    style={{ display: activeTab === 'edit' ? 'block' : 'none' }}
+                    onFocus={() => { lastFocusedEditor.current = 'body'; }}
+                >
+                    <TemplateEditor
+                        content={bodyDoc}
+                        onUpdate={handleBodyUpdate}
+                        readOnly={readOnly}
+                        onConfigurePaymentMethods={() => setPaymentMethodsModal(true)}
+                        ref={bodyEditorRef}
+                        toolbarExtra={!readOnly ? (
+                            <>
+                                <span className="template-composer-sep" />
+                                <div className="template-composer-chips">
+                                    <span className="template-chip-label">Insert:</span>
+                                    {ALL_TOKEN_FIELDS.map(f => (
+                                        <button
+                                            key={f.id}
+                                            className="template-chip"
+                                            type="button"
+                                            onClick={() => insertToken(f)}
+                                        >
+                                            {f.label}
+                                        </button>
                                     ))}
-                                </select>
-                            </div>
-                            <span className="template-preview-label">Subject</span>
-                            <div className="template-preview-val">
-                                {buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)}
-                            </div>
-                            <span className="template-preview-label">Link</span>
-                            <div className="template-preview-val template-preview-link-row">
-                                {previewShareUrl ? (
-                                    <>
-                                        <span className="template-preview-url">{previewShareUrl}</span>
-                                        <button
-                                            className="template-preview-copy-btn"
-                                            type="button"
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(previewShareUrl).then(
-                                                    () => showToast('Link copied!'),
-                                                    () => showToast('Failed to copy')
-                                                );
-                                            }}
-                                        >Copy</button>
-                                        <button
-                                            className="template-preview-manage-btn"
-                                            type="button"
-                                            onClick={() => setShareLinkDialog(true)}
-                                        >Manage</button>
-                                    </>
-                                ) : (
-                                    <button
-                                        className="template-preview-copy-btn"
-                                        onClick={handleGeneratePreviewLink}
-                                        disabled={generatingLink || !userId}
-                                    >
-                                        {generatingLink ? 'Generating\u2026' : 'Generate share link'}
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+                                </div>
+                            </>
+                        ) : undefined}
+                    />
+                </div>
+
+                {/* Edit: duplicate token warning */}
+                {activeTab === 'edit' && hasDuplicate && (
+                    <div className="template-card-warning">
+                        Warning: Your template contains both the %payment_methods% token and hardcoded payment text.
+                        This may cause duplicate payment information in invoices.
+                    </div>
+                )}
+
+                {/* Preview: rendered body */}
+                {activeTab === 'preview' && (
+                    previewCtx ? (
                         <div className="template-preview-body invoice-preview-message"
                             dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
-                        <div className="template-preview-actions">
-                            <button
-                                className="template-preview-test-btn"
-                                onClick={() => { setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
-                            >
-                                Send test email
-                            </button>
-                        </div>
-                    </div>
-                ) : (
-                    <p className="invoicing-hint">Add family members to see a preview.</p>
+                    ) : (
+                        <p className="invoicing-hint" style={{ padding: '16px' }}>Add family members to see a preview.</p>
+                    )
                 )}
             </div>
 

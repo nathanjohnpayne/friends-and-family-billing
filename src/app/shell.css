@@ -1976,53 +1976,77 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .template-editor-token {
-    display: inline-flex;
-    align-items: center;
-    min-height: 26px;
-    padding: 0 10px;
-    margin: 0 2px;
-    border-radius: 999px;
-    background: rgba(110, 120, 214, 0.12);
+    display: inline;
+    padding: 1px 5px;
+    margin: 0 1px;
+    border-radius: 4px;
+    background: rgba(110, 120, 214, 0.06);
     color: var(--color-primary, #4A6FA5);
-    font-size: 0.78rem;
-    font-weight: 600;
-    vertical-align: middle;
+    font-size: inherit;
+    font-weight: 500;
+    border-bottom: 1.5px dashed rgba(110, 120, 214, 0.3);
     user-select: none;
 }
 
-/* ── Tab Row + Dirty Indicator ───────────────────────── */
+/* ── Header Bar + Segmented Control ──────────────────── */
 
-.template-tab-row {
+.template-header-bar {
     display: flex;
     align-items: center;
+    gap: 12px;
     margin-bottom: 16px;
 }
 
-.template-tab-bar {
+.template-header-actions {
+    margin-left: auto;
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
 }
 
-.template-tab {
-    padding: 5px 16px;
-    border: 1px solid var(--color-border, #e0e0e0);
-    border-radius: 999px;
+.template-segmented-control {
+    display: inline-flex;
+    background: #ECECEF;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.template-segment {
+    padding: 5px 18px;
+    border: none;
+    border-radius: 6px;
     background: transparent;
     font-size: 0.82rem;
     font-weight: 500;
     color: var(--color-text-secondary, #5B6475);
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: all 0.2s;
 }
 
-.template-tab:hover {
-    background: rgba(110, 120, 214, 0.06);
+.template-segment:hover {
+    color: var(--color-text, #1F2430);
 }
 
-.template-tab--active {
-    background: var(--color-primary, #6E78D6);
-    color: var(--color-text-inverse, #ffffff);
-    border-color: var(--color-primary, #6E78D6);
+.template-segment--active {
+    background: var(--color-surface, #ffffff);
+    color: var(--color-text, #1F2430);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.template-header-action-btn {
+    padding: 6px 16px;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+    background: var(--color-surface, #ffffff);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.template-header-action-btn:hover {
+    background: var(--color-surface-alt, #F7F8FB);
 }
 
 .template-dirty-indicator {
@@ -2031,7 +2055,6 @@ img, svg { display: block; max-width: 100%; }
     gap: 6px;
     font-size: 0.75rem;
     color: var(--color-text-tertiary, #999);
-    margin-left: 8px;
 }
 
 .template-dirty-indicator::before {
@@ -2073,16 +2096,12 @@ img, svg { display: block; max-width: 100%; }
     min-width: 0;
 }
 
-/* Unified chip bar inside card */
-.template-chip-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
-    flex-wrap: wrap;
+.template-subject-preview-text {
+    font-size: 0.875rem;
+    color: var(--color-text, #1F2430);
 }
 
+/* Token chip buttons (used inside composer bar) */
 .template-chip-label {
     font-size: 0.75rem;
     color: var(--color-text-secondary, #5B6475);
@@ -2116,21 +2135,7 @@ img, svg { display: block; max-width: 100%; }
     border-top: 1px solid var(--color-border-light, #f0f0f0);
 }
 
-/* Save bar — sticky footer inside card */
-.template-save-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    border-top: 1px solid var(--color-border-light, #f0f0f0);
-    background: var(--color-surface-alt, #F7F8FB);
-}
-
-.template-save-status {
-    font-size: 0.75rem;
-    color: var(--color-text-tertiary, #999);
-}
-
+/* Save button (now lives in header bar) */
 .template-save-btn {
     padding: 6px 18px;
     border: none;
@@ -2152,14 +2157,7 @@ img, svg { display: block; max-width: 100%; }
     cursor: not-allowed;
 }
 
-/* ── Preview Card ────────────────────────────────────── */
-
-.template-preview-card {
-    border: 1px solid var(--color-border, #e0e0e0);
-    border-radius: 12px;
-    background: var(--color-surface, #ffffff);
-    overflow: hidden;
-}
+/* ── Preview (inside shared card) ────────────────────── */
 
 .template-preview-meta {
     display: grid;
@@ -2237,33 +2235,7 @@ img, svg { display: block; max-width: 100%; }
     padding: 16px;
 }
 
-.template-preview-actions {
-    display: flex;
-    justify-content: flex-end;
-    padding: 10px 14px;
-    border-top: 1px solid var(--color-border-light, #f0f0f0);
-}
-
-.template-preview-test-btn {
-    padding: 5px 14px;
-    border: 1px solid var(--color-border, #e0e0e0);
-    border-radius: 6px;
-    background: var(--color-surface, #ffffff);
-    font-size: 0.78rem;
-    color: var(--color-text-secondary, #5B6475);
-    cursor: pointer;
-}
-
-.template-preview-test-btn:hover {
-    background: var(--color-surface-alt, #F7F8FB);
-}
-
 /* ── Invoicing Hint Variants ─────────────────────────── */
-
-.invoicing-hint--compact {
-    font-size: 0.82rem;
-    margin-bottom: 4px;
-}
 
 .invoicing-hint--dialog {
     margin: 0 24px 8px;
