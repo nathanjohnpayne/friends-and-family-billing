@@ -152,8 +152,8 @@ function formatBillFormula(bill, annualShare) {
 /** Check whether two member summaries from calculateAnnualSummary share the exact same bill set. */
 function hasSameBillSet(dataA, dataB) {
     if (dataA.bills.length !== dataB.bills.length) return false;
-    const idsA = dataA.bills.map(b => b.bill.id).sort();
-    const idsB = dataB.bills.map(b => b.bill.id).sort();
+    const idsA = [...dataA.bills.map(b => b.bill.id)].sort();
+    const idsB = [...dataB.bills.map(b => b.bill.id)].sort();
     return idsA.every((id, i) => id === idsB[i]);
 }
 
@@ -272,7 +272,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 const sameBills = hasSameBillSet(data, ls);
                                 return (
                                     <div key={ls.member.id} className="settlement-linked-row">
-                                        <div className="settlement-linked-member" onClick={() => toggleLinkedBreakdown(ls.member.id)}>
+                                        <div className="settlement-linked-member" role="button" aria-expanded={isLinkedExpanded} onClick={() => toggleLinkedBreakdown(ls.member.id)}>
                                             <span className="child-indicator" aria-hidden="true"></span>
                                             <div className="settlement-avatar settlement-avatar--sm">
                                                 <MemberAvatar member={ls.member} />
