@@ -1,13 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
 vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(() => Promise.resolve({ id: 'test' })) }));
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'test-user', email: 'test@test.com' } }))
 }));
+vi.mock('@/lib/ShareLinkService.js', () => ({
+    createAndPruneShareLink: vi.fn(() => Promise.resolve({ url: 'https://example.com/share?token=test', tokenHash: 'hash', rawToken: 'test' }))
+}));
 
 import EmailInvoiceDialog from '@/app/components/EmailInvoiceDialog.jsx';
+import { createAndPruneShareLink } from '@/lib/ShareLinkService.js';
 
 const baseProps = {
     open: true,
@@ -56,5 +60,11 @@ describe('EmailInvoiceDialog', () => {
     it('renders nothing when not open', () => {
         const { container } = render(<EmailInvoiceDialog {...baseProps} open={false} />);
         expect(container.innerHTML).toBe('');
+    });
+
+    it('does not generate a link on dialog open (send-time only)', () => {
+        createAndPruneShareLink.mockClear();
+        render(<EmailInvoiceDialog {...baseProps} userId="test-user" billingYearId="2026" />);
+        expect(createAndPruneShareLink).not.toHaveBeenCalled();
     });
 });

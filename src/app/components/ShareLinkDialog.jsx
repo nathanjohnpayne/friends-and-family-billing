@@ -1,15 +1,24 @@
 /**
  * ShareLinkDialog — generate new share links and manage existing ones.
  * Port of generateShareLink() (main.js:3985) and showShareLinks() (main.js:4154).
+ *
+ * Uses ShareLinkService for link creation + pruning.
+ * Reads access metrics from publicShares (with shareTokens fallback).
  */
 import { useState, useEffect } from 'react';
-import { doc, setDoc, getDocs, collection, query, where, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, collection, query, where, deleteDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
-import { generateRawToken, hashToken } from '../../lib/validation.js';
-import { buildShareScopes, buildShareTokenDoc, buildShareUrl, computeExpiryDate, isShareTokenStale, buildPublicShareData } from '../../lib/share.js';
+import { buildShareScopes, buildShareUrl, isShareTokenStale } from '../../lib/share.js';
+import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
+
+function formatLastViewed(timestamp) {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 /**
- * @param {{ open: boolean, memberId: number, memberName: string, userId: string, billingYearId: string, yearLabel: string, initialTab?: string, familyMembers?: Array, bills?: Array, payments?: Array, activeYear?: Object, settings?: Object, onClose: function, showToast?: function }} props
+ * @param {{ open: boolean, memberId: number, memberName: string, userId: string, billingYearId: string, yearLabel: string, initialTab?: string, familyMembers?: Array, bills?: Array, payments?: Array, activeYear?: Object, settings?: Object, onClose: function, showToast?: function, onLinkGenerated?: function }} props
  */
 export default function ShareLinkDialog({ open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, activeYear, settings, onClose, showToast, onLinkGenerated }) {
     const [tab, setTab] = useState(initialTab || 'generate');
@@ -55,9 +64,33 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                     ? data.createdAt.toDate().toLocaleDateString()
                     : '';
                 const url = data.rawToken ? buildShareUrl(window.location.origin, data.rawToken) : '';
-                return { id: d.id, ...data, status, createdAt, url };
+                return {
+                    id: d.id,
+                    ...data,
+                    status,
+                    createdAt,
+                    url,
+                    accessCount: data.accessCount || 0,
+                    lastAccessedAt: data.lastAccessedAt || null,
+                };
             });
             items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+            // Merge access metrics from publicShares for active links
+            const activeItems = items.filter(i => i.status === 'active');
+            if (activeItems.length > 0) {
+                const publicReads = await Promise.all(
+                    activeItems.map(i => getDoc(doc(db, 'publicShares', i.id)))
+                );
+                publicReads.forEach((pubSnap, idx) => {
+                    if (pubSnap.exists()) {
+                        const pd = pubSnap.data();
+                        activeItems[idx].accessCount = pd.accessCount || 0;
+                        activeItems[idx].lastAccessedAt = pd.lastAccessedAt || null;
+                    }
+                });
+            }
+
             setLinks(items);
         } catch (err) {
             console.error('Failed to load share links:', err);
@@ -68,32 +101,24 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
     async function handleGenerate() {
         setGenerating(true);
         try {
-            const rawToken = generateRawToken();
-            const tokenHash = await hashToken(rawToken);
             const scopes = buildShareScopes(allowDispute, allowDisputeRead);
-            const expiresAt = computeExpiryDate(expiryDays);
-            const tokenDoc = buildShareTokenDoc(userId, memberId, memberName, billingYearId, rawToken, expiresAt, scopes);
-
-            await setDoc(doc(db, 'shareTokens', tokenHash), {
-                ...tokenDoc,
-                createdAt: serverTimestamp()
+            const result = await createAndPruneShareLink({
+                userId,
+                memberId,
+                memberName,
+                billingYearId,
+                scopes,
+                expiryDays: expiryDays || undefined,
+                familyMembers,
+                bills,
+                payments,
+                activeYear,
+                settings,
             });
 
-            // Eagerly publish publicShares so share.html can resolve immediately (mirrors main.js:4074)
-            if (familyMembers && bills && payments) {
-                const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings);
-                if (publicData) {
-                    await setDoc(doc(db, 'publicShares', tokenHash), {
-                        ...publicData,
-                        updatedAt: serverTimestamp()
-                    });
-                }
-            }
-
-            const url = buildShareUrl(window.location.origin, rawToken);
-            setGeneratedUrl(url);
-            try { await navigator.clipboard.writeText(url); } catch (_) { /* clipboard may be blocked */ }
-            if (onLinkGenerated) onLinkGenerated(url);
+            setGeneratedUrl(result.url);
+            try { await navigator.clipboard.writeText(result.url); } catch (_) { /* clipboard may be blocked */ }
+            if (onLinkGenerated) onLinkGenerated(result.url);
             if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
@@ -213,7 +238,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                                         )}
                                         <div className="share-link-meta">
                                             {link.accessCount > 0
-                                                ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '')
+                                                ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '') + ', last ' + formatLastViewed(link.lastAccessedAt)
                                                 : 'Never viewed'}
                                         </div>
                                     </div>

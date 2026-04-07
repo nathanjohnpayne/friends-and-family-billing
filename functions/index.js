@@ -136,7 +136,7 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     return;
   }
 
-  const { token } = req.body || {};
+  const { token, refreshOnly } = req.body || {};
   if (!token || typeof token !== "string" || token.length < 32) {
     res.status(400).json({ error: "Invalid token" });
     return;
@@ -154,14 +154,14 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     const tokenData = tokenDoc.data();
 
     if (tokenData.revoked) {
-      res.status(403).json({ error: "This link has been revoked by the account owner." });
+      res.status(403).json({ error: "This link has been revoked by the account owner.", canRequestLink: true, tokenHash: hash });
       return;
     }
 
     if (tokenData.expiresAt) {
       const expiry = tokenData.expiresAt.toDate ? tokenData.expiresAt.toDate() : new Date(tokenData.expiresAt);
       if (expiry < new Date()) {
-        res.status(403).json({ error: "This link has expired." });
+        res.status(403).json({ error: "This link has expired.", canRequestLink: true, tokenHash: hash });
         return;
       }
     }
@@ -215,24 +215,31 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
-    tokenDoc.ref
-      .update({
-        lastAccessedAt: FieldValue.serverTimestamp(),
-        accessCount: FieldValue.increment(1),
-      })
-      .catch(() => {});
+    // Skip access increment and audit log on background refreshes (refreshOnly)
+    // to avoid double-counting when the client already incremented publicShares.
+    if (!refreshOnly) {
+      tokenDoc.ref
+        .update({
+          lastAccessedAt: FieldValue.serverTimestamp(),
+          accessCount: FieldValue.increment(1),
+        })
+        .catch(() => {});
 
-    appendAuditLog(tokenData.ownerId, {
-      action: "share_link_accessed",
-      tokenHash: hash,
-      memberId: tokenData.memberId,
-      billingYearId: tokenData.billingYearId,
-      ip: req.ip || null,
-    });
+      appendAuditLog(tokenData.ownerId, {
+        action: "share_link_accessed",
+        tokenHash: hash,
+        memberId: tokenData.memberId,
+        billingYearId: tokenData.billingYearId,
+        ip: req.ip || null,
+      });
+    }
 
     const scopes = tokenData.scopes || ["summary:read", "paymentMethods:read"];
     const result = {
       memberName: primarySummary.name,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
+      ownerId: tokenData.ownerId,
       year: yearData.label || tokenData.billingYearId,
       scopes: scopes,
     };
@@ -292,12 +299,19 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       });
     }
 
-    // Self-heal: recreate publicShares doc for future direct Firestore reads
+    // Self-heal: recreate publicShares doc for future direct Firestore reads.
+    // Include access metrics so publicShares remains the single source of truth
+    // for view counts (the client reads accessCount from publicShares).
+    const currentAccessCount = (tokenData.accessCount || 0) + (refreshOnly ? 0 : 1);
     const publicShareData = {
       memberName: result.memberName,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
       year: result.year,
       scopes: scopes,
       ownerId: tokenData.ownerId,
+      accessCount: currentAccessCount,
+      lastAccessedAt: refreshOnly ? (tokenData.lastAccessedAt || null) : FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (result.summary) {
@@ -342,7 +356,77 @@ function validateDisputeInput({ billId, billName, message, proposedCorrection })
   return { valid: true };
 }
 
-exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS };
+const LINK_REQUEST_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS, LINK_REQUEST_RATE_WINDOW_MS };
+
+/**
+ * requestShareLink — allows a member visiting an expired/revoked link to
+ * request the admin generate a new one. Rate-limited to 1 request per
+ * tokenHash per 24 hours.
+ */
+exports.requestShareLink = onRequest({ region: "us-central1" }, async (req, res) => {
+  setCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { tokenHash } = req.body || {};
+  if (!tokenHash || typeof tokenHash !== "string" || tokenHash.length < 32) {
+    res.status(400).json({ error: "Invalid request." });
+    return;
+  }
+
+  try {
+    const tokenDoc = await db.collection("shareTokens").doc(tokenHash).get();
+    if (!tokenDoc.exists) {
+      res.status(404).json({ error: "Link not found." });
+      return;
+    }
+
+    const tokenData = tokenDoc.data();
+
+    // Rate limit: 1 request per tokenHash per 24 hours
+    if (tokenData.lastLinkRequestedAt) {
+      const lastRequested = tokenData.lastLinkRequestedAt.toDate
+        ? tokenData.lastLinkRequestedAt.toDate()
+        : new Date(tokenData.lastLinkRequestedAt);
+      if (Date.now() - lastRequested.getTime() < LINK_REQUEST_RATE_WINDOW_MS) {
+        res.status(429).json({ error: "A request was already sent recently. Please wait before trying again." });
+        return;
+      }
+    }
+
+    // Mark request time on the token doc
+    await tokenDoc.ref.update({
+      lastLinkRequestedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Send email to admin
+    const adminUser = await getAuth().getUser(tokenData.ownerId);
+    if (adminUser.email) {
+      const memberName = tokenData.memberName || "A member";
+      const year = tokenData.billingYearId || "unknown";
+      const nSubject = "Link Request\u2014" + memberName + " needs a new billing summary link";
+      let nBody = memberName + " tried to access their " + year + " billing summary but the link has expired or been revoked.\n\n";
+      nBody += "Generate a new link from the Dashboard.\n\n";
+      nBody += "[Open Dashboard](" + APP_ORIGIN + "/app/)";
+      await queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+    }
+
+    res.status(200).json({ message: "Request sent. The account owner will be notified." });
+  } catch (err) {
+    console.error("requestShareLink error:", err);
+    res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+  }
+});
 
 async function resolveAndValidateToken(token, requiredScope) {
   const hash = crypto.createHash("sha256").update(token).digest("hex");

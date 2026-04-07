@@ -22,6 +22,9 @@ export default function ShareView() {
     const [error, setError] = useState(null);
     const [data, setData] = useState(null);
     const [timedOut, setTimedOut] = useState(false);
+    const [canRequestLink, setCanRequestLink] = useState(false);
+    const [errorTokenHash, setErrorTokenHash] = useState(null);
+    const [linkRequested, setLinkRequested] = useState(false);
     const [shareCtx, setShareCtx] = useState({ token: null, tokenHash: null, ownerId: null, billingYearId: null, memberId: null, memberName: '', canDispute: false, canDisputeRead: false });
 
     useEffect(() => {
@@ -54,14 +57,16 @@ export default function ShareView() {
                 }).catch(() => {});
 
                 // If cache is stale (>1 hour), refresh in background via Cloud Function
-                // so next visit gets fresh data (e.g., preferred payment method changes)
+                // so next visit gets fresh data (e.g., preferred payment method changes).
+                // Pass refreshOnly: true to avoid double-counting the access — the visit
+                // was already counted by the publicShares increment above.
                 const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
                 const updatedAt = shareData.updatedAt && shareData.updatedAt.toDate ? shareData.updatedAt.toDate() : null;
                 if (!updatedAt || (Date.now() - updatedAt.getTime() > CACHE_MAX_AGE_MS)) {
                     fetch('/resolveShareToken', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token })
+                        body: JSON.stringify({ token, refreshOnly: true })
                     }).catch(() => {});
                 }
             } else {
@@ -74,6 +79,10 @@ export default function ShareView() {
                 if (!resp.ok) {
                     const errData = await resp.json().catch(() => ({}));
                     setError(errData.error || 'This link is invalid or has been removed.');
+                    if (errData.canRequestLink) {
+                        setCanRequestLink(true);
+                        setErrorTokenHash(errData.tokenHash || null);
+                    }
                     setLoading(false);
                     return;
                 }
@@ -117,12 +126,43 @@ export default function ShareView() {
         );
     }
 
+    async function handleRequestLink() {
+        if (!errorTokenHash) return;
+        try {
+            const resp = await fetch('/requestShareLink', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tokenHash: errorTokenHash })
+            });
+            if (resp.ok) {
+                setLinkRequested(true);
+            } else {
+                const errData = await resp.json().catch(() => ({}));
+                if (resp.status === 429) {
+                    setLinkRequested(true); // Already requested recently — show confirmation anyway
+                } else {
+                    console.error('Request link failed:', errData.error);
+                }
+            }
+        } catch (err) {
+            console.error('Request link error:', err);
+        }
+    }
+
     if (error) {
         return (
             <div className="share-page share-error">
                 <div className="share-state-card">
                     <h2>Unable to Load Summary</h2>
                     <p>{error}</p>
+                    {canRequestLink && !linkRequested && (
+                        <button className="btn btn-sm btn-primary" onClick={handleRequestLink}>
+                            Request New Link
+                        </button>
+                    )}
+                    {linkRequested && (
+                        <p className="share-hint">Your request has been sent. The account owner will send you a new link.</p>
+                    )}
                 </div>
             </div>
         );

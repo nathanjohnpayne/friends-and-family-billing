@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 vi.mock('firebase/firestore', () => ({
-    doc: vi.fn(), setDoc: vi.fn(() => Promise.resolve()), getDocs: vi.fn(() => Promise.resolve({ docs: [] })),
+    doc: vi.fn(), setDoc: vi.fn(() => Promise.resolve()), getDoc: vi.fn(() => Promise.resolve({ exists: () => false })),
+    getDocs: vi.fn(() => Promise.resolve({ docs: [] })),
     collection: vi.fn(), query: vi.fn(), where: vi.fn(), deleteDoc: vi.fn(), serverTimestamp: vi.fn()
+}));
+vi.mock('@/lib/ShareLinkService.js', () => ({
+    createAndPruneShareLink: vi.fn(() => Promise.resolve({ url: 'https://example.com/share?token=test', tokenHash: 'hash', rawToken: 'test' }))
 }));
 
 import ShareLinkDialog from '@/app/components/ShareLinkDialog.jsx';
