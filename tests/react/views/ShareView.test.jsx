@@ -139,6 +139,18 @@ function mockPublicSharesHitButExpired(data = sampleShareData) {
     mockDoc.mockReturnValue('doc-ref');
 }
 
+/** Helper: configure getDoc to return a legacy publicShares doc without validity fields.
+ *  Should be treated as untrusted and fall through to CF. */
+function mockPublicSharesHitLegacy(data = sampleShareData) {
+    const freshTimestamp = { toDate: () => new Date() };
+    // No 'revoked' or 'expiresAt' fields — simulates pre-migration doc
+    mockGetDoc.mockResolvedValue({
+        exists: () => true,
+        data: () => ({ ...data, updatedAt: freshTimestamp })
+    });
+    mockDoc.mockReturnValue('doc-ref');
+}
+
 /** Helper: configure getDoc miss + fetch success. */
 function mockPublicSharesMissFetchOk(data = sampleShareData) {
     mockGetDoc.mockResolvedValue({ exists: () => false });
@@ -1141,6 +1153,32 @@ describe('ShareView', () => {
             await waitFor(() => {
                 expect(screen.getByText(/account owner will send you a new link/)).toBeInTheDocument();
             });
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Legacy publicShares doc without validity fields — treated as untrusted
+    // -----------------------------------------------------------------------
+    describe('when publicShares cache hit is a legacy doc without validity fields', () => {
+        it('falls through to Cloud Function instead of trusting the cache', async () => {
+            setToken('legacy-token');
+            mockPublicSharesHitLegacy();
+            // CF returns fresh data (the legacy doc gets self-healed with validity fields)
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => sampleShareData
+            });
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+
+            // Verify the CF was called (not just the cache)
+            expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.objectContaining({
+                method: 'POST'
+            }));
         });
     });
 });

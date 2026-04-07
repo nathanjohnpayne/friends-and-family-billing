@@ -56,8 +56,15 @@ export default function ShareView() {
             let cacheValid = false;
             if (publicDoc.exists()) {
                 const cachedData = publicDoc.data();
-                if (isShareTokenStale(cachedData, new Date())) {
-                    // Token is revoked or expired — fall through to CF for proper 403
+                // Legacy publicShares docs created before the validity-field
+                // migration won't have 'revoked' at all. Treat missing validity
+                // fields as untrusted — fall through to the CF which checks
+                // shareTokens via Admin SDK and self-heals the doc with the
+                // mirrored fields for next time.
+                const hasValidityFields = 'revoked' in cachedData;
+                if (!hasValidityFields) {
+                    cacheValid = false;
+                } else if (isShareTokenStale(cachedData, new Date())) {
                     cacheValid = false;
                 } else {
                     cacheValid = true;
