@@ -359,6 +359,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ 632 React tests + 288 legacy tests + Playwright E2E
 
 ### React Migration (2026-03) --- COMPLETE
+
 - ✅ Full rewrite from vanilla JS to React 19 SPA
 - ✅ Service-owns-state architecture: BillingYearService + useSyncExternalStore
 - ✅ Code-split lazy loading via React.lazy + Suspense

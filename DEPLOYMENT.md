@@ -490,15 +490,17 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 Verify both apps after each deploy:
 
 ### React app (primary)
+
 1. Open https://friends-and-family-billing.web.app/ in an incognito window
 2. Sign in — confirm the dashboard loads with KPIs and settlement board
 3. Verify data populates (settlement board, members, bills)
 4. Check browser DevTools → Console for errors
 
 ### Legacy app (secondary)
-5. Open https://friends-and-family-billing.web.app/site/ in the same window
-6. Confirm the legacy settlement workspace loads
-7. Check browser DevTools → Console for errors
+
+1. Open https://friends-and-family-billing.web.app/site/ in the same window
+2. Confirm the legacy settlement workspace loads
+3. Check browser DevTools → Console for errors
 
 ### Common deploy issues
 - **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it
