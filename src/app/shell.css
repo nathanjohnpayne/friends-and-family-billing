@@ -3310,6 +3310,39 @@ img, svg { display: block; max-width: 100%; }
     }
 
     .nav-brand span { display: none; }
+
+    /* ── Settlement Board — mobile reflow ─────────────── */
+    .settlement-card-main {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .settlement-card-left {
+        margin-bottom: var(--space-2, 8px);
+    }
+
+    .settlement-card-right {
+        flex-wrap: wrap;
+        gap: var(--space-2, 8px);
+    }
+
+    .settlement-summary-boxes {
+        width: 100%;
+    }
+
+    .settlement-summary-box {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .settlement-card-actions {
+        flex-wrap: wrap;
+    }
+
+    .settlement-linked-breakdown,
+    .settlement-summary-boxes--linked {
+        margin-left: 0;
+    }
 }
 
 /* ── Update Toast ─────────────────────────────────────── */
