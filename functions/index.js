@@ -317,6 +317,10 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       year: result.year,
       scopes: scopes,
       ownerId: tokenData.ownerId,
+      // Mirror token validity fields so the client can validate expiry
+      // without reading owner-only shareTokens.
+      expiresAt: tokenData.expiresAt || null,
+      revoked: false,
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (!refreshOnly) {

@@ -47,23 +47,21 @@ export default function ShareView() {
             const tokenHash = await hashToken(token);
             let shareData = null;
 
-            // Try publicShares first (eager cache), but validate the token
-            // against shareTokens to enforce revocation and expiry.
+            // Try publicShares first (eager cache), validating expiry from
+            // the cached doc itself. publicShares carries expiresAt and revoked
+            // fields mirrored from shareTokens, so we can check without reading
+            // the owner-only shareTokens collection (which would fail for
+            // unauthenticated visitors).
             const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
             let cacheValid = false;
             if (publicDoc.exists()) {
-                // Check shareTokens for revoked/expired status before trusting cache
-                const tokenDoc = await getDoc(doc(db, 'shareTokens', tokenHash));
-                if (tokenDoc.exists()) {
-                    const tokenData = tokenDoc.data();
-                    if (isShareTokenStale(tokenData, new Date())) {
-                        // Token is revoked or expired — fall through to CF for proper error
-                        cacheValid = false;
-                    } else {
-                        cacheValid = true;
-                    }
+                const cachedData = publicDoc.data();
+                if (isShareTokenStale(cachedData, new Date())) {
+                    // Token is revoked or expired — fall through to CF for proper 403
+                    cacheValid = false;
+                } else {
+                    cacheValid = true;
                 }
-                // If shareTokens doc doesn't exist, fall through to CF
             }
 
             if (cacheValid) {

@@ -84,10 +84,12 @@ export async function createAndPruneShareLink({
         createdAt: serverTimestamp(),
     });
 
-    // 2. Create new publicShares doc
+    // 2. Create new publicShares doc (include expiresAt for client-side validation)
     if (publicData) {
         batch.set(doc(db, 'publicShares', tokenHash), {
             ...publicData,
+            expiresAt: expiresAt || null,
+            revoked: false,
             updatedAt: serverTimestamp(),
         });
     }

@@ -116,25 +116,26 @@ function setToken(token) {
 }
 
 /** Helper: configure getDoc to return an existing publicShares doc with given data.
- *  The second getDoc call (shareTokens) returns a valid, non-stale token. */
+ *  Includes validity fields (revoked: false, expiresAt: null) so cache is trusted. */
 function mockPublicSharesHit(data = sampleShareData) {
     const freshTimestamp = { toDate: () => new Date() };
-    const validTokenDoc = { exists: () => true, data: () => ({ revoked: false, expiresAt: null }) };
-    mockGetDoc
-        .mockResolvedValueOnce({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) })
-        .mockResolvedValueOnce(validTokenDoc);
+    mockGetDoc.mockResolvedValue({
+        exists: () => true,
+        data: () => ({ ...data, revoked: false, expiresAt: null, updatedAt: freshTimestamp })
+    });
     mockUpdateDoc.mockResolvedValue();
     mockDoc.mockReturnValue('doc-ref');
 }
 
-/** Helper: configure getDoc to return publicShares cache hit but expired shareToken.
- *  Should fall through to CF which returns 403. */
+/** Helper: configure getDoc to return publicShares cache hit with expired token.
+ *  The cached doc carries expiresAt in the past, so the client-side check fails
+ *  and falls through to the CF which returns 403. */
 function mockPublicSharesHitButExpired(data = sampleShareData) {
     const freshTimestamp = { toDate: () => new Date() };
-    const expiredTokenDoc = { exists: () => true, data: () => ({ revoked: false, expiresAt: new Date('2020-01-01') }) };
-    mockGetDoc
-        .mockResolvedValueOnce({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) })
-        .mockResolvedValueOnce(expiredTokenDoc);
+    mockGetDoc.mockResolvedValue({
+        exists: () => true,
+        data: () => ({ ...data, revoked: false, expiresAt: new Date('2020-01-01'), updatedAt: freshTimestamp })
+    });
     mockDoc.mockReturnValue('doc-ref');
 }
 
