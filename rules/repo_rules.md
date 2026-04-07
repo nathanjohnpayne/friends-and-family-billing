@@ -28,7 +28,7 @@ The following tool config directories must contain only configuration — no ins
 
 **Intentionally absent directories (documented deviations from the standard):**
 
-- `dist/` — Build output goes to `app/` (matching the `/app/` Vite base path). No separate dist/ directory.
+- `dist/` — Build output goes to `app/` (Firebase Hosting public directory). No separate dist/ directory.
 
 ## Forbidden Patterns
 

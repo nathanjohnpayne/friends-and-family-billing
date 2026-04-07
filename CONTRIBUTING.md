@@ -27,7 +27,7 @@ For changes to financial logic, payment calculations, or security rules, add a b
 ## Pull Request Process
 
 1. Branch from `main`
-2. Run `npm test` — all ~400 React tests must pass before opening a PR
+2. Run `npm test` — all ~920 tests (632 React + 288 legacy) must pass before opening a PR
 3. Run `npm run build` — Vite build must complete cleanly
 4. Run all `scripts/ci/` checks locally before opening a PR
 5. Open a PR against `main` with a clear title and description, or run `npm run pr:auto -- --title "Your title"` from your feature branch to create one with the repo template and enable GitHub auto-merge
@@ -50,7 +50,7 @@ The test suite uses **Vitest** with **React Testing Library**. Run tests with:
 npm test
 ```
 
-This runs the React test suite in `tests/react/` plus a tracked-file secret scan. ~400 tests cover services, hooks, components, and views.
+This runs the React test suite (632 tests) and legacy test suite (288 tests) in `tests/` plus a tracked-file secret scan. Playwright E2E tests are available separately via `npm run test:e2e`.
 
 **Tests must not be deleted to force a build to pass.** If a test is wrong, fix the test and the code together—never delete the test.
 

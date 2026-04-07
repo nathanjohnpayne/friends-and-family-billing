@@ -23,6 +23,7 @@ Covers shared, reusable UI components and contexts used across the application: 
 - Renders "Payment Methods" section heading with hint text explaining On/Off toggle behavior.
 - Renders existing payment methods with type icons and labels.
 - QR code badges render inline without a colored background; show "QR code uploaded" tooltip on hover.
+- Supports 7 payment method types: Venmo, Zelle, Cash App, PayPal, Apple Cash, Check, Other. Check has distinct fields (name, address, phone) instead of handle/URL.
 - Add Payment Method dropdown filters out already-configured method types. When all types are configured, shows "All payment methods configured." instead of the add controls.
 - Shows toggle (On/Off) for each method; toggling calls `onUpdate` with the updated enabled state.
 - Three-dot action menu on each method with Edit and Remove options.
