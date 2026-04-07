@@ -126,7 +126,8 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 label: typeDef ? typeDef.label : selectedType,
                                 enabled: true,
                                 preferred: false,
-                                email: '', phone: '', handle: '', url: '', instructions: ''
+                                email: '', phone: '', handle: '', url: '', instructions: '',
+                                name: '', address: ''
                             };
                             onUpdate([...methods, method]);
                         }}>
@@ -178,6 +179,15 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
         const defaultLabel = (PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other).label;
         const validated = { ...fields, label: label || defaultLabel };
 
+        if (method.type === 'check') {
+            if (!(validated.address || '').trim()) {
+                setError('Mailing address is required for check payments');
+                return;
+            }
+            validated.address = (validated.address || '').trim();
+            validated.name = (validated.name || '').trim();
+        }
+
         const phone = (validated.phone || '').trim();
         if (phone && !isValidE164(phone)) {
             setError('Phone must be in E.164 format (e.g., +14155551212)');
@@ -204,6 +214,8 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
         email: { label: 'Email', placeholder: 'email@example.com', type: 'email' },
         phone: { label: 'Phone', placeholder: '+14155551212', type: 'tel' },
         url: { label: 'URL / Link', placeholder: 'https://', type: 'url' },
+        name: { label: 'Payee Name', placeholder: 'Full name for the check' },
+        address: { label: 'Mailing Address', placeholder: '123 Main St\nCity, ST 12345', multiline: true },
         instructions: { label: 'Instructions (optional)', placeholder: 'Additional payment instructions...' }
     };
 
@@ -226,7 +238,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
                             return (
                                 <div key={f} className="payment-field-group">
                                     <label>{def.label}</label>
-                                    {f === 'instructions' ? (
+                                    {(f === 'instructions' || def.multiline) ? (
                                         <textarea
                                             className="composer-input"
                                             rows={2}

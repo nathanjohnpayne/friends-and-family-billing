@@ -418,13 +418,35 @@ function PaymentMethodsSection({ methods, ownerId }) {
                             <button className="share-copy-btn" onClick={e => copyText(c, e)}>Copy</button>
                         </div>
                     ))}
-                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.handle && (
+                    {pm.type === 'check' && (
+                        <>
+                            {pm.name && (
+                                <div className="share-pm-detail">
+                                    <span>Payee: {pm.name}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(pm.name, e)}>Copy</button>
+                                </div>
+                            )}
+                            {pm.address && (
+                                <div className="share-pm-detail">
+                                    <span style={{ whiteSpace: 'pre-line' }}>{pm.address}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(pm.address, e)}>Copy</button>
+                                </div>
+                            )}
+                            {pm.phone && (
+                                <div className="share-pm-detail">
+                                    <span>{pm.phone}</span>
+                                    <button className="share-copy-btn" onClick={e => copyText(pm.phone, e)}>Copy</button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.type !== 'check' && pm.handle && (
                         <div className="share-pm-detail">
                             <span>{pm.handle}</span>
                             <button className="share-copy-btn" onClick={e => copyText(pm.handle, e)}>Copy</button>
                         </div>
                     )}
-                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.url && (
+                    {pm.type !== 'zelle' && pm.type !== 'apple_cash' && pm.type !== 'check' && pm.url && (
                         <div className="share-pm-detail">
                             <a href={pm.url} target="_blank" rel="noopener noreferrer">{pm.url}</a>
                             <button className="share-copy-btn" onClick={e => copyText(pm.url, e)}>Copy link</button>

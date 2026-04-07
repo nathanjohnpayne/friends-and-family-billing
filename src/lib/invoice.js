@@ -109,7 +109,11 @@ function formatPaymentOptionsText(settings) {
     let text = '\nPayment methods:\n';
     methods.forEach(method => {
         text += '\n' + method.label + '\n';
-        if (method.type === 'zelle') {
+        if (method.type === 'check') {
+            if (method.name) text += 'Payee: ' + method.name + '\n';
+            if (method.address) text += 'Mail to: ' + method.address.replace(/\n/g, ', ') + '\n';
+            if (method.phone) text += 'Phone: ' + method.phone + '\n';
+        } else if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) text += 'Send via Zelle to: ' + contacts.join(' or ') + '\n';
         } else if (method.type === 'apple_cash') {
@@ -134,7 +138,13 @@ function formatPaymentOptionsMarkdown(settings) {
     let text = '\n## Payment Options\n\n';
     methods.forEach(method => {
         let detail = '';
-        if (method.type === 'zelle') {
+        if (method.type === 'check') {
+            const parts = [];
+            if (method.name) parts.push('Payee: ' + method.name);
+            if (method.address) parts.push('Mail to: ' + method.address.replace(/\n/g, ', '));
+            if (method.phone) parts.push('Phone: ' + method.phone);
+            detail = parts.join(' · ');
+        } else if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) detail = 'Send via Zelle to: ' + contacts.join(' or ');
         } else if (method.type === 'apple_cash') {
@@ -269,6 +279,14 @@ function renderTemplateInlineNodes(nodes, ctx, shareUrl) {
 }
 
 function renderPaymentMethodDetailHtml(method) {
+    if (method.type === 'check') {
+        const parts = [];
+        if (method.name) parts.push('Payee: ' + escapeHtml(method.name));
+        if (method.address) parts.push('Mail to: ' + escapeHtml(method.address.replace(/\n/g, ', ')));
+        if (method.phone) parts.push('Phone: ' + escapeHtml(method.phone));
+        return parts.join('<br>');
+    }
+
     if (method.type === 'zelle') {
         const contacts = [method.email, method.phone].filter(Boolean).map(escapeHtml);
         return contacts.length > 0 ? 'Send via Zelle to: ' + contacts.join(' or ') : '';
