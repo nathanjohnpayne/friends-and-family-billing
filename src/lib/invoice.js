@@ -89,10 +89,21 @@ function buildInvoiceTemplatePreviewText(template, ctx) {
 }
 
 /**
+ * Sort payment methods: preferred first, then alphabetical by label.
+ */
+function sortPaymentMethods(methods) {
+    return methods.slice().sort((a, b) => {
+        if (a.preferred && !b.preferred) return -1;
+        if (!a.preferred && b.preferred) return 1;
+        return a.label.localeCompare(b.label);
+    });
+}
+
+/**
  * Format enabled payment methods as text block.
  */
 function formatPaymentOptionsText(settings) {
-    const methods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+    const methods = sortPaymentMethods(((settings && settings.paymentMethods) || []).filter(m => m.enabled));
     if (methods.length === 0) return '';
 
     let text = '\nPayment methods:\n';
@@ -117,7 +128,7 @@ function formatPaymentOptionsText(settings) {
  * Format enabled payment methods as a markdown list.
  */
 function formatPaymentOptionsMarkdown(settings) {
-    const methods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
+    const methods = sortPaymentMethods(((settings && settings.paymentMethods) || []).filter(m => m.enabled));
     if (methods.length === 0) return '';
 
     let text = '\n## Payment Options\n\n';
@@ -282,7 +293,7 @@ function renderPaymentMethodDetailHtml(method) {
 }
 
 function renderPaymentMethodsHtml(settings) {
-    const methods = ((settings && settings.paymentMethods) || []).filter(method => method.enabled);
+    const methods = sortPaymentMethods(((settings && settings.paymentMethods) || []).filter(method => method.enabled));
     if (methods.length === 0) return '';
 
     const items = methods.map(method => {
