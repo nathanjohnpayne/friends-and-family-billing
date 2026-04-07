@@ -20,7 +20,11 @@ Coverage output lands in `coverage/react/` (text summary printed to terminal, pl
 
 ## Test count
 
-**~490 React tests** covering services, hooks, components, and views.
+**~632 React tests** (37 test files) covering services, hooks, components, and views. **288 legacy tests** via Node's native test runner. **Playwright E2E tests** in `tests/e2e/`.
+
+```bash
+npm run test:e2e       # Playwright end-to-end tests (builds first, serves at :4174)
+```
 
 ## Mocking policy
 

@@ -352,19 +352,20 @@ There is no staging environment. All deploys go directly to production.
 
 ## Build Process
 
-Firebase Hosting deploys the repository root (`.`). Two apps coexist:
+Firebase Hosting deploys the `app/` directory (`"public": "app"` in `firebase.json`). The React SPA is the primary app at `/`; the legacy vanilla JS build is retained at `/site/`.
 
-| App | Build command | Output | Served at |
-|-----|---------------|--------|-----------|
-| Legacy (vanilla JS) | `npm run build:legacy` | `script.js` (repo root) | `/` |
-| React SPA | `npm run build:react` | `app/` directory | `/app/` |
+| Step | Build command | Output | Served at |
+|------|---------------|--------|-----------|
+| 1. React SPA | `npm run build:react` | `app/` directory (Vite) | `/` |
+| 2. Legacy (vanilla JS) | `npm run build:legacy` | `script.js` (repo root, intermediate) | — |
+| 3. Assemble | `npm run build:assemble` | copies legacy → `app/site/`, shared assets → `app/` | `/site/` |
 
 ```bash
-# Build both apps
+# Build all (three-step pipeline)
 npm run build
 ```
 
-`npm run build` runs `build:legacy` (esbuild) then `build:react` (Vite).
+`npm run build` runs `build:react` (Vite) then `build:legacy` (esbuild) then `build:assemble` (assembly script).
 
 ### Firebase config (required before build or deploy)
 
@@ -488,17 +489,16 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 
 Verify both apps after each deploy:
 
-### Legacy app (primary)
+### React app (primary)
 1. Open https://friends-and-family-billing.web.app/ in an incognito window
-2. Sign in — confirm the purple gradient hero and billing controls load
+2. Sign in — confirm the dashboard loads with KPIs and settlement board
 3. Verify data populates (settlement board, members, bills)
 4. Check browser DevTools → Console for errors
 
-### React app (secondary)
-5. Open https://friends-and-family-billing.web.app/app/ in the same window
-6. Confirm it redirects to `/app/dashboard` and data loads
-7. Click "Payment History" on any member — confirm the dialog opens
-8. Check browser DevTools → Console for errors
+### Legacy app (secondary)
+5. Open https://friends-and-family-billing.web.app/site/ in the same window
+6. Confirm the legacy settlement workspace loads
+7. Check browser DevTools → Console for errors
 
 ### Common deploy issues
 - **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it

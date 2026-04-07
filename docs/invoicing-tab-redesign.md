@@ -1,3 +1,5 @@
+> **Status: IMPLEMENTED (2026-04).** This design spec has been built. For current documentation, see `specs/invoicing.md` and `docs/agents/repository-overview.md`.
+
 # Redesign: InvoicingTab—TipTap Rich-Text Editor with Token Pills, Tabbed Preview, and Visual Polish
 
 **Repository:** `nathanjohnpayne/friends-and-family-billing`

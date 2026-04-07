@@ -12,6 +12,7 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - `tests/react/views/InvoicingTab.test.jsx`
 - `tests/react/components/EmailInvoiceDialog.test.jsx`
 - `tests/react/components/TextInvoiceDialog.test.jsx`
+- `tests/e2e/invoicing-editor.spec.js`
 
 ## Acceptance Criteria
 
@@ -28,8 +29,9 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 ### InvoicingTab View
 
 - Renders "Email Template" section heading.
-- Shows template content in a contenteditable editor with token chips (e.g., "Household Total").
-- Shows token insert buttons for "Billing Year", "Household Total", and "Payment Methods".
+- Shows template content in a TipTap WYSIWYG editor with inline token pills (e.g., `%household_total%` rendered as "Household Total" pill) and a formatting toolbar (bold, italic, link).
+- Supports slash-command menu (`/`) for inserting block tokens (e.g., `/table_member_details`, `/payment_methods`, `/share_link`) and percent-prefix (`%`) for inline tokens (e.g., `%billing_year%`, `%household_total%`).
+- Subject line uses a constrained single-line TipTap editor (SubjectEditor) with token support but no rich formatting.
 - Shows live preview panel with To and Subject fields.
 - Shows "Save Template" button.
 - Hides "Save Template" button when the year is read-only.

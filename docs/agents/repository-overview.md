@@ -21,7 +21,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 - **Build:** Vite (React app → `app/` directory, code-split chunks)
 - **Testing:** Vitest + React Testing Library
 - **Email Delivery:** [Resend](https://resend.com) via Cloud Function — HTML emails from `billing@mail.nathanpayne.com` (SPF/DKIM verified)
-- **Dependencies:** Firebase SDK v12, React 19, React Router v7, Vite 8, Resend SDK
+- **Rich-Text Editing:** [TipTap](https://tiptap.dev) WYSIWYG editor for invoice templates — custom inline token nodes, block token nodes, slash-command menu (TemplateEditor.jsx, SubjectEditor.jsx)
+- **Dependencies:** Firebase SDK v12, React 19, React Router v7, Vite 8, TipTap, Resend SDK
 
 ### Project Structure
 ```
@@ -47,6 +48,14 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │   │   ├── SettlementBoard.jsx         # Household settlement cards with filters
 │   │   │   ├── ShareLinkDialog.jsx         # Share link generation and management
 │   │   │   ├── StatusBadge.jsx    # Payment status pill (Outstanding/Partial/Settled)
+│   │   │   ├── TemplateEditor.jsx          # TipTap WYSIWYG editor with token pills, toolbar, slash-commands
+│   │   │   ├── SubjectEditor.jsx           # TipTap single-line editor for email subjects
+│   │   │   ├── SlashCommandMenu.jsx        # Slash-command autocomplete for TipTap
+│   │   │   ├── TokenNode.js                # Custom TipTap node for inline %token% pills
+│   │   │   ├── BlockTokenNode.js           # Custom TipTap node for block /slash_command tokens
+│   │   │   ├── BlockTokenNodeView.jsx      # React component for rendering block token nodes
+│   │   │   ├── CompanyLogo.jsx             # Company logo SVG renderer
+│   │   │   ├── UpdateToast.jsx             # Service worker update notification
 │   │   │   └── TextInvoiceDialog.jsx       # SMS invoice composer with deep links
 │   │   ├── contexts/
 │   │   │   ├── AuthContext.jsx    # Firebase auth state provider
@@ -79,6 +88,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── persistence.js         # Firestore read/write operations
 │       ├── share.js               # Share token, public share data
 │       ├── sms.js                 # SMS deep link generation
+│       ├── mail.js                # Email queueing via Firestore mailQueue
+│       ├── template-doc.js        # TipTap document ↔ token processing
 │       └── validation.js          # Input validation (E.164, URLs, amounts)
 ├── app/                           # BUILD OUTPUT (gitignored) — Vite builds here
 ├── functions/
@@ -93,6 +104,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   ├── hooks/                     # Hook tests
 │   ├── lib/                       # Service and business logic tests
 │   └── views/                     # View-level integration tests
+├── tests/e2e/                     # Playwright end-to-end tests
+├── playwright.config.js           # Playwright configuration
 ├── specs/                         # Feature specifications and acceptance criteria
 ├── scripts/
 │   ├── check-no-public-secrets.mjs  # Secret scanning (runs as part of npm test)
@@ -119,19 +132,19 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 
 | Route | Auth Required | Purpose |
 |-------|:------------:|---------|
-| `/app/` | Yes | Dashboard — KPIs, settlement board, lifecycle bar |
-| `/app/manage` | Yes | Members, Bills, Invoicing, Reviews tabs |
-| `/app/settings` | Yes | Year management + payment methods |
-| `/app/share` | No | Public billing summary via `publicShares` collection |
-| `/app/login` | No | Email/Password and Google Sign-In |
+| `/dashboard` | Yes | Dashboard — KPIs, settlement board, lifecycle bar |
+| `/manage` | Yes | Members, Bills, Invoicing, Reviews tabs |
+| `/settings` | Yes | Year management + payment methods |
+| `/share` | No | Public billing summary via `publicShares` collection |
+| `/login` | No | Email/Password and Google Sign-In |
 
 ### Architecture
 
 #### Authentication Flow
-1. User visits any `/app/` route → `AuthContext` checks `onAuthStateChanged()`
-2. If unauthenticated → React Router redirects to `/app/login`
+1. User visits any protected route → `AuthContext` checks `onAuthStateChanged()`
+2. If unauthenticated → React Router redirects to `/login`
 3. User logs in via Email/Password or Google Sign-In
-4. On success → redirect to `/app/`, `useBillingData` hook initializes `BillingYearService`
+4. On success → redirect to `/dashboard`, `useBillingData` hook initializes `BillingYearService`
 5. All data operations scoped to `/users/{userId}/billingYears/{yearId}`
 
 #### Data Architecture
@@ -172,7 +185,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   │     amount: number (negative for reversals),
   │     receivedAt: string (ISO 8601),
   │     note: string,
-  │     method: string ("cash"|"check"|"venmo"|"zelle"|"paypal"|"bank_transfer"|"other"),
+  │     method: string ("venmo"|"zelle"|"cashapp"|"paypal"|"apple_cash"|"check"|"other"),
   │     reversed: boolean|undefined (true when reversed by a later entry),
   │     type: string|undefined ("reversal" for reversal entries),
   │     reversesPaymentId: string|undefined (original payment ID for reversals)
@@ -191,14 +204,18 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
   │     paymentLinks: Array<{ id, name, url }> (legacy, migrated to paymentMethods on load),
   │     paymentMethods: Array<{
   │       id: string,
-  │       type: string ("zelle"|"apple_cash"|"venmo"|"cashapp"|"paypal"|"other"),
+  │       type: string ("venmo"|"zelle"|"cashapp"|"paypal"|"apple_cash"|"check"|"other"),
   │       label: string,
   │       enabled: boolean,
   │       handle: string,
   │       url: string,
   │       phone: string,
   │       email: string,
-  │       instructions: string
+  │       instructions: string,
+  │       name: string (check type only),
+  │       address: string (check type only),
+  │       qrCode: string (base64 data URL, optional),
+  │       hasQrCode: boolean (optional)
   │     }>
   │   }
   └── updatedAt: Timestamp
@@ -294,20 +311,22 @@ Firebase is initialized via the modular SDK in `src/lib/firebase.js`, which read
 Do not reintroduce `__/firebase/init.js` or CDN compat scripts.
 
 ### Build System
-The application is built by **Vite** into the `app/` directory (matching the `/app/` base path):
+The application uses a three-step build pipeline. The React SPA is primary at `/`; the legacy build is retained at `/site/`.
 
 ```bash
-npm run build          # Production build (Vite → app/, code-split chunks)
-npm run dev            # Dev server with HMR
+npm run build          # Three-step: build:react → build:legacy → build:assemble
+npm run dev            # Vite dev server with HMR
 ```
 
 **How it works:**
+1. `build:react` — Vite builds `src/app/` → `app/` (code-split chunks, ~237 KB main bundle)
+2. `build:legacy` — esbuild bundles `src/index.js` → `script.js` (intermediate, repo root)
+3. `build:assemble` — copies legacy files into `app/site/`, shared assets (firebase-config, design tokens, logos) into `app/`
 - `src/app/main.jsx` is the Vite entry point (React `createRoot`)
 - `src/app/App.jsx` is the root component with React Router and lazy-loaded views
 - `src/lib/` contains pure business logic (no React dependency) shared across components
-- Vite produces code-split chunks: main bundle (~237 KB) + lazy-loaded view chunks
 - The `app/` output directory is **gitignored**; source of truth is `src/`
-- Firebase Hosting serves `app/` at the `/app/` path with SPA fallback rewrites
+- Firebase Hosting serves `app/` at `/` with SPA fallback rewrites (`"public": "app"` in `firebase.json`)
 
 **State management:** `BillingYearService` (in `src/lib/`) owns all mutable billing state. React components subscribe via `useSyncExternalStore` through the `useBillingData` hook. Mutations go through service methods → `_setState()` → subscriber notification → React re-render. Firestore writes are serialized through `SaveQueue`.
 

@@ -59,15 +59,17 @@ A cloud-based web application for coordinating and settling annual shared bills 
 - ✅ Trust banner with security messaging
 
 ### 💳 Payment Methods
-- ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, Cash App, PayPal, etc.)
+- ✅ Configurable payment methods (Venmo, Zelle, Cash App, PayPal, Apple Cash, Check, Other)
+- ✅ QR code uploads per payment method (PNG/JPEG)
 - ✅ Payment methods appear on invoices and share links
 - ✅ Copy-to-clipboard for payment handles
 
 ### 📧 Invoicing & Reporting
+- ✅ TipTap WYSIWYG rich-text template editor with inline token pills and slash-command menu
+- ✅ Server-side email delivery via Resend (HTML + plain-text fallback)
 - ✅ Annual summary with monthly and yearly totals
 - ✅ Payment tracking with automatic balance calculation
-- ✅ Individual email invoices (plain text via mailto)
-- ✅ Customizable email messages with %total placeholder
+- ✅ Customizable email templates with token placeholders (%member_name%, %household_total%, etc.)
 - ✅ Combined invoices for parent + linked members
 - ✅ Payment history timeline with remaining balance
 
@@ -315,7 +317,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - **[AGENTS.md](AGENTS.md)** - AI agent instructions and technical reference
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Detailed deployment instructions
 - **[QUICKSTART.md](docs/QUICKSTART.md)** - Fast 10-minute setup
-- **[FIREBASE_IMPLEMENTATION.md](docs/FIREBASE_IMPLEMENTATION.md)** - Firebase migration details
+- **[REVIEW_POLICY.md](REVIEW_POLICY.md)** - Multi-identity code review policy
 
 ## Troubleshooting
 
@@ -348,18 +350,25 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ## Changelog
 
-### React Migration (2026-03)
+### TipTap Editor, Check Payment Method, QR Codes (2026-04)
+- ✅ TipTap WYSIWYG rich-text editor for invoice templates (TemplateEditor, SubjectEditor)
+- ✅ Custom TipTap nodes: inline %token% pills and block /slash_command tokens
+- ✅ Check payment method type with name, address, phone fields
+- ✅ Bank building icon for Check payment method (branded SVG)
+- ✅ QR code uploads per payment method
+- ✅ 632 React tests + 288 legacy tests + Playwright E2E
+
+### React Migration (2026-03) --- COMPLETE
 - ✅ Full rewrite from vanilla JS to React 19 SPA
 - ✅ Service-owns-state architecture: BillingYearService + useSyncExternalStore
 - ✅ Code-split lazy loading via React.lazy + Suspense
 - ✅ Vite build with ~237 KB main bundle + lazy chunks
 - ✅ React Router v7 with SPA fallback rewrites
-- ✅ ~400 Vitest + React Testing Library tests
-- ✅ Public share page ported to React route (/app/share)
-- ✅ Legacy vanilla JS monolith (src/main.js, ~5,700 lines) removed
-- ✅ Legacy VM-context test suite (tests/billing.test.js, ~3,700 lines) removed
+- ✅ 632 Vitest + React Testing Library tests
+- ✅ Public share page ported to React route (/share)
+- ✅ Server-side email delivery via Resend Cloud Function
 - ✅ Firebase modular SDK replaces CDN compat libraries
-- ✅ Firebase config moved from script tag to .env.local
+- ✅ React app promoted to primary at `/`; legacy retained at `/site/`
 
 ### Billing Frequency & Money Integrity (2026-02)
 - ✅ Billing frequency toggle (Monthly ↔ Annual) per bill
@@ -386,7 +395,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ### Share Links & Disputes (2026-01)
 - ✅ Token-based share links for member billing summaries
-- ✅ Configurable payment methods (Zelle, Apple Cash, Venmo, etc.)
+- ✅ Configurable payment methods (Venmo, Zelle, Cash App, PayPal, Apple Cash, Check, Other)
 - ✅ Dispute/review request system with evidence uploads
 - ✅ Cloud Functions v2 for dispute submission and evidence management
 - ✅ Direct Firestore reads for share link data (via `publicShares` collection)
