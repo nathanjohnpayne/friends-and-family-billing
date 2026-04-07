@@ -2791,6 +2791,8 @@ function addPaymentMethod() {
         handle: '',
         url: '',
         instructions: '',
+        name: '',
+        address: '',
         qrCode: ''
     };
 
@@ -2813,6 +2815,18 @@ function editPaymentMethod(methodId) {
     if (!overlay || !dialog) return;
 
     let fieldsHTML = '';
+    if (typeInfo.fields.includes('name')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditName">Payee Name</label>
+            <input type="text" id="pmEditName" value="${escapeHtml(method.name || '')}" placeholder="Full name for the check" />
+        </div>`;
+    }
+    if (typeInfo.fields.includes('address')) {
+        fieldsHTML += `<div class="form-group">
+            <label for="pmEditAddress">Mailing Address</label>
+            <textarea id="pmEditAddress" rows="3" placeholder="123 Main St&#10;City, ST 12345">${escapeHtml(method.address || '')}</textarea>
+        </div>`;
+    }
     if (typeInfo.fields.includes('email')) {
         fieldsHTML += `<div class="form-group">
             <label for="pmEditEmail">Email</label>
@@ -2917,6 +2931,8 @@ function savePaymentMethodEdit(methodId) {
     if (!method) return;
 
     const labelEl = document.getElementById('pmEditLabel');
+    const nameEl = document.getElementById('pmEditName');
+    const addressEl = document.getElementById('pmEditAddress');
     const emailEl = document.getElementById('pmEditEmail');
     const phoneEl = document.getElementById('pmEditPhone');
     const handleEl = document.getElementById('pmEditHandle');
@@ -2924,6 +2940,15 @@ function savePaymentMethodEdit(methodId) {
     const instructionsEl = document.getElementById('pmEditInstructions');
 
     if (labelEl) method.label = labelEl.value.trim() || (PAYMENT_METHOD_TYPES[method.type] || PAYMENT_METHOD_TYPES.other).label;
+    if (nameEl) method.name = nameEl.value.trim();
+    if (addressEl) {
+        const address = addressEl.value.trim();
+        if (method.type === 'check' && !address) {
+            alert('Mailing address is required for check payments');
+            return;
+        }
+        method.address = address;
+    }
     if (emailEl) method.email = emailEl.value.trim();
     if (phoneEl) {
         const phone = phoneEl.value.trim();
@@ -3040,7 +3065,17 @@ function formatPaymentOptionsHTML() {
         html += `<div class="payment-method-card">`;
         html += `<div class="pm-header"><span class="pm-icon">${getPaymentMethodIcon(method.type)}</span><div class="pm-label">${escapeHtml(method.label)}</div></div>`;
 
-        if (method.type === 'zelle') {
+        if (method.type === 'check') {
+            if (method.name) {
+                html += `<p class="pm-detail">Payee: <span class="pm-contact-chip">${escapeHtml(method.name)}</span></p>`;
+            }
+            if (method.address) {
+                html += `<p class="pm-detail">Mail to: <span class="pm-contact-chip">${escapeHtml(method.address.replace(/\n/g, ', '))}</span></p>`;
+            }
+            if (method.phone) {
+                html += `<p class="pm-detail">Phone: <span class="pm-contact-chip">${escapeHtml(method.phone)}</span></p>`;
+            }
+        } else if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) {
                 html += '<p class="pm-detail">Send via Zelle to:</p>';
@@ -3088,7 +3123,11 @@ function formatPaymentOptionsText() {
     methods.forEach(method => {
         text += `\n${method.label}\n`;
 
-        if (method.type === 'zelle') {
+        if (method.type === 'check') {
+            if (method.name) text += `Payee: ${method.name}\n`;
+            if (method.address) text += `Mail to: ${method.address.replace(/\n/g, ', ')}\n`;
+            if (method.phone) text += `Phone: ${method.phone}\n`;
+        } else if (method.type === 'zelle') {
             const contacts = [method.email, method.phone].filter(Boolean);
             if (contacts.length > 0) {
                 text += `Send via Zelle to: ${contacts.join(' or ')}\n`;
