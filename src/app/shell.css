@@ -3165,6 +3165,14 @@ img, svg { display: block; max-width: 100%; }
     align-items: center;
     gap: var(--space-2, 8px);
     margin-bottom: var(--space-1, 4px);
+    min-width: 0;
+}
+
+.share-pm-detail > span,
+.share-pm-detail > a {
+    overflow-wrap: break-word;
+    word-break: break-all;
+    min-width: 0;
 }
 
 .share-pm-instructions {
