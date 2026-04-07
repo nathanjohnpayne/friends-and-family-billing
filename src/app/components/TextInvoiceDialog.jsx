@@ -97,6 +97,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink();
+            if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }
@@ -107,6 +108,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink();
+            if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }

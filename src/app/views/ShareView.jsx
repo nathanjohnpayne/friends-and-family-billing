@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
+import { isShareTokenStale } from '../../lib/share.js';
 import { getPaymentMethodIcon } from '../../lib/formatting.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 
@@ -46,9 +47,26 @@ export default function ShareView() {
             const tokenHash = await hashToken(token);
             let shareData = null;
 
-            // Try publicShares first (eager cache)
+            // Try publicShares first (eager cache), but validate the token
+            // against shareTokens to enforce revocation and expiry.
             const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
+            let cacheValid = false;
             if (publicDoc.exists()) {
+                // Check shareTokens for revoked/expired status before trusting cache
+                const tokenDoc = await getDoc(doc(db, 'shareTokens', tokenHash));
+                if (tokenDoc.exists()) {
+                    const tokenData = tokenDoc.data();
+                    if (isShareTokenStale(tokenData, new Date())) {
+                        // Token is revoked or expired — fall through to CF for proper error
+                        cacheValid = false;
+                    } else {
+                        cacheValid = true;
+                    }
+                }
+                // If shareTokens doc doesn't exist, fall through to CF
+            }
+
+            if (cacheValid) {
                 shareData = publicDoc.data();
                 // Bump access count
                 updateDoc(doc(db, 'publicShares', tokenHash), {

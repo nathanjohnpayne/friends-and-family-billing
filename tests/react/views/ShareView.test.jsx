@@ -38,6 +38,12 @@ vi.mock('@/lib/formatting.js', () => ({
     getInitials: vi.fn((name) => (name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')
 }));
 
+// Use real isShareTokenStale so the expired-cache-hit test validates actual logic
+vi.mock('@/lib/share.js', async () => {
+    const actual = await vi.importActual('@/lib/share.js');
+    return actual;
+});
+
 import ShareView from '@/app/views/ShareView.jsx';
 
 // ---------------------------------------------------------------------------
@@ -109,11 +115,26 @@ function setToken(token) {
     });
 }
 
-/** Helper: configure getDoc to return an existing publicShares doc with given data. */
+/** Helper: configure getDoc to return an existing publicShares doc with given data.
+ *  The second getDoc call (shareTokens) returns a valid, non-stale token. */
 function mockPublicSharesHit(data = sampleShareData) {
     const freshTimestamp = { toDate: () => new Date() };
-    mockGetDoc.mockResolvedValue({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) });
+    const validTokenDoc = { exists: () => true, data: () => ({ revoked: false, expiresAt: null }) };
+    mockGetDoc
+        .mockResolvedValueOnce({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) })
+        .mockResolvedValueOnce(validTokenDoc);
     mockUpdateDoc.mockResolvedValue();
+    mockDoc.mockReturnValue('doc-ref');
+}
+
+/** Helper: configure getDoc to return publicShares cache hit but expired shareToken.
+ *  Should fall through to CF which returns 403. */
+function mockPublicSharesHitButExpired(data = sampleShareData) {
+    const freshTimestamp = { toDate: () => new Date() };
+    const expiredTokenDoc = { exists: () => true, data: () => ({ revoked: false, expiresAt: new Date('2020-01-01') }) };
+    mockGetDoc
+        .mockResolvedValueOnce({ exists: () => true, data: () => ({ ...data, updatedAt: freshTimestamp }) })
+        .mockResolvedValueOnce(expiredTokenDoc);
     mockDoc.mockReturnValue('doc-ref');
 }
 
@@ -1073,6 +1094,52 @@ describe('ShareView', () => {
             });
 
             expect(screen.queryByText(/Preferred/)).not.toBeInTheDocument();
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Expired cache hit — falls through to CF for proper 403
+    // -----------------------------------------------------------------------
+    describe('when publicShares cache hit but token is expired', () => {
+        it('falls through to Cloud Function and shows error with Request New Link button', async () => {
+            setToken('expired-token');
+            mockPublicSharesHitButExpired();
+            // CF returns 403 with canRequestLink
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                json: async () => ({ error: 'This link has expired.', canRequestLink: true, tokenHash: 'hashed_expired-token' })
+            });
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('This link has expired.')).toBeInTheDocument();
+            });
+            expect(screen.getByText('Request New Link')).toBeInTheDocument();
+        });
+
+        it('shows confirmation after clicking Request New Link', async () => {
+            setToken('expired-token');
+            mockPublicSharesHitButExpired();
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: false,
+                    json: async () => ({ error: 'This link has expired.', canRequestLink: true, tokenHash: 'hashed_expired-token' })
+                })
+                .mockResolvedValueOnce({ ok: true, json: async () => ({ message: 'Request sent.' }) });
+
+            const user = userEvent.setup();
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Request New Link')).toBeInTheDocument();
+            });
+
+            await user.click(screen.getByText('Request New Link'));
+
+            await waitFor(() => {
+                expect(screen.getByText(/account owner will send you a new link/)).toBeInTheDocument();
+            });
         });
     });
 });

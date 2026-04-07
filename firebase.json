@@ -119,6 +119,10 @@
         "function": "submitDisputeDecision"
       },
       {
+        "source": "/requestShareLink",
+        "function": "requestShareLink"
+      },
+      {
         "source": "/site/**",
         "destination": "/site/index.html"
       },

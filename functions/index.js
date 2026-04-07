@@ -300,9 +300,16 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     }
 
     // Self-heal: recreate publicShares doc for future direct Firestore reads.
-    // Include access metrics so publicShares remains the single source of truth
-    // for view counts (the client reads accessCount from publicShares).
-    const currentAccessCount = (tokenData.accessCount || 0) + (refreshOnly ? 0 : 1);
+    // publicShares is the single source of truth for view counts.
+    //
+    // On refreshOnly (stale-cache background refresh): the client already
+    // incremented publicShares.accessCount, so we must NOT overwrite those
+    // fields. Use merge:true and omit accessCount/lastAccessedAt to preserve
+    // the client-written values while refreshing billing data.
+    //
+    // On cache-miss (non-refreshOnly): this is the first write to publicShares,
+    // so we include access metrics seeded from shareTokens + 1 for the
+    // current visit.
     const publicShareData = {
       memberName: result.memberName,
       memberId: tokenData.memberId,
@@ -310,10 +317,13 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       year: result.year,
       scopes: scopes,
       ownerId: tokenData.ownerId,
-      accessCount: currentAccessCount,
-      lastAccessedAt: refreshOnly ? (tokenData.lastAccessedAt || null) : FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
+    if (!refreshOnly) {
+      // Cache-miss: seed access metrics from shareTokens + current visit
+      publicShareData.accessCount = (tokenData.accessCount || 0) + 1;
+      publicShareData.lastAccessedAt = FieldValue.serverTimestamp();
+    }
     if (result.summary) {
       publicShareData.summary = result.summary;
       publicShareData.linkedMembers = result.linkedMembers || [];
@@ -322,7 +332,8 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     if (result.paymentMethods) {
       publicShareData.paymentMethods = result.paymentMethods;
     }
-    db.collection("publicShares").doc(hash).set(publicShareData).catch((err) => {
+    // merge:true ensures refreshOnly writes don't clobber accessCount/lastAccessedAt
+    db.collection("publicShares").doc(hash).set(publicShareData, { merge: true }).catch((err) => {
       console.error("Failed to self-heal publicShares:", err);
     });
 
