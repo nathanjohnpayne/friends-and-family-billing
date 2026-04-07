@@ -214,7 +214,7 @@ function ShareHeader({ data }) {
     const lastName = deriveLastName(data.memberName);
     return (
         <header className="share-header">
-            <h1>{lastName} Family's Annual Billing Summary</h1>
+            <h1>{lastName} Household's Annual Billing Summary</h1>
             <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
     );
