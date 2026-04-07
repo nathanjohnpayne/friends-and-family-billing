@@ -10,6 +10,11 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 
 export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) {
     const methods = settings.paymentMethods || [];
+    const sortedMethods = methods.slice().sort((a, b) => {
+        if (a.preferred && !b.preferred) return -1;
+        if (!a.preferred && b.preferred) return 1;
+        return a.label.localeCompare(b.label);
+    });
     const [editTarget, setEditTarget] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [newType, setNewType] = useState('');
@@ -47,7 +52,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                 <p className="invoicing-empty">No payment methods configured yet.</p>
             ) : (
                 <div className="payment-methods-list">
-                    {methods.map(method => (
+                    {sortedMethods.map(method => (
                         <div key={method.id} className={'payment-method-item' + (method.enabled ? '' : ' payment-method-disabled')}>
                             <div className="payment-method-icon" dangerouslySetInnerHTML={{ __html: getPaymentMethodIcon(method.type) }} />
                             <div className="payment-method-info">
