@@ -2,13 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
-vi.mock('firebase/firestore', () => ({
-    doc: vi.fn(),
-    setDoc: vi.fn(),
-    serverTimestamp: vi.fn()
+vi.mock('@/lib/ShareLinkService.js', () => ({
+    createAndPruneShareLink: vi.fn(() => Promise.resolve({ url: 'https://example.com/share?token=test', tokenHash: 'hash', rawToken: 'test' }))
 }));
 
 import TextInvoiceDialog from '@/app/components/TextInvoiceDialog.jsx';
+import { createAndPruneShareLink } from '@/lib/ShareLinkService.js';
 
 const baseProps = {
     open: true,
@@ -50,5 +49,11 @@ describe('TextInvoiceDialog', () => {
     it('renders nothing when not open', () => {
         const { container } = render(<TextInvoiceDialog {...baseProps} open={false} />);
         expect(container.innerHTML).toBe('');
+    });
+
+    it('does not generate a link on dialog open (send-time only)', () => {
+        createAndPruneShareLink.mockClear();
+        render(<TextInvoiceDialog {...baseProps} userId="user-1" billingYearId="2026" />);
+        expect(createAndPruneShareLink).not.toHaveBeenCalled();
     });
 });

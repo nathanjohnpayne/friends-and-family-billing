@@ -1,78 +1,118 @@
 /**
  * TextInvoiceDialog — SMS invoice composer with variant selector.
  * Port of showTextInvoiceDialog() from main.js:4521.
+ *
+ * Share links are generated at send time (not on dialog open) to avoid
+ * creating orphan links when the user closes without sending.
  */
-import { useState, useEffect } from 'react';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../lib/firebase.js';
+import { useState, useEffect, useRef } from 'react';
 import { getInvoiceSummaryContext, buildInvoiceBody } from '../../lib/invoice.js';
 import { openSmsComposer } from '../../lib/sms.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
-import { generateRawToken, hashToken } from '../../lib/validation.js';
-import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from '../../lib/share.js';
+import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 
 /**
- * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, shareUrl?: string, onClose: function, showToast?: function }} props
+ * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, onClose: function, showToast?: function }} props
  */
-export default function TextInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, userId, billingYearId, shareUrl: externalShareUrl, onClose, showToast }) {
+export default function TextInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, userId, billingYearId, onClose, showToast }) {
     const [variant, setVariant] = useState('text-link');
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const [generating, setGenerating] = useState(false);
+    const bodyEditedRef = useRef(false);
 
-    const shareUrl = externalShareUrl || generatedShareUrl;
     const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings) : null;
 
-    // Reset generated URL when dialog reopens
+    // Reset state when dialog opens
     useEffect(() => {
-        if (open) { setGeneratedShareUrl(''); setGenerating(false); }
+        if (open) {
+            setGeneratedShareUrl('');
+            setGenerating(false);
+            bodyEditedRef.current = false;
+        }
     }, [open, memberId]);
 
-    // Auto-generate a share link when text-link variant is selected and none exists
-    useEffect(() => {
-        if (!open || variant !== 'text-link' || shareUrl || generating || !userId || !billingYearId || !ctx) return;
-        let cancelled = false;
-        (async () => {
-            setGenerating(true);
-            try {
-                const rawToken = generateRawToken();
-                const tokenHash = await hashToken(rawToken);
-                const scopes = buildShareScopes(true, true);
-                const expiresAt = computeExpiryDate(365);
-                const tokenDoc = buildShareTokenDoc(userId, memberId, ctx.member.name, billingYearId, rawToken, expiresAt, scopes);
-                await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
-                const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings);
-                if (publicData) {
-                    await setDoc(doc(db, 'publicShares', tokenHash), { ...publicData, updatedAt: serverTimestamp() });
-                }
-                const url = buildShareUrl(window.location.origin, rawToken);
-                if (!cancelled) setGeneratedShareUrl(url);
-            } catch (err) {
-                console.error('Failed to auto-generate share link:', err);
-            }
-            if (!cancelled) setGenerating(false);
-        })();
-        return () => { cancelled = true; };
-    }, [open, variant, memberId, userId, billingYearId]);
-
+    // Build body when variant changes
     useEffect(() => {
         if (!ctx) return;
-        setBody(buildInvoiceBody(ctx, variant, shareUrl, 'sms'));
+        setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'sms'));
         setCopied(false);
-    }, [open, variant, memberId, shareUrl]);
+        bodyEditedRef.current = false;
+    }, [open, variant, memberId]);
 
     if (!open || !ctx) return null;
 
-    // True when text-link variant needs a share URL but it hasn't arrived yet
-    const linkPending = variant === 'text-link' && !shareUrl && generating;
+    const needsLink = variant === 'text-link';
 
-    function handleCopy() {
-        navigator.clipboard.writeText(body).then(() => setCopied(true));
+    /**
+     * Generate a share link at send time. Returns the URL or empty string.
+     * Caches the result so repeated actions in the same dialog session reuse it.
+     */
+    async function ensureShareLink() {
+        if (generatedShareUrl) return generatedShareUrl;
+        if (!userId || !billingYearId || !ctx) return '';
+        setGenerating(true);
+        try {
+            const result = await createAndPruneShareLink({
+                userId,
+                memberId,
+                memberName: ctx.member.name,
+                billingYearId,
+                familyMembers,
+                bills,
+                payments,
+                activeYear,
+                settings,
+            });
+            setGeneratedShareUrl(result.url);
+            setGenerating(false);
+            return result.url;
+        } catch (err) {
+            console.error('Failed to generate share link:', err);
+            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'));
+            setGenerating(false);
+            return '';
+        }
     }
 
-    function handleOpenMessages() {
-        openSmsComposer(ctx.member.phone, body, () => {
+    /**
+     * Rebuild body with share URL, respecting manual edits.
+     */
+    function rebuildBodyWithUrl(url) {
+        if (!url) return body;
+        if (!bodyEditedRef.current) {
+            return buildInvoiceBody(ctx, variant, url, 'sms');
+        }
+        if (body.includes(url)) return body;
+        return body + '\n\n' + url;
+    }
+
+    function handleBodyChange(e) {
+        setBody(e.target.value);
+        bodyEditedRef.current = true;
+    }
+
+    async function handleCopy() {
+        let finalBody = body;
+        if (needsLink) {
+            const url = await ensureShareLink();
+            if (!url) return; // abort — toast already shown by ensureShareLink
+            finalBody = rebuildBodyWithUrl(url);
+            setBody(finalBody);
+        }
+        navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
+    }
+
+    async function handleOpenMessages() {
+        let finalBody = body;
+        if (needsLink) {
+            const url = await ensureShareLink();
+            if (!url) return; // abort — toast already shown by ensureShareLink
+            finalBody = rebuildBodyWithUrl(url);
+            setBody(finalBody);
+        }
+        openSmsComposer(ctx.member.phone, finalBody, () => {
             if (showToast) showToast('Message copied\u2014paste into your messaging app');
         });
     }
@@ -89,8 +129,8 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                     {ctx.payment > 0 && (
                         <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
                     )}
-                    {shareUrl && (
-                        <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{shareUrl}</span></div>
+                    {generatedShareUrl && (
+                        <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{generatedShareUrl}</span></div>
                     )}
                 </div>
 
@@ -108,21 +148,17 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                 <div className="payment-dialog-fields">
                     <div className="payment-field-group">
                         <label>Message</label>
-                        {linkPending ? (
-                            <p className="link-manager-hint">Generating share link…</p>
-                        ) : (
-                            <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={e => setBody(e.target.value)} />
-                        )}
+                        <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={handleBodyChange} />
                     </div>
                 </div>
 
                 <div className="dialog-buttons">
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={linkPending}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={generating}>
                         {copied ? 'Copied!' : 'Copy Message'}
                     </button>
-                    <button className="btn btn-sm btn-primary" onClick={handleOpenMessages} disabled={linkPending}>
-                        {linkPending ? 'Generating link…' : 'Open Messages'}
+                    <button className="btn btn-sm btn-primary" onClick={handleOpenMessages} disabled={generating}>
+                        {generating ? 'Generating link\u2026' : 'Open Messages'}
                     </button>
                 </div>
             </div>

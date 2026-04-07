@@ -1710,7 +1710,7 @@ describe('computeMemberSummary', () => {
 // ──────────────── submitDispute validation helpers ─────────────
 
 const { _testHelpers } = require(path.join(__dirname, '..', 'functions', 'index'));
-const { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS } = _testHelpers;
+const { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS, LINK_REQUEST_RATE_WINDOW_MS } = _testHelpers;
 
 describe('validateToken', () => {
     it('rejects null/undefined token', () => {
@@ -1815,6 +1815,12 @@ describe('DISPUTE_RATE_LIMIT', () => {
 describe('EVIDENCE_URL_EXPIRY_MS', () => {
     it('is 1 hour in milliseconds', () => {
         assert.equal(EVIDENCE_URL_EXPIRY_MS, 60 * 60 * 1000);
+    });
+});
+
+describe('LINK_REQUEST_RATE_WINDOW_MS', () => {
+    it('is 24 hours in milliseconds', () => {
+        assert.equal(LINK_REQUEST_RATE_WINDOW_MS, 24 * 60 * 60 * 1000);
     });
 });
 

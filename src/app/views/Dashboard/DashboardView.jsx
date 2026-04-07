@@ -229,6 +229,8 @@ export default function DashboardView() {
                     payments={payments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
+                    userId={user ? user.uid : ''}
+                    billingYearId={activeYear.id}
                     showToast={showToast}
                     onClose={() => setDialog({ type: null, memberId: null })}
                 />

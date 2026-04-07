@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
+import { isShareTokenStale } from '../../lib/share.js';
 import { getPaymentMethodIcon } from '../../lib/formatting.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 
@@ -22,6 +23,9 @@ export default function ShareView() {
     const [error, setError] = useState(null);
     const [data, setData] = useState(null);
     const [timedOut, setTimedOut] = useState(false);
+    const [canRequestLink, setCanRequestLink] = useState(false);
+    const [errorTokenHash, setErrorTokenHash] = useState(null);
+    const [linkRequested, setLinkRequested] = useState(false);
     const [shareCtx, setShareCtx] = useState({ token: null, tokenHash: null, ownerId: null, billingYearId: null, memberId: null, memberName: '', canDispute: false, canDisputeRead: false });
 
     useEffect(() => {
@@ -43,9 +47,31 @@ export default function ShareView() {
             const tokenHash = await hashToken(token);
             let shareData = null;
 
-            // Try publicShares first (eager cache)
+            // Try publicShares first (eager cache), validating expiry from
+            // the cached doc itself. publicShares carries expiresAt and revoked
+            // fields mirrored from shareTokens, so we can check without reading
+            // the owner-only shareTokens collection (which would fail for
+            // unauthenticated visitors).
             const publicDoc = await getDoc(doc(db, 'publicShares', tokenHash));
+            let cacheValid = false;
             if (publicDoc.exists()) {
+                const cachedData = publicDoc.data();
+                // Legacy publicShares docs created before the validity-field
+                // migration won't have 'revoked' at all. Treat missing validity
+                // fields as untrusted — fall through to the CF which checks
+                // shareTokens via Admin SDK and self-heals the doc with the
+                // mirrored fields for next time.
+                const hasValidityFields = 'revoked' in cachedData;
+                if (!hasValidityFields) {
+                    cacheValid = false;
+                } else if (isShareTokenStale(cachedData, new Date())) {
+                    cacheValid = false;
+                } else {
+                    cacheValid = true;
+                }
+            }
+
+            if (cacheValid) {
                 shareData = publicDoc.data();
                 // Bump access count
                 updateDoc(doc(db, 'publicShares', tokenHash), {
@@ -54,14 +80,16 @@ export default function ShareView() {
                 }).catch(() => {});
 
                 // If cache is stale (>1 hour), refresh in background via Cloud Function
-                // so next visit gets fresh data (e.g., preferred payment method changes)
+                // so next visit gets fresh data (e.g., preferred payment method changes).
+                // Pass refreshOnly: true to avoid double-counting the access — the visit
+                // was already counted by the publicShares increment above.
                 const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
                 const updatedAt = shareData.updatedAt && shareData.updatedAt.toDate ? shareData.updatedAt.toDate() : null;
                 if (!updatedAt || (Date.now() - updatedAt.getTime() > CACHE_MAX_AGE_MS)) {
                     fetch('/resolveShareToken', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token })
+                        body: JSON.stringify({ token, refreshOnly: true })
                     }).catch(() => {});
                 }
             } else {
@@ -74,6 +102,10 @@ export default function ShareView() {
                 if (!resp.ok) {
                     const errData = await resp.json().catch(() => ({}));
                     setError(errData.error || 'This link is invalid or has been removed.');
+                    if (errData.canRequestLink) {
+                        setCanRequestLink(true);
+                        setErrorTokenHash(errData.tokenHash || null);
+                    }
                     setLoading(false);
                     return;
                 }
@@ -117,12 +149,43 @@ export default function ShareView() {
         );
     }
 
+    async function handleRequestLink() {
+        if (!errorTokenHash) return;
+        try {
+            const resp = await fetch('/requestShareLink', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tokenHash: errorTokenHash })
+            });
+            if (resp.ok) {
+                setLinkRequested(true);
+            } else {
+                const errData = await resp.json().catch(() => ({}));
+                if (resp.status === 429) {
+                    setLinkRequested(true); // Already requested recently — show confirmation anyway
+                } else {
+                    console.error('Request link failed:', errData.error);
+                }
+            }
+        } catch (err) {
+            console.error('Request link error:', err);
+        }
+    }
+
     if (error) {
         return (
             <div className="share-page share-error">
                 <div className="share-state-card">
                     <h2>Unable to Load Summary</h2>
                     <p>{error}</p>
+                    {canRequestLink && !linkRequested && (
+                        <button className="btn btn-sm btn-primary" onClick={handleRequestLink}>
+                            Request New Link
+                        </button>
+                    )}
+                    {linkRequested && (
+                        <p className="share-hint">Your request has been sent. The account owner will send you a new link.</p>
+                    )}
                 </div>
             </div>
         );
