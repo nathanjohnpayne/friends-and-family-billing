@@ -162,6 +162,77 @@ describe('payment URL linkification (issue #116)', () => {
     });
 });
 
+describe('preferred payment method ordering (issue #185)', () => {
+    const settingsWithPreferred = {
+        emailMessage: 'Your bill for %billing_year% is ready.\n\n%payment_methods%',
+        paymentMethods: [
+            { type: 'venmo', label: 'Venmo', enabled: true, handle: '@NathanPayne', url: 'https://venmo.com/u/NathanPayne' },
+            { type: 'zelle', label: 'Zelle', enabled: true, email: 'nathan@example.com', phone: '+12025551234', preferred: true },
+            { type: 'cashapp', label: 'Cash App', enabled: true, handle: '$nathanpayne', url: 'https://cash.app/$nathanpayne' },
+            { type: 'paypal', label: 'PayPal', enabled: true, url: 'https://paypal.me/nathanpayne' },
+        ]
+    };
+
+    it('text renderer lists preferred method first, then remaining alphabetically', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, settingsWithPreferred);
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        const zelleIdx = body.indexOf('Zelle');
+        const cashAppIdx = body.indexOf('Cash App');
+        const paypalIdx = body.indexOf('PayPal');
+        const venmoIdx = body.indexOf('Venmo');
+
+        // Preferred (Zelle) should appear first
+        expect(zelleIdx).toBeLessThan(cashAppIdx);
+        expect(zelleIdx).toBeLessThan(paypalIdx);
+        expect(zelleIdx).toBeLessThan(venmoIdx);
+
+        // Remaining should be alphabetical: Cash App < PayPal < Venmo
+        expect(cashAppIdx).toBeLessThan(paypalIdx);
+        expect(paypalIdx).toBeLessThan(venmoIdx);
+    });
+
+    it('markdown renderer lists preferred method first, then remaining alphabetically', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, settingsWithPreferred);
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email', { markdown: true });
+        const zelleIdx = body.indexOf('**Zelle:**');
+        const cashAppIdx = body.indexOf('**Cash App:**');
+        const paypalIdx = body.indexOf('**PayPal:**');
+        const venmoIdx = body.indexOf('**Venmo:**');
+
+        expect(zelleIdx).toBeLessThan(cashAppIdx);
+        expect(zelleIdx).toBeLessThan(paypalIdx);
+        expect(zelleIdx).toBeLessThan(venmoIdx);
+
+        expect(cashAppIdx).toBeLessThan(paypalIdx);
+        expect(paypalIdx).toBeLessThan(venmoIdx);
+    });
+
+    it('HTML renderer lists preferred method first, then remaining alphabetically', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessageDocument: {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Hello.' }] },
+                    { type: 'blockToken', attrs: { id: 'payment_methods', label: 'Payment Methods' } },
+                ],
+            },
+            paymentMethods: settingsWithPreferred.paymentMethods,
+        });
+        const html = renderInvoiceTemplate(ctx, '');
+        const zelleIdx = html.indexOf('Zelle');
+        const cashAppIdx = html.indexOf('Cash App');
+        const paypalIdx = html.indexOf('PayPal');
+        const venmoIdx = html.indexOf('Venmo');
+
+        expect(zelleIdx).toBeLessThan(cashAppIdx);
+        expect(zelleIdx).toBeLessThan(paypalIdx);
+        expect(zelleIdx).toBeLessThan(venmoIdx);
+
+        expect(cashAppIdx).toBeLessThan(paypalIdx);
+        expect(paypalIdx).toBeLessThan(venmoIdx);
+    });
+});
+
 describe('new token name aliases', () => {
     it('buildInvoiceSubject resolves %first_name% and %last_name%', () => {
         const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %first_name% %last_name%', null);
