@@ -298,6 +298,21 @@ describe('SettlementBoard', () => {
         expect(screen.getByText('Linked Members')).toBeInTheDocument();
     });
 
+    it('sections appear in order: Primary Member Calculation, Linked Members, Household Total', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expandCard('Alice');
+        const detail = document.querySelector('.settlement-card-detail');
+        const html = detail.innerHTML;
+        const primaryIdx = html.indexOf('Primary Member Calculation');
+        const linkedIdx = html.indexOf('Linked Members');
+        const totalIdx = html.indexOf('Household Total');
+        expect(primaryIdx).toBeGreaterThan(-1);
+        expect(linkedIdx).toBeGreaterThan(-1);
+        expect(totalIdx).toBeGreaterThan(-1);
+        expect(primaryIdx).toBeLessThan(linkedIdx);
+        expect(linkedIdx).toBeLessThan(totalIdx);
+    });
+
     it('linked member row shows expand/collapse toggle indicator', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
