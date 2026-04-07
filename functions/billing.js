@@ -24,6 +24,8 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
       memberBills.push({
         billId: bill.id,
         name: bill.name,
+        logo: bill.logo || '',
+        website: bill.website || '',
         monthlyAmount: getBillMonthlyAmount(bill),
         billingFrequency: bill.billingFrequency || 'monthly',
         canonicalAmount: bill.amount,
