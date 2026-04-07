@@ -260,7 +260,32 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
             {/* ── Expanded Detail ─────────────────────────────── */}
             {expanded && (
                 <div className="settlement-card-detail">
-                    {/* Linked members — shown before breakdown for clear hierarchy */}
+                    {/* 1. Primary member bill breakdown — always first */}
+                    <div className="settlement-breakdown">
+                        <div className="settlement-breakdown-header">
+                            {hasLinked ? 'Primary Member Calculation' : 'Bill Breakdown for ' + member.name}
+                        </div>
+                        {data.bills.length === 0 ? (
+                            <p className="settlement-breakdown-empty">No bills assigned</p>
+                        ) : (
+                            <>
+                                {data.bills.map(b => (
+                                    <div key={b.bill.id} className="settlement-breakdown-row">
+                                        <span>{b.bill.name}</span>
+                                        <span className="settlement-breakdown-formula">
+                                            {formatBillFormula(b.bill, b.annualShare)}
+                                        </span>
+                                    </div>
+                                ))}
+                                <div className="settlement-breakdown-row settlement-breakdown-total">
+                                    <span>Total ({member.name})</span>
+                                    <span>{formatAnnualSummaryCurrency(data.total)}</span>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* 2. Linked members — shown after primary breakdown */}
                     {hasLinked && (
                         <div className="settlement-linked-section">
                             <div className="settlement-section-label">Linked Members</div>
@@ -325,44 +350,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         </div>
                     )}
 
-                    {/* Bill breakdown */}
-                    <div className="settlement-breakdown">
-                        <div className="settlement-breakdown-header">
-                            {hasLinked ? 'Primary Member Calculation' : 'Bill breakdown for ' + member.name}
+                    {/* 3. Household / Individual Total */}
+                    {hasLinked && (
+                        <div className="settlement-breakdown">
+                            <div className="settlement-breakdown-row settlement-breakdown-grand-total">
+                                <span>Household Total</span>
+                                <span>{formatAnnualSummaryCurrency(combinedTotal)}</span>
+                            </div>
                         </div>
-                        {data.bills.length === 0 ? (
-                            <p className="settlement-breakdown-empty">No bills assigned</p>
-                        ) : (
-                            <>
-                                {data.bills.map(b => (
-                                    <div key={b.bill.id} className="settlement-breakdown-row">
-                                        <span>{b.bill.name}</span>
-                                        <span className="settlement-breakdown-formula">
-                                            {formatBillFormula(b.bill, b.annualShare)}
-                                        </span>
-                                    </div>
-                                ))}
-                                <div className="settlement-breakdown-row settlement-breakdown-total">
-                                    <span>Total ({member.name})</span>
-                                    <span>{formatAnnualSummaryCurrency(data.total)}</span>
-                                </div>
-                                {hasLinked && (
-                                    <>
-                                        {linkedData.map(ls => (
-                                            <div key={ls.member.id} className="settlement-breakdown-row settlement-breakdown-linked">
-                                                <span>{ls.member.name}</span>
-                                                <span>{formatAnnualSummaryCurrency(ls.total)}</span>
-                                            </div>
-                                        ))}
-                                        <div className="settlement-breakdown-row settlement-breakdown-grand-total">
-                                            <span>Household Total</span>
-                                            <span>{formatAnnualSummaryCurrency(combinedTotal)}</span>
-                                        </div>
-                                    </>
-                                )}
-                            </>
-                        )}
-                    </div>
+                    )}
 
                     {/* Actions — primary + overflow menu */}
                     <div className="settlement-detail-actions">

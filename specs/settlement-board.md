@@ -24,8 +24,8 @@ Covers the settlement board component for tracking household payment status, the
 - Card header shows Annual/Paid/Balance summary boxes; Balance shows $0.00 when settled.
 - Card header shows a "+N" badge next to the member name for households with linked members.
 - Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
-- Cards expand via a "Details / Hide details" toggle to show linked members and bill breakdown.
-- Expanded view shows "Linked Members" section with linked members above the bill breakdown; each linked member row has Annual/Paid/Balance summary boxes matching the parent card layout.
+- Cards expand via a "Details / Hide details" toggle to show bill breakdown, linked members, and household total.
+- Expanded view shows sections in a consistent top-to-bottom order: (1) Primary Member Calculation, (2) Linked Members, (3) Household Total. Each linked member row has Annual/Paid/Balance summary boxes matching the parent card layout.
 - Each linked member row is clickable and toggles an individual bill breakdown section; all linked member breakdowns default to collapsed.
 - Expanded linked member breakdown shows each bill with a formula and result, matching the primary member breakdown format.
 - When a linked member shares the same bill set as the primary member, the expanded breakdown shows "Same bills as [primary name]" instead of individual formulas.
