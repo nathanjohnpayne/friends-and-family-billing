@@ -3320,6 +3320,49 @@ img, svg { display: block; max-width: 100%; }
         flex: 1;
         text-align: center;
     }
+
+    /* ── Settlement card mobile reflow ──────────────────── */
+    .settlement-card-main {
+        flex-wrap: wrap;
+    }
+
+    .settlement-card-left {
+        flex: 1 1 100%;
+        margin-bottom: var(--space-1, 4px);
+    }
+
+    .settlement-card-right {
+        flex: 1 1 100%;
+        flex-shrink: 1;
+        justify-content: space-between;
+    }
+
+    .settlement-summary-boxes {
+        flex: 1;
+    }
+
+    .settlement-summary-box {
+        min-width: 0;
+        flex: 1;
+        padding: var(--space-1, 4px) var(--space-1, 4px);
+    }
+
+    .settlement-summary-label {
+        font-size: 0.6rem;
+    }
+
+    .settlement-summary-value {
+        font-size: 0.8rem;
+    }
+
+    .settlement-expand-toggle {
+        font-size: 0.7rem;
+    }
+
+    /* Linked member summary boxes */
+    .settlement-summary-boxes--linked {
+        margin-left: 0;
+    }
 }
 
 /* ── Update Toast ─────────────────────────────────────── */
