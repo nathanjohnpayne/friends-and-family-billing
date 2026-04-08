@@ -3301,7 +3301,13 @@ img, svg { display: block; max-width: 100%; }
     .nav-email { display: none; }
 
     .kpi-grid {
-        grid-template-columns: repeat(2, 1fr);
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .kpi-grid > * {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .manage-tabs {
@@ -3325,11 +3331,6 @@ img, svg { display: block; max-width: 100%; }
     .settlement-filter-chip {
         flex: 1;
         text-align: center;
-        font-size: 0.7rem;
-        padding: var(--space-1, 4px) var(--space-1, 4px);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
     .settlement-filter-info {
