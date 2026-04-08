@@ -3325,6 +3325,11 @@ img, svg { display: block; max-width: 100%; }
     .settlement-filter-chip {
         flex: 1;
         text-align: center;
+        font-size: 0.7rem;
+        padding: var(--space-1, 4px) var(--space-1, 4px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .settlement-filter-info {
