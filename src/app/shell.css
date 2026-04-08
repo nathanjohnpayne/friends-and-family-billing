@@ -3331,6 +3331,7 @@ img, svg { display: block; max-width: 100%; }
     .settlement-filter-chip {
         flex: 1;
         text-align: center;
+        white-space: nowrap;
     }
 
     .settlement-filter-info {
