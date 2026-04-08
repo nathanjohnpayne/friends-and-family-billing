@@ -3311,13 +3311,24 @@ img, svg { display: block; max-width: 100%; }
 
     .nav-brand span { display: none; }
 
+    /* ── Settlement header + filter chips mobile ──────── */
+    .settlement-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
     .settlement-filters {
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         width: 100%;
     }
 
     .settlement-filter-chip {
         flex: 1;
+        text-align: center;
+    }
+
+    .settlement-filter-info {
+        flex: 0 0 100%;
         text-align: center;
     }
 
@@ -3333,11 +3344,12 @@ img, svg { display: block; max-width: 100%; }
 
     .settlement-card-right {
         flex: 1 1 100%;
-        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--space-1, 4px) var(--space-2, 8px);
     }
 
     .settlement-summary-boxes {
-        flex: 1;
+        flex: 1 1 100%;
     }
 
     .settlement-summary-box {
@@ -3356,6 +3368,7 @@ img, svg { display: block; max-width: 100%; }
 
     .settlement-expand-toggle {
         font-size: 0.7rem;
+        margin-left: auto;
     }
 
     /* Linked member summary boxes */
