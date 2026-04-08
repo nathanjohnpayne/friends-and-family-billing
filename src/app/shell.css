@@ -1423,6 +1423,23 @@ img, svg { display: block; max-width: 100%; }
     padding: 2px 0;
 }
 
+.settlement-bill-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.settlement-bill-logo {
+    flex-shrink: 0;
+    border-radius: 3px;
+}
+
+/* Progressive formula disclosure: full by default, short on mobile */
+.settlement-formula-short {
+    display: none;
+}
+
 .settlement-breakdown-total {
     font-weight: 600;
     border-top: 1px solid var(--color-border, #e0e0e0);
@@ -3310,6 +3327,28 @@ img, svg { display: block; max-width: 100%; }
         min-width: 0;
     }
 
+    .kpi-card {
+        padding: var(--space-2, 8px) var(--space-1, 4px);
+    }
+
+    .kpi-label {
+        font-size: 0.6rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .kpi-value {
+        font-size: 0.95rem;
+    }
+
+    .kpi-subtitle {
+        font-size: 0.55rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
     .manage-tabs {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -3382,6 +3421,38 @@ img, svg { display: block; max-width: 100%; }
     .settlement-summary-boxes--linked {
         margin-left: 0;
     }
+
+    /* ── Bill breakdown progressive disclosure ─────────── */
+    .settlement-formula-full {
+        display: none;
+    }
+
+    .settlement-formula-short {
+        display: inline;
+    }
+
+    .settlement-bill-text {
+        display: none;
+    }
+
+    .settlement-breakdown-row {
+        align-items: center;
+    }
+
+    /* ── Update toast mobile ───────────────────────────── */
+    .update-toast {
+        padding: 10px var(--space-3, 12px);
+        font-size: 0.85rem;
+        gap: var(--space-2, 8px);
+    }
+
+    .update-toast-full {
+        display: none;
+    }
+
+    .update-toast-short {
+        display: inline;
+    }
 }
 
 /* ── Update Toast ─────────────────────────────────────── */
@@ -3445,4 +3516,8 @@ img, svg { display: block; max-width: 100%; }
 
 .update-toast-dismiss:hover {
     color: #fff;
+}
+
+.update-toast-short {
+    display: none;
 }
