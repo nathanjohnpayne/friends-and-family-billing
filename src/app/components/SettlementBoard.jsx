@@ -8,6 +8,7 @@ import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import CompanyLogo from './CompanyLogo.jsx';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
 function MemberAvatar({ member }) {
@@ -144,9 +145,36 @@ function formatBillFormula(bill, annualShare) {
     const memberCount = bill.members.length;
     const divisorLabel = memberCount + ' ' + (memberCount === 1 ? 'member' : 'members');
     if (bill.billingFrequency === 'annual') {
-        return formatAnnualSummaryCurrency(bill.amount) + ' / year ÷ ' + divisorLabel + ' = ' + formatAnnualSummaryCurrency(annualShare);
+        return formatAnnualSummaryCurrency(bill.amount) + ' / year \u00F7 ' + divisorLabel + ' = ' + formatAnnualSummaryCurrency(annualShare);
     }
-    return formatAnnualSummaryCurrency(bill.amount) + ' / month × 12 ÷ ' + divisorLabel + ' = ' + formatAnnualSummaryCurrency(annualShare);
+    return formatAnnualSummaryCurrency(bill.amount) + ' / month \u00D7 12 \u00F7 ' + divisorLabel + ' = ' + formatAnnualSummaryCurrency(annualShare);
+}
+
+function formatBillFormulaShort(bill, annualShare) {
+    const n = bill.members.length;
+    const mem = n + ' mem.';
+    if (bill.billingFrequency === 'annual') {
+        return formatAnnualSummaryCurrency(bill.amount) + '/yr \u00F7 ' + mem + ' = ' + formatAnnualSummaryCurrency(annualShare);
+    }
+    return formatAnnualSummaryCurrency(bill.amount) + '/mo. \u00D7 12 \u00F7 ' + mem + ' = ' + formatAnnualSummaryCurrency(annualShare);
+}
+
+/** Bill breakdown row with responsive name/formula. */
+function BillBreakdownRow({ bill, annualShare }) {
+    return (
+        <div className="settlement-breakdown-row">
+            <span className="settlement-bill-name">
+                <CompanyLogo logo={bill.logo} website={bill.website} name={bill.name} size={16} className="settlement-bill-logo" />
+                <span className="settlement-bill-text">{bill.name}</span>
+            </span>
+            <span className="settlement-breakdown-formula settlement-formula-full">
+                {formatBillFormula(bill, annualShare)}
+            </span>
+            <span className="settlement-breakdown-formula settlement-formula-short">
+                {formatBillFormulaShort(bill, annualShare)}
+            </span>
+        </div>
+    );
 }
 
 /** Check whether two member summaries from calculateAnnualSummary share the exact same bill set. */
@@ -270,12 +298,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         ) : (
                             <>
                                 {data.bills.map(b => (
-                                    <div key={b.bill.id} className="settlement-breakdown-row">
-                                        <span>{b.bill.name}</span>
-                                        <span className="settlement-breakdown-formula">
-                                            {formatBillFormula(b.bill, b.annualShare)}
-                                        </span>
-                                    </div>
+                                    <BillBreakdownRow key={b.bill.id} bill={b.bill} annualShare={b.annualShare} />
                                 ))}
                                 <div className="settlement-breakdown-row settlement-breakdown-total">
                                     <span>Total ({member.name})</span>
@@ -329,12 +352,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                                 ) : (
                                                     <>
                                                         {ls.bills.map(b => (
-                                                            <div key={b.bill.id} className="settlement-breakdown-row">
-                                                                <span>{b.bill.name}</span>
-                                                                <span className="settlement-breakdown-formula">
-                                                                    {formatBillFormula(b.bill, b.annualShare)}
-                                                                </span>
-                                                            </div>
+                                                            <BillBreakdownRow key={b.bill.id} bill={b.bill} annualShare={b.annualShare} />
                                                         ))}
                                                         <div className="settlement-breakdown-row settlement-breakdown-total">
                                                             <span>Total ({ls.member.name})</span>

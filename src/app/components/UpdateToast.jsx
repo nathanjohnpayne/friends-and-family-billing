@@ -42,7 +42,8 @@ export default function UpdateToast() {
     return (
         <div className="update-toast visible">
             <span className="update-toast-message">
-                A new version of Friends &amp; Family Billing is available.
+                <span className="update-toast-full">A new version of Friends &amp; Family Billing is available.</span>
+                <span className="update-toast-short">Update available</span>
             </span>
             <button className="update-toast-btn" onClick={() => location.reload()}>
                 Refresh
