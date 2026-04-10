@@ -152,11 +152,11 @@ function formatBillFormula(bill, annualShare) {
 
 function formatBillFormulaShort(bill, annualShare) {
     const n = bill.members.length;
-    const mem = n + ' mem.';
+    const mem = n + ' mem';
     if (bill.billingFrequency === 'annual') {
         return formatAnnualSummaryCurrency(bill.amount) + '/yr \u00F7 ' + mem + ' = ' + formatAnnualSummaryCurrency(annualShare);
     }
-    return formatAnnualSummaryCurrency(bill.amount) + '/mo. \u00D7 12 \u00F7 ' + mem + ' = ' + formatAnnualSummaryCurrency(annualShare);
+    return formatAnnualSummaryCurrency(bill.amount) + '/mo \u00D7 12 \u00F7 ' + mem + ' = ' + formatAnnualSummaryCurrency(annualShare);
 }
 
 /** Bill breakdown row with responsive name/formula. */

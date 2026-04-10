@@ -3354,7 +3354,58 @@ img, svg { display: block; max-width: 100%; }
         -webkit-overflow-scrolling: touch;
     }
 
+    .manage-tab {
+        font-size: 0.75rem;
+        padding: var(--space-2, 8px) var(--space-2, 8px);
+        white-space: nowrap;
+    }
+
     .nav-brand span { display: none; }
+
+    /* ── Bill card mobile reflow ───────────────────────── */
+    .bill-card {
+        padding: var(--space-2, 8px) var(--space-2, 8px);
+    }
+
+    .bill-header {
+        flex-wrap: wrap;
+    }
+
+    .bill-header-left {
+        flex: 1 1 auto;
+    }
+
+    .bill-header-left .company-logo {
+        width: 32px !important;
+        height: 32px !important;
+    }
+
+    .bill-header-left .company-logo img,
+    .bill-header-left .company-logo .company-logo-shimmer,
+    .bill-header-left .company-logo .company-logo-fallback {
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .bill-title {
+        font-size: 0.8rem;
+    }
+
+    .bill-header-right {
+        flex: 0 0 auto;
+    }
+
+    .bill-amount {
+        font-size: 0.8rem;
+    }
+
+    .bill-derived-amount {
+        font-size: 0.65rem;
+    }
+
+    .split-summary-text {
+        font-size: 0.7rem;
+    }
 
     /* ── Settlement header + filter chips mobile ──────── */
     .settlement-header {
