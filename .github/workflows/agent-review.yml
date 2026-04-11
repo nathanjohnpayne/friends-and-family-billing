@@ -6,6 +6,11 @@ on:
   pull_request_review:
     types: [submitted]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   # ──────────────────────────────────────────────
   # Job 1: Read review-policy.yml configuration
@@ -21,7 +26,7 @@ jobs:
       reviewers: ${{ steps.config.outputs.reviewers }}
       author_identity: ${{ steps.config.outputs.author_identity }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Parse review-policy.yml
         id: config
@@ -64,7 +69,7 @@ jobs:
     steps:
       - name: Evaluate PR against review-policy.yml
         id: check
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           THRESHOLD: ${{ needs.load-config.outputs.threshold }}
           PROTECTED_PATHS: ${{ needs.load-config.outputs.paths }}
@@ -137,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Assign reviewer identity based on Authoring-Agent
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           AUTHOR_IDENTITY: ${{ needs.load-config.outputs.author_identity }}
           REVIEWERS_JSON: ${{ needs.load-config.outputs.reviewers }}
@@ -223,7 +228,7 @@ jobs:
     steps:
       - name: Check if this agent is assigned
         id: check-assigned
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -240,7 +245,7 @@ jobs:
       # ── Claude: headless CLI ──
       - name: Checkout repo
         if: steps.check-assigned.outputs.assigned == 'true' && matrix.agent == 'claude'
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
@@ -265,7 +270,7 @@ jobs:
       # ── Codex: OpenAI Codex CLI ──
       - name: Checkout repo for Codex
         if: steps.check-assigned.outputs.assigned == 'true' && matrix.agent == 'codex'
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
@@ -282,7 +287,7 @@ jobs:
       # ── Cursor: no headless mode yet ──
       - name: Notify for manual Cursor review
         if: steps.check-assigned.outputs.assigned == 'true' && matrix.agent == 'cursor'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -300,13 +305,13 @@ jobs:
     if: github.event_name == 'pull_request_review'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install js-yaml
         run: npm install js-yaml
 
       - name: Check for conflicting reviews
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -399,13 +404,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Dismiss self-approval from reviewer bot accounts
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install js-yaml
         run: npm install js-yaml
 
       - name: Check and dismiss
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
