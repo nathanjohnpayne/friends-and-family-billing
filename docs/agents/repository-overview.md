@@ -87,6 +87,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── invoice.js             # Invoice text/HTML generation
 │       ├── persistence.js         # Firestore read/write operations
 │       ├── share.js               # Share token, public share data
+│       ├── ShareLinkService.js    # Share link CRUD, token lifecycle, public share sync
 │       ├── sms.js                 # SMS deep link generation
 │       ├── mail.js                # Email queueing via Firestore mailQueue
 │       ├── template-doc.js        # TipTap document ↔ token processing
@@ -319,7 +320,7 @@ npm run dev            # Vite dev server with HMR
 ```
 
 **How it works:**
-1. `build:react` — Vite builds `src/app/` → `app/` (code-split chunks, ~237 KB main bundle)
+1. `build:react` — Vite builds `src/app/` → `app/` (code-split chunks; ~238 KB index + ~400 KB jsx-runtime + ~401 KB InvoicingTab/TipTap lazy chunk)
 2. `build:legacy` — esbuild bundles `src/index.js` → `script.js` (intermediate, repo root)
 3. `build:assemble` — copies legacy files into `app/site/`, shared assets (firebase-config, design tokens, logos) into `app/`
 - `src/app/main.jsx` is the Vite entry point (React `createRoot`)
@@ -352,6 +353,9 @@ Central service owning all billing state. React subscribes via `useSyncExternalS
 - Children cannot be parents
 - A child can only have one parent
 - Parents cannot be children of other members
+
+#### ShareLinkService (src/lib/ShareLinkService.js)
+Manages the full share link lifecycle: create, revoke, update scopes, refresh public share data. Coordinates between `shareTokens` and `publicShares` Firestore collections.
 
 #### Business Logic (src/lib/)
 - `calculations.js` — `calculateAnnualSummary()`, `calculateSettlementMetrics()`, `getPaymentTotalForMember()`, `getBillAnnualAmount()`, `getBillMonthlyAmount()`

@@ -363,7 +363,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Full rewrite from vanilla JS to React 19 SPA
 - ✅ Service-owns-state architecture: BillingYearService + useSyncExternalStore
 - ✅ Code-split lazy loading via React.lazy + Suspense
-- ✅ Vite build with ~237 KB main bundle + lazy chunks
+- ✅ Vite build with code-split lazy chunks (~238 KB index + ~400 KB TipTap/InvoicingTab)
 - ✅ React Router v7 with SPA fallback rewrites
 - ✅ 632 Vitest + React Testing Library tests
 - ✅ Public share page ported to React route (/share)
