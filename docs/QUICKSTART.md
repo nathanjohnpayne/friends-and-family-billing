@@ -109,27 +109,16 @@ Just send them your deployed URL. Each person:
 **"Can't login"**
 → Verify Email/Password is enabled in Firebase Console
 
-**"localhost:8000 not working"**
-→ Make sure you're in the correct project directory
+**"localhost:5173 not working"**
+→ Make sure you ran `npm run dev` from the project root and that port 5173 is free
 
-### What Changed from the Old Version?
+### What's in the Stack?
 
-- ✅ **Before**: Data saved in browser (lost if you clear cache)
-- ✅ **After**: Data saved in cloud (accessible from any device)
-
-- ✅ **Before**: Single user only
-- ✅ **After**: Unlimited users, each with private data
-
-- ✅ **Before**: No authentication
-- ✅ **After**: Secure email/password login
-
-All your features still work exactly the same:
-- Family members with avatars
-- Bills with logos
-- Parent-child linking
-- Payment tracking
-- Email invoices
-- Everything!
+- **Frontend:** React 19 SPA (Vite dev server with HMR)
+- **Backend:** Firebase (Firestore, Cloud Functions, Auth, Hosting, Storage)
+- **Testing:** Vitest + React Testing Library (632 tests) + Playwright E2E
+- **Email:** Server-side delivery via Resend Cloud Function
+- **Rich text:** TipTap WYSIWYG editor for invoice templates
 
 ### Pro Tips
 
