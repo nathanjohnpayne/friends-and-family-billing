@@ -25,14 +25,16 @@ function renderNavBar(route = '/') {
 }
 
 describe('NavBar', () => {
-    it('renders brand, nav links, and user email', () => {
+    it('renders brand, nav links, and user menu', () => {
         renderNavBar();
         expect(screen.getByText('FFB')).toBeInTheDocument();
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('Manage')).toBeInTheDocument();
         expect(screen.getByText('Settings')).toBeInTheDocument();
-        expect(screen.getByText('alice@test.com')).toBeInTheDocument();
-        expect(screen.getByText('Sign Out')).toBeInTheDocument();
+        // User menu shows display name (falls back to email username)
+        expect(screen.getByText('alice')).toBeInTheDocument();
+        // Sign Out is inside a dropdown, not visible until menu is opened
+        expect(screen.getByRole('button', { name: /alice/i })).toBeInTheDocument();
     });
 
     it('renders Dashboard link at /dashboard', () => {

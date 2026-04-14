@@ -109,8 +109,9 @@ describe('Routes — authenticated user', () => {
     it('shows dashboard with nav bar when signed in', async () => {
         await renderAuthenticatedRoute(['/dashboard']);
         expect(await screen.findByText('Dashboard')).toBeInTheDocument();
-        expect(screen.getByText('a@b.com')).toBeInTheDocument();
-        expect(screen.getByText('Sign Out')).toBeInTheDocument();
+        // User menu shows username derived from email
+        expect(screen.getByText('a')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /a/i })).toBeInTheDocument();
     });
 
     it('redirects / to /dashboard and renders nav', async () => {
