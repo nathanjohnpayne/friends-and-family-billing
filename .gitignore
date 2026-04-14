@@ -44,3 +44,17 @@ RIPCUT_GUIDE.md
 # Playwright
 test-results/
 playwright-report/
+
+# Build artifacts
+dist/
+build/
+
+# AI / agents (local state and runtime artifacts)
+.claude/worktrees/
+.cursor/cache/
+.cursor/state/
+.cursor/plans/
+
+# Misc
+tmp/
+.cache/
