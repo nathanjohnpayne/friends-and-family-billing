@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Evaluate PR against review-policy.yml
         id: check
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           THRESHOLD: ${{ needs.load-config.outputs.threshold }}
           PROTECTED_PATHS: ${{ needs.load-config.outputs.paths }}
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Assign reviewer identity based on Authoring-Agent
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           AUTHOR_IDENTITY: ${{ needs.load-config.outputs.author_identity }}
           REVIEWERS_JSON: ${{ needs.load-config.outputs.reviewers }}
@@ -231,7 +231,7 @@ jobs:
     steps:
       - name: Check if this agent is assigned
         id: check-assigned
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -290,7 +290,7 @@ jobs:
       # ── Cursor: no headless mode yet ──
       - name: Notify for manual Cursor review
         if: steps.check-assigned.outputs.assigned == 'true' && matrix.agent == 'cursor'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -314,7 +314,7 @@ jobs:
         run: npm install js-yaml
 
       - name: Check for conflicting reviews
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -414,7 +414,7 @@ jobs:
         run: npm install js-yaml
 
       - name: Check and dismiss
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
@@ -485,7 +485,7 @@ jobs:
 
       - name: Wait for CodeRabbit review
         if: steps.cr.outputs.enabled == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.REVIEWER_ASSIGNMENT_TOKEN }}
           script: |
