@@ -305,7 +305,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ### Deploy auth and future-secret flow
 
-- Deploy maintainers need `firebase-tools`, `gcloud`, and the canonical helper scripts from `../ai_agent_repo_template/scripts/`.
+- Deploy maintainers need `firebase-tools`, `gcloud`, and the canonical helper scripts from `../mergepath/scripts/`.
 - The normal maintainer flow reads the shared `Private/GCP ADC` source credential through the 1Password CLI, so routine deploy work does not need browser login once that item exists.
 - The 1Password-first deploy-auth model is intentional for this repo. Do not switch it back to ADC-first or deploy-key-based guidance unless a human explicitly requests that change.
 - `op-firebase-setup friends-and-family-billing` creates the deployer service account, grants deploy roles, and grants the current maintainer impersonation rights.
