@@ -35,15 +35,15 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@tiptap/extension-link": "^3.22.3",
-    "@tiptap/extension-placeholder": "^3.22.3",
+    "@tiptap/extension-link": "^3.22.4",
+    "@tiptap/extension-placeholder": "^3.22.4",
     "@tiptap/pm": "^3.22.1",
-    "@tiptap/react": "^3.22.3",
-    "@tiptap/starter-kit": "^3.22.3",
-    "@tiptap/suggestion": "^3.22.3",
+    "@tiptap/react": "^3.22.4",
+    "@tiptap/starter-kit": "^3.22.4",
+    "@tiptap/suggestion": "^3.22.4",
     "firebase": "^12.12.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-router-dom": "^7.14.0"
+    "react-router-dom": "^7.14.1"
   }
 }
