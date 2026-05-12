@@ -139,6 +139,16 @@ const TemplateEditor = forwardRef(function TemplateEditor({ content, onUpdate, r
     onConfigurePMRef.current = onConfigurePaymentMethods;
 
     const editor = useEditor({
+        // TipTap 3.23.0 changed `Editor.destroy()` to null out `schema`,
+        // `commandManager`, and `extensionManager` (memory-leak fix). The
+        // React hook's `EditorInstanceManager` creates the editor in its
+        // constructor and then calls `scheduleDestroy()` immediately; if
+        // the component isn't marked mounted by the timer, the editor is
+        // destroyed in place. A subsequent render where `useEditorState`'s
+        // selector calls `e.isActive('bold')` then trips on `e.schema`/
+        // `e.commands` being null. Deferring creation until after mount via
+        // `immediatelyRender: false` avoids the race.
+        immediatelyRender: false,
         extensions: [
             StarterKit.configure({
                 heading: false,

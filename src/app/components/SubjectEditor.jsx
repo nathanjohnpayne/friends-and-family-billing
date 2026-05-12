@@ -87,6 +87,10 @@ const SubjectEditor = forwardRef(function SubjectEditor({ content, onUpdate, rea
     onUpdateRef.current = onUpdate;
 
     const editor = useEditor({
+        // See TemplateEditor.jsx for the rationale — `immediatelyRender:
+        // false` avoids a 3.23.0 destroy-during-mount race that nulls
+        // `schema`/`commandManager` before `useEditorState` selectors run.
+        immediatelyRender: false,
         extensions: [
             StarterKit.configure({
                 heading: false,
