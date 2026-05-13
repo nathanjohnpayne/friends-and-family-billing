@@ -162,6 +162,64 @@ describe('payment URL linkification (issue #116)', () => {
     });
 });
 
+describe('share_link token substitution (issues #64, #69)', () => {
+    const SHARE_URL = 'https://example.com/share/abc123';
+
+    it('legacy [%share_link%](%share_link%) form resolves to a markdown auto-link', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, view your bill: [%share_link%](%share_link%)'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', SHARE_URL, 'email');
+        expect(body).toContain('[' + SHARE_URL + '](' + SHARE_URL + ')');
+    });
+
+    it('legacy [%share_link%](%share_link%) form collapses cleanly when shareUrl is empty', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, view your bill: [%share_link%](%share_link%)'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        // Cleanup regex strips [](...) and [](). No empty-link artifacts should remain.
+        expect(body).not.toContain('[]()');
+        expect(body).not.toContain('[]');
+        expect(body).not.toMatch(/\]\(\s*\)/);
+    });
+
+    it('named [Pay online](%share_link%) form resolves to a named markdown link', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, [Pay online](%share_link%)'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', SHARE_URL, 'email');
+        expect(body).toContain('[Pay online](' + SHARE_URL + ')');
+    });
+
+    it('named [Pay online](%share_link%) form collapses to nothing when shareUrl is empty', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, [Pay online](%share_link%)'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        // The link text gets stripped along with the empty URL.
+        expect(body).not.toContain('Pay online');
+        expect(body).not.toContain('[]()');
+        expect(body).not.toMatch(/\]\(\s*\)/);
+    });
+
+    it('bare %share_link% token resolves to the URL', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'View: %share_link%'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', SHARE_URL, 'email');
+        expect(body).toContain(SHARE_URL);
+    });
+
+    it('bare %share_link% token resolves to empty string when shareUrl is absent', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'View: %share_link%end'
+        });
+        const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
+        expect(body).toContain('View: end');
+    });
+});
+
 describe('preferred payment method ordering (issue #185)', () => {
     const settingsWithPreferred = {
         emailMessage: 'Your bill for %billing_year% is ready.\n\n%payment_methods%',
