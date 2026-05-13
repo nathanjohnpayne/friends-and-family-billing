@@ -125,6 +125,13 @@ if [ -z "${GH_TOKEN:-}" ]; then
   exit 3
 fi
 
+# Capture the true script start epoch up here, before any `gh api` calls.
+# Used downstream as the anchor for the freshness floor — see the
+# anchor-advance block below. Capturing post-API would skew the floor
+# forward by however long the network calls took, potentially excluding a
+# legitimately fresh CodeRabbit comment.
+SCRIPT_START_EPOCH=$(date +%s)
+
 # --- config readers ---------------------------------------------------------
 
 CONFIG=".github/review-policy.yml"
@@ -250,7 +257,9 @@ FRESHNESS_WINDOW_SECONDS=${CODERABBIT_FRESHNESS_WINDOW_SECONDS:-1800}
 if ! [[ "$FRESHNESS_WINDOW_SECONDS" =~ ^[0-9]+$ ]]; then
   die 3 "CODERABBIT_FRESHNESS_WINDOW_SECONDS must be an integer; got '$FRESHNESS_WINDOW_SECONDS'"
 fi
-SCRIPT_START_EPOCH=$(date +%s)
+# SCRIPT_START_EPOCH was captured at the true script start (before any
+# `gh api` calls) so the floor reflects script-start time, not post-API
+# time. See the capture site near the GH_TOKEN check above.
 FRESHNESS_FLOOR_EPOCH=$((SCRIPT_START_EPOCH - FRESHNESS_WINDOW_SECONDS))
 # macOS uses `date -r EPOCH`; GNU uses `date -d @EPOCH`. Try both.
 FRESHNESS_FLOOR=$(date -u -r "$FRESHNESS_FLOOR_EPOCH" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
