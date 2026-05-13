@@ -24,6 +24,7 @@ external_review_threshold: 300
 # Glob patterns are supported. If any file in the PR diff matches a pattern
 # listed here, external review is mandatory.
 external_review_paths:
+  - "src/lib/**"
   - "src/auth/**"
   - "src/payments/**"
   - "functions/**"
