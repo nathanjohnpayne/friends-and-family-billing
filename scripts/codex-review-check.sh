@@ -421,6 +421,14 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq --argjson required_names "${REQUIRED_JSON:
         workflow: (.workflowName // ""),
         result: (.conclusion // .state // "")
       }
+    # Bind .label to a variable so it survives the `$required_names | …`
+    # subexpression below. Inside that pipe, `.` rebinds to
+    # $required_names (an array of strings), and a bare `.label` resolves
+    # against THAT — which throws "Cannot index array with string label"
+    # whenever the required-checks list is non-empty. Hoisting via `as`
+    # keeps the check label addressable from inside any sub-pipeline.
+    # See nathanjohnpayne/mergepath#TBD.
+    | (.label) as $label
     # Filter out the known "expected to fail during Phase 4a" check.
     # Label Gate lives in the "PR Review Policy" workflow and fails by
     # design whenever needs-external-review / needs-human-review /
@@ -428,7 +436,7 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq --argjson required_names "${REQUIRED_JSON:
     # trying to unblock; we verify clearance separately in gate (c).
     | select(
         (.workflow != "PR Review Policy") or
-        (.label != "Label Gate")
+        ($label != "Label Gate")
       )
     # When branch protection lists required checks, only those
     # checks block the gate. When the list is empty (no branch
@@ -436,7 +444,7 @@ BAD_CHECKS=$(echo "$ROLLUP_JSON" | jq --argjson required_names "${REQUIRED_JSON:
     # prior behavior of treating all checks as required.
     | select(
         ($required_names | length) == 0
-        or ($required_names | index(.label)) != null
+        or ($required_names | index($label)) != null
       )
     # A check passes the gate iff its result is SUCCESS, SKIPPED, or
     # NEUTRAL. Everything else — FAILURE, CANCELLED, TIMED_OUT,
