@@ -128,8 +128,10 @@ if $PURGE_ALL; then
   exit 0
 fi
 
-if [[ "$MODE" == "review" || "$MODE" == "all" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
-  echo "Error: --agent is required for review, all, or --purge mode." >&2
+if [[ "$MODE" == "review" || "$MODE" == "all" || "$MODE" == "deploy" || "$PURGE" == "true" ]] && [[ -z "$AGENT" ]]; then
+  echo "Error: --agent is required for review, deploy, all, or --purge mode." >&2
+  echo "       Cache paths are derived from \$AGENT (op-preflight-\$AGENT.env" >&2
+  echo "       and op-preflight-\$AGENT-adc.json), so deploy mode also requires it." >&2
   echo "Usage: eval \"\$(scripts/op-preflight.sh --agent claude --mode all)\"" >&2
   exit 1
 fi
@@ -163,9 +165,15 @@ if $DRY_RUN; then
   echo "# ADC tempfile:   $ADC_TMPFILE" >&2
   echo "# TTL seconds:    $TTL_SECONDS" >&2
   if [[ -f "$SESSION_FILE" ]]; then
-    embedded=$(grep '^OP_PREFLIGHT_CREATED_AT_EPOCH=' "$SESSION_FILE" | cut -d= -f2- | tr -d "'\"")
+    # Use `|| true` so a truncated/malformed session file (grep finds no
+    # match → exit 1) doesn't trip `set -eo pipefail`. The numeric guard
+    # below defends against the related case where the EPOCH line exists
+    # but the value was corrupted to a non-numeric token — without it the
+    # `$((now - embedded))` arithmetic would crash the dry-run.
+    embedded=$(grep '^OP_PREFLIGHT_CREATED_AT_EPOCH=' "$SESSION_FILE" | cut -d= -f2- | tr -d "'\"" || true)
+    [[ "$embedded" =~ ^[0-9]+$ ]] || embedded=0
     now=$(date +%s)
-    age=$((now - ${embedded:-0}))
+    age=$((now - embedded))
     echo "# Session age:    ${age}s (TTL ${TTL_SECONDS}s)" >&2
   else
     echo "# Session age:    n/a (no session file)" >&2
