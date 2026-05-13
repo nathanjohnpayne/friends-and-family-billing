@@ -166,11 +166,14 @@ if $DRY_RUN; then
   echo "# TTL seconds:    $TTL_SECONDS" >&2
   if [[ -f "$SESSION_FILE" ]]; then
     # Use `|| true` so a truncated/malformed session file (grep finds no
-    # match → exit 1) doesn't trip `set -eo pipefail`. `${embedded:-0}`
-    # below handles the empty-result case.
+    # match → exit 1) doesn't trip `set -eo pipefail`. The numeric guard
+    # below defends against the related case where the EPOCH line exists
+    # but the value was corrupted to a non-numeric token — without it the
+    # `$((now - embedded))` arithmetic would crash the dry-run.
     embedded=$(grep '^OP_PREFLIGHT_CREATED_AT_EPOCH=' "$SESSION_FILE" | cut -d= -f2- | tr -d "'\"" || true)
+    [[ "$embedded" =~ ^[0-9]+$ ]] || embedded=0
     now=$(date +%s)
-    age=$((now - ${embedded:-0}))
+    age=$((now - embedded))
     echo "# Session age:    ${age}s (TTL ${TTL_SECONDS}s)" >&2
   else
     echo "# Session age:    n/a (no session file)" >&2
