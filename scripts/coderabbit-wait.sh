@@ -125,6 +125,13 @@ if [ -z "${GH_TOKEN:-}" ]; then
   exit 3
 fi
 
+# Capture the true script start epoch up here, before any `gh api` calls.
+# Used downstream as the anchor for the freshness floor — see the
+# anchor-advance block below. Capturing post-API would skew the floor
+# forward by however long the network calls took, potentially excluding a
+# legitimately fresh CodeRabbit comment.
+SCRIPT_START_EPOCH=$(date +%s)
+
 # --- config readers ---------------------------------------------------------
 
 CONFIG=".github/review-policy.yml"
@@ -227,6 +234,40 @@ LATEST_FORCE_PUSH_TIME=$(echo "$TIMELINE_JSON" | jq -r '
 if [ -n "$LATEST_FORCE_PUSH_TIME" ] && [[ "$LATEST_FORCE_PUSH_TIME" > "$HEAD_ANCHOR" ]]; then
   HEAD_ANCHOR="$LATEST_FORCE_PUSH_TIME"
   ANCHOR_SOURCE="head_ref_force_pushed @ $LATEST_FORCE_PUSH_TIME"
+fi
+
+# Freshness floor. The force-push branch above only fires for
+# `head_ref_force_pushed` timeline events. For an ordinary (non-force)
+# push of a HEAD whose committer date predates a prior CodeRabbit comment
+# — cherry-pick, rebase with --committer-date-is-author-date, or any
+# commit amended from a previously-authored SHA — the anchor stays at the
+# stale committer date and a pre-push bot comment can falsely pass the
+# `>= HEAD_ANCHOR` filter. GitHub does not expose a per-PR push timestamp
+# for ordinary pushes (`committed.created_at` is null; verified against
+# mergepath PR #63 on 2026-04-15), so we cannot derive an exact push
+# time. Instead, cap the anchor at "script start time minus a window".
+# Mirrors the `reaction_freshness_window_seconds` pattern in the codex
+# block of review-policy.yml: signals older than the window are treated
+# as stale regardless of HEAD metadata. Default 1800s (30 min) is
+# comfortably wider than a typical CodeRabbit review cycle (~2-5 min)
+# and the agent retry window, narrow enough that prior-round comments
+# from earlier work sessions are filtered out. See #256 (Codex P2 on
+# PR #227 — anchor freshness for normal-push case).
+FRESHNESS_WINDOW_SECONDS=${CODERABBIT_FRESHNESS_WINDOW_SECONDS:-1800}
+if ! [[ "$FRESHNESS_WINDOW_SECONDS" =~ ^[0-9]+$ ]]; then
+  die 3 "CODERABBIT_FRESHNESS_WINDOW_SECONDS must be an integer; got '$FRESHNESS_WINDOW_SECONDS'"
+fi
+# SCRIPT_START_EPOCH was captured at the true script start (before any
+# `gh api` calls) so the floor reflects script-start time, not post-API
+# time. See the capture site near the GH_TOKEN check above.
+FRESHNESS_FLOOR_EPOCH=$((SCRIPT_START_EPOCH - FRESHNESS_WINDOW_SECONDS))
+# macOS uses `date -r EPOCH`; GNU uses `date -d @EPOCH`. Try both.
+FRESHNESS_FLOOR=$(date -u -r "$FRESHNESS_FLOOR_EPOCH" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+                  || date -u -d "@$FRESHNESS_FLOOR_EPOCH" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+                  || die 3 "could not format freshness floor; check 'date' availability")
+if [[ "$FRESHNESS_FLOOR" > "$HEAD_ANCHOR" ]]; then
+  HEAD_ANCHOR="$FRESHNESS_FLOOR"
+  ANCHOR_SOURCE="freshness floor @ $FRESHNESS_FLOOR (${FRESHNESS_WINDOW_SECONDS}s before script start)"
 fi
 
 log "HEAD = $HEAD_SHA committed at $HEAD_COMMITTER_DATE"
