@@ -12,7 +12,7 @@ import {
     calculateSettlementMetrics as _calculateSettlementMetrics,
 } from './lib/calculations.js';
 import {
-    PAYMENT_PROVIDER_PATTERN,
+    PAYMENT_PROVIDER_PATTERN as _PAYMENT_PROVIDER_PATTERN,
     detectDuplicatePaymentText,
     isValidE164,
     normalizeDisputeStatus,
@@ -35,7 +35,7 @@ import {
     DISPUTE_STATUS_LABELS,
     PAYMENT_METHOD_TYPES,
     PAYMENT_METHOD_ICONS,
-    PAYMENT_METHOD_STRIP_ICONS,
+    PAYMENT_METHOD_STRIP_ICONS as _PAYMENT_METHOD_STRIP_ICONS,
     getPaymentMethodLabel,
     getBillingYearStatusLabel,
     getBillFrequencyLabel,
@@ -156,7 +156,7 @@ function showChangeToast(message) {
             el.id = 'change-toast';
             el.className = 'change-toast';
             document.body.appendChild(el);
-        } catch (e) { return; }
+        } catch (_e) { return; }
     }
     if (!el || !el.classList) return;
     el.textContent = message;
@@ -760,7 +760,7 @@ function generateLogo(bill) {
     if (logodevKey) {
         const escapedName = escapeHtml(bill.name);
         const encodedName = encodeURIComponent(bill.name);
-        const fallbackDiv = `<div class='logo logo-text'>${escapedName}</div>`;
+        const _fallbackDiv = `<div class='logo logo-text'>${escapedName}</div>`;
         let domain = '';
         if (bill.website) {
             try { domain = new URL(bill.website).hostname.replace(/^www\./, ''); } catch (_) {}
@@ -5152,7 +5152,7 @@ function showConfirmationDialog(title, message, confirmLabel, onConfirm, destruc
         overlay.appendChild(dialog);
         document.body.appendChild(overlay);
     }
-    var dialog = document.getElementById('confirmation-dialog');
+    dialog = document.getElementById('confirmation-dialog');
     dialog.innerHTML =
         '<div class="dialog-header"><h3>' + escapeHtml(title) + '</h3></div>'
         + '<div class="dialog-body"><p class="confirmation-message">' + escapeHtml(message) + '</p></div>'

@@ -7,7 +7,7 @@ import { useBillingData } from '../../hooks/useBillingData.js';
 import { useDisputes } from '../../hooks/useDisputes.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { DISPUTE_STATUS_LABELS } from '../../../lib/constants.js';
-import { disputeStatusClass, formatFileSize } from '../../../lib/formatting.js';
+import { disputeStatusClass } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import DisputeDetailDialog from '../../components/DisputeDetailDialog.jsx';
 

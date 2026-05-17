@@ -335,7 +335,7 @@ export default function BillsTab() {
 function BillCard({
     bill, familyMembers, readOnly,
     editingId, editField, editValue, setEditValue,
-    onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
+    onStartEdit, onSaveEdit, onCancelEdit: _onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
     onDelete, onConvertFrequency, onEditWebsite, onViewHistory,
     onUploadLogo, onRemoveLogo

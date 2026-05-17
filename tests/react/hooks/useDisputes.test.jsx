@@ -63,7 +63,7 @@ function fakeSnap(docs) {
         docs: docs.map(d => ({
             id: d.id,
             data: () => {
-                const { id, ...rest } = d;
+                const { id: _id, ...rest } = d;
                 return { ...rest };
             }
         }))

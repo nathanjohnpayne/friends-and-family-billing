@@ -5,10 +5,10 @@
  * Exports a single function: createAndPruneShareLink()
  * Used by EmailInvoiceDialog, TextInvoiceDialog, and ShareLinkDialog.
  */
-import { doc, setDoc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { generateRawToken, hashToken } from './validation.js';
-import { buildShareScopes, buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from './share.js';
+import { buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from './share.js';
 
 const DEFAULT_EXPIRY_DAYS = 365;
 const DEFAULT_SCOPES = ['summary:read', 'paymentMethods:read', 'disputes:create', 'disputes:read'];

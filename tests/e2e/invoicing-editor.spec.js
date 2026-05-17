@@ -69,8 +69,6 @@ test.describe('InvoicingTab Editor', () => {
         // Type some text
         await page.keyboard.type('Make this bold');
 
-        // Select "bold" by double-clicking it
-        const editorText = await editor.textContent();
         // Select all the text we just typed
         await page.keyboard.press('Home');
         await page.keyboard.press('Shift+End');

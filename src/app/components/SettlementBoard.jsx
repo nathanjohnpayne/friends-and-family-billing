@@ -3,11 +3,10 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getBillAnnualAmount, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
-import ConfirmDialog from './ConfirmDialog.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
