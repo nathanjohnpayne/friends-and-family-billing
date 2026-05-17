@@ -413,7 +413,6 @@ describe('BillingYearService — CRUD mutations', () => {
                     { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2, 3] }
                 ]
             });
-            const before = svc.getState().payments.length;
             const result = svc.recordPayment({ memberId: 2, amount: 120, method: 'venmo', distribute: true });
             // Should create multiple payment entries
             expect(Array.isArray(result)).toBe(true);

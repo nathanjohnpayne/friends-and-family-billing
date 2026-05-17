@@ -248,7 +248,7 @@ export default function MembersTab() {
 function MemberCard({
     member, familyMembers, readOnly,
     editingId, editField, editValue, setEditValue,
-    onStartEdit, onSaveEdit, onCancelEdit, onEditKeyDown,
+    onStartEdit, onSaveEdit, onCancelEdit: _onCancelEdit, onEditKeyDown,
     onDelete, onLinkHousehold
 }) {
     const isChild = isLinkedToAnyone(familyMembers, member.id);

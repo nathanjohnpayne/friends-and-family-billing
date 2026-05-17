@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
     BILLING_YEAR_STATUSES,
     DISPUTE_STATUS_LABELS,
-    PAYMENT_METHOD_LABELS,
     getPaymentMethodLabel,
     getBillingYearStatusLabel,
     getBillFrequencyLabel,

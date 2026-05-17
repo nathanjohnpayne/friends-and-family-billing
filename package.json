@@ -18,11 +18,13 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "export VITE_E2E_MODE=true && npm run build:react && npm run build:assemble && npx playwright test",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
+    "lint": "eslint .",
     "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
     "deploy:functions": "op-firebase-deploy --only functions",
     "deploy:all": "op-firebase-deploy"
   },
   "devDependencies": {
+    "@eslint/js": "^9.26.0",
     "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -30,6 +32,10 @@
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "^4.1.5",
     "esbuild": "^0.28.0",
+    "eslint": "^9.26.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "^16.0.0",
     "jsdom": "^29.1.1",
     "vite": "^8.0.11",
     "vitest": "^4.1.0"

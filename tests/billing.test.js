@@ -103,8 +103,8 @@ function createContext(overrides = {}) {
             signOut: () => Promise.resolve(),
         },
         db: {
-            collection: (name) => ({
-                doc: (id) => makeMockDoc(saved),
+            collection: (_name) => ({
+                doc: (_id) => makeMockDoc(saved),
                 where: () => ({
                     where: () => ({
                         get: () => Promise.resolve({ docs: [] }),
@@ -1040,7 +1040,6 @@ describe('archiveCurrentYear', () => {
         });
         ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
 
-        const savedBefore = ctx._saved.length;
         await ctx.archiveCurrentYear();
         assert.equal(ctx._get('currentBillingYear').status, 'open', 'Should remain open');
     });
@@ -2983,9 +2982,9 @@ describe('updateBillAmountPreview', () => {
             billFrequencyToggle: {
                 textContent: '', value: '', style: {}, innerHTML: '',
                 classList: { add: () => {}, remove: () => {}, contains: () => false },
-                querySelectorAll: (sel) => {
+                querySelectorAll: (_sel) => {
                     const monthly = {
-                        getAttribute: (a) => 'monthly',
+                        getAttribute: (_a) => 'monthly',
                         classList: {
                             add: () => {},
                             remove: () => {},
@@ -2993,7 +2992,7 @@ describe('updateBillAmountPreview', () => {
                         },
                     };
                     const annual = {
-                        getAttribute: (a) => 'annual',
+                        getAttribute: (_a) => 'annual',
                         classList: {
                             add: () => {},
                             remove: () => {},
@@ -3343,8 +3342,8 @@ describe('refreshPublicShares cleanup', () => {
         const ops = [];
         const ctx = createContext({
             db: {
-                collection: (name) => ({
-                    doc: (id) => ({
+                collection: (_name) => ({
+                    doc: (_id) => ({
                         set: () => Promise.resolve(),
                         get: () => Promise.resolve({ exists: false }),
                         collection: () => ({
@@ -3352,7 +3351,7 @@ describe('refreshPublicShares cleanup', () => {
                             get: () => Promise.resolve({ docs: [] }),
                         }),
                     }),
-                    where: (field, op, val) => ({
+                    where: (_field, _op, _val) => ({
                         where: () => ({
                             get: () => Promise.resolve({
                                 docs: [
@@ -3409,8 +3408,8 @@ describe('refreshPublicShares cleanup', () => {
         const pastDate = new Date(Date.now() - 86400000);
         const ctx = createContext({
             db: {
-                collection: (name) => ({
-                    doc: (id) => ({
+                collection: (_name) => ({
+                    doc: (_id) => ({
                         set: () => Promise.resolve(),
                         get: () => Promise.resolve({ exists: false }),
                         collection: () => ({
@@ -3418,7 +3417,7 @@ describe('refreshPublicShares cleanup', () => {
                             get: () => Promise.resolve({ docs: [] }),
                         }),
                     }),
-                    where: (field, op, val) => ({
+                    where: (_field, _op, _val) => ({
                         where: () => ({
                             get: () => Promise.resolve({
                                 docs: [

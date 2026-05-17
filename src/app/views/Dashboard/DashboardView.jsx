@@ -57,11 +57,6 @@ export default function DashboardView() {
     const remaining = metrics.totalMembers - metrics.paidCount;
     const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
-    // Status label & headline
-    const statusLabel = isReadyToClose
-        ? 'Ready to Close'
-        : (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).label;
-
     const statusHeadline = isReadyToClose
         ? 'Settlement complete'
         : currentStatus === 'open'
