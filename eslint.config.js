@@ -22,6 +22,10 @@ module.exports = [
   // Ignore generated / vendored output. Customize per-consumer via
   // a follow-up commit on the propagation PR if a repo needs extras
   // (e.g., functions/lib for cloud-functions repos).
+  //
+  // `.claude/worktrees/**` is the per-agent worktree root that
+  // Claude Code creates for parallel sub-tasks; linting the working
+  // copies inside it is duplicative and noisy on every agent run.
   {
     ignores: [
       "node_modules/**",
@@ -31,24 +35,32 @@ module.exports = [
       ".astro/**",
       ".next/**",
       ".vercel/**",
-      // CONSUMER-LOCAL: ffb's Vite output goes to app/assets/
-      // (hashed bundle filenames) and the assembled deploy lands
-      // at app/. These are build artifacts, not source; linting
-      // them produces hundreds of false-positive findings on the
-      // minified output. Ignoring the whole `app/` tree (the
-      // Vite/esbuild assemble output) is the standard consumer-
-      // local customization for repos with non-default build
-      // output paths. The mergepath template covers the common
-      // `dist/`/`build/` defaults; per-repo overrides land here.
-      "app/**",
-      // CONSUMER-LOCAL: legacy IIFE build at repo root from
-      // `build:legacy` (esbuild → script.js). Same rationale.
-      "script.js",
+      ".claude/worktrees/**",
     ],
   },
 
   // Baseline JS recommended — required by the Mergepath policy floor.
   js.configs.recommended,
+
+  // Baseline rule policy applied to all JS sources. `^_`-prefix
+  // unused-vars is the standard convention for marking intentionally-
+  // unused locals (args, vars, caught errors, destructured-array
+  // leftovers); the `allowEmptyCatch` setting permits the
+  // `catch (_) {}` swallow idiom that appears in legacy code.
+  // Both relaxations were added by hand by 5 of 6 consumers during
+  // the Phase D fanout (#250) — folding them into the baseline
+  // removes the per-consumer churn.
+  {
+    rules: {
+      "no-unused-vars": ["error", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        destructuredArrayIgnorePattern: "^_",
+      }],
+      "no-empty": ["error", { allowEmptyCatch: true }],
+    },
+  },
 
   // Apply browser + node globals to all JS sources by default. Narrow
   // these per-file-pattern in a follow-up commit if the repo has a
@@ -83,28 +95,6 @@ module.exports = [
     },
   },
 
-  // ─────────────────────────────────────────────────────────────────
-  // CONSUMER-LOCAL OVERRIDE — legacy CDN-loaded Firebase globals.
-  //
-  // ffb's legacy top-level scripts (auth.js, firebase-config.js,
-  // site/script.js) AND some src/ React code reference `firebase`,
-  // `auth`, and `analytics` as globals — they're loaded by
-  // <script> tags in index.html rather than imported per-module.
-  // Declaring them here keeps lint quiet without forcing a
-  // refactor to import-style; modernization can land separately.
-  // `user` is a similar CDN global used in a few legacy code
-  // paths.
-  {
-    files: ["**/*.{js,jsx,mjs}"],
-    languageOptions: {
-      globals: {
-        firebase: "readonly",
-        auth: "readonly",
-        analytics: "readonly",
-        user: "readonly",
-      },
-    },
-  },
 
 
 
@@ -112,15 +102,8 @@ module.exports = [
   // Detect the React version automatically from package.json. The
   // React 17+ JSX transform makes `react/react-in-jsx-scope` obsolete;
   // turn it off explicitly so the rule doesn't flag every component.
-  // CONSUMER-LOCAL: drop `.tsx` from React block — ffb is JS-only
-  // (zero .tsx files in tree, no @typescript-eslint/parser
-  // installed). Including .tsx would invoke ESLint's default
-  // espree parser on TS syntax and fail. Same template-gap
-  // class as dpr#83 (template defaults to `.tsx` because most
-  // React consumers adopt TS; ffb is the exception). CodeRabbit
-  // P2 on this PR caught it.
   {
-    files: ["**/*.{js,jsx}"],
+    files: ["**/*.{jsx,tsx}"],
     plugins: {
       react,
       "react-hooks": reactHooks,
@@ -134,78 +117,97 @@ module.exports = [
       ...react.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       "react/react-in-jsx-scope": "off",
+      // React Compiler advisories — disabled by default because they
+      // only fire usefully once the React Compiler is adopted; until
+      // then they're noisy on idiomatic React (set-state-in-effect
+      // for init, ref-during-render in TipTap-style editors). Inlined
+      // here (vs a sibling block) so they inherit this entry's
+      // `files:` and `plugins:` scope — codex P1 #327 round 3
+      // caught the standalone block referencing react-hooks/* rules
+      // without a scope, breaking ESLint on .js files of React
+      // consumers (where the plugin isn't loaded for that glob).
+      // React Compiler adopters override locally back to "error".
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
     },
     settings: {
       react: { version: "detect" },
     },
   },
 
-  // ─────────────────────────────────────────────────────────────────
-  // CONSUMER-LOCAL POLICY — React-rule overrides. MUST be LAST.
-  //
-  // Same policy as device-platform-reporting#83 — ffb doesn't use
-  // propTypes (Vite + modern React) and `no-unescaped-entities`
-  // is mostly cosmetic noise. The two react-hooks advisories
-  // (set-state-in-effect + preserve-manual-memoization) are
-  // turned off because the codebase uses setState-in-effect
-  // intentionally for initialization (7 occurrences across pages)
-  // and hasn't adopted the React Compiler's manual-memoization
-  // contract.
+  // jsx_in_js variant — an ADDITIONAL React rule entry whose files
+  // glob includes `.js` so repos that babel-/vite-transpile JSX in
+  // plain `.js` files (e.g., device-platform-reporting, friends-and-
+  // family-billing) lint those files under the React rule set.
+  // Renders alongside the default `**/*.{jsx,tsx}` block above for
+  // React consumers that opt in; eslint flat-config merges rules
+  // across overlapping globs so the .js files inherit the React
+  // rules via this second entry. Setting jsx_in_js: true on a
+  // non-React consumer is a manifest misconfiguration — this block
+  // would reference undeclared `react`/`reactHooks` and the
+  // rendered config would fail to load.
   {
-    files: ["**/*.{js,jsx}"],
+    files: ["**/*.{js,jsx,tsx}"],
+    plugins: {
+      react,
+      "react-hooks": reactHooks,
+    },
+    languageOptions: {
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+    },
     rules: {
-      "react/prop-types": "off",
-      "react/no-unescaped-entities": "off",
+      ...react.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      "react/react-in-jsx-scope": "off",
+      // React Compiler advisories — disabled by default because they
+      // only fire usefully once the React Compiler is adopted; until
+      // then they're noisy on idiomatic React (set-state-in-effect
+      // for init, ref-during-render in TipTap-style editors). Inlined
+      // here (vs a sibling block) so they inherit this entry's
+      // `files:` and `plugins:` scope — codex P1 #327 round 3
+      // caught the standalone block referencing react-hooks/* rules
+      // without a scope, breaking ESLint on .js files of React
+      // consumers (where the plugin isn't loaded for that glob).
+      // React Compiler adopters override locally back to "error".
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/preserve-manual-memoization": "off",
-      // Additional React Compiler advisories not in dpr's list —
-      // ffb's TipTap editor integration uses refs-during-render
-      // intentionally (4 sites in TemplateEditor + RichTextEditor)
-      // and has an immutability false-positive on a test helper.
-      // Same policy class: these are React Compiler hints, not
-      // runtime bugs. TODO: revisit when adopting the Compiler.
       "react-hooks/refs": "off",
       "react-hooks/immutability": "off",
-      // CONSUMER-LOCAL: underscore-prefix convention for intentionally
-      // unused vars / args / caught errors. Standard ESLint idiom
-      // (`function (_, value) { ... }`, `catch (_e) {}`). 40+ sites
-      // across src/main.js + src/app/. Allowing the convention is
-      // cheaper than adding 40 disable comments.
-      "no-unused-vars": ["error", {
-        argsIgnorePattern: "^_",
-        varsIgnorePattern: "^_",
-        caughtErrorsIgnorePattern: "^_",
-        destructuredArrayIgnorePattern: "^_",
-      }],
-      // CONSUMER-LOCAL: `catch (_) {}` swallow-pattern is intentional
-      // in the legacy script.js compile-source — same rationale as
-      // the unused-vars relax. allowEmptyCatch matches that idiom.
-      "no-empty": ["error", { allowEmptyCatch: true }],
+    },
+    settings: {
+      react: { version: "detect" },
     },
   },
 
-  // ─────────────────────────────────────────────────────────────────
-  // CONSUMER-LOCAL OVERRIDE — vitest globals for test files.
-  // Placed AFTER the React block so flat-config languageOptions
-  // merge (rather than getting shadowed by the React block which
-  // matches all .js — see #318 for the equivalent dpr fix). ffb
-  // uses vitest (not jest); same template gap tracked as a
-  // mergepath follow-up for `facts.testing: jest|vitest|none|mocha`.
-  //
-  // Pattern covers test files AND test helpers under tests/ (e.g.
-  // tests/react/helpers/*.js use `vi.fn()` to build shared mocks).
-  // Without the broader tests/** match, helpers trip no-undef on
-  // `vi` even though they're only ever imported from test files.
+// React Compiler advisory disables are now INSIDE the React block(s)
+// above (so they inherit the same `files:` and `plugins:` scope and
+// don't reference react-hooks/* on files where the plugin isn't
+// loaded — codex P1 #327 round 3). The standalone block previously
+// at this position has been removed.
+
+  // Vitest globals — applied to common test file patterns. Without
+  // this block, `describe`/`it`/`expect`/`vi`/etc. trigger no-undef
+  // in every test file. Pattern covers __tests__ dirs and *.test.*
+  // files; broaden per-consumer if test helpers live elsewhere.
   {
-    files: [
-      "**/__tests__/**",
-      "**/*.test.{js,jsx,mjs}",
-      "tests/**/*.{js,jsx,mjs}",
-    ],
+    files: ["tests/**", "**/__tests__/**", "**/*.test.{js,jsx,mjs,ts,tsx}"],
     languageOptions: {
       globals: {
-        ...globals.vitest,
+        describe: "readonly",
+        it: "readonly",
+        test: "readonly",
+        expect: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+        vi: "readonly",
       },
     },
   },
+
 ];
