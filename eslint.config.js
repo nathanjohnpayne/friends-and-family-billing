@@ -112,8 +112,15 @@ module.exports = [
   // Detect the React version automatically from package.json. The
   // React 17+ JSX transform makes `react/react-in-jsx-scope` obsolete;
   // turn it off explicitly so the rule doesn't flag every component.
+  // CONSUMER-LOCAL: drop `.tsx` from React block — ffb is JS-only
+  // (zero .tsx files in tree, no @typescript-eslint/parser
+  // installed). Including .tsx would invoke ESLint's default
+  // espree parser on TS syntax and fail. Same template-gap
+  // class as dpr#83 (template defaults to `.tsx` because most
+  // React consumers adopt TS; ffb is the exception). CodeRabbit
+  // P2 on this PR caught it.
   {
-    files: ["**/*.{js,jsx,tsx}"],
+    files: ["**/*.{js,jsx}"],
     plugins: {
       react,
       "react-hooks": reactHooks,
@@ -145,7 +152,7 @@ module.exports = [
   // and hasn't adopted the React Compiler's manual-memoization
   // contract.
   {
-    files: ["**/*.{js,jsx,tsx}"],
+    files: ["**/*.{js,jsx}"],
     rules: {
       "react/prop-types": "off",
       "react/no-unescaped-entities": "off",
