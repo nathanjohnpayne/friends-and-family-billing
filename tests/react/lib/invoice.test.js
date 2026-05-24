@@ -235,6 +235,18 @@ describe('share_link token substitution (issues #64, #69)', () => {
         expect(body).toContain('https://share.example.com/abc');
         expect(body).toContain('[https://share.example.com/abc](https://share.example.com/abc)');
     });
+
+    it('unwraps markdown shareLink whose URL contains parentheses (#257)', () => {
+        // Wikipedia-style URLs with balanced parens must still unwrap; the
+        // anchored `(.+)` group captures through to the final paren.
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, view your bill: [%share_link%](%share_link%)'
+        });
+        const parenUrl = 'https://en.wikipedia.org/wiki/Function_(mathematics)';
+        const body = buildInvoiceBody(ctx, 'text-only', `[Pay online](${parenUrl})`, 'email');
+        expect(body).not.toMatch(/\[\[Pay online\]/);
+        expect(body).toContain(`[${parenUrl}](${parenUrl})`);
+    });
 });
 
 describe('preferred payment method ordering (issue #185)', () => {

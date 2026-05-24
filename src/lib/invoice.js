@@ -72,7 +72,12 @@ export function buildInvoiceSubject(year, member, template, ctx) {
  */
 function normalizeShareLink(raw) {
     if (!raw) return '';
-    const match = String(raw).match(/^\[[^\]]*\]\(([^)]+)\)$/);
+    // `(.+)` (not `[^)]+`) so URLs that themselves contain parentheses —
+    // e.g. `[Pay](https://en.wikipedia.org/wiki/Function_(mathematics))` —
+    // unwrap to the full URL. The trailing `\)$` anchor forces the greedy
+    // match to stop at the final paren. No ReDoS risk: single unbounded
+    // group against an anchored literal.
+    const match = String(raw).match(/^\[[^\]]*\]\((.+)\)$/);
     return match ? match[1] : raw;
 }
 
