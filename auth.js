@@ -1,4 +1,12 @@
 // Authentication handling
+//
+// CONSUMER-LOCAL: showAuthForm/handleLogin/handleSignup/handleForgotPassword/
+// handleGoogleSignIn are global functions invoked from inline `onclick=`
+// attributes in index.html — ESLint can't see HTML so it flags them as
+// "defined but never used." Disabling no-unused-vars at file scope is
+// the standard idiom for CDN-loaded scripts; modernization to import-
+// style event listeners is a separate refactor.
+/* eslint-disable no-unused-vars */
 
 function triggerLogoSuccess() {
     const icon = document.querySelector('.app-icon');

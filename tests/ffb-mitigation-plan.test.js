@@ -101,8 +101,8 @@ function createContext(overrides = {}) {
             signOut: () => Promise.resolve(),
         },
         db: {
-            collection: (name) => ({
-                doc: (id) => makeMockDoc(saved),
+            collection: (_name) => ({
+                doc: (_id) => makeMockDoc(saved),
                 where: () => ({
                     where: () => ({
                         get: () => Promise.resolve({ docs: [] }),

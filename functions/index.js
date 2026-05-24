@@ -947,7 +947,7 @@ function simpleMarkdownToHtml(text) {
     .replace(/^={3,}$/gm, "<hr>")
     .replace(/^-{3,}$/gm, "<hr>")
     // Newlines to <br> (but not adjacent to block elements)
-    .replace(/\n(?!<[hul\/])/g, "<br>\n")
+    .replace(/\n(?!<[hul/])/g, "<br>\n")
     // Strip <br> between block elements (prevents extra spacing around hr, h2, ul)
     .replace(/(<\/(?:h[1-6]|ul|ol|li|p)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
     .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr)[\s>])/g, "$1");
