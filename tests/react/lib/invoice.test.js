@@ -218,6 +218,35 @@ describe('share_link token substitution (issues #64, #69)', () => {
         const body = buildInvoiceBody(ctx, 'text-only', '', 'email');
         expect(body).toContain('View: end');
     });
+
+    it('handles markdown-formatted shareLink in legacy nested-link template (#257)', () => {
+        // Defensive: no production caller currently passes a markdown-wrapped
+        // shareLink, but a future migration or template-import path could.
+        // The substitution must unwrap `[text](url)` to `url` so the legacy
+        // `[%share_link%](%share_link%)` template doesn't emit a nested link.
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, view your bill: [%share_link%](%share_link%)'
+        });
+        const markdownShareUrl = '[Pay online](https://share.example.com/abc)';
+        const body = buildInvoiceBody(ctx, 'text-only', markdownShareUrl, 'email');
+        // No nested-link emission like [[Pay online](...)]([Pay online](...))
+        expect(body).not.toMatch(/\[\[Pay online\]/);
+        // URL is preserved and appears as a clean markdown auto-link
+        expect(body).toContain('https://share.example.com/abc');
+        expect(body).toContain('[https://share.example.com/abc](https://share.example.com/abc)');
+    });
+
+    it('unwraps markdown shareLink whose URL contains parentheses (#257)', () => {
+        // Wikipedia-style URLs with balanced parens must still unwrap; the
+        // anchored `(.+)` group captures through to the final paren.
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {
+            emailMessage: 'Hello %first_name%, view your bill: [%share_link%](%share_link%)'
+        });
+        const parenUrl = 'https://en.wikipedia.org/wiki/Function_(mathematics)';
+        const body = buildInvoiceBody(ctx, 'text-only', `[Pay online](${parenUrl})`, 'email');
+        expect(body).not.toMatch(/\[\[Pay online\]/);
+        expect(body).toContain(`[${parenUrl}](${parenUrl})`);
+    });
 });
 
 describe('preferred payment method ordering (issue #185)', () => {

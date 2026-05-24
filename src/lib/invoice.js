@@ -65,6 +65,23 @@ export function buildInvoiceSubject(year, member, template, ctx) {
 }
 
 /**
+ * If a value is itself a wrapping markdown link `[text](url)`, return just the
+ * URL. Otherwise return the value unchanged. Prevents nested-link emission
+ * (issue #257) when a markdown-formatted shareLink is substituted into a
+ * legacy `[%share_link%](%share_link%)` template position.
+ */
+function normalizeShareLink(raw) {
+    if (!raw) return '';
+    // `(.+)` (not `[^)]+`) so URLs that themselves contain parentheses —
+    // e.g. `[Pay](https://en.wikipedia.org/wiki/Function_(mathematics))` —
+    // unwrap to the full URL. The trailing `\)$` anchor forces the greedy
+    // match to stop at the final paren. No ReDoS risk: single unbounded
+    // group against an anchored literal.
+    const match = String(raw).match(/^\[[^\]]*\]\((.+)\)$/);
+    return match ? match[1] : raw;
+}
+
+/**
  * Simple template variable replacement for invoice messages.
  */
 function buildInvoiceTemplatePreviewText(template, ctx) {
@@ -79,7 +96,7 @@ function buildInvoiceTemplatePreviewText(template, ctx) {
         .replace(/%annual_total%/g, ctx.annualTotal)
         .replace(/%household_total%/g, ctx.annualTotal)
         .replace(/%total%/g, ctx.annualTotal)
-        .replace(/%share_link%/g, ctx.shareLink || '');
+        .replace(/%share_link%/g, normalizeShareLink(ctx.shareLink));
 
     // Clean up markdown links with empty URLs: [text]() → remove entire construct
     // Also clean bare []() and lines that became empty after removal
