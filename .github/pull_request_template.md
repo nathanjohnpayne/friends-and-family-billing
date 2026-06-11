@@ -5,8 +5,8 @@ Authoring-Agent: <!-- claude | codex | cursor -->
 - Call out any user-visible behavior or deployment notes.
 
 ## Testing
-- [ ] `npm test`
-- [ ] `npm run build`
+- [ ] Tests pass
+- [ ] Build succeeds
 - [ ] Manual verification completed when needed
 
 ## Self-Review
