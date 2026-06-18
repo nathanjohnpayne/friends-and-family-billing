@@ -356,7 +356,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Check payment method type with name, address, phone fields
 - ✅ Bank building icon for Check payment method (branded SVG)
 - ✅ QR code uploads per payment method
-- ✅ 632 React tests + 288 legacy tests + Playwright E2E
+- ✅ ~628 React tests + 290 legacy tests + Playwright E2E
 
 ### React Migration (2026-03) --- COMPLETE
 
@@ -365,7 +365,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Code-split lazy loading via React.lazy + Suspense
 - ✅ Vite build with code-split lazy chunks (~238 KB index + ~400 KB TipTap/InvoicingTab)
 - ✅ React Router v7 with SPA fallback rewrites
-- ✅ 632 Vitest + React Testing Library tests
+- ✅ ~628 Vitest + React Testing Library tests
 - ✅ Public share page ported to React route (/share)
 - ✅ Server-side email delivery via Resend Cloud Function
 - ✅ Firebase modular SDK replaces CDN compat libraries

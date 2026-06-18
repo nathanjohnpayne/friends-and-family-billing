@@ -116,7 +116,7 @@ Just send them your deployed URL. Each person:
 
 - **Frontend:** React 19 SPA (Vite dev server with HMR)
 - **Backend:** Firebase (Firestore, Cloud Functions, Auth, Hosting, Storage)
-- **Testing:** Vitest + React Testing Library (632 tests) + Playwright E2E
+- **Testing:** Vitest + React Testing Library (~628 React tests) + Playwright E2E
 - **Email:** Server-side delivery via Resend Cloud Function
 - **Rich text:** TipTap WYSIWYG editor for invoice templates
 
