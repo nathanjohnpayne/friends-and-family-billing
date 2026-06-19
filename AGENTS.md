@@ -2,6 +2,8 @@
 
 Agent instructions are organized into focused sub-files under `docs/agents/`. Read the relevant file(s) before taking action in this repository.
 
+**Domain model:** before working on billing, settlement, refunds, or charges, read [`CONTEXT.md`](CONTEXT.md) (the ubiquitous-language glossary) and the decision records in [`docs/adr/`](docs/adr/).
+
 ## Sections
 
 1. **[Repository Overview](docs/agents/repository-overview.md)** --- Project description, tech stack, agent role
