@@ -500,7 +500,7 @@ describe('SettlementBoard — Issue Refund', () => {
         fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Overpaid Q1' } });
         fireEvent.click(screen.getByText('Save Refund'));
         expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 2, amount: 68.98, reason: 'Overpaid Q1'
+            memberId: 2, amount: 68.98, method: 'venmo', reason: 'Overpaid Q1'
         }));
     });
 
@@ -512,5 +512,19 @@ describe('SettlementBoard — Issue Refund', () => {
         fireEvent.click(screen.getByText('Save Refund'));
         expect(onIssueRefund).not.toHaveBeenCalled();
         expect(screen.getByText(/reason is required/i)).toBeInTheDocument();
+    });
+
+    it('surfaces a refund failure as an inline error and keeps the dialog open', () => {
+        // A throwing callback (e.g. the service rejecting an over-cap amount) must
+        // not close the dialog — the error shows inline and input is preserved.
+        const onIssueRefund = vi.fn(() => { throw new Error('Refund cannot exceed the credit.'); });
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={onIssueRefund} />);
+        expandCard('Bob');
+        fireEvent.click(screen.getByText('Issue Refund'));
+        fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Overpaid' } });
+        fireEvent.click(screen.getByText('Save Refund'));
+        expect(onIssueRefund).toHaveBeenCalled();
+        expect(screen.getByText(/cannot exceed/i)).toBeInTheDocument(); // inline error
+        expect(screen.getByText('Save Refund')).toBeInTheDocument();    // dialog still open
     });
 });

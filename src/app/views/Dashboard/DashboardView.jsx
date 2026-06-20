@@ -183,12 +183,11 @@ export default function DashboardView() {
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
                 onIssueRefund={data => {
-                    try {
-                        service.issueRefund(data);
-                        showToast('Refund recorded');
-                    } catch (err) {
-                        showToast('Error: ' + err.message);
-                    }
+                    // Let errors propagate so the board's dialog shows the inline
+                    // error and stays open (mirrors onRecordPayment). The success
+                    // toast runs only when issueRefund did not throw.
+                    service.issueRefund(data);
+                    showToast('Refund recorded');
                 }}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
