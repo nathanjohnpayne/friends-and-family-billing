@@ -172,4 +172,25 @@ describe('DashboardView', () => {
         expect(screen.getByText('Ready to start settlement')).toBeInTheDocument();
         expect(screen.queryByText('Planning in progress')).not.toBeInTheDocument();
     });
+
+    // ──────────────── Owed to Members KPI (#316) ────────────────
+
+    it('renders an "Owed to Members" KPI card distinct from Outstanding', () => {
+        renderDashboard();
+        expect(screen.getByText('Owed to Members')).toBeInTheDocument();
+        expect(screen.getAllByText('Outstanding').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('"Owed to Members" KPI reflects the sum of unresolved household credits', () => {
+        // Annual bill 1200 split two ways → 600 owed each. Bob overpays to 668.98 → 68.98 credit.
+        renderDashboard({
+            payments: [
+                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            ]
+        });
+        expect(screen.getByText('Owed to Members')).toBeInTheDocument();
+        // Appears on the KPI card (also mirrored on Bob's settlement-board credit box)
+        expect(screen.getAllByText('$68.98').length).toBeGreaterThanOrEqual(1);
+    });
 });

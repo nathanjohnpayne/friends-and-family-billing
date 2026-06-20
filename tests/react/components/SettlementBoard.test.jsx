@@ -388,3 +388,52 @@ describe('SettlementBoard', () => {
         expect(screen.getByText(/Linked Groups 1/)).toBeInTheDocument();
     });
 });
+
+// ──────────────── Household credit display (#316) ────────────────
+//
+// Each household here owes $480/yr on Internet ($120/mo × 12 ÷ 3 members).
+// Bob is an independent member; Alice + Carol form a household.
+
+describe('SettlementBoard — household credit', () => {
+    it('shows a Credit box with the overpaid amount for an overpaid household', () => {
+        const payments = [{ memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        expect(screen.getByText('Credit')).toBeInTheDocument();
+        expect(screen.getByText('$68.98')).toBeInTheDocument();
+    });
+
+    it('shows an Overpaid badge for a household carrying an unresolved credit', () => {
+        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        expect(screen.getAllByText('Overpaid').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('reads Settled (not Overpaid) when a recorded refund brings Net Contribution down to owed', () => {
+        // Bob paid 600 (owed 480) but a recorded refund of 120 nets his contribution back to 480.
+        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'refund', amount: 120, status: 'recorded' }];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={payments}
+                creditAdjustments={creditAdjustments}
+                readOnly={false}
+            />
+        );
+        expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
+        expect(screen.queryByText('Overpaid')).toBeNull();
+        expect(screen.queryByText('Credit')).toBeNull(); // credit resolved → no Credit box
+    });
+
+    it('nets internal household imbalance out — primary overpaid + linked underpaid shows no household credit', () => {
+        // Alice (primary) + Carol (linked) each owe 480. Alice overpays 80, Carol underpays 80.
+        // Household Net Contribution (960) equals owed (960): no household-level credit (ADR 0001).
+        const payments = [
+            { memberId: 1, amount: 560, method: 'cash' },
+            { memberId: 3, amount: 400, method: 'cash' }
+        ];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        expect(screen.queryByText('Credit')).toBeNull();
+    });
+});

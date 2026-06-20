@@ -38,8 +38,17 @@ Covers all pure calculation logic for annual billing summaries, payment totals, 
 
 ### Settlement Metrics
 
-- `calculateSettlementMetrics` computes total annual cost, total payments received, total outstanding balance, total member count, percentage settled (capped at 100), and count of fully paid members.
+- `calculateSettlementMetrics` computes total annual cost, total payments received, total outstanding balance, total credits owed to members, total member count, percentage settled (capped at 100), and count of fully paid members. It accepts an optional `creditAdjustments` array (defaulting to empty) so a three-argument call remains backward-compatible.
 - Linked members are combined under their parent for household-level settlement tracking; the total member count reflects households not individuals.
+- `totalCreditsOwed` is the sum of unresolved household credits and is tracked on a separate axis from `totalOutstanding`; an overpaid household still counts as settled (its surplus does not block settlement).
+
+### Household Net Contribution and Credit
+
+Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations — no mutations are introduced.
+
+- `CREDIT_EPSILON` is a sub-cent threshold (≈ half a cent); an overpayment at or below it is treated as zero so distributed-payment and bill-split rounding residue is not surfaced as money owed back.
+- `getCreditAdjustmentTotalForMember` sums a member's active refunds and carried-forward credits (records whose `status` is not `cancelled`), and returns 0 for an unknown member or an empty/missing array. These adjustments subtract from gross payments.
+- `getHouseholdFinancials` computes a household's `owed`, `grossPaid`, `creditAdjustmentTotal`, `netContribution` (gross paid minus refunds/carry-forwards), and `credit` (the net amount overpaid, with sub-cent residue zeroed by `CREDIT_EPSILON`) at the household grain. Owed, payments, and adjustments are summed across the primary and linked members before differencing, so internal imbalance between members nets out and is invisible to the household credit.
 
 ### Outstanding Balance and Year Close
 
