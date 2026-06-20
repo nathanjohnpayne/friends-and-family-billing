@@ -1896,6 +1896,50 @@ describe('projectMemberDisputes (Cloud Function, #320)', () => {
     });
 });
 
+// ──────── getServiceCreditTotalForMember (Cloud Function, #321) ────────
+//
+// resolveShareToken reduces the member-facing combinedAnnual by the household's
+// active Service Credits, so the Cloud Function fallback (cache-miss / legacy-cache
+// / stale-refresh, self-healed back into publicShares) agrees with the React +
+// legacy buildPublicShareData writers. This is the shared helper behind that.
+
+const { getServiceCreditTotalForMember: cfGetServiceCreditTotal } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('getServiceCreditTotalForMember (Cloud Function, #321)', () => {
+    it('sums active service_credit records for the member only', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: 50 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 20 },
+            { id: 's3', memberId: 2, kind: 'service_credit', status: 'active', amount: 999 } // other member
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 70);
+    });
+
+    it('excludes voided credits and other owedAdjustment kinds', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'voided', amount: 999 },
+            { id: 'u1', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 999 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 30 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 30);
+    });
+
+    it('drops non-finite, negative, and missing amounts (no coercion)', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: NaN },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: -5 },
+            { id: 's3', memberId: 1, kind: 'service_credit', status: 'active' }, // missing
+            { id: 's4', memberId: 1, kind: 'service_credit', status: 'active', amount: 12.5 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 12.5);
+    });
+
+    it('tolerates empty or missing input', () => {
+        assert.equal(cfGetServiceCreditTotal([], 1), 0);
+        assert.equal(cfGetServiceCreditTotal(undefined, 1), 0);
+    });
+});
+
 // ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
 
 describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {

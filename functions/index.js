@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -215,6 +215,15 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
+    // Active Service Credits (#321) lower the household's owed; reduce combinedAnnual
+    // here (floored at 0) so this Cloud Function fallback — used by ShareView on cache
+    // miss / legacy-cache / stale-refresh, and self-healed back into publicShares —
+    // agrees with buildPublicShareData (React + legacy) and never persists the gross total.
+    const owedAdjustments = yearData.owedAdjustments || [];
+    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, tokenData.memberId)
+      + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+
     // Skip access increment and audit log on background refreshes (refreshOnly)
     // to avoid double-counting when the client already incremented publicShares.
     if (!refreshOnly) {
@@ -303,7 +312,6 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     // owedAdjustments[] array (already loaded above), filtered to this token
     // member and to deferred status only. Member-safe fields only; never touches owed.
     if (scopes.includes("usageCharges:read")) {
-      const owedAdjustments = yearData.owedAdjustments || [];
       result.pendingCharges = buildPendingChargesForShare(
         familyMembers,
         owedAdjustments,

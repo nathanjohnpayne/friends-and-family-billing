@@ -144,4 +144,20 @@ function projectMemberDisputes(docs) {
     });
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, CHARGE_NOTICE_KIND };
+/**
+ * Sum a member's active Service Credits (#321) as a positive magnitude. Mirrors
+ * the client getServiceCreditTotalForMember: only `service_credit` records with
+ * `status: 'active'` and a finite positive amount count. The Cloud Function uses
+ * this to reduce the member-facing owed so resolveShareToken agrees with
+ * buildPublicShareData (React + legacy) and never self-heals a gross total.
+ */
+function getServiceCreditTotalForMember(owedAdjustments, memberId) {
+  return (owedAdjustments || [])
+    .filter((a) => a && a.kind === "service_credit" && a.status === "active" && a.memberId === memberId)
+    .reduce((sum, a) => {
+      const n = Number.parseFloat(a.amount);
+      return Number.isFinite(n) && n > 0 ? sum + n : sum;
+    }, 0);
+}
+
+module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, CHARGE_NOTICE_KIND };
