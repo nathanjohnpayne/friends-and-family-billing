@@ -14,8 +14,9 @@ import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, CREDIT_EPSILON } from './calculations.js';
+import { selectBillableCharges } from './chargeNotice.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -990,6 +991,79 @@ export class BillingYearService {
         });
         this.save();
         return charge;
+    }
+
+    /**
+     * Off-cycle-bill a member's deferred Usage Charges via a Charge Notice (#320).
+     * Flips the selected `owedAdjustments[]` records from `deferred` to `billed`
+     * (append-only: status change, NEVER deleted — mirrors the payments-ledger
+     * immutability discipline) and stamps each with the new `chargeNoticeId` and a
+     * `billedAt` timestamp. A billed charge is present-tense money: it raises the
+     * household's owed (via getBilledUsageChargeTotalForMember in calculations.js),
+     * so unpaid → Outstanding → blocks close (ADR 0006). Settlement is through the
+     * existing payments ledger; this mutation does NOT touch recordPayment /
+     * reversePayment / recordUsageCharge or the payments[] array.
+     *
+     * Selection defaults to ALL of the member's deferred charges; an optional
+     * incurred-date range (the "this month" preset) or an explicit chargeIds list
+     * narrows it. The outbound Charge Notice document + member email are created by
+     * ChargeNoticeService.issueChargeNotice using this mutation's result.
+     *
+     * HIGH-RISK: settlement/owed boundary. Emits a CHARGES_BILLED billing event
+     * (mirroring USAGE_CHARGE_RECORDED / REFUND_ISSUED).
+     *
+     * @param {{ memberId: *, range?: { from?: string, to?: string }, chargeIds?: Array }} data
+     * @returns {{ chargeNoticeId: string, memberId: *, amount: number, chargeIds: Array, charges: Array }}
+     */
+    billDeferredCharges(data) {
+        this._guardReadOnly();
+        const { owedAdjustments, familyMembers } = this._state;
+
+        const member = familyMembers.find(m => m.id === data.memberId);
+        if (!member) throw new Error('Member not found.');
+
+        // Select the deferred charges to bill (default: all of this member's).
+        let selected = selectBillableCharges(owedAdjustments, data.memberId, data.range || {});
+        if (Array.isArray(data.chargeIds)) {
+            const wanted = new Set(data.chargeIds);
+            selected = selected.filter(c => wanted.has(c.id));
+        }
+        if (selected.length === 0) {
+            throw new Error('No deferred charges to bill for this member in the selected period.');
+        }
+
+        const chargeNoticeId = generateChargeNoticeId();
+        const billedAt = new Date().toISOString();
+        const billedIds = new Set(selected.map(c => c.id));
+        const amount = Math.round(selected.reduce((sum, c) => sum + (c.amount || 0), 0) * 100) / 100;
+
+        // Append-only flip: replace each selected record with a billed copy; all
+        // other records pass through untouched.
+        const updatedAdjustments = (owedAdjustments || []).map(a =>
+            billedIds.has(a.id)
+                ? { ...a, status: 'billed', chargeNoticeId, billedAt }
+                : a
+        );
+
+        const events = this._emitEvent('CHARGES_BILLED', {
+            chargeNoticeId,
+            memberId: member.id,
+            memberName: member.name,
+            amount,
+            chargeIds: Array.from(billedIds),
+            count: selected.length
+        });
+
+        this._setState({ owedAdjustments: updatedAdjustments, billingEvents: events });
+        this.save();
+
+        return {
+            chargeNoticeId,
+            memberId: member.id,
+            amount,
+            chargeIds: selected.map(c => c.id),
+            charges: selected
+        };
     }
 
     // ── Credit dispositions (#318) ──
