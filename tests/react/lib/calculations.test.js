@@ -7,7 +7,10 @@ import {
     getMemberPayments,
     isLinkedToAnyone,
     getParentMember,
-    calculateSettlementMetrics
+    calculateSettlementMetrics,
+    getCreditAdjustmentTotalForMember,
+    getHouseholdFinancials,
+    CREDIT_EPSILON
 } from '@/lib/calculations.js';
 
 describe('getBillAnnualAmount', () => {
@@ -176,5 +179,193 @@ describe('calculateSettlementMetrics', () => {
         const payments = [{ memberId: 1, amount: 80 }]; // parent pays 80 of combined 80 (40+40)
         const m = calculateSettlementMetrics(linked, linkedBills, payments);
         expect(m.totalMembers).toBe(2); // only parent + solo (child is linked)
+    });
+});
+
+// ──────────────── Off-cycle credits (#316) ────────────────
+//
+// Net Contribution = gross paid − recorded refunds/carry-forwards. A household's
+// Credit is the net amount overpaid, computed at the household grain (ADR 0001).
+// These are read-only display calculations — no mutations are introduced here.
+
+describe('CREDIT_EPSILON', () => {
+    it('is a small sub-cent threshold (about half a cent)', () => {
+        expect(CREDIT_EPSILON).toBeGreaterThan(0);
+        expect(CREDIT_EPSILON).toBeLessThan(0.01);
+    });
+});
+
+describe('getCreditAdjustmentTotalForMember', () => {
+    const adjustments = [
+        { id: 'c1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' },
+        { id: 'c2', memberId: 1, type: 'carry_forward', amount: 20, status: 'recorded' },
+        { id: 'c3', memberId: 1, type: 'refund', amount: 999, status: 'cancelled' },
+        { id: 'c4', memberId: 2, type: 'refund', amount: 10, status: 'recorded' }
+    ];
+
+    it('sums active refunds and carry-forwards for the member', () => {
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1)).toBe(70); // 50 + 20
+    });
+
+    it('excludes cancelled adjustments', () => {
+        // c3 (999, cancelled) must not be counted
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1)).toBe(70);
+    });
+
+    it('returns 0 for a member with no adjustments', () => {
+        expect(getCreditAdjustmentTotalForMember(adjustments, 99)).toBe(0);
+    });
+
+    it('returns 0 for an empty or missing array', () => {
+        expect(getCreditAdjustmentTotalForMember([], 1)).toBe(0);
+        expect(getCreditAdjustmentTotalForMember(undefined, 1)).toBe(0);
+    });
+});
+
+describe('getHouseholdFinancials', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [] },
+        { id: 2, name: 'Bob', linkedMembers: [] }
+    ];
+    // $100/month split two ways → $600/yr owed each
+    const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }];
+    const summary = calculateAnnualSummary(members, bills);
+
+    it('net contribution equals gross paid when there are no adjustments', () => {
+        const payments = [{ memberId: 1, amount: 600 }];
+        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        expect(f.owed).toBe(600);
+        expect(f.grossPaid).toBe(600);
+        expect(f.netContribution).toBe(600);
+        expect(f.credit).toBe(0);
+    });
+
+    it('derives a credit from an overpayment (gross paid exceeds owed)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }]; // owed 600
+        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        expect(f.credit).toBeCloseTo(68.98, 5);
+    });
+
+    it('a recorded refund reduces net contribution so the household reads settled (zero credit)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments);
+        expect(f.netContribution).toBeCloseTo(600, 5);
+        expect(f.credit).toBe(0);
+    });
+
+    it('a carried-forward credit also reduces net contribution', () => {
+        const payments = [{ memberId: 1, amount: 650 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'carry_forward', amount: 50, status: 'recorded' }];
+        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments);
+        expect(f.netContribution).toBe(600);
+        expect(f.credit).toBe(0);
+    });
+
+    it('treats a sub-cent rounding credit as zero (epsilon)', () => {
+        const payments = [{ memberId: 1, amount: 600.004 }]; // 0.004 < CREDIT_EPSILON
+        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        expect(f.credit).toBe(0);
+    });
+
+    it('nets internal member imbalance out at the household grain (ADR 0001)', () => {
+        const householdMembers = [
+            { id: 1, name: 'Primary', linkedMembers: [3] },
+            { id: 3, name: 'Linked', linkedMembers: [] }
+        ];
+        // $100/month split two ways → $600/yr owed each, household owes $1200
+        const hhBills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }];
+        const hhSummary = calculateAnnualSummary(householdMembers, hhBills);
+        // Primary overpays by 50, Linked underpays by 50 → household nets to exactly owed
+        const payments = [{ memberId: 1, amount: 650 }, { memberId: 3, amount: 550 }];
+        const f = getHouseholdFinancials(householdMembers[0], hhSummary, payments, []);
+        expect(f.owed).toBe(1200);
+        expect(f.grossPaid).toBe(1200);
+        expect(f.netContribution).toBe(1200);
+        expect(f.credit).toBe(0); // internal imbalance is invisible to the household credit
+    });
+});
+
+describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [] },
+        { id: 2, name: 'Bob', linkedMembers: [] }
+    ];
+    const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }]; // 600 each
+
+    it('reports zero credits owed when no household has overpaid', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalCreditsOwed).toBe(0);
+    });
+
+    it('tracks totalCreditsOwed on a separate axis from outstanding', () => {
+        // Alice overpays (credit 68.98), Bob pays exactly. Nothing is outstanding,
+        // yet 68.98 is owed back to members — the two figures are independent.
+        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
+        expect(m.totalOutstanding).toBe(0);
+    });
+
+    it('a recorded refund clears the credit and the household still counts as settled', () => {
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 600 }
+        ];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments);
+        expect(m.totalCreditsOwed).toBe(0);
+        expect(m.paidCount).toBe(2); // both households settled
+    });
+
+    it('an overpaid household counts as settled but still surfaces its credit', () => {
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 600 }
+        ];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.paidCount).toBe(2); // overpaid does not block settlement
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
+    });
+
+    it('excludes sub-cent rounding credits from totalCreditsOwed (epsilon)', () => {
+        const payments = [{ memberId: 1, amount: 600.004 }, { memberId: 2, amount: 600 }];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalCreditsOwed).toBe(0);
+    });
+
+    it('defaults creditAdjustments to an empty array (backward-compatible 3-arg call)', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalCreditsOwed).toBe(0);
+        expect(m.paidCount).toBe(2);
+    });
+
+    it('does not let a recorded refund mask another household shortfall', () => {
+        // Alice paid 668.98 with a 68.98 refund (net 600, settled); Bob paid 500 (owes 100).
+        // The refunded money left the ledger and must not offset Bob's debt.
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 500 }
+        ];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments);
+        expect(m.totalOutstanding).toBeCloseTo(100, 5); // Bob's real shortfall, not 31.02
+        expect(m.totalCreditsOwed).toBe(0);
+        expect(m.paidCount).toBe(1);
+    });
+
+    it('does not let an overpayment mask another household shortfall or count as progress', () => {
+        // Alice overpaid (668.98 of 600, unrefunded); Bob paid 500 (owes 100). Per-household
+        // net shortfalls keep Alice's surplus from masking Bob's debt or inflating progress.
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 500 }
+        ];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalOutstanding).toBeCloseTo(100, 5);       // not the global 31.02
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);      // Alice's credit, separate axis
+        expect(m.percentage).toBe(92);                         // (1200 − 100) / 1200, not gross 97
     });
 });

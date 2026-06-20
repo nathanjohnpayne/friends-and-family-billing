@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, CREDIT_EPSILON } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -66,10 +66,18 @@ export default function SettlementBoard({ familyMembers, bills, payments, readOn
         const payment = getPaymentTotalForMember(payments, member.id)
             + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
 
-        const balance = combinedTotal - payment;
-        const status = getPaymentStatus(combinedTotal, payment) || 'settled';
+        // Household-grain credit (ADR 0001): Net Contribution = gross paid minus
+        // recorded refunds/carry-forwards. Status, the collectable balance, and the
+        // Record-Payment gate all derive from Net Contribution, so a refunded
+        // household (net == owed) reads Settled, and a household pushed net-underpaid
+        // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
+        // showing gross money received.
+        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        const balance = combinedTotal - netContribution;
+        const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
+        const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
 
-        return { member, data, combinedTotal, linkedData, payment, balance, status };
+        return { member, data, combinedTotal, linkedData, payment, balance, credit, status };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled (mirrors main.js:1964)
@@ -198,9 +206,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, data, combinedTotal, linkedData, payment, balance, status } = row;
+    const { member, data, combinedTotal, linkedData, payment, balance, credit, status } = row;
     const hasLinked = linkedData.length > 0;
-    const showPaymentAction = !readOnly && balance > 0;
+    // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
+    // reads as settled, matching the status badge and the credit epsilon.
+    const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
 
     function handleRecordPayment(e) {
         e.preventDefault();
@@ -272,10 +282,17 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                             <span className="settlement-summary-label">Paid</span>
                             <span className="settlement-summary-value settlement-summary-paid">{formatAnnualSummaryCurrency(payment)}</span>
                         </div>
-                        <div className="settlement-summary-box">
-                            <span className="settlement-summary-label">Balance</span>
-                            <span className={'settlement-summary-value' + (balance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
-                        </div>
+                        {credit > 0 ? (
+                            <div className="settlement-summary-box">
+                                <span className="settlement-summary-label">Credit</span>
+                                <span className="settlement-summary-value settlement-summary-credit">{formatAnnualSummaryCurrency(credit)}</span>
+                            </div>
+                        ) : (
+                            <div className="settlement-summary-box">
+                                <span className="settlement-summary-label">Balance</span>
+                                <span className={'settlement-summary-value' + (balance > CREDIT_EPSILON ? ' settlement-summary-balance' : ' settled-zero')}>{balance > CREDIT_EPSILON ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
+                            </div>
+                        )}
                     </div>
                     <StatusBadge status={status} />
                     <span className="settlement-expand-toggle">
@@ -402,7 +419,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                             </button>
                         )}
                         <ActionMenu label={'More actions for ' + member.name}>
-                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}>
+                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
                                 Email Invoice
                             </ActionMenuItem>
                             <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
@@ -423,7 +440,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         <form onSubmit={handleRecordPayment}>
                             <p className="payment-dialog-for">
                                 For: <strong>{member.name}</strong>
-                                {balance > 0 && (
+                                {balance > CREDIT_EPSILON && (
                                     <span className="payment-dialog-balance">
                                         {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
                                     </span>

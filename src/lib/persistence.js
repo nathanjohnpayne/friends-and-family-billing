@@ -10,9 +10,11 @@
  * @param {Array} payments
  * @param {Array} billingEvents
  * @param {Object} settings
+ * @param {Array} [creditAdjustments]  refunds + carried-forward credits (#316). Preserved
+ *   verbatim so a full-document save never drops them (save uses setDoc without merge).
  * @returns {Object}
  */
-export function buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings) {
+export function buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments = []) {
     const settingsForSave = Object.assign({}, settings);
     // Strip transient migration flag — not user data.
     // _templateDocVersion IS persisted so the re-migration only runs once.
@@ -36,6 +38,7 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
         familyMembers: familyMembers,
         bills: bills,
         payments: payments,
+        creditAdjustments: creditAdjustments,
         billingEvents: billingEvents,
         settings: settingsForSave
     };
@@ -46,7 +49,7 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
  * Mutates member and bill objects in place (matching existing behavior).
  * @param {Object} yearData - raw Firestore document data
  * @param {string} yearId
- * @returns {{ year: Object, members: Array, bills: Array, payments: Array, billingEvents: Array, settings: Object|null }}
+ * @returns {{ year: Object, members: Array, bills: Array, payments: Array, creditAdjustments: Array, billingEvents: Array, settings: Object|null }}
  */
 export function normalizeYearData(yearData, yearId) {
     const year = {
@@ -75,6 +78,7 @@ export function normalizeYearData(yearData, yearId) {
     });
 
     const payments = yearData.payments || [];
+    const creditAdjustments = yearData.creditAdjustments || [];
     const billingEvents = yearData.billingEvents || [];
 
     let settings = yearData.settings || null;
@@ -83,7 +87,7 @@ export function normalizeYearData(yearData, yearId) {
         // paymentMethods migration is handled by caller (depends on migratePaymentLinksToMethods)
     }
 
-    return { year, members, bills, payments, billingEvents, settings };
+    return { year, members, bills, payments, creditAdjustments, billingEvents, settings };
 }
 
 /**
@@ -101,6 +105,7 @@ export function buildInitialYearData(yearId, settings) {
         familyMembers: [],
         bills: [],
         payments: [],
+        creditAdjustments: [],
         settings: settings
     };
 }

@@ -115,6 +115,20 @@ describe('BillingYearService', () => {
             expect(state.familyMembers[0].name).toBe('Alice');
         });
 
+        it('loads creditAdjustments from the year document into state (#316 read path)', async () => {
+            const creditAdjustments = [{ id: 'cadj1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }];
+            mockStore['users/user-1'] = { activeBillingYear: '2025' };
+            mockStore['users/user-1/billingYears/2025'] = {
+                label: '2025', status: 'open',
+                familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], creditAdjustments, billingEvents: [],
+                settings: { emailMessage: 'test', paymentLinks: [], paymentMethods: [] }
+            };
+
+            await svc.setUser(TEST_USER);
+            expect(svc.getState().creditAdjustments).toEqual(creditAdjustments);
+        });
+
         it('creates default year for brand-new users with legacy email template', async () => {
             // No user doc → brand-new user path
             await svc.setUser(TEST_USER);
@@ -226,6 +240,22 @@ describe('BillingYearService', () => {
             const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2025');
             expect(write).toBeDefined();
             expect(write.data.updatedAt).toBe('__SERVER_TIMESTAMP__');
+        });
+
+        it('preserves creditAdjustments in the save payload (#316 — no drop on full-document write)', async () => {
+            const creditAdjustments = [{ id: 'cadj1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }];
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], creditAdjustments, billingEvents: [],
+                settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] }
+            });
+
+            await svc.save();
+
+            const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2025');
+            expect(write.data.creditAdjustments).toEqual(creditAdjustments);
         });
 
         it('does nothing without a user', async () => {

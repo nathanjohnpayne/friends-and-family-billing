@@ -19,7 +19,7 @@ import ConfirmDialog from '../../components/ConfirmDialog.jsx';
  * Port of renderDashboardStatus() from main.js.
  */
 export default function DashboardView() {
-    const { activeYear, familyMembers, bills, payments, loading, service } = useBillingData();
+    const { activeYear, familyMembers, bills, payments, creditAdjustments = [], loading, service } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
 
@@ -50,7 +50,7 @@ export default function DashboardView() {
         );
     }
 
-    const metrics = calculateSettlementMetrics(familyMembers, bills, payments);
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments);
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
@@ -145,6 +145,9 @@ export default function DashboardView() {
                 <div className="kpi-grid">
                     <KpiCard label="Outstanding" value={metrics.totalOutstanding > 0 ? '$' + metrics.totalOutstanding.toFixed(2) : 'Paid'}
                         valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'settled-zero'} />
+                    <KpiCard label="Owed to Members" value={metrics.totalCreditsOwed > 0 ? '$' + metrics.totalCreditsOwed.toFixed(2) : 'None'}
+                        valueClass={metrics.totalCreditsOwed > 0 ? 'credit' : 'settled-zero'}
+                        subtitle="Unresolved credits" />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers} />
                     <KpiCard
                         label="Open Reviews"
@@ -176,6 +179,7 @@ export default function DashboardView() {
                 familyMembers={familyMembers}
                 bills={bills}
                 payments={payments}
+                creditAdjustments={creditAdjustments}
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
                 onEmailInvoice={(memberId, isSettled) => {

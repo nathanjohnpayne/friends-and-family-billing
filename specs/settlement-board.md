@@ -21,7 +21,9 @@ Covers the settlement board component for tracking household payment status, the
 - Shows "Linked Groups N" count in the filter bar when households with linked members exist.
 - Shows only parent and independent members as top-level cards; linked children are nested under their parent.
 - Displays "Outstanding" badge for unpaid members and "Settled" badge for fully paid members.
-- Card header shows Annual/Paid/Balance summary boxes; Balance shows $0.00 when settled.
+- The household card status is derived from the household's Net Contribution (gross paid minus recorded refunds/carry-forwards), not gross payments: a household whose Net Contribution equals its owed reads "Settled" even when gross paid exceeds owed (e.g. after a refund), while a household carrying an unresolved overpayment reads "Overpaid".
+- Card header shows Annual/Paid/Balance summary boxes; Balance shows "Paid" when settled. For a household carrying an unresolved credit (overpayment net of refunds/carry-forwards beyond the sub-cent epsilon), the third box shows "Credit" with the household credit amount instead of "Balance"; internal imbalance between household members nets out (ADR 0001).
+- The Balance, the Record-Payment action, and the payment-dialog balance all derive from the net shortfall (`owed − Net Contribution`), consistent with the card status. A household pushed below its owed (e.g. by a refund/carry-forward) shows a collectable Balance and the Record Payment action rather than "Paid"; the Paid box continues to show gross money received.
 - Card header shows a "+N" badge next to the member name for households with linked members.
 - Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
 - Cards expand via a "Details / Hide details" toggle to show bill breakdown, linked members, and household total.
@@ -69,7 +71,8 @@ Covers the settlement board component for tracking household payment status, the
   - Closed state: "Archive Year" (enabled).
   - Archived state: no button.
   - Each enabled button triggers a ConfirmDialog before executing the transition.
-- Renders KPI cards for Outstanding, Settled, and Open Reviews (3 cards; Status card removed as redundant with stepper).
+- Renders KPI cards for Outstanding, Owed to Members, Settled, and Open Reviews (4 cards; Status card removed as redundant with stepper).
+- The "Owed to Members" KPI shows the sum of unresolved household credits (`totalCreditsOwed`), distinct from "Outstanding"; it reads "None" when zero and a dollar amount otherwise, with the subtitle "Unresolved credits".
 - Open Reviews card shows "Review requests" subtitle text below the count.
 - Renders progress bar with percentage and settlement message.
 - Progress bar headline is accurate for every lifecycle phase: "Planning in progress" (Open, < 100%), "Ready to start settlement" (Open, 100% settled), "Settlement in progress" (Settling), "Settlement complete" (Settling, all paid), "Year closed" (Closed), "Archive view" (Archived).

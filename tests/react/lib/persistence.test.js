@@ -45,6 +45,17 @@ describe('buildSavePayload', () => {
         buildSavePayload(year, members, bills, payments, events, settingsWithQr);
         expect(settingsWithQr.paymentMethods[0].qrCode).toBe('data:abc');
     });
+
+    it('preserves creditAdjustments verbatim (the full-document save must not drop them)', () => {
+        const creditAdjustments = [{ id: 'cadj1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }];
+        const payload = buildSavePayload(year, members, bills, payments, events, settings, creditAdjustments);
+        expect(payload.creditAdjustments).toBe(creditAdjustments);
+    });
+
+    it('defaults creditAdjustments to an empty array when omitted', () => {
+        const payload = buildSavePayload(year, members, bills, payments, events, settings);
+        expect(payload.creditAdjustments).toEqual([]);
+    });
 });
 
 describe('normalizeYearData', () => {
@@ -80,6 +91,32 @@ describe('normalizeYearData', () => {
         expect(payments).toEqual([]);
         expect(billingEvents).toEqual([]);
     });
+
+    it('loads creditAdjustments from the document', () => {
+        const creditAdjustments = [{ id: 'cadj1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }];
+        const loaded = normalizeYearData({ creditAdjustments }, '2026');
+        expect(loaded.creditAdjustments).toEqual(creditAdjustments);
+    });
+
+    it('defaults a missing creditAdjustments array to empty', () => {
+        const { creditAdjustments } = normalizeYearData({}, '2026');
+        expect(creditAdjustments).toEqual([]);
+    });
+});
+
+describe('creditAdjustments round-trip', () => {
+    it('survives a load → save cycle without being dropped (lossless serialization)', () => {
+        // save() uses setDoc without merge, so an omitted field is erased from the
+        // document. A doc carrying creditAdjustments must round-trip verbatim.
+        const creditAdjustments = [
+            { id: 'cadj1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' },
+            { id: 'cadj2', memberId: 2, type: 'carry_forward', amount: 20, status: 'recorded' }
+        ];
+        const yearDoc = { label: '2026', status: 'open', familyMembers: [], bills: [], payments: [], creditAdjustments };
+        const n = normalizeYearData(yearDoc, '2026');
+        const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings, n.creditAdjustments);
+        expect(payload.creditAdjustments).toEqual(creditAdjustments);
+    });
 });
 
 describe('buildInitialYearData', () => {
@@ -91,6 +128,7 @@ describe('buildInitialYearData', () => {
         expect(data.familyMembers).toEqual([]);
         expect(data.bills).toEqual([]);
         expect(data.payments).toEqual([]);
+        expect(data.creditAdjustments).toEqual([]);
         expect(data.settings).toBe(settings);
     });
 });

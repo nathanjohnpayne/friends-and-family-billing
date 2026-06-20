@@ -87,6 +87,7 @@ export class BillingYearService {
             familyMembers: [],
             bills: [],
             payments: [],
+            creditAdjustments: [],
             billingEvents: [],
             settings: null,
             loading: true,
@@ -156,7 +157,7 @@ export class BillingYearService {
         if (!user) {
             this._setState({
                 billingYears: [], activeYear: null, familyMembers: [],
-                bills: [], payments: [], billingEvents: [],
+                bills: [], payments: [], creditAdjustments: [], billingEvents: [],
                 settings: null, loading: false, error: null
             });
             return;
@@ -246,6 +247,7 @@ export class BillingYearService {
                 familyMembers: normalized.members,
                 bills: normalized.bills,
                 payments: normalized.payments,
+                creditAdjustments: normalized.creditAdjustments,
                 billingEvents: normalized.billingEvents,
                 settings: normalized.settings
             });
@@ -253,7 +255,7 @@ export class BillingYearService {
             this._setState({
                 activeYear: { id: yearId, label: yearId, status: 'open', createdAt: null, archivedAt: null },
                 familyMembers: [], bills: [], payments: [],
-                billingEvents: [], settings: null
+                creditAdjustments: [], billingEvents: [], settings: null
             });
         }
     }
@@ -282,7 +284,7 @@ export class BillingYearService {
     save() {
         // E2E mode: no-op, don't write to Firestore
         if (this._e2eMode) return Promise.resolve();
-        const { activeYear, familyMembers, bills, payments, billingEvents, settings } = this._state;
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, billingEvents, settings } = this._state;
         if (!this._user || !activeYear) return Promise.resolve();
         if (activeYear.status === 'closed' || activeYear.status === 'archived') {
             console.warn('Cannot save: year is ' + activeYear.status);
@@ -291,7 +293,7 @@ export class BillingYearService {
 
         return this._saveQueue.enqueue(async () => {
             const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
-            const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings);
+            const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments);
             if (!payload.createdAt) payload.createdAt = serverTimestamp();
             payload.updatedAt = serverTimestamp();
             await setDoc(yearDocRef, payload);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 // Mock Firebase (needed by ShareLinkDialog and useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
@@ -171,5 +171,36 @@ describe('DashboardView', () => {
         });
         expect(screen.getByText('Ready to start settlement')).toBeInTheDocument();
         expect(screen.queryByText('Planning in progress')).not.toBeInTheDocument();
+    });
+
+    // ──────────────── Owed to Members KPI (#316) ────────────────
+
+    it('renders an "Owed to Members" KPI card distinct from Outstanding', () => {
+        renderDashboard();
+        // Scope to the KPI cards so the test verifies the dashboard KPI path,
+        // not the same labels elsewhere on the page ("Outstanding" also appears
+        // as settlement-board status badges).
+        const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
+        const outstandingCard = screen.getAllByText('Outstanding')
+            .map(el => el.closest('.kpi-card'))
+            .find(Boolean);
+        expect(owedCard).not.toBeNull();
+        expect(outstandingCard).not.toBeNull();
+        expect(owedCard).not.toBe(outstandingCard);
+    });
+
+    it('"Owed to Members" KPI reflects the sum of unresolved household credits', () => {
+        // Annual bill 1200 split two ways → 600 owed each. Bob overpays to 668.98 → 68.98 credit.
+        renderDashboard({
+            payments: [
+                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            ]
+        });
+        // Scope to the KPI card so the assertion verifies the dashboard KPI path,
+        // not the same credit mirrored on Bob's settlement-board card.
+        const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
+        expect(owedCard).not.toBeNull();
+        expect(within(owedCard).getByText('$68.98')).toBeInTheDocument();
     });
 });
