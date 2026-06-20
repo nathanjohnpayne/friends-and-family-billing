@@ -3791,3 +3791,95 @@ describe('updateInvoiceVariant', () => {
         assert.ok(textareaValue.includes('https://example.com'));
     });
 });
+
+// ──────────────── submitRefundConfirmation (#319) ─────────────────────
+//
+// The Refund Notice confirm/not_received path. Members never write Firestore
+// directly — the submitRefundConfirmation Cloud Function records the outcome on
+// the member's OWN refund_notice Request (ADR 0002, ADR 0005 per-member scope).
+
+const {
+    validateRefundConfirmationInput,
+    filterMemberRefundNotices,
+    REFUND_NOTICE_KIND,
+} = _testHelpers;
+
+describe('REFUND_NOTICE_KIND (functions)', () => {
+    it('matches the client substrate discriminator', () => {
+        assert.equal(REFUND_NOTICE_KIND, 'refund_notice');
+    });
+});
+
+describe('validateRefundConfirmationInput', () => {
+    it('accepts confirm with a valid notice id', () => {
+        const r = validateRefundConfirmationInput({ noticeId: 'abc', outcome: 'confirm' });
+        assert.equal(r.valid, true);
+    });
+
+    it('accepts not_received with a valid notice id', () => {
+        const r = validateRefundConfirmationInput({ noticeId: 'abc', outcome: 'not_received' });
+        assert.equal(r.valid, true);
+    });
+
+    it('rejects a missing notice id', () => {
+        const r = validateRefundConfirmationInput({ noticeId: '', outcome: 'confirm' });
+        assert.equal(r.valid, false);
+        assert.equal(r.status, 400);
+    });
+
+    it('rejects a non-string notice id', () => {
+        assert.equal(validateRefundConfirmationInput({ noticeId: 123, outcome: 'confirm' }).valid, false);
+    });
+
+    it('rejects an unknown outcome (no arbitrary field writes)', () => {
+        const r = validateRefundConfirmationInput({ noticeId: 'abc', outcome: 'approved_by_user' });
+        assert.equal(r.valid, false);
+    });
+
+    it('rejects a missing outcome', () => {
+        assert.equal(validateRefundConfirmationInput({ noticeId: 'abc' }).valid, false);
+    });
+});
+
+describe('filterMemberRefundNotices', () => {
+    // ADR 0005 lesson: a member sees only THEIR OWN refund notices — never the
+    // whole household. A refund is issued to the primary, so it appears on the
+    // primary's share only.
+    const docs = [
+        { id: 'n1', kind: 'refund_notice', memberId: 1, amount: 100 },
+        { id: 'n2', kind: 'refund_notice', memberId: 2, amount: 50 },
+        { id: 'd1', memberId: 1, billId: 9, message: 'review request' }, // a Review Request (no kind)
+        { id: 'n3', kind: 'refund_notice', memberId: 1, amount: 25 },
+    ];
+
+    it('returns only refund_notice docs for the token member', () => {
+        const out = filterMemberRefundNotices(docs, 1);
+        const ids = out.map(d => d.id).sort();
+        assert.deepEqual(ids, ['n1', 'n3']);
+    });
+
+    it('excludes other members notices (no household expansion)', () => {
+        const out = filterMemberRefundNotices(docs, 1);
+        assert.ok(!out.some(d => d.memberId !== 1));
+        assert.ok(!out.some(d => d.id === 'n2'));
+    });
+
+    it('excludes Review Requests (kind-less docs)', () => {
+        const out = filterMemberRefundNotices(docs, 1);
+        assert.ok(!out.some(d => d.id === 'd1'));
+    });
+
+    it('returns an empty array when the member has no notices', () => {
+        assert.deepEqual(filterMemberRefundNotices(docs, 99), []);
+    });
+
+    it('projects only presentational fields (no tokenHash leak)', () => {
+        const withToken = [{ id: 'n1', kind: 'refund_notice', memberId: 1, amount: 100, method: 'venmo', reason: 'Overpaid', confirmation: null, tokenHash: 'secret-hash' }];
+        const out = filterMemberRefundNotices(withToken, 1);
+        assert.equal(out.length, 1);
+        assert.equal(out[0].tokenHash, undefined);
+        assert.equal(out[0].amount, 100);
+        assert.equal(out[0].reason, 'Overpaid');
+        assert.equal(out[0].confirmation, null);
+    });
+});

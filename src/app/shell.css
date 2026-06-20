@@ -2722,6 +2722,68 @@ img, svg { display: block; max-width: 100%; }
     font-style: italic;
 }
 
+/* Refund Notices tab (admin, #319) */
+.refund-notice-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+}
+
+.refund-followup-banner {
+    margin-bottom: var(--space-3, 12px);
+}
+
+.refund-notice-card {
+    padding: var(--space-3, 12px);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    background: var(--color-surface, #ffffff);
+    border-left: 3px solid transparent;
+}
+
+.refund-notice--sent { border-left-color: var(--color-text-secondary, #5B6475); }
+.refund-notice--confirmed { border-left-color: var(--color-success, #3FA37C); }
+.refund-notice--not-received { border-left-color: var(--color-danger, #C65A5A); }
+
+.refund-notice-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.refund-notice-amount { font-weight: 600; font-size: 0.95rem; }
+
+.refund-notice-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm, 6px);
+}
+
+.refund-notice-badge--sent { background: var(--color-surface-alt, #F7F8FB); color: var(--color-text-secondary, #5B6475); }
+.refund-notice-badge--confirmed_by_member { background: rgba(63, 163, 124, 0.12); color: var(--color-success, #3FA37C); }
+.refund-notice-badge--not_received { background: rgba(198, 90, 90, 0.1); color: var(--color-danger, #C65A5A); }
+
+.refund-notice-meta { font-size: 0.82rem; color: var(--color-text-secondary, #5B6475); margin-bottom: var(--space-2, 8px); }
+.refund-notice-reason { font-size: 0.85rem; margin: 0 0 var(--space-2, 8px); }
+
+.refund-notice-actions {
+    display: flex;
+    gap: var(--space-2, 8px);
+    margin-top: var(--space-2, 8px);
+    flex-wrap: wrap;
+}
+
+.refund-notice-resolution {
+    font-size: 0.82rem;
+    color: var(--color-text-secondary, #5B6475);
+    margin-top: var(--space-2, 8px);
+    font-style: italic;
+}
+
 /* Dispute Detail Dialog */
 .dispute-detail-dialog {
     padding: var(--space-3, 16px) var(--space-4, 24px) var(--space-3, 16px);
@@ -3330,6 +3392,42 @@ img, svg { display: block; max-width: 100%; }
 
 .share-dispute-decision.approved { color: var(--color-success, #3FA37C); }
 .share-dispute-decision.rejected { color: var(--color-danger, #C65A5A); }
+
+/* Refund Notices on the share page (#319) */
+.share-refunds-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+}
+
+.share-refund-item {
+    padding: var(--space-3, 12px);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    border-left: 3px solid var(--color-success, #3FA37C);
+}
+
+.share-refund-header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2, 8px);
+    margin-bottom: var(--space-1, 4px);
+}
+
+.share-refund-header strong { font-size: 1.05rem; }
+.share-refund-method { font-size: 0.82rem; color: var(--color-text-secondary, #5B6475); }
+.share-refund-meta { font-size: 0.82rem; color: var(--color-text-secondary, #5B6475); margin-bottom: var(--space-2, 8px); }
+.share-refund-reason { font-size: 0.85rem; margin: 0 0 var(--space-2, 8px); }
+
+.share-refund-actions {
+    display: flex;
+    gap: var(--space-2, 8px);
+    margin-top: var(--space-2, 8px);
+}
+
+.share-refund-status { font-size: 0.85rem; font-weight: 500; margin-top: var(--space-2, 8px); }
+.share-refund-status.confirmed { color: var(--color-success, #3FA37C); }
+.share-refund-status.not-received { color: var(--color-danger, #C65A5A); }
 
 .share-evidence-list {
     display: flex;

@@ -11,6 +11,9 @@ Covers the dispute (review request) lifecycle: loading, creating, updating, reso
 - `tests/react/hooks/useDisputes.test.jsx`
 - `tests/react/components/DisputeDetailDialog.test.jsx`
 - `tests/react/views/ReviewsTab.test.jsx`
+- `tests/react/hooks/useRefundNotices.test.jsx`
+- `tests/react/views/RefundNoticesTab.test.jsx`
+- `tests/react/lib/refundNotice.test.js`
 
 ## Acceptance Criteria
 
@@ -79,3 +82,20 @@ Covers the dispute (review request) lifecycle: loading, creating, updating, reso
 - Shows empty state ("No review requests") when no disputes exist.
 - Shows loading state ("Loading...") when loading.
 - Shows error state with the error message when an error occurs.
+
+### Refund Notices (#319)
+
+A Refund Notice is an administrator-initiated, **outbound** Request announcing a
+returned credit. It rides the same `disputes` subcollection as a distinct `kind`
+(`refund_notice`, ADR 0002) and uses its own confirmation vocabulary
+(`confirmed_by_member` / `not_received`)—never the Review Request's
+`approved_by_user` / `rejected_by_user`. The household's `creditAdjustment` (#318)
+stays the financial source of truth; the notice holds a presentational snapshot
+plus the `creditAdjustmentId`.
+
+- `refundNotice.js` helpers: `isRefundNotice` is true only when `kind === 'refund_notice'`; `buildRefundNoticeDoc` stamps the kind, a null `confirmation`, the snapshot fields, and the required `creditAdjustmentId` (throwing if absent); `isActiveNotReceived` is true only for an unresolved `not_received`; `reopenedCreditAdjustmentIds` returns the set of `creditAdjustmentId`s carried by active, unresolved `not_received` notices (the credits ADR 0003 re-opens while the year is open); `buildRefundNoticeEmail` includes the reason, amount, method, and a confirm link (falling back to "contact the account owner" when no link is available).
+- `useDisputes` **excludes** `refund_notice` docs so Refund Notices never reach the Review Request UI, the Open Reviews KPI, or the actionable review filter.
+- `useRefundNotices` loads **only** `refund_notice` docs, sorted by `createdAt` descending, exposes `activeNotReceivedCount` (active, unresolved `not_received` only), and a `resolveNotice(noticeId, resolution)` mutation that writes a `resolution` record (`merge: true`, `serverTimestamp`) and optimistically updates local state. It returns empty and skips Firestore when user/activeYear is unavailable, and surfaces the error message when getDocs rejects.
+- **RefundNoticesTab** renders each notice with amount, member, payment method, and a confirmation badge (Sent / Confirmed / Not Received). An active `not_received` raises a follow-up banner counting the open reports and offers three resolution actions: **Re-send** (`type: 'resent'`), **Cancel** (`type: 'cancelled'`), and **Dismiss** (`type: 'dismissed'`, which requires a logged reason via prompt and is aborted if the prompt is cancelled). Confirmed and pending notices show no resolution actions; a resolved notice shows a "Resolved (type)" line. Empty, loading, and error states render. A `confirmed_by_member` response is advisory and changes no totals; an active `not_received` re-opens the household credit only while the year is open and never reopens a closed year (ADR 0003, ADR 0007).
+- Issuing a refund records the authoritative `creditAdjustment` (#318) and then fires a Refund Notice keyed to that `creditAdjustmentId` as a non-blocking follow-up; a failure in the notice/email path never blocks the refund.
+- **Open-year credit re-open (ADR 0003):** while the year is open, an active, unresolved `not_received` re-opens its household's credit — the dashboard "Owed to Members" KPI and the household's credit box surface the refunded amount as owed again, because the member reports the money never arrived. The Dashboard feeds `reopenedCreditAdjustmentIds(refundNotices)` into `calculateSettlementMetrics` and the Settlement Board; resolving the notice (re-send / cancel / dismiss) clears the re-open. This re-open touches only the credit axis — never `totalOutstanding`, settlement progress, or the persisted ledger (see billing-calculations spec) — and a read-only year passes no re-open set, so a `not_received` after close never reanimates a frozen year (ADR 0007). The Record-Payment refund cap is computed without the re-open, so a still-unconfirmed refund cannot be double-issued.

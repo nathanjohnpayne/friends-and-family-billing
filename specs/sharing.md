@@ -11,12 +11,13 @@ Covers share link generation, token validation, the share link dialog, and the p
 - `tests/react/lib/share.test.js`
 - `tests/react/components/ShareLinkDialog.test.jsx`
 - `tests/react/views/ShareView.test.jsx`
+- `tests/react/lib/RefundNoticeService.test.js`
 
 ## Acceptance Criteria
 
 ### Share Helpers
 
-- `buildShareScopes` always includes `summary:read` and `paymentMethods:read`; adds `disputes:create` and/or `disputes:read` when the respective flags are true.
+- `buildShareScopes` always includes `summary:read` and `paymentMethods:read`; adds `disputes:create` and/or `disputes:read` when the respective flags are true; adds `refunds:read` when the third flag is true (#319). The 2-argument dispute call stays backwards-compatible.
 - `buildShareTokenDoc` includes rawToken when truthy and omits it when null (invoice flow); sets defaults for revoked (false), lastAccessedAt (null), accessCount (0).
 - `buildShareUrl` constructs a URL in the format `{origin}/share.html?token={token}`.
 - `computeExpiryDate` returns null for 0, null, or negative days; returns a future Date for positive days.
@@ -48,3 +49,14 @@ Covers share link generation, token validation, the share link dialog, and the p
 - Disputes section renders dispute details (bill name, status, message, resolution note); hidden when empty.
 - Trust banner renders a "secure annual billing summary" notice.
 - Shows loading message initially while data is being fetched.
+
+### Refund Notices on the Share Page (#319)
+
+- When the token carries `refunds:read` and the resolved data includes `refundNotices`, a "Your Refunds" section renders each notice with its amount, payment method, and reason; the section is hidden when there are no notices.
+- A pending notice (no `confirmation`) shows two actions: **Confirm Receipt** and **I Have Not Received It**. Clicking either POSTs `{ token, noticeId, outcome }` to `/submitRefundConfirmation` (`outcome` is `confirm` or `not_received`)—never a direct Firestore write.
+- After confirming, the card shows "You confirmed you received this refund." and the action buttons are removed; after reporting non-receipt, it shows the "reported … as not received" message. A notice that already carries a `confirmation` seeds that terminal state on load (no action buttons).
+
+### RefundNoticeService (issuance)
+
+- `issueRefundNotice` mints a `refunds:read` share link (also granting `summary:read`) for the confirm CTA, writes a `refund_notice` doc into the `disputes` subcollection with a server `createdAt`, the snapshot fields, a null `confirmation`, the `creditAdjustmentId`, and the link's `tokenHash`, then emails the member the reason, amount, method, and confirm link.
+- The notice persists even when the member has no email (no email sent), when the email send fails (best-effort), or when minting the share link fails (the notice is written without a `tokenHash` and the email goes out without the share URL). Returns the new `noticeId` and `shareUrl`.

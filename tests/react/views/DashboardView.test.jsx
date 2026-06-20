@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 
 // Mock Firebase (needed by ShareLinkDialog and useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
@@ -26,7 +26,7 @@ const mockState = {
     settings: null,
     loading: false,
     error: null,
-    service: { getState: vi.fn(() => ({ settings: {} })), recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn() },
+    service: { getState: vi.fn(() => ({ settings: {} })), recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(), issueRefund: vi.fn(() => ({ id: 'cadj_1', amount: 68.98, method: 'venmo', reason: 'Overpaid', type: 'refund', status: 'recorded' })) },
     saveQueue: { subscribe: vi.fn(() => () => {}) }
 };
 
@@ -36,6 +36,22 @@ vi.mock('@/app/hooks/useBillingData.js', () => ({
 
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'test-user' } }))
+}));
+
+// Refund Notice issuance (#319) — mocked so the dashboard test can assert wiring
+// without touching Firestore/email.
+const mockIssueRefundNotice = vi.fn(() => Promise.resolve({ noticeId: 'n1', shareUrl: null }));
+vi.mock('@/lib/RefundNoticeService.js', () => ({
+    issueRefundNotice: (...args) => mockIssueRefundNotice(...args)
+}));
+
+// useRefundNotices (#319) — controllable so a test can feed an active not_received
+// and assert the ADR-0003 credit re-open. Defaults to empty for every other test.
+const refundNoticesMock = vi.hoisted(() => ({
+    value: { refundNotices: [], loading: false, error: null, activeNotReceivedCount: 0, reload: () => {}, resolveNotice: () => {} }
+}));
+vi.mock('@/app/hooks/useRefundNotices.js', () => ({
+    useRefundNotices: () => refundNoticesMock.value
 }));
 
 import { MemoryRouter } from 'react-router-dom';
@@ -202,5 +218,82 @@ describe('DashboardView', () => {
         const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
         expect(owedCard).not.toBeNull();
         expect(within(owedCard).getByText('$68.98')).toBeInTheDocument();
+    });
+
+    it('re-opens a not-received refund into the "Owed to Members" KPI while the year is open (#319, ADR 0003)', () => {
+        // Bob overpaid (668.98 of 600) and the 68.98 refund was recorded — the credit
+        // is optimistically disposed, so with no member response nothing is owed.
+        const payments = [
+            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+        ];
+        const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
+
+        refundNoticesMock.value = { ...refundNoticesMock.value, refundNotices: [] };
+        const { unmount } = renderDashboard({ payments, creditAdjustments });
+        expect(within(screen.getByText('Owed to Members').closest('.kpi-card')).getByText('None')).toBeInTheDocument();
+        unmount();
+
+        // Bob reports the refund never arrived → the active not_received re-opens the
+        // credit, so the KPI shows the amount owed again (ADR 0003).
+        refundNoticesMock.value = {
+            ...refundNoticesMock.value,
+            refundNotices: [{ id: 'n1', kind: 'refund_notice', memberId: 2, confirmation: 'not_received', creditAdjustmentId: 'cadj_1' }]
+        };
+        renderDashboard({ payments, creditAdjustments });
+        expect(within(screen.getByText('Owed to Members').closest('.kpi-card')).getByText('$68.98')).toBeInTheDocument();
+
+        refundNoticesMock.value = { ...refundNoticesMock.value, refundNotices: [] };
+    });
+
+    it('does NOT re-open a not-received refund on a read-only (closed) year (ADR 0007)', () => {
+        // Same disposed refund, but the year is closed — a not_received arriving after
+        // close is corrected forward and never reanimates the frozen credit.
+        const payments = [
+            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+        ];
+        const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
+        refundNoticesMock.value = {
+            ...refundNoticesMock.value,
+            refundNotices: [{ id: 'n1', kind: 'refund_notice', memberId: 2, confirmation: 'not_received', creditAdjustmentId: 'cadj_1' }]
+        };
+        renderDashboard({ activeYear: { id: '2026', label: '2026', status: 'closed' }, payments, creditAdjustments });
+        expect(within(screen.getByText('Owed to Members').closest('.kpi-card')).getByText('None')).toBeInTheDocument();
+
+        refundNoticesMock.value = { ...refundNoticesMock.value, refundNotices: [] };
+    });
+
+    // ──────────────── Refund Notice issuance (#319) ────────────────
+
+    it('issuing a refund records the creditAdjustment AND fires a Refund Notice keyed to it', () => {
+        mockIssueRefundNotice.mockClear();
+        // Bob (id 2) overpays → household carries a 68.98 credit, so "Issue Refund" appears.
+        renderDashboard({
+            payments: [
+                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            ]
+        });
+
+        // Expand Bob's settlement-board card to reveal its actions, then open the
+        // refund dialog. Bob (id 2) holds the household credit, so the card shows
+        // "Issue Refund". Scope to Bob's card so the right one expands.
+        const bobCard = screen.getByText('Bob').closest('.settlement-card');
+        fireEvent.click(within(bobCard).getByText('Details ▼'));
+        const issueBtn = within(bobCard).getByRole('button', { name: 'Issue Refund' });
+        fireEvent.click(issueBtn);
+
+        // Fill a valid reason and submit (amount is prefilled to the credit).
+        fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Returned overpayment' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Refund' }));
+
+        // The Refund Notice is sent with the creditAdjustment id from issueRefund.
+        expect(mockIssueRefundNotice).toHaveBeenCalledTimes(1);
+        const args = mockIssueRefundNotice.mock.calls[0][0];
+        expect(args.creditAdjustmentId).toBe('cadj_1');
+        expect(args.memberId).toBe(2);
+        expect(args.billingYearId).toBe('2026');
+        expect(args.userId).toBe('test-user');
     });
 });

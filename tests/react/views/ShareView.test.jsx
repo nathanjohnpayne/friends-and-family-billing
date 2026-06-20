@@ -901,6 +901,100 @@ describe('ShareView', () => {
     });
 
     // -----------------------------------------------------------------------
+    // RefundNoticesSection (#319)
+    // -----------------------------------------------------------------------
+    describe('RefundNoticesSection', () => {
+        const refundData = {
+            ...sampleShareData,
+            scopes: ['summary:read', 'refunds:read'],
+            disputes: [],
+            refundNotices: [
+                { id: 'rn1', memberId: 'member456', amount: 68.98, method: 'venmo', reason: 'Returned Q1 overpayment', confirmation: null, createdAt: '2024-06-01' }
+            ]
+        };
+
+        it('renders the refund notice with reason and amount when refunds:read is granted', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(refundData);
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Your Refunds')).toBeInTheDocument();
+            });
+            expect(screen.getByText('$68.98')).toBeInTheDocument();
+            expect(screen.getByText(/Returned Q1 overpayment/)).toBeInTheDocument();
+            // Pending notice shows the two response actions.
+            expect(screen.getByRole('button', { name: /confirm receipt/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /not received/i })).toBeInTheDocument();
+        });
+
+        it('does not render the refunds section when there are no notices', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({ ...sampleShareData, refundNotices: [] });
+            render(<ShareView />);
+            await waitFor(() => expect(screen.getByText('Payment Summary')).toBeInTheDocument());
+            expect(screen.queryByText('Your Refunds')).not.toBeInTheDocument();
+        });
+
+        it('Confirm Receipt POSTs to /submitRefundConfirmation and shows confirmation', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(refundData);
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /confirm receipt/i })).toBeInTheDocument();
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: 'Response recorded successfully.' }) });
+            fireEvent.click(screen.getByRole('button', { name: /confirm receipt/i }));
+
+            await waitFor(() => {
+                expect(screen.getByText(/you confirmed/i)).toBeInTheDocument();
+            });
+            expect(global.fetch).toHaveBeenCalledWith('/submitRefundConfirmation', expect.objectContaining({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }));
+            const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+            expect(body.token).toBe('abc123');
+            expect(body.noticeId).toBe('rn1');
+            expect(body.outcome).toBe('confirm');
+        });
+
+        it('Report Not Received POSTs outcome not_received', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(refundData);
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /not received/i })).toBeInTheDocument();
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ message: 'Response recorded successfully.' }) });
+            fireEvent.click(screen.getByRole('button', { name: /not received/i }));
+
+            await waitFor(() => {
+                expect(screen.getByText(/reported this refund as not received/i)).toBeInTheDocument();
+            });
+            const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+            expect(body.outcome).toBe('not_received');
+        });
+
+        it('shows the confirmed state without action buttons when already confirmed', async () => {
+            setToken('abc123');
+            const confirmed = {
+                ...refundData,
+                refundNotices: [{ id: 'rn2', memberId: 'member456', amount: 10, method: 'zelle', reason: 'x', confirmation: 'confirmed_by_member', createdAt: '2024-06-02' }]
+            };
+            mockPublicSharesHit(confirmed);
+            render(<ShareView />);
+
+            await waitFor(() => expect(screen.getByText(/you confirmed/i)).toBeInTheDocument());
+            expect(screen.queryByRole('button', { name: /confirm receipt/i })).not.toBeInTheDocument();
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Loading state
     // -----------------------------------------------------------------------
     describe('Loading state', () => {

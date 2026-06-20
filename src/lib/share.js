@@ -6,12 +6,15 @@ import { sanitizeImageSrc } from './formatting.js';
  * Build the default scopes array for a share link.
  * @param {boolean} allowDisputeCreate
  * @param {boolean} allowDisputeRead
+ * @param {boolean} [allowRefundsRead] — grants refunds:read so the member can see
+ *   their own Refund Notices and confirm receipt / report non-receipt (#319).
  * @returns {string[]}
  */
-export function buildShareScopes(allowDisputeCreate, allowDisputeRead) {
+export function buildShareScopes(allowDisputeCreate, allowDisputeRead, allowRefundsRead) {
     const scopes = ['summary:read', 'paymentMethods:read'];
     if (allowDisputeCreate) scopes.push('disputes:create');
     if (allowDisputeRead) scopes.push('disputes:read');
+    if (allowRefundsRead) scopes.push('refunds:read');
     return scopes;
 }
 

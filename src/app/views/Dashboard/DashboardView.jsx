@@ -4,6 +4,9 @@ import { useBillingData } from '../../hooks/useBillingData.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { useDisputes } from '../../hooks/useDisputes.js';
+import { useRefundNotices } from '../../hooks/useRefundNotices.js';
+import { issueRefundNotice } from '@/lib/RefundNoticeService.js';
+import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
 import { calculateSettlementMetrics } from '@/lib/calculations.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
@@ -25,6 +28,7 @@ export default function DashboardView() {
 
     const navigate = useNavigate();
     const { disputes } = useDisputes();
+    const { refundNotices } = useRefundNotices();
     const openDisputeCount = disputes.filter(d => d.status === 'open' || d.status === 'in_review').length;
 
     // Dialog state — which dialog is open and for which member
@@ -50,7 +54,13 @@ export default function DashboardView() {
         );
     }
 
-    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments);
+    // ADR 0003: an active, unresolved not_received re-opens that household's
+    // credit while the year is open (after close the year is corrected forward,
+    // ADR 0007, so a read-only year passes an empty set and never reanimates).
+    const yearReadOnly = isYearReadOnly(activeYear);
+    const reopenedAdjustments = yearReadOnly ? null : reopenedCreditAdjustmentIds(refundNotices);
+
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments);
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
@@ -180,14 +190,36 @@ export default function DashboardView() {
                 bills={bills}
                 payments={payments}
                 creditAdjustments={creditAdjustments}
-                readOnly={isYearReadOnly(activeYear)}
+                reopenedAdjustmentIds={reopenedAdjustments}
+                readOnly={yearReadOnly}
                 onRecordPayment={data => service.recordPayment(data)}
                 onIssueRefund={data => {
                     // Let errors propagate so the board's dialog shows the inline
                     // error and stays open (mirrors onRecordPayment). The success
                     // toast runs only when issueRefund did not throw.
-                    service.issueRefund(data);
+                    // issueRefund records the authoritative creditAdjustment (#318);
+                    // the Refund Notice + member email are a non-blocking follow-up (#319)
+                    // keyed to that creditAdjustment id.
+                    const entry = service.issueRefund(data);
                     showToast('Refund recorded');
+                    const member = familyMembers.find(m => m.id === data.memberId);
+                    issueRefundNotice({
+                        userId: user ? user.uid : '',
+                        memberId: data.memberId,
+                        memberName: member ? member.name : '',
+                        memberEmail: member ? member.email : '',
+                        billingYearId: activeYear.id,
+                        yearLabel,
+                        amount: entry.amount,
+                        method: entry.method,
+                        reason: entry.reason,
+                        creditAdjustmentId: entry.id,
+                        familyMembers,
+                        bills,
+                        payments,
+                        activeYear,
+                        settings: service.getState().settings || {},
+                    }).catch(err => console.error('Refund notice send failed:', err));
                 }}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
