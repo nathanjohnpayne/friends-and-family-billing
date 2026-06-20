@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 // Mock Firebase (needed by ShareLinkDialog and useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
@@ -177,8 +177,16 @@ describe('DashboardView', () => {
 
     it('renders an "Owed to Members" KPI card distinct from Outstanding', () => {
         renderDashboard();
-        expect(screen.getByText('Owed to Members')).toBeInTheDocument();
-        expect(screen.getAllByText('Outstanding').length).toBeGreaterThanOrEqual(1);
+        // Scope to the KPI cards so the test verifies the dashboard KPI path,
+        // not the same labels elsewhere on the page ("Outstanding" also appears
+        // as settlement-board status badges).
+        const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
+        const outstandingCard = screen.getAllByText('Outstanding')
+            .map(el => el.closest('.kpi-card'))
+            .find(Boolean);
+        expect(owedCard).not.toBeNull();
+        expect(outstandingCard).not.toBeNull();
+        expect(owedCard).not.toBe(outstandingCard);
     });
 
     it('"Owed to Members" KPI reflects the sum of unresolved household credits', () => {
@@ -189,8 +197,10 @@ describe('DashboardView', () => {
                 { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
             ]
         });
-        expect(screen.getByText('Owed to Members')).toBeInTheDocument();
-        // Appears on the KPI card (also mirrored on Bob's settlement-board credit box)
-        expect(screen.getAllByText('$68.98').length).toBeGreaterThanOrEqual(1);
+        // Scope to the KPI card so the assertion verifies the dashboard KPI path,
+        // not the same credit mirrored on Bob's settlement-board card.
+        const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
+        expect(owedCard).not.toBeNull();
+        expect(within(owedCard).getByText('$68.98')).toBeInTheDocument();
     });
 });
