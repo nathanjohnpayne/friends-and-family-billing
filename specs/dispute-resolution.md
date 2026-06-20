@@ -20,6 +20,7 @@ Covers the dispute (review request) lifecycle: loading, creating, updating, reso
 ### useDisputes Hook
 
 - Returns empty disputes and does not call Firestore when user or activeYear is null.
+- Excludes `kind: 'charge_notice'` documents (Charge Notices, #320) from the loaded disputes. Charge Notices ride the shared `disputes` subcollection but are outbound Requests, not Review Requests, so they must never reach the "Open Reviews" KPI or the actionable review filter (ADR 0002, ADR 0005). The member contests a billed (or deferred) charge via the existing Review Request path, not by seeing the Charge Notice as one.
 - Normalizes legacy dispute statuses via `normalizeDisputeStatus` (e.g., "dispute" becomes "open", "reviewed" becomes "in_review").
 - Sorts disputes by `createdAt` descending, handling ISO strings, Firestore Timestamps, and missing dates (treated as epoch 0, sorted last).
 - Sets error state with the error message when Firestore getDocs rejects.
@@ -70,6 +71,7 @@ Covers the dispute (review request) lifecycle: loading, creating, updating, reso
 - Automated terminal status emails write `resolutionNotificationSentAt` to the dispute. The manual Email button shows "Re-send Email" with a hint when this field is present.
 - Email failures never block the primary action (dispute submission, status change, or user decision).
 - The share page submits disputes and records member decisions via the `/submitDispute` and `/submitDisputeDecision` Cloud Functions (not direct Firestore writes).
+- `resolveShareToken` projects the member's disputes for the share view via `projectMemberDisputes` (`functions/billing.js`), which **excludes** `kind: 'charge_notice'` documents (#320) — mirroring the client-side `useDisputes` exclusion — and normalizes legacy statuses, exposing only member-safe review fields. A Charge Notice is therefore never surfaced to the member as a Review Request; the member contests the charge by opening a Review Request instead.
 
 ### ReviewsTab View
 

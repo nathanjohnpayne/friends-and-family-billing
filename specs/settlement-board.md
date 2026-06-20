@@ -56,6 +56,22 @@ Covers the settlement board component for tracking household payment status, the
 - Deferred Usage Charges are NOT-YET-DUE: they do not change the Annual, Paid, Balance, or status figures, and they do not affect the Record-Payment gate. A household with a large deferred charge but fully-paid bills still reads "Settled".
 - The expanded card shows an "Add Charge" action when not read-only and an `onAddCharge` handler is provided; clicking it calls `onAddCharge(memberId)`. The action is hidden when `readOnly` is true.
 
+### Off-cycle Billing — Bill Charges (Charge Notice, #320)
+
+- The expanded card shows a "Bill Charges" action when the household carries one or more deferred Usage Charges (aggregated at the household grain, ADR 0001), an `onBillCharges` handler is provided, and the year is not read-only; clicking it calls `onBillCharges(memberId)` keyed to the household primary. The action is hidden when `readOnly` is true and when the household has no deferred charges.
+- A **billed** usage charge raises the household's owed: `SettlementBoard` threads `owedAdjustments` into `getHouseholdFinancials`, so the card's **Balance**, **status**, and the Record-Payment gate reflect it (an unpaid billed charge reads Outstanding and keeps Record Payment, matching the dashboard Outstanding KPI). The **Annual** figure stays the gross bill split. A deferred charge remains a not-yet-due pending figure and never raises owed.
+
+### ChargeNoticeDialog Component (#320)
+
+- Renders nothing when `open` is false.
+- When open, shows the member name, a "Bill Charges" title, and a preview of the candidate deferred charges (description, incurred date, amount) with a combined total.
+- Defaults the period to **all** deferred charges; a "This month" preset narrows the preview (and the resulting selection) to charges incurred in the current calendar month.
+- On confirm ("Bill & Notify"), calls `onConfirm(chargeIds)` with the ids of the selected charges (chronological) and closes; "Bill & Notify" is disabled and an empty state shows when no charges match the period. Calls `onClose` on Cancel and on Escape.
+
+### DashboardView — Bill Charges
+
+- The dashboard wires the settlement board's "Bill Charges" action to a `ChargeNoticeDialog` seeded with the household's deferred charges; confirming calls `service.billDeferredCharges({ memberId, chargeIds })`, then issues the outbound Charge Notice via `issueChargeNotice` (share link + member email, fire-and-forget) and shows a confirmation toast. `issueChargeNotice` is passed the **post-billing** `owedAdjustments` read from `service.getState()` after the mutation — not the stale pre-mutation prop — so the minted share link reflects the just-billed charges as billed, never as still-pending. The dashboard's KPIs thread `owedAdjustments` into `calculateSettlementMetrics`, so an unpaid billed charge raises the Outstanding KPI and a deferred charge does not.
+
 ### UsageChargeDialog Component
 
 - Renders nothing when `open` is false.

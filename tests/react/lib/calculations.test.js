@@ -13,6 +13,7 @@ import {
     getDeferredUsageChargeTotalForMember,
     getHouseholdDeferredCharges,
     getServiceCreditTotalForMember,
+    getBilledUsageChargeTotalForMember,
     CREDIT_EPSILON
 } from '@/lib/calculations.js';
 
@@ -719,5 +720,140 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
         const m = calculateSettlementMetrics(members, bills, payments, []);
         expect(m.totalAnnual).toBe(1200);
         expect(m.totalCreditsOwed).toBe(0);
+    });
+});
+
+// ── Billed Usage Charges (Charge Notice, #320) ──────────────────────────────
+//
+// Off-cycle billing a member's deferred Usage Charges (via a Charge Notice for a
+// period) flips them deferred → billed. A BILLED charge is present-tense money: it
+// raises the household's owed (ADR 0005), so unpaid → Outstanding → blocks close
+// (ADR 0006). A still-deferred charge does NOT. The household grain (ADR 0001) is
+// preserved: the billed total is summed across the primary and linked members.
+
+describe('getBilledUsageChargeTotalForMember', () => {
+    it('sums only billed usage charges for the given member', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 5.5, status: 'billed' },
+            { id: 'o3', memberId: 2, kind: 'usage_charge', amount: 99, status: 'billed' }
+        ];
+        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(15.5, 5);
+    });
+
+    it('excludes deferred charges (not yet billed, so not yet owed)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 20, status: 'deferred' }
+        ];
+        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    it('excludes voided charges (append-only: void via status, never delete)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 7, status: 'voided' }
+        ];
+        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    it('returns 0 for an undefined or empty array', () => {
+        expect(getBilledUsageChargeTotalForMember(undefined, 1)).toBe(0);
+        expect(getBilledUsageChargeTotalForMember([], 1)).toBe(0);
+    });
+});
+
+describe('getHouseholdFinancials — billed usage charges raise owed (#320)', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [3] },
+        { id: 3, name: 'Carol', linkedMembers: [] }
+    ];
+    // $100/month split two ways → $600/yr each, household owes $1200
+    const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }];
+    const summary = calculateAnnualSummary(members, bills);
+
+    it('a billed usage charge adds to the household owed', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }]; // bills fully paid
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed' }];
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        expect(f.owed).toBeCloseTo(1225, 5);            // 1200 bills + 25 billed charge
+        expect(f.netContribution).toBeCloseTo(1200, 5);  // paid the bills, not the new charge
+        expect(f.credit).toBe(0);
+    });
+
+    it('sums billed charges across the whole household (ADR 0001 grain)', () => {
+        const payments = [];
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
+            { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'billed' } // linked member
+        ];
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        expect(f.owed).toBeCloseTo(1215, 5); // 1200 + 10 + 5
+    });
+
+    it('a DEFERRED charge does not raise owed (only billed does)', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        expect(f.owed).toBeCloseTo(1200, 5); // unchanged by the deferred charge
+        expect(f.credit).toBe(0);
+    });
+
+    it('defaults owedAdjustments to empty (backward-compatible 4-arg call)', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
+        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        expect(f.owed).toBeCloseTo(1200, 5);
+    });
+
+    it('an unpaid billed charge makes an otherwise-settled household carry a balance', () => {
+        // Bills fully paid, but a $25 billed charge lands → household now owes $25 net.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed' }];
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        expect(f.owed - f.netContribution).toBeCloseTo(25, 5); // collectable shortfall
+    });
+});
+
+describe('calculateSettlementMetrics — billed charges block close (#320, ADR 0006)', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [] },
+        { id: 2, name: 'Bob', linkedMembers: [] }
+    ];
+    const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }]; // 600 each
+
+    it('an unpaid billed charge raises owed and makes the household Outstanding', () => {
+        // Both fully paid on bills; Alice has a $40 unpaid BILLED charge.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
+        expect(m.totalAnnual).toBeCloseTo(1240, 5);        // 1200 bills + 40 billed charge
+        expect(m.totalOutstanding).toBeCloseTo(40, 5);      // Alice's unpaid billed charge
+        expect(m.paidCount).toBe(1);                        // only Bob settled → blocks close
+    });
+
+    it('a DEFERRED charge does NOT block close (stays out of settlement)', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
+        expect(m.totalAnnual).toBeCloseTo(1200, 5);         // unchanged
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.paidCount).toBe(2);                        // both settled
+    });
+
+    it('paying a billed charge settles the household again', () => {
+        // Alice pays her bills (600) plus the 40 billed charge = 640.
+        const payments = [{ memberId: 1, amount: 640 }, { memberId: 2, amount: 600 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.paidCount).toBe(2);
+        expect(m.percentage).toBe(100);
+    });
+
+    it('defaults owedAdjustments to empty (backward-compatible 4-arg call)', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const m = calculateSettlementMetrics(members, bills, payments, []);
+        expect(m.totalAnnual).toBeCloseTo(1200, 5);
+        expect(m.paidCount).toBe(2);
     });
 });

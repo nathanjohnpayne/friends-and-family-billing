@@ -178,6 +178,34 @@ export function getServiceCreditTotalForMember(owedAdjustments, memberId) {
 }
 
 /**
+ * Predicate: a *billed* Usage Charge for a specific member (Charge Notice, #320).
+ * "billed" means an off-cycle Charge Notice has invoiced the charge, so unlike a
+ * deferred charge it IS now owed. Voided charges (append-only void via status) and
+ * still-deferred charges are excluded.
+ * @param {Object} a  an owedAdjustments[] record
+ * @param {*} memberId
+ * @returns {boolean}
+ */
+function isBilledUsageChargeFor(a, memberId) {
+    return !!a && a.memberId === memberId && a.kind === 'usage_charge' && a.status === 'billed';
+}
+
+/**
+ * Sum of a member's *billed* Usage Charges (#320). Once a Charge Notice bills a
+ * deferred charge it becomes present-tense money that raises owed (ADR 0005), so
+ * this addend feeds the household's owed in getHouseholdFinancials — the mirror of
+ * getDeferredUsageChargeTotalForMember, which deliberately does not.
+ * @param {Array} owedAdjustments
+ * @param {*} memberId
+ * @returns {number}
+ */
+export function getBilledUsageChargeTotalForMember(owedAdjustments, memberId) {
+    return (owedAdjustments || [])
+        .filter(a => isBilledUsageChargeFor(a, memberId))
+        .reduce((sum, a) => sum + (a.amount || 0), 0);
+}
+
+/**
  * @param {Array} payments
  * @param {*} memberId
  * @returns {Array}
@@ -235,14 +263,22 @@ export function getParentMember(familyMembers, memberId) {
  * from netContribution, so an over-disposition degrades to an honest collectable
  * shortfall rather than splitting status from balance.
  *
+ * Billed Usage Charges (#320, optional trailing arg) add to owed at the household
+ * grain: once a Charge Notice bills a deferred charge it is present-tense money, so
+ * unpaid → the household carries a collectable balance → Outstanding → blocks close.
+ * Still-deferred charges are NOT passed through here (they never raise owed). The
+ * arg is optional and defaults to empty, so every existing 4-arg caller is
+ * unaffected (the #316 additive pattern).
+ *
  * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
  * @param {Object} summary  output of calculateAnnualSummary (owed per member)
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
  * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
  *   active not_received (#319, ADR 0003); excluded so the credit is owed again
- * @param {Array} [owedAdjustments]  Usage Charges (+owed, ignored here) and Service Credits (−owed, applied)
- * @returns {{ owed: number, grossOwed: number, serviceCreditTotal: number, grossPaid: number, creditAdjustmentTotal: number, netContribution: number, credit: number }}
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321, applied) and billed
+ *   Usage Charges (+owed, #320, added); deferred Usage Charges (#317) are ignored
+ * @returns {{ owed: number, grossOwed: number, serviceCreditTotal: number, grossPaid: number, creditAdjustmentTotal: number, billedChargeTotal: number, netContribution: number, credit: number }}
  */
 export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const linkedIds = member.linkedMembers || [];
@@ -253,9 +289,15 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
     const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, member.id)
         + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
 
-    // A Service Credit lowers owed; owed never goes below zero (an over-large
-    // credit surfaces as a Credit on the netContribution axis, not negative debt).
-    const owed = Math.max(0, grossOwed - serviceCreditTotal);
+    // Billed Usage Charges raise owed at the household grain (ADR 0001, #320).
+    const billedChargeTotal = getBilledUsageChargeTotalForMember(owedAdjustments, member.id)
+        + linkedIds.reduce((s, id) => s + getBilledUsageChargeTotalForMember(owedAdjustments, id), 0);
+
+    // A Service Credit (#321) lowers the bill-derived owed, floored at 0 so an
+    // over-large credit surfaces as a Credit on the netContribution axis rather
+    // than negative debt; a billed Usage Charge (#320) is a separate source added
+    // on top of that floored figure (ADR 0005).
+    const owed = Math.max(0, grossOwed - serviceCreditTotal) + billedChargeTotal;
 
     const grossPaid = getPaymentTotalForMember(payments, member.id)
         + linkedIds.reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
@@ -267,10 +309,15 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
     const rawCredit = netContribution - owed;
     const credit = rawCredit > CREDIT_EPSILON ? rawCredit : 0;
 
-    return { owed, grossOwed, serviceCreditTotal, grossPaid, creditAdjustmentTotal, netContribution, credit };
+    return { owed, grossOwed, serviceCreditTotal, grossPaid, creditAdjustmentTotal, billedChargeTotal, netContribution, credit };
 }
 
 /**
+ * Billed Usage Charges (#320, optional trailing arg) raise each household's owed,
+ * so an unpaid billed charge becomes Outstanding and blocks close (ADR 0006), while
+ * still-deferred charges stay out of the gate. The arg defaults to empty, so every
+ * existing 4-arg caller is unaffected (the #316 additive pattern).
+ *
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
@@ -280,7 +327,8 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
  *   household credit (totalCreditsOwed) is owed again while the year is open.
  *   Outstanding is unaffected — a re-opened credit is overpayment owed back, never
  *   underpayment — so it never inflates settlement progress.
- * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed; deferred Usage Charges are ignored
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed and billed
+ *   Usage Charges (+owed, #320) raise it; deferred Usage Charges (#317) are ignored
  * @returns {{ totalAnnual: number, totalPayments: number, totalOutstanding: number, totalCreditsOwed: number, paidCount: number, totalMembers: number, percentage: number }}
  */
 export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {

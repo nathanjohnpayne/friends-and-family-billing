@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -77,11 +77,13 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
         //
-        // `owed` here is the post-Service-Credit owed (#321): an active service_credit
-        // lowers it, so balance, status, and credit all derive from the reduced figure
-        // — the household reads honestly once a service was canceled/discounted.
-        // combinedTotal stays the GROSS bill split for the displayed annual figure and
-        // the breakdown formula (the bill's own amount is unchanged, Option B).
+        // `owed` here is the post-adjustment owed: an active service_credit (#321)
+        // LOWERS it and a billed Usage Charge / Charge Notice (#320) RAISES it, so the
+        // card balance, status, credit, and Record-Payment gate all derive from the
+        // adjusted figure (matching the dashboard Outstanding KPI), not just the gross
+        // bill split. Deferred charges (#317) are excluded — they never raise owed.
+        // `combinedTotal` stays the GROSS bill split for the displayed "Annual" figure
+        // and the breakdown formula (the bill's own amount is unchanged, Option B).
         const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
         const balance = owed - netContribution;
         const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
@@ -151,6 +153,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             onManageShareLinks={onManageShareLinks}
                             onViewHistory={onViewHistory}
                             onAddCharge={onAddCharge}
+                            onBillCharges={onBillCharges}
                             onIssueRefund={onIssueRefund}
                         />
                     ))
@@ -208,7 +211,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -498,6 +501,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 onClick={() => onAddCharge(member.id)}
                             >
                                 Add Charge
+                            </button>
+                        )}
+                        {!readOnly && onBillCharges && hasPendingCharges && (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onBillCharges(member.id)}
+                                title="Off-cycle-bill this household's deferred charges as a single Charge Notice"
+                            >
+                                Bill Charges
                             </button>
                         )}
                         {member.phone && (

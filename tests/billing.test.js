@@ -1357,6 +1357,27 @@ describe('saveData owedAdjustments preservation', () => {
         const payload = lastSet[0];
         assert.deepEqual(payload.owedAdjustments, owedAdjustments);
     });
+
+    it('preserves a BILLED charge with its Charge Notice fields verbatim (#320 dual-app parity)', async () => {
+        // The React app bills a charge (deferred → billed, stamping chargeNoticeId +
+        // billedAt). A legacy full-document save must not drop the new status or fields,
+        // or the shared doc would silently lose the billing on the next legacy save.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] }]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed', chargeNoticeId: 'cn_1', billedAt: '2026-06-20T00:00:00Z', description: 'Roaming', incurredDate: '2026-06-03' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const payload = ctx._saved[ctx._saved.length - 1][0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+        assert.equal(payload.owedAdjustments[0].status, 'billed');
+        assert.equal(payload.owedAdjustments[0].chargeNoticeId, 'cn_1');
+        assert.equal(payload.owedAdjustments[0].billedAt, '2026-06-20T00:00:00Z');
+    });
 });
 
 // ──────────────── generateRawToken ────────────────────────────
@@ -1829,6 +1850,52 @@ describe('buildPendingChargesForShare (Cloud Function)', () => {
     });
 });
 
+// ──────── projectMemberDisputes (Cloud Function, #320) ────────
+//
+// resolveShareToken projects the member's disputes for the share view. Charge
+// Notices (#320) ride the same `disputes` subcollection but are outbound Requests,
+// so they must be excluded from the disputes:read projection the same way useDisputes
+// excludes them client-side (ADR 0002, ADR 0005). The member contests a charge via a
+// Review Request, not by seeing the Charge Notice as one.
+
+const { projectMemberDisputes } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('projectMemberDisputes (Cloud Function, #320)', () => {
+    function tsDoc(obj) {
+        // Emulate a Firestore doc snapshot with createdAt as a Timestamp-like value.
+        return obj;
+    }
+
+    it('excludes charge_notice docs from the disputes projection', () => {
+        const docs = [
+            tsDoc({ id: 'd1', billId: 5, billName: 'Internet', message: 'Wrong', status: 'open' }),
+            tsDoc({ id: 'cn1', kind: 'charge_notice', amount: 25, status: 'open' }),
+            tsDoc({ id: 'd2', billId: 6, billName: 'Phone', message: 'Also wrong', status: 'in_review' })
+        ];
+        const out = projectMemberDisputes(docs);
+        const ids = out.map((d) => d.id);
+        assert.ok(ids.includes('d1'));
+        assert.ok(ids.includes('d2'));
+        assert.ok(!ids.includes('cn1'));
+    });
+
+    it('normalizes legacy statuses and exposes member-safe review fields', () => {
+        const docs = [
+            { id: 'd1', billId: 5, billName: 'Internet', message: 'Hi', proposedCorrection: 'Fix', status: 'pending', userReview: { state: 'requested' } }
+        ];
+        const out = projectMemberDisputes(docs);
+        assert.equal(out[0].status, 'open'); // pending → open
+        assert.equal(out[0].billName, 'Internet');
+        assert.equal(out[0].proposedCorrection, 'Fix');
+        assert.deepEqual(out[0].userReview, { state: 'requested' });
+    });
+
+    it('tolerates an empty or missing input', () => {
+        assert.deepEqual(projectMemberDisputes([]), []);
+        assert.deepEqual(projectMemberDisputes(undefined), []);
+    });
+});
+
 // ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
 
 describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
@@ -1856,6 +1923,23 @@ describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
         seed(ctx);
         const data = ctx.buildPublicShareData(1, ['summary:read']);
         assert.equal(data.pendingCharges, undefined);
+    });
+
+    it('excludes a BILLED charge from the member pendingCharges (it is now owed, not pending) (#320)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Internet', amount: 100, logo: '', website: '', members: [1] }]);
+        ctx._set('payments', []);
+        ctx._set('owedAdjustments', [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 12, status: 'deferred', description: 'Still pending', incurredDate: '2026-02-01' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 30, status: 'billed', chargeNoticeId: 'cn_1', description: 'Now billed', incurredDate: '2026-03-01' }
+        ]);
+        ctx._set('currentBillingYear', { id: '2026', label: '2026' });
+
+        const data = ctx.buildPublicShareData(1, ['summary:read', 'usageCharges:read']);
+        // Only the deferred charge is "pending"; the billed one has moved to owed.
+        assert.equal(data.pendingCharges.count, 1);
+        assert.equal(data.pendingCharges.charges[0].id, 'o1');
     });
 });
 

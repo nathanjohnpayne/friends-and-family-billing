@@ -734,6 +734,9 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
+    // owedAdjustments threads BILLED usage charges (#320) and Service Credits (#321)
+    // into the close gate so the legacy app agrees with the React dashboard
+    // (ADR 0005/0006); deferred charges do not block.
     const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
     const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
 

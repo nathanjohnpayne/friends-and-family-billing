@@ -50,6 +50,15 @@ describe('calculateOutstandingBalance', () => {
         const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 100, status: 'active' }];
         expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBe(0);
     });
+
+    it('counts an unpaid BILLED usage charge as outstanding, but not a deferred one (#320, ADR 0006)', () => {
+        // Everyone paid their bills; Alice has a $40 charge.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const billed = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
+        const deferred = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], billed)).toBeCloseTo(40, 5);
+        expect(calculateOutstandingBalance(members, bills, payments, [], deferred)).toBe(0);
+    });
 });
 
 describe('buildCloseYearMessage', () => {
