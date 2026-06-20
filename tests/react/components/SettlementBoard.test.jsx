@@ -561,6 +561,89 @@ describe('SettlementBoard — deferred usage charges', () => {
     });
 });
 
+// ──────────────── Bill Charges action (Charge Notice, #320) ────────────────
+//
+// When a household carries deferred charges, the admin can off-cycle-bill them via a
+// Charge Notice. The action appears in the expanded card and fires onBillCharges.
+
+describe('SettlementBoard — Bill Charges (#320)', () => {
+    it('shows a Bill Charges action when the household has deferred charges and fires onBillCharges', () => {
+        const onBillCharges = vi.fn();
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'deferred', description: 'Roaming', incurredDate: '2026-02-01' }
+        ];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+                onBillCharges={onBillCharges}
+            />
+        );
+        expandCard('Bob');
+        const btn = screen.getByText('Bill Charges');
+        fireEvent.click(btn);
+        expect(onBillCharges).toHaveBeenCalledWith(2);
+    });
+
+    it('does NOT show Bill Charges when the household has no deferred charges', () => {
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={[]}
+                readOnly={false}
+                onBillCharges={vi.fn()}
+            />
+        );
+        expandCard('Bob');
+        expect(screen.queryByText('Bill Charges')).toBeNull();
+    });
+
+    it('hides Bill Charges when readOnly', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'deferred', description: 'Roaming', incurredDate: '2026-02-01' }
+        ];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={owedAdjustments}
+                readOnly={true}
+                onBillCharges={vi.fn()}
+            />
+        );
+        expandCard('Bob');
+        expect(screen.queryByText('Bill Charges')).toBeNull();
+    });
+
+    it('aggregates deferred charges across the household for the Bill Charges gate (ADR 0001)', () => {
+        // Alice (primary) has no deferred charge but her linked member Carol does →
+        // the household still offers Bill Charges, keyed to the primary.
+        const onBillCharges = vi.fn();
+        const owedAdjustments = [
+            { id: 'o1', memberId: 3, kind: 'usage_charge', amount: 9, status: 'deferred', description: 'Carol roaming', incurredDate: '2026-02-01' }
+        ];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+                onBillCharges={onBillCharges}
+            />
+        );
+        expandCard('Alice');
+        fireEvent.click(screen.getByText('Bill Charges'));
+        expect(onBillCharges).toHaveBeenCalledWith(1); // primary member id
+    });
+});
+
 // ──────────────── Issue Refund action (#318) ────────────────
 //
 // Bob (independent) owes $480/yr; paying $548.98 leaves a $68.98 household credit.

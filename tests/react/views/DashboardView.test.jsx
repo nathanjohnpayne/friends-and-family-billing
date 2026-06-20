@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
+
+// Stub the Charge Notice issuance service so the wiring test does not touch
+// Firestore/email — we only assert the dashboard calls the service + issuance.
+const mockIssueChargeNotice = vi.fn(async () => ({ tokenHash: 'h', shareUrl: 'u' }));
+vi.mock('@/lib/ChargeNoticeService.js', () => ({
+    issueChargeNotice: (...args) => mockIssueChargeNotice(...args)
+}));
 
 // Mock Firebase (needed by ShareLinkDialog and useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
@@ -202,5 +209,84 @@ describe('DashboardView', () => {
         const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
         expect(owedCard).not.toBeNull();
         expect(within(owedCard).getByText('$68.98')).toBeInTheDocument();
+    });
+
+    // ──────────── Bill Charges → Charge Notice wiring (#320) ────────────
+    describe('Bill Charges (Charge Notice)', () => {
+        function renderWithDeferred() {
+            const billDeferredCharges = vi.fn(() => ({
+                chargeNoticeId: 'cn_1',
+                memberId: 2,
+                amount: 12.5,
+                chargeIds: ['o1'],
+                charges: [{ id: 'o1', description: 'Roaming', amount: 12.5, incurredDate: '2026-06-03' }]
+            }));
+            const service = {
+                getState: vi.fn(() => ({ settings: {} })),
+                recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
+                billDeferredCharges
+            };
+            const owedAdjustments = [
+                { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
+            ];
+            renderDashboard({ owedAdjustments, service });
+            return { service, billDeferredCharges };
+        }
+
+        it('opens the Charge Notice preview from the board Bill Charges action', () => {
+            renderWithDeferred();
+            // Expand Bob's card and click Bill Charges
+            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            // The preview dialog opens
+            expect(screen.getByText('Bill & Notify')).toBeInTheDocument();
+            expect(screen.getByText('Roaming')).toBeInTheDocument();
+        });
+
+        it('confirming bills the charges and fires the Charge Notice issuance', () => {
+            const { billDeferredCharges } = renderWithDeferred();
+            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            fireEvent.click(screen.getByText('Bill & Notify'));
+
+            expect(billDeferredCharges).toHaveBeenCalledTimes(1);
+            const arg = billDeferredCharges.mock.calls[0][0];
+            expect(arg.memberId).toBe(2);
+            expect(arg.chargeIds).toEqual(['o1']);
+            // The outbound Charge Notice (email + share link) is issued with the result.
+            expect(mockIssueChargeNotice).toHaveBeenCalledTimes(1);
+        });
+
+        it('an unpaid BILLED charge raises the dashboard Outstanding KPI (ADR 0006)', () => {
+            // Both members fully paid on the 1200 bill (600 each); Alice has a $40 unpaid
+            // BILLED charge → Outstanding should read $40, not "Paid".
+            renderDashboard({
+                payments: [
+                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                ],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
+                ]
+            });
+            const outstandingCard = screen.getAllByText('Outstanding')
+                .map(el => el.closest('.kpi-card')).find(Boolean);
+            expect(within(outstandingCard).getByText('$40.00')).toBeInTheDocument();
+        });
+
+        it('a DEFERRED charge does NOT raise the dashboard Outstanding KPI', () => {
+            renderDashboard({
+                payments: [
+                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                ],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
+                ]
+            });
+            const outstandingCard = screen.getAllByText('Outstanding')
+                .map(el => el.closest('.kpi-card')).find(Boolean);
+            expect(within(outstandingCard).getByText('Paid')).toBeInTheDocument();
+        });
     });
 });

@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -141,6 +141,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             onManageShareLinks={onManageShareLinks}
                             onViewHistory={onViewHistory}
                             onAddCharge={onAddCharge}
+                            onBillCharges={onBillCharges}
                             onIssueRefund={onIssueRefund}
                         />
                     ))
@@ -198,7 +199,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -488,6 +489,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 onClick={() => onAddCharge(member.id)}
                             >
                                 Add Charge
+                            </button>
+                        )}
+                        {!readOnly && onBillCharges && hasPendingCharges && (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onBillCharges(member.id)}
+                                title="Off-cycle-bill this household's deferred charges as a single Charge Notice"
+                            >
+                                Bill Charges
                             </button>
                         )}
                         {member.phone && (
