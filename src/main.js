@@ -115,7 +115,7 @@ function getPaymentTotalForMember(memberId) { return _getPaymentTotalForMember(p
 function getMemberPayments(memberId) { return _getMemberPayments(payments, memberId); }
 function isLinkedToAnyone(memberId) { return _isLinkedToAnyone(familyMembers, memberId); }
 function getParentMember(memberId) { return _getParentMember(familyMembers, memberId); }
-function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments); }
+function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, null, owedAdjustments); }
 function getEnabledPaymentMethods() { return (settings.paymentMethods || []).filter(m => m.enabled); }
 
 // Version checking — polls version.json to detect deploys while the page is open
@@ -734,7 +734,9 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
-    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments);
+    // owedAdjustments threads BILLED usage charges into the close gate so the legacy
+    // app agrees with the React dashboard (#320, ADR 0006); deferred charges do not block.
+    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
     const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
 
     showConfirmationDialog(

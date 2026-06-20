@@ -145,6 +145,34 @@ export function getHouseholdDeferredCharges(member, owedAdjustments) {
 }
 
 /**
+ * Predicate: a *billed* Usage Charge for a specific member (Charge Notice, #320).
+ * "billed" means an off-cycle Charge Notice has invoiced the charge, so unlike a
+ * deferred charge it IS now owed. Voided charges (append-only void via status) and
+ * still-deferred charges are excluded.
+ * @param {Object} a  an owedAdjustments[] record
+ * @param {*} memberId
+ * @returns {boolean}
+ */
+function isBilledUsageChargeFor(a, memberId) {
+    return !!a && a.memberId === memberId && a.kind === 'usage_charge' && a.status === 'billed';
+}
+
+/**
+ * Sum of a member's *billed* Usage Charges (#320). Once a Charge Notice bills a
+ * deferred charge it becomes present-tense money that raises owed (ADR 0005), so
+ * this addend feeds the household's owed in getHouseholdFinancials — the mirror of
+ * getDeferredUsageChargeTotalForMember, which deliberately does not.
+ * @param {Array} owedAdjustments
+ * @param {*} memberId
+ * @returns {number}
+ */
+export function getBilledUsageChargeTotalForMember(owedAdjustments, memberId) {
+    return (owedAdjustments || [])
+        .filter(a => isBilledUsageChargeFor(a, memberId))
+        .reduce((sum, a) => sum + (a.amount || 0), 0);
+}
+
+/**
  * @param {Array} payments
  * @param {*} memberId
  * @returns {Array}
@@ -191,19 +219,32 @@ export function getParentMember(familyMembers, memberId) {
  * from netContribution, so an over-disposition degrades to an honest collectable
  * shortfall rather than splitting status from balance.
  *
+ * Billed Usage Charges (#320, optional trailing arg) add to owed at the household
+ * grain: once a Charge Notice bills a deferred charge it is present-tense money, so
+ * unpaid → the household carries a collectable balance → Outstanding → blocks close.
+ * Still-deferred charges are NOT passed through here (they never raise owed). The
+ * arg is optional and defaults to empty, so every existing 4-arg caller is
+ * unaffected (the #316 additive pattern).
+ *
  * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
  * @param {Object} summary  output of calculateAnnualSummary (owed per member)
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
  * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
  *   active not_received (#319, ADR 0003); excluded so the credit is owed again
- * @returns {{ owed: number, grossPaid: number, creditAdjustmentTotal: number, netContribution: number, credit: number }}
+ * @param {Array} [owedAdjustments]  Usage Charges (#317/#320); only BILLED ones add to owed
+ * @returns {{ owed: number, grossPaid: number, creditAdjustmentTotal: number, billedChargeTotal: number, netContribution: number, credit: number }}
  */
-export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null) {
+export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const linkedIds = member.linkedMembers || [];
 
     let owed = summary[member.id] ? summary[member.id].total : 0;
     linkedIds.forEach(id => { if (summary[id]) owed += summary[id].total; });
+
+    // Billed Usage Charges raise owed at the household grain (ADR 0001, #320).
+    const billedChargeTotal = getBilledUsageChargeTotalForMember(owedAdjustments, member.id)
+        + linkedIds.reduce((s, id) => s + getBilledUsageChargeTotalForMember(owedAdjustments, id), 0);
+    owed += billedChargeTotal;
 
     const grossPaid = getPaymentTotalForMember(payments, member.id)
         + linkedIds.reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
@@ -215,10 +256,15 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
     const rawCredit = netContribution - owed;
     const credit = rawCredit > CREDIT_EPSILON ? rawCredit : 0;
 
-    return { owed, grossPaid, creditAdjustmentTotal, netContribution, credit };
+    return { owed, grossPaid, creditAdjustmentTotal, billedChargeTotal, netContribution, credit };
 }
 
 /**
+ * Billed Usage Charges (#320, optional trailing arg) raise each household's owed,
+ * so an unpaid billed charge becomes Outstanding and blocks close (ADR 0006), while
+ * still-deferred charges stay out of the gate. The arg defaults to empty, so every
+ * existing 4-arg caller is unaffected (the #316 additive pattern).
+ *
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
@@ -228,9 +274,10 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
  *   household credit (totalCreditsOwed) is owed again while the year is open.
  *   Outstanding is unaffected — a re-opened credit is overpayment owed back, never
  *   underpayment — so it never inflates settlement progress.
+ * @param {Array} [owedAdjustments]  Usage Charges (#317/#320); only BILLED ones raise owed
  * @returns {{ totalAnnual: number, totalPayments: number, totalOutstanding: number, totalCreditsOwed: number, paidCount: number, totalMembers: number, percentage: number }}
  */
-export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null) {
+export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const summary = calculateAnnualSummary(familyMembers, bills);
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
 
@@ -242,7 +289,7 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
 
     mainMembers.forEach(member => {
         const { owed, grossPaid, netContribution, credit } =
-            getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds);
+            getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
         totalAnnual += owed;
         totalPayments += grossPaid;
         totalCreditsOwed += credit;

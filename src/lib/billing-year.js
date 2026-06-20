@@ -8,18 +8,24 @@ import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, CREDI
  * the per-household NET shortfall summed by calculateSettlementMetrics, so the
  * close path and the dashboard agree and recorded refunds/carry-forwards never
  * mask a real shortfall.
+ * Billed Usage Charges (#320, optional trailing arg) raise a household's owed, so an
+ * unpaid billed charge surfaces as outstanding (ADR 0006); deferred charges do not.
+ * The arg defaults to empty, so existing 4-arg callers are unaffected.
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
+ * @param {Array} [owedAdjustments]  Usage Charges; only BILLED ones raise owed
  * @returns {number}
  */
-export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = []) {
+export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
     const summary = calculateAnnualSummary(familyMembers, bills);
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        // reopenedAdjustmentIds is null here: the close-gate outstanding figure does not
+        // re-open credits (#319), and a re-opened credit never creates a shortfall anyway.
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;
     });

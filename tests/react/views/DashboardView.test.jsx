@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 
+// Stub the Charge Notice issuance service so the wiring test does not touch
+// Firestore/email — we only assert the dashboard calls the service + issuance.
+const mockIssueChargeNotice = vi.fn(async () => ({ tokenHash: 'h', shareUrl: 'u' }));
+vi.mock('@/lib/ChargeNoticeService.js', () => ({
+    issueChargeNotice: (...args) => mockIssueChargeNotice(...args)
+}));
+
 // Mock Firebase (needed by ShareLinkDialog and useDisputes)
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
 vi.mock('firebase/firestore', () => ({
@@ -218,6 +225,131 @@ describe('DashboardView', () => {
         const owedCard = screen.getByText('Owed to Members').closest('.kpi-card');
         expect(owedCard).not.toBeNull();
         expect(within(owedCard).getByText('$68.98')).toBeInTheDocument();
+    });
+
+    // ──────────── Bill Charges → Charge Notice wiring (#320) ────────────
+    describe('Bill Charges (Charge Notice)', () => {
+        function renderWithDeferred() {
+            const billDeferredCharges = vi.fn(() => ({
+                chargeNoticeId: 'cn_1',
+                memberId: 2,
+                amount: 12.5,
+                chargeIds: ['o1'],
+                charges: [{ id: 'o1', description: 'Roaming', amount: 12.5, incurredDate: '2026-06-03' }]
+            }));
+            const service = {
+                // getState reflects the POST-billDeferredCharges state: o1 is now 'billed'
+                // (the real service flips it synchronously). The handler must read THIS fresh
+                // state, not the stale 'deferred' prop, when minting the Charge Notice link.
+                getState: vi.fn(() => ({ settings: {}, owedAdjustments: [
+                    { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
+                ] })),
+                recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
+                billDeferredCharges
+            };
+            const owedAdjustments = [
+                { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
+            ];
+            renderDashboard({ owedAdjustments, service });
+            return { service, billDeferredCharges };
+        }
+
+        it('opens the Charge Notice preview from the board Bill Charges action', () => {
+            renderWithDeferred();
+            // Expand Bob's card and click Bill Charges
+            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            // The preview dialog opens
+            expect(screen.getByText('Bill & Notify')).toBeInTheDocument();
+            expect(screen.getByText('Roaming')).toBeInTheDocument();
+        });
+
+        it('confirming bills the charges and fires the Charge Notice issuance', () => {
+            const { billDeferredCharges } = renderWithDeferred();
+            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            fireEvent.click(screen.getByText('Bill & Notify'));
+
+            expect(billDeferredCharges).toHaveBeenCalledTimes(1);
+            const arg = billDeferredCharges.mock.calls[0][0];
+            expect(arg.memberId).toBe(2);
+            expect(arg.chargeIds).toEqual(['o1']);
+            // The outbound Charge Notice (email + share link) is issued with the result.
+            expect(mockIssueChargeNotice).toHaveBeenCalledTimes(1);
+            // P1.2: it receives the POST-mutation owedAdjustments (o1 now 'billed'), not the
+            // stale 'deferred' prop — so the minted share link never shows the just-billed
+            // charge as pending/not-yet-due.
+            const noticeArg = mockIssueChargeNotice.mock.calls[0][0];
+            expect(noticeArg.owedAdjustments).toEqual([
+                expect.objectContaining({ id: 'o1', status: 'billed' })
+            ]);
+        });
+
+        it('an unpaid BILLED charge raises the dashboard Outstanding KPI (ADR 0006)', () => {
+            // Both members fully paid on the 1200 bill (600 each); Alice has a $40 unpaid
+            // BILLED charge → Outstanding should read $40, not "Paid".
+            renderDashboard({
+                payments: [
+                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                ],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
+                ]
+            });
+            const outstandingCard = screen.getAllByText('Outstanding')
+                .map(el => el.closest('.kpi-card')).find(Boolean);
+            expect(within(outstandingCard).getByText('$40.00')).toBeInTheDocument();
+        });
+
+        it('bills a linked member deferred charge through the full wiring (ADR 0001)', () => {
+            // Alice (primary) links Carol; only Carol has a deferred charge. Billing the
+            // household must reach Carol's charge — the dialog previews it and the
+            // confirm passes its real id to billDeferredCharges keyed to the primary.
+            const billDeferredCharges = vi.fn(() => ({
+                chargeNoticeId: 'cn_1', memberId: 1, amount: 9, chargeIds: ['c1'],
+                charges: [{ id: 'c1', description: 'Carol roaming', amount: 9, incurredDate: '2026-06-04' }]
+            }));
+            const service = {
+                getState: vi.fn(() => ({ settings: {} })),
+                recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
+                billDeferredCharges
+            };
+            renderDashboard({
+                familyMembers: [
+                    { id: 1, name: 'Alice', email: 'a@x.com', phone: '', avatar: '', linkedMembers: [3], paymentReceived: 0 },
+                    { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+                    { id: 3, name: 'Carol', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+                ],
+                owedAdjustments: [
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 9, status: 'deferred', description: 'Carol roaming', incurredDate: '2026-06-04' }
+                ],
+                service
+            });
+            // Alice's household card carries the Bill Charges action (household-grain).
+            fireEvent.click(screen.getByText('Alice').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            expect(screen.getByText('Carol roaming')).toBeInTheDocument(); // previewed in the dialog
+            fireEvent.click(screen.getByText('Bill & Notify'));
+            const arg = billDeferredCharges.mock.calls[0][0];
+            expect(arg.memberId).toBe(1);          // keyed to the primary
+            expect(arg.chargeIds).toEqual(['c1']);  // the linked member's charge
+        });
+
+        it('a DEFERRED charge does NOT raise the dashboard Outstanding KPI', () => {
+            renderDashboard({
+                payments: [
+                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                ],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
+                ]
+            });
+            const outstandingCard = screen.getAllByText('Outstanding')
+                .map(el => el.closest('.kpi-card')).find(Boolean);
+            expect(within(outstandingCard).getByText('Paid')).toBeInTheDocument();
+        });
     });
 
     it('re-opens a not-received refund into the "Owed to Members" KPI while the year is open (#319, ADR 0003)', () => {

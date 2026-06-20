@@ -65,11 +65,22 @@ A Usage Charge is a `+owed` per-member ad-hoc debit stored in `owedAdjustments[]
 
 - `getDeferredUsageChargeTotalForMember` sums a member's deferred usage charges only (records with `kind: 'usage_charge'` and `status: 'deferred'`), and returns 0 for an unknown member or an empty/missing array. Voided and already-billed charges, and credit-direction adjustments (Service Credits, #321), are excluded.
 - `getHouseholdDeferredCharges` returns `{ count, total }` for a household (primary member plus their linked members, ADR 0001 grain), counting and summing only deferred usage charges. Another household's charges are not counted.
-- Deferred usage charges never change a household's `owed`, `netContribution`, `credit`, or settlement status/metrics; `getHouseholdFinancials` and `calculateSettlementMetrics` do not take `owedAdjustments` as input.
+- Deferred usage charges never change a household's `owed`, `netContribution`, `credit`, or settlement status/metrics.
+
+### Billed Usage Charges (Charge Notice, #320, ADR 0005, ADR 0006)
+
+Off-cycle-billing a member's deferred Usage Charges via a **Charge Notice** flips the
+selected `owedAdjustments[]` records from `status: 'deferred'` to `status: 'billed'`. A
+**billed** charge is present-tense money: it raises the household's `owed`, so unpaid →
+Outstanding → blocks close (ADR 0006). A still-`deferred` charge does not.
+
+- `getBilledUsageChargeTotalForMember` sums a member's usage charges whose `status` is `billed` (excluding deferred and voided), returning 0 for an unknown member or an empty/missing array.
+- `getHouseholdFinancials` accepts an **optional trailing** `owedAdjustments` array (defaulting to empty, so every existing 4-arg call is unaffected). It adds the household's **billed** usage-charge total to `owed` at the household grain (ADR 0001) — primary plus linked members — and returns the addend as `billedChargeTotal`. Deferred charges passed in this array are never added to owed.
+- `calculateSettlementMetrics` accepts the same **optional trailing** `owedAdjustments` array (defaulting to empty). An unpaid billed charge raises `totalAnnual` and `totalOutstanding` and drops the household from `paidCount` (so it blocks close); paying it through the normal `payments[]` ledger settles the household again. Deferred charges do not affect any metric.
 
 ### Outstanding Balance and Year Close
 
-- `calculateOutstandingBalance` returns the sum of all unpaid household balances (per-household NET shortfall, accepting an optional `creditAdjustments` array so recorded refunds/carry-forwards are reflected), and returns 0 when everyone is paid up. It mirrors the outstanding figure in `calculateSettlementMetrics` so the close path and dashboard agree.
+- `calculateOutstandingBalance` returns the sum of all unpaid household balances (per-household NET shortfall, accepting an optional `creditAdjustments` array so recorded refunds/carry-forwards are reflected, and an optional trailing `owedAdjustments` array so **billed** usage charges raise the shortfall while deferred ones do not — #320, ADR 0006), and returns 0 when everyone is paid up. It mirrors the outstanding figure in `calculateSettlementMetrics` so the close path and dashboard agree.
 - `buildCloseYearMessage` includes the outstanding dollar amount when greater than zero, and omits the outstanding warning when the balance is zero.
 
 ### Year Label Management
@@ -132,6 +143,12 @@ A Usage Charge is a `+owed` per-member ad-hoc debit stored in `owedAdjustments[]
 - `recordUsageCharge` appends a Usage Charge to `owedAdjustments[]` with a generated adjustment ID, `kind: 'usage_charge'`, the captured amount/description/incurredDate, `status: 'deferred'`, and a `createdAt` timestamp. The financial source of truth lives on the adjustment record. It emits a `USAGE_CHARGE_RECORDED` billing event (mirroring `PAYMENT_RECORDED`), rejects non-positive amounts, requires a non-empty description, rejects unknown members, and throws on read-only years.
 - The mutation is append-only: a charge is voided via a later status change, never physically deleted (mirroring payments-ledger immutability). It does not touch `recordPayment`/`reversePayment` or the `payments[]` ledger.
 - A deferred charge does NOT raise the member's owed and does not affect current-year settlement; it is surfaced only as a pending figure.
+
+#### Off-cycle Billing — Charge Notice (#320)
+
+- `billDeferredCharges` off-cycle-bills a household's deferred Usage Charges as a single **Charge Notice**, keyed to the household primary. It selects `kind: 'usage_charge'`, `status: 'deferred'` records across the household grain (the primary plus their linked members, ADR 0001) — defaulting to **all** of them, narrowable by an optional incurred-date `range` (the "this month" preset) or an explicit `chargeIds` list — and flips each to `status: 'billed'`, stamping a generated `chargeNoticeId` and a `billedAt` timestamp. It returns `{ chargeNoticeId, memberId, amount, chargeIds, charges }`. A linked member's deferred charge is billed when its household primary is billed.
+- The mutation is **append-only**: it changes status in place and never deletes a record (mirroring the payments-ledger and Usage Charge immutability). It does NOT touch `recordPayment`/`reversePayment`/`recordUsageCharge` or the `payments[]` ledger. It emits a `CHARGES_BILLED` billing event (mirroring `USAGE_CHARGE_RECORDED` / `REFUND_ISSUED`).
+- A billed charge raises the household's owed (via `getBilledUsageChargeTotalForMember`), so unpaid → Outstanding → blocks close (ADR 0006); settlement is through the existing payments ledger. It rejects an unknown member, throws when no deferred charges match the selection, and throws on a read-only year. Another household's charges are never affected.
 
 #### Credit Dispositions
 

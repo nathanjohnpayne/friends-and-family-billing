@@ -80,6 +80,16 @@ export function generateCreditAdjustmentId() {
 }
 
 /**
+ * ID for a Charge Notice (#320) — an off-cycle invoice that bills a member's
+ * deferred Usage Charges. Distinct prefix so it is never confused with an
+ * adjustment, payment, or credit-adjustment id.
+ * @returns {string}
+ */
+export function generateChargeNoticeId() {
+    return 'cn_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+}
+
+/**
  * @returns {string}
  */
 export function generateRawToken() {
