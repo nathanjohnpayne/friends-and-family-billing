@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -136,6 +136,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             onGenerateShareLink={onGenerateShareLink}
                             onManageShareLinks={onManageShareLinks}
                             onViewHistory={onViewHistory}
+                            onIssueRefund={onIssueRefund}
                         />
                     ))
                 )}
@@ -192,7 +193,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -201,6 +202,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
     const [paymentNote, setPaymentNote] = useState('');
     const [paymentError, setPaymentError] = useState('');
     const [distribute, setDistribute] = useState(true);
+    const [refundOpen, setRefundOpen] = useState(false);
+    const [refundAmount, setRefundAmount] = useState('');
+    const [refundMethod, setRefundMethod] = useState('venmo');
+    const [refundReason, setRefundReason] = useState('');
+    const [refundError, setRefundError] = useState('');
 
     function toggleLinkedBreakdown(memberId) {
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
@@ -211,6 +217,49 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
     // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
     // reads as settled, matching the status badge and the credit epsilon.
     const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
+    // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
+    const showRefundAction = !readOnly && credit > CREDIT_EPSILON;
+
+    function openRefund() {
+        setRefundAmount(credit.toFixed(2));
+        setRefundMethod('venmo');
+        setRefundReason('');
+        setRefundError('');
+        setRefundOpen(true);
+    }
+
+    function cancelRefund() {
+        setRefundOpen(false);
+        setRefundAmount('');
+        setRefundReason('');
+        setRefundError('');
+    }
+
+    function handleIssueRefund(e) {
+        e.preventDefault();
+        setRefundError('');
+        const amt = Math.round((parseFloat(refundAmount) || 0) * 100) / 100;
+        if (!amt || amt <= 0) {
+            setRefundError('Enter a valid amount.');
+            return;
+        }
+        if (amt > credit + CREDIT_EPSILON) {
+            setRefundError('Refund cannot exceed the credit of ' + formatAnnualSummaryCurrency(credit) + '.');
+            return;
+        }
+        if (!refundReason.trim()) {
+            setRefundError('A reason is required.');
+            return;
+        }
+        try {
+            if (onIssueRefund) {
+                onIssueRefund({ memberId: member.id, amount: amt, method: refundMethod, reason: refundReason.trim() });
+            }
+            cancelRefund();
+        } catch (err) {
+            setRefundError(err.message);
+        }
+    }
 
     function handleRecordPayment(e) {
         e.preventDefault();
@@ -404,6 +453,14 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                                 Record Payment
                             </button>
                         )}
+                        {showRefundAction && (
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={openRefund}
+                            >
+                                Issue Refund
+                            </button>
+                        )}
                         <button
                             className="btn btn-tertiary btn-sm"
                             onClick={() => onViewHistory && onViewHistory(member.id)}
@@ -503,6 +560,68 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                             <div className="dialog-buttons">
                                 <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
                                 <button type="submit" className="btn btn-sm btn-primary">Save Payment</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {refundOpen && (
+                <div className="dialog-overlay" onClick={cancelRefund}>
+                    <div className="dialog" onClick={e => e.stopPropagation()}>
+                        <div className="dialog-title">Issue Refund</div>
+                        <form onSubmit={handleIssueRefund}>
+                            <p className="payment-dialog-for">
+                                For: <strong>{member.name}</strong>
+                                <span className="payment-dialog-balance">
+                                    {' '}(Credit: {formatAnnualSummaryCurrency(credit)})
+                                </span>
+                            </p>
+                            <div className="payment-dialog-fields">
+                                <div className="payment-field-group">
+                                    <label htmlFor={'refund-amount-' + member.id}>Refund amount ($)</label>
+                                    <input
+                                        id={'refund-amount-' + member.id}
+                                        className="composer-input"
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        max={credit.toFixed(2)}
+                                        placeholder="0.00"
+                                        value={refundAmount}
+                                        onChange={e => setRefundAmount(e.target.value)}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="payment-field-group">
+                                    <label htmlFor={'refund-method-' + member.id}>Method</label>
+                                    <select
+                                        id={'refund-method-' + member.id}
+                                        className="composer-input"
+                                        value={refundMethod}
+                                        onChange={e => setRefundMethod(e.target.value)}
+                                    >
+                                        {PAYMENT_METHODS.map(m => (
+                                            <option key={m.value} value={m.value}>{m.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="payment-field-group">
+                                    <label htmlFor={'refund-reason-' + member.id}>Reason</label>
+                                    <input
+                                        id={'refund-reason-' + member.id}
+                                        className="composer-input"
+                                        type="text"
+                                        placeholder="e.g., Returned Q1 overpayment"
+                                        value={refundReason}
+                                        onChange={e => setRefundReason(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            {refundError && <p className="composer-error">{refundError}</p>}
+                            <div className="dialog-buttons">
+                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelRefund}>Cancel</button>
+                                <button type="submit" className="btn btn-sm btn-primary">Save Refund</button>
                             </div>
                         </form>
                     </div>

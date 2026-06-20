@@ -112,6 +112,11 @@ Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations 
 - `reversePayment` creates a negative reversal entry, marks the original as reversed, emits `PAYMENT_REVERSED` event, rejects unknown or already-reversed payments, and prevents reversing a reversal entry.
 - `updatePayment` edits a payment's method and/or note in place, emits `PAYMENT_UPDATED` event with before/after values for audit trail, returns original unchanged when no fields differ, and rejects edits on reversed or reversal entries.
 
+#### Credit Dispositions
+
+- `issueRefund` records a Refund (#318) for a household that carries a Credit by appending to `creditAdjustments[]` (append-only; `type: 'refund'`, `status: 'recorded'`, the household primary's `memberId`). Recording it clears the credit immediately (Model B, ADR 0003 — no member confirmation), since the refund subtracts from Net Contribution and lives outside the payments ledger; `payments[]` and the payment math are untouched. It emits a `REFUND_ISSUED` billing event and triggers save.
+- The refund must target the household primary (rejects a linked member, ADR 0001), requires a non-empty reason, rejects non-positive amounts, rejects a household with no credit, and **caps the amount at the household's current credit** (the credit is computed from `getHouseholdFinancials`). Throws on a read-only year.
+
 #### Settings
 
 - `updateSettings` merges new settings into existing ones, preserving unmodified keys, and throws on read-only years.

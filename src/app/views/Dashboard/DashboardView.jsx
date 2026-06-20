@@ -182,6 +182,13 @@ export default function DashboardView() {
                 creditAdjustments={creditAdjustments}
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
+                onIssueRefund={data => {
+                    // Let errors propagate so the board's dialog shows the inline
+                    // error and stays open (mirrors onRecordPayment). The success
+                    // toast runs only when issueRefund did not throw.
+                    service.issueRefund(data);
+                    showToast('Refund recorded');
+                }}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
                         showToast('No balance due\u2014nothing to invoice.');
