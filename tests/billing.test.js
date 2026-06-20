@@ -1290,6 +1290,26 @@ describe('saveData archived guard', () => {
     });
 });
 
+// ──────────────── saveData preserves creditAdjustments (#316) ──
+
+describe('saveData creditAdjustments preservation', () => {
+    it('writes creditAdjustments in the legacy save payload (shared doc must not be dropped)', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const creditAdjustments = [{ id: 'cadj1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }];
+        ctx._set('creditAdjustments', creditAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        const payload = lastSet[0];
+        assert.deepEqual(payload.creditAdjustments, creditAdjustments);
+    });
+});
+
 // ──────────────── generateRawToken ────────────────────────────
 
 describe('generateRawToken', () => {

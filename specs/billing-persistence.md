@@ -44,3 +44,4 @@ Covers data serialization, normalization, initial data construction, save queue 
 - `escapeHtml` returns empty string for falsy input and escapes all HTML special characters (`<`, `>`, `"`, `&`, `'`).
 - `calculateAnnualSummary` (legacy) splits bills evenly among assigned members, excludes unassigned members, accumulates across multiple bills, and handles bills with no assigned members.
 - `recordPayment` (legacy) appends payment entries to the ledger, tracks via `getPaymentTotalForMember`, and rejects non-positive amounts.
+- The legacy `/site/` app and the React app share the same billing-year documents, so both must round-trip `creditAdjustments` losslessly (consumer parity). Legacy `loadBillingYearData` loads `normalized.creditAdjustments` into state and `saveData` passes it to `buildSavePayload`; because the legacy save also writes with a full-document `set()`, omitting it would erase existing disposition records.

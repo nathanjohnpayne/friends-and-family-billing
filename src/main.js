@@ -73,6 +73,7 @@ import {
 let familyMembers = []; // Array of {id, name, email, avatar, paymentReceived, linkedMembers: [memberIds]}
 let bills = []; // Array of {id, name, amount, billingFrequency, logo, website, members: [memberIds]}
 let payments = []; // Append-only ledger: [{id, memberId, amount, receivedAt, note, method}]
+let creditAdjustments = []; // Refunds + carried-forward credits (#316). Loaded and preserved on save so the legacy /site/ app never drops them; no writer here yet.
 let billingEvents = []; // Append-only event ledger for audit trail
 let settings = {
     emailMessage: 'Your annual billing summary for %billing_year% is ready. Your annual amount due is %annual_total%. Thank you for your prompt payment via any of the payment methods below.',
@@ -343,7 +344,7 @@ function saveData() {
         try {
             const yearDocRef = db.collection('users').doc(currentUser.uid)
                 .collection('billingYears').doc(currentBillingYear.id);
-            const payload = _buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings);
+            const payload = _buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments);
             if (!payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
             payload.updatedAt = FieldValue.serverTimestamp();
             await yearDocRef.set(payload);
@@ -483,6 +484,7 @@ async function loadBillingYearData(yearId) {
         familyMembers = normalized.members;
         bills = normalized.bills;
         payments = normalized.payments;
+        creditAdjustments = normalized.creditAdjustments;
         billingEvents = normalized.billingEvents;
 
         if (normalized.settings) {
@@ -504,6 +506,7 @@ async function loadBillingYearData(yearId) {
         familyMembers = [];
         bills = [];
         payments = [];
+        creditAdjustments = [];
     }
 }
 
@@ -5473,6 +5476,7 @@ function _set(key, val) {
         case 'familyMembers': familyMembers = val; break;
         case 'bills': bills = val; break;
         case 'payments': payments = val; break;
+        case 'creditAdjustments': creditAdjustments = val; break;
         case 'billingEvents': billingEvents = val; break;
         case 'settings': settings = val; break;
         case 'currentUser': currentUser = val; break;
@@ -5498,6 +5502,7 @@ function _get(key) {
         case 'familyMembers': return familyMembers;
         case 'bills': return bills;
         case 'payments': return payments;
+        case 'creditAdjustments': return creditAdjustments;
         case 'billingEvents': return billingEvents;
         case 'settings': return settings;
         case 'currentUser': return currentUser;
