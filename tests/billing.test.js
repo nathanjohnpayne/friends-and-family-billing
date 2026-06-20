@@ -999,6 +999,80 @@ describe('startNewYear', () => {
         await ctx.startNewYear();
         assert.equal(ctx._saved.length, savedBefore, 'No data should be saved');
     });
+
+    // ── Carry-forward parity (#322): legacy /site/ must seed + mark like React ──
+    it('seeds carry_opening records in the new year for an undisposed household credit', async () => {
+        const ctx = createContext({ prompt: () => '2027', alert: () => {} });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        // Alice owes 600 on a $50/mo bill, overpaid by 80 → undisposed credit.
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 680, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        ctx._set('creditAdjustments', []);
+        ctx._set('owedAdjustments', []);
+
+        await ctx.startNewYear();
+
+        // The NEW year doc (the one with familyMembers) carries the seed.
+        const yearSave = ctx._saved.find(args => args[0] && args[0].familyMembers && Array.isArray(args[0].owedAdjustments) && args[0].owedAdjustments.some(a => a.kind === 'carry_opening'));
+        assert.ok(yearSave, 'New year should be seeded with a carry_opening record');
+        const seed = yearSave[0].owedAdjustments.find(a => a.kind === 'carry_opening');
+        assert.equal(seed.memberId, 1);
+        assert.ok(Math.abs(seed.amount - (-80)) < 1e-6, 'Seed should be the −80 opening balance');
+        assert.equal(seed.status, 'carried_in');
+        assert.equal(seed.fromYear, '2026');
+    });
+
+    it('marks the prior year credit as carried-forward (append-only) when rolling over', async () => {
+        const ctx = createContext({ prompt: () => '2027', alert: () => {} });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 100, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 680, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        ctx._set('creditAdjustments', []);
+        ctx._set('owedAdjustments', []);
+
+        await ctx.startNewYear();
+
+        // A prior-year write should record the carry_forward disposition.
+        const priorSave = ctx._saved.find(args => args[0] && Array.isArray(args[0].creditAdjustments) && args[0].creditAdjustments.some(a => a.type === 'carry_forward'));
+        assert.ok(priorSave, 'Prior year should record a carry_forward credit adjustment');
+        const carry = priorSave[0].creditAdjustments.find(a => a.type === 'carry_forward');
+        assert.equal(carry.memberId, 1);
+        assert.ok(Math.abs(carry.amount - 80) < 1e-6, 'Carry amount should be 80');
+        assert.equal(carry.toYear, '2027');
+    });
+
+    it('round-trips carry_opening owedAdjustments through the legacy save payload', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2027', label: '2027', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const owedAdjustments = [
+            { id: 's1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in', fromYear: '2026' },
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        assert.deepEqual(lastSet[0].owedAdjustments, owedAdjustments);
+    });
 });
 
 // ──────────────── archiveCurrentYear ──────────────────────────

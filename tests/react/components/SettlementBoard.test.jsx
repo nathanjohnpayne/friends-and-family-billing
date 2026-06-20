@@ -630,3 +630,36 @@ describe('SettlementBoard — Issue Refund', () => {
         expect(screen.getByText('Save Refund')).toBeInTheDocument();    // dialog still open
     });
 });
+
+describe('SettlementBoard — carried opening balance (#322)', () => {
+    // Each member owes $480/yr ($120/mo ÷ 3). Bob is solo.
+    it('a carried credit lowers the household Annual total and settles at the reduced amount', () => {
+        // Bob carries a −180 credit → effective owed 300. Pay 250 (< reduced owed)
+        // so the Annual box (300) and Paid box (250) differ and the Annual is checkable.
+        const owedAdjustments = [
+            { id: 's1', memberId: 2, kind: 'carry_opening', amount: -180, status: 'carried_in', fromYear: '2025' }
+        ];
+        const payments = [{ memberId: 2, amount: 250, method: 'cash' }];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
+        const card = screen.getByText('Bob').closest('.settlement-card');
+        // Annual box shows the reduced 300 (not the full 480); Balance is the 50 shortfall.
+        const annualBox = within(card).getByText('Annual').closest('.settlement-summary-box');
+        expect(within(annualBox).getByText('$300.00')).toBeInTheDocument();
+        const balanceBox = within(card).getByText('Balance').closest('.settlement-summary-box');
+        expect(within(balanceBox).getByText('$50.00')).toBeInTheDocument(); // 300 owed − 250 paid
+    });
+
+    it('a carried charge raises the household Annual total and surfaces a collectable balance', () => {
+        // Bob carries a +120 charge → effective owed 600; pays 480 → owes 120.
+        const owedAdjustments = [
+            { id: 's1', memberId: 2, kind: 'carry_opening', amount: 120, status: 'carried_in', fromYear: '2025' }
+        ];
+        const payments = [{ memberId: 2, amount: 480, method: 'cash' }];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
+        const card = screen.getByText('Bob').closest('.settlement-card');
+        const annualBox = within(card).getByText('Annual').closest('.settlement-summary-box');
+        expect(within(annualBox).getByText('$600.00')).toBeInTheDocument();   // raised Annual
+        const balanceBox = within(card).getByText('Balance').closest('.settlement-summary-box');
+        expect(within(balanceBox).getByText('$120.00')).toBeInTheDocument();  // collectable Balance
+    });
+});

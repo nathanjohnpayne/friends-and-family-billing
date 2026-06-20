@@ -10,6 +10,7 @@ import {
     isLinkedToAnyone as _isLinkedToAnyone,
     getParentMember as _getParentMember,
     calculateSettlementMetrics as _calculateSettlementMetrics,
+    getHouseholdOpeningBalance as _getHouseholdOpeningBalance,
 } from './lib/calculations.js';
 import {
     PAYMENT_PROVIDER_PATTERN as _PAYMENT_PROVIDER_PATTERN,
@@ -18,6 +19,7 @@ import {
     normalizeDisputeStatus,
     generateEventId,
     generateUniquePaymentId,
+    generateCreditAdjustmentId as _generateCreditAdjustmentId,
     generateRawToken,
     hashToken,
     generateUniqueId as _generateUniqueId,
@@ -52,6 +54,8 @@ import {
 import {
     calculateOutstandingBalance as _calculateOutstandingBalance,
     buildCloseYearMessage as _buildCloseYearMessage,
+    buildCarryForwardSummary as _buildCarryForwardSummary,
+    applyCarryForwardToPriorYear as _applyCarryForwardToPriorYear,
     suggestNextYearLabel as _suggestNextYearLabel,
     isYearLabelDuplicate as _isYearLabelDuplicate,
     buildNewYearData as _buildNewYearData,
@@ -115,7 +119,7 @@ function getPaymentTotalForMember(memberId) { return _getPaymentTotalForMember(p
 function getMemberPayments(memberId) { return _getMemberPayments(payments, memberId); }
 function isLinkedToAnyone(memberId) { return _isLinkedToAnyone(familyMembers, memberId); }
 function getParentMember(memberId) { return _getParentMember(familyMembers, memberId); }
-function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments); }
+function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, null, owedAdjustments); }
 function getEnabledPaymentMethods() { return (settings.paymentMethods || []).filter(m => m.enabled); }
 
 // Version checking — polls version.json to detect deploys while the page is open
@@ -575,11 +579,56 @@ async function startNewYear() {
     try {
         const userDocRef = db.collection('users').doc(currentUser.uid);
 
-        const yearData = _buildNewYearData(familyMembers, bills, settings, yearId);
+        // Carry-forward seam (#322, ADR 0005/0006/0007). Dual-app parity with the
+        // React BillingYearService.createYear: compute the prior (current) year's
+        // UNDISPOSED items, seed the new year with their netted opening balances,
+        // and mark the prior year APPEND-ONLY. Snapshot the prior-year state first
+        // because loadBillingYearData() below overwrites module state.
+        const priorBillingYear = currentBillingYear;
+        const priorLabel = priorBillingYear ? (priorBillingYear.label || priorBillingYear.id) : null;
+        const priorMembers = familyMembers;
+        const priorBills = bills;
+        const priorPayments = payments;
+        const priorCreditAdjustments = creditAdjustments;
+        const priorOwedAdjustments = owedAdjustments;
+        const priorEvents = billingEvents;
+        const priorSettings = settings;
+
+        const carry = _buildCarryForwardSummary(
+            priorMembers, priorBills, priorPayments || [], priorCreditAdjustments || [], priorOwedAdjustments || []
+        );
+
+        const yearData = _buildNewYearData(priorMembers, priorBills, priorSettings, yearId, carry, priorLabel);
         yearData.createdAt = FieldValue.serverTimestamp();
         yearData.updatedAt = FieldValue.serverTimestamp();
 
         await userDocRef.collection('billingYears').doc(yearId).set(yearData);
+
+        // Mark the prior year append-only and persist it (only when something carried).
+        if (priorBillingYear && carry.memberCount > 0) {
+            const marked = _applyCarryForwardToPriorYear(
+                priorCreditAdjustments || [], priorOwedAdjustments || [], carry,
+                { nextYearLabel: yearId, userId: currentUser.uid, idFactory: () => _generateCreditAdjustmentId() }
+            );
+            const carryEvent = {
+                id: generateEventId(),
+                timestamp: new Date().toISOString(),
+                actor: { type: 'admin', userId: currentUser.uid },
+                eventType: 'YEAR_CARRIED_FORWARD',
+                payload: { toYear: yearId, memberCount: carry.memberCount, totalOpeningBalance: carry.totalOpeningBalance },
+                note: '',
+                source: 'ui'
+            };
+            const priorPayload = _buildSavePayload(
+                priorBillingYear, priorMembers, priorBills, priorPayments || [],
+                [...(priorEvents || []), carryEvent], priorSettings,
+                marked.creditAdjustments, marked.owedAdjustments
+            );
+            if (!priorPayload.createdAt) priorPayload.createdAt = FieldValue.serverTimestamp();
+            priorPayload.updatedAt = FieldValue.serverTimestamp();
+            await userDocRef.collection('billingYears').doc(priorBillingYear.id).set(priorPayload);
+        }
+
         await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
 
         await loadBillingYearsList();
@@ -734,8 +783,11 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
-    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments);
-    const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
+    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
+    // State the carry-forward amount + member count in the confirmation (#322): at
+    // close, undisposed credits/charges auto-carry rather than block (ADR 0006).
+    const carry = _buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
+    const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding, carry);
 
     showConfirmationDialog(
         'Close Billing Year',
@@ -4389,6 +4441,10 @@ function getInvoiceSummaryContext(memberId) {
 
     let combinedTotal = memberData ? memberData.total : 0;
     linkedMembersData.forEach(d => { combinedTotal += d.total; });
+    // Carried opening balance (#322): fold the household's carried credit/charge
+    // into the first invoice total (parity with the React invoice). Floored at 0.
+    const openingBalance = _getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedTotal = Math.max(0, combinedTotal + openingBalance);
 
     let payment = getPaymentTotalForMember(memberId);
     member.linkedMembers.forEach(id => { payment += getPaymentTotalForMember(id); });

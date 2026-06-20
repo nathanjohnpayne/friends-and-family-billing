@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, CREDIT_EPSILON } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance, CREDIT_EPSILON } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -52,16 +52,23 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         const data = summary[member.id];
         if (!data) return null;
 
-        let combinedTotal = data.total;
+        let billsTotal = data.total;
         const linkedData = [];
 
         (member.linkedMembers || []).forEach(linkedId => {
             const ls = summary[linkedId];
             if (ls) {
-                combinedTotal += ls.total;
+                billsTotal += ls.total;
                 linkedData.push(ls);
             }
         });
+
+        // Carried opening balance (#322, ADR 0005/0006): a carried credit (negative)
+        // lowers the household's owed/annual total, a carried charge (positive) raises
+        // it. Floored at 0 to match getHouseholdFinancials. combinedTotal is the
+        // household's effective owed for THIS year (bills ± carried opening balance).
+        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+        const combinedTotal = Math.max(0, billsTotal + openingBalance);
 
         const payment = getPaymentTotalForMember(payments, member.id)
             + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
@@ -76,7 +83,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // ADR 0003: a refund whose member reported an active, unresolved
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
-        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds);
+        // #322: the carried openingBalance also adjusts owed (folded into combinedTotal).
+        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, openingBalance);
         const balance = combinedTotal - netContribution;
         const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
         const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';

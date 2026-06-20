@@ -2,7 +2,7 @@
  * Invoice helpers — extracted from legacy main.js for React consumption.
  * Pure functions, no DOM or global state dependencies.
  */
-import { calculateAnnualSummary, getPaymentTotalForMember } from './calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
 import { escapeHtml } from './formatting.js';
 
 /**
@@ -13,9 +13,11 @@ import { escapeHtml } from './formatting.js';
  * @param {number} memberId
  * @param {{ label?: string, id?: string }} activeYear
  * @param {{ emailMessage?: string, paymentMethods?: Array }} settings
+ * @param {Array} [owedAdjustments]  the household's `carry_opening` seed records (#322)
+ *   fold the carried opening balance into the invoice total (its first invoice).
  * @returns {Object|null}
  */
-export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings) {
+export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments = []) {
     const member = familyMembers.find(m => m.id === memberId);
     if (!member) return null;
 
@@ -25,6 +27,11 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
 
     let combinedTotal = memberData ? memberData.total : 0;
     linkedMembersData.forEach(d => { combinedTotal += d.total; });
+    // Carried opening balance (#322): a carried credit (negative) lowers the first
+    // invoice total, a carried charge (positive) raises it. Floored at 0 to match
+    // getHouseholdFinancials so a credit larger than the bills never goes negative.
+    const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedTotal = Math.max(0, combinedTotal + openingBalance);
 
     let payment = getPaymentTotalForMember(payments, memberId);
     (member.linkedMembers || []).forEach(id => { payment += getPaymentTotalForMember(payments, id); });

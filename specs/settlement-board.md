@@ -66,6 +66,10 @@ Covers the settlement board component for tracking household payment status, the
 
 - The dashboard wires the settlement board's "Add Charge" action to a `UsageChargeDialog`; submitting records the charge via `service.recordUsageCharge({ memberId, amount, description, incurredDate })` and shows a confirmation toast indicating the charge is pending and not yet billed.
 
+### DashboardView — Deferred charges indicator (#322)
+
+- When one or more households carry still-`deferred` Usage Charges, the dashboard shows a "Deferred charges" indicator (`data-testid="deferred-charges-indicator"`) stating the aggregate deferred total across households (ADR 0001 grain) and the charge count, noting the charges are not yet billed and will carry forward to next year (ADR 0006). The indicator is hidden when no household carries a deferred charge. Already-carried (`status: 'carried_forward'`), voided, and billed charges are excluded from the indicator (only `status: 'deferred'` usage charges count).
+
 ### BillsTab View
 
 - Renders bill count in the header (e.g., "Bills (1)").

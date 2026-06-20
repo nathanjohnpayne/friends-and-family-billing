@@ -217,6 +217,162 @@ describe('BillingYearService', () => {
         });
     });
 
+    // ── createYear: carry-forward seam (#322, ADR 0005/0006) ──────────
+    describe('createYear — carry-forward', () => {
+        // Alice (solo) owes 600 on a $50/mo bill and overpaid by 80 → undisposed credit.
+        // Bob (solo) owes 600 and has a 30 deferred usage charge → undisposed charge.
+        function seedPriorYear() {
+            svc._user = TEST_USER;
+            svc._setState({
+                billingYears: [{ id: '2026', label: '2026', status: 'open' }],
+                activeYear: { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null },
+                familyMembers: [
+                    { id: 1, name: 'Alice', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+                    { id: 2, name: 'Bob', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }
+                ],
+                bills: [
+                    { id: 101, name: 'A', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] },
+                    { id: 102, name: 'B', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [2] }
+                ],
+                payments: [
+                    { id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', note: '', method: 'cash' },
+                    { id: 'p2', memberId: 2, amount: 600, receivedAt: '2026-01-01', note: '', method: 'cash' }
+                ],
+                creditAdjustments: [],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 30, status: 'deferred', createdAt: '2026-02-01' }
+                ],
+                billingEvents: [],
+                settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
+            });
+            // Seed the destination doc so switchYear's loadYearData finds it.
+            mockStore['users/user-1/billingYears/2027'] = {
+                label: '2027', status: 'open',
+                familyMembers: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }],
+                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
+            };
+        }
+
+        it('seeds carry_opening records in the new year for each carrying household', async () => {
+            seedPriorYear();
+            await svc.createYear('2027');
+
+            const newYearWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers && !c.options?.merge
+            );
+            expect(newYearWrite).toBeDefined();
+            const seeds = (newYearWrite.data.owedAdjustments || []).filter(a => a.kind === 'carry_opening');
+            // Alice carries −80 (credit), Bob carries +30 (deferred charge).
+            const alice = seeds.find(s => s.memberId === 1);
+            const bob = seeds.find(s => s.memberId === 2);
+            expect(alice.amount).toBeCloseTo(-80, 5);
+            expect(bob.amount).toBeCloseTo(30, 5);
+            expect(alice.fromYear).toBe('2026');
+        });
+
+        it('marks the prior year undisposed credits as carried-forward (append-only) on the prior year', async () => {
+            seedPriorYear();
+            await svc.createYear('2027');
+
+            // A full-document write to the PRIOR year records the carry disposition.
+            const priorWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2026' && c.data.creditAdjustments
+            );
+            expect(priorWrite).toBeDefined();
+            const carry = (priorWrite.data.creditAdjustments || []).find(a => a.type === 'carry_forward');
+            expect(carry).toBeDefined();
+            expect(carry.memberId).toBe(1);            // Alice's household primary
+            expect(carry.amount).toBeCloseTo(80, 5);
+            expect(carry.status).toBe('recorded');
+            expect(carry.toYear).toBe('2027');
+        });
+
+        it('marks the prior year deferred charges as carried_forward (append-only, not deleted)', async () => {
+            seedPriorYear();
+            await svc.createYear('2027');
+
+            const priorWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2026' && c.data.owedAdjustments
+            );
+            expect(priorWrite).toBeDefined();
+            const charge = (priorWrite.data.owedAdjustments || []).find(a => a.id === 'o1');
+            // Same record, still present (not deleted), status transitioned.
+            expect(charge).toBeDefined();
+            expect(charge.status).toBe('carried_forward');
+            expect(charge.carriedForwardTo).toBe('2027');
+        });
+
+        it('records the carry on the prior year so it no longer reads as an undisposed credit', async () => {
+            seedPriorYear();
+            await svc.createYear('2027');
+            // After the carry, the prior-year state nets Alice to owed (credit cleared).
+            const priorWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2026' && c.data.creditAdjustments
+            );
+            const carried = priorWrite.data.creditAdjustments.filter(a => a.type === 'carry_forward');
+            expect(carried).toHaveLength(1);
+        });
+
+        it('creates the new year cleanly when nothing is undisposed', async () => {
+            svc._user = TEST_USER;
+            svc._setState({
+                billingYears: [{ id: '2026', label: '2026', status: 'open' }],
+                activeYear: { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null },
+                familyMembers: [{ id: 1, name: 'Alice', linkedMembers: [] }],
+                bills: [{ id: 101, name: 'A', amount: 50, billingFrequency: 'monthly', members: [1] }],
+                payments: [{ id: 'p1', memberId: 1, amount: 600, receivedAt: '2026-01-01', note: '', method: 'cash' }],
+                creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+                settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
+            });
+            mockStore['users/user-1/billingYears/2027'] = {
+                label: '2027', status: 'open', familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
+            };
+            await svc.createYear('2027');
+            const newYearWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers && !c.options?.merge
+            );
+            expect((newYearWrite.data.owedAdjustments || []).filter(a => a.kind === 'carry_opening')).toHaveLength(0);
+        });
+
+        it('does NOT carry a credit re-opened by an active not_received (#319/#322, ADR 0003/0006)', async () => {
+            // Alice (solo) owes 600, overpaid by 80, but the whole 80 surplus was
+            // already refunded (c1=80 recorded) → net credit 0. With the refund
+            // re-opened by a not_received, the 80 is owed back THIS year; it must NOT
+            // carry forward as undisposed surplus.
+            svc._user = TEST_USER;
+            svc._setState({
+                billingYears: [{ id: '2026', label: '2026', status: 'open' }],
+                activeYear: { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null },
+                familyMembers: [{ id: 1, name: 'Alice', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+                bills: [{ id: 101, name: 'A', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] }],
+                payments: [{ id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', note: '', method: 'cash' }],
+                creditAdjustments: [{ id: 'c1', memberId: 1, type: 'refund', amount: 80, status: 'recorded', createdAt: '2026-02-01' }],
+                owedAdjustments: [], billingEvents: [],
+                settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
+            });
+            mockStore['users/user-1/billingYears/2027'] = {
+                label: '2027', status: 'open', familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
+            };
+
+            // Pass the re-opened set (as BillingYearSelector does from useRefundNotices).
+            await svc.createYear('2027', { reopenedAdjustmentIds: new Set(['c1']) });
+
+            const newYearWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers && !c.options?.merge
+            );
+            // No carry_opening seed (the resurfaced credit stays live this year).
+            expect((newYearWrite.data.owedAdjustments || []).filter(a => a.kind === 'carry_opening')).toHaveLength(0);
+            // And no prior-year carry_forward disposition was written.
+            const priorWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2026' && c.data.creditAdjustments &&
+                (c.data.creditAdjustments || []).some(a => a.type === 'carry_forward')
+            );
+            expect(priorWrite).toBeUndefined();
+        });
+    });
+
     // ── save ──────────────────────────────────────────────────────────
 
     describe('save', () => {

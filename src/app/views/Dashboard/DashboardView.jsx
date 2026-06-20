@@ -7,7 +7,8 @@ import { useDisputes } from '../../hooks/useDisputes.js';
 import { useRefundNotices } from '../../hooks/useRefundNotices.js';
 import { issueRefundNotice } from '@/lib/RefundNoticeService.js';
 import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
-import { calculateSettlementMetrics } from '@/lib/calculations.js';
+import { calculateSettlementMetrics, getHouseholdDeferredCharges, isLinkedToAnyone } from '@/lib/calculations.js';
+import { formatAnnualSummaryCurrency } from '@/lib/formatting.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
 import SettlementBoard from '../../components/SettlementBoard.jsx';
@@ -61,7 +62,21 @@ export default function DashboardView() {
     const yearReadOnly = isYearReadOnly(activeYear);
     const reopenedAdjustments = yearReadOnly ? null : reopenedCreditAdjustmentIds(refundNotices);
 
-    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments);
+    // #319 reopened-credit set AND #322 carried opening balance both feed metrics:
+    // the re-open raises totalCreditsOwed; the carry_opening seeds fold into owed.
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments);
+
+    // Deferred-charges indicator (#322): aggregate still-deferred Usage Charges
+    // across households (ADR 0001 grain). These auto-carry into next year at
+    // close/rollover (ADR 0006), so the dashboard surfaces them as a heads-up.
+    const deferred = familyMembers
+        .filter(m => !isLinkedToAnyone(familyMembers, m.id))
+        .reduce((acc, m) => {
+            const { count, total } = getHouseholdDeferredCharges(m, owedAdjustments);
+            return { count: acc.count + count, total: acc.total + total };
+        }, { count: 0, total: 0 });
+
+
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
@@ -167,6 +182,13 @@ export default function DashboardView() {
                         onClick={openDisputeCount > 0 ? () => navigate('/manage/reviews') : undefined}
                     />
                 </div>
+
+                {deferred.count > 0 && (
+                    <div className="admin-hint" data-testid="deferred-charges-indicator">
+                        Deferred charges: {formatAnnualSummaryCurrency(deferred.total)}{' '}
+                        ({deferred.count} {deferred.count === 1 ? 'charge' : 'charges'}) not yet billed—these carry forward to next year.
+                    </div>
+                )}
 
                 <div className="progress-block">
                     <div className="progress-header">

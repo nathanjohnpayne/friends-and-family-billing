@@ -13,7 +13,7 @@ import {
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
-import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
+import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, CREDIT_EPSILON } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
@@ -355,21 +355,89 @@ export class BillingYearService {
 
     /**
      * Create a new billing year cloned from the current one.
+     *
+     * Carry-forward seam (#322, ADR 0005/0006/0007). HIGH-RISK: new-year
+     * construction + the append-only marking of the prior year. Before building
+     * the new year, computes the prior (current) year's UNDISPOSED items —
+     * household credits and still-deferred Usage Charges — nets them per
+     * household, and:
+     *   1. seeds the new year with one `carry_opening` opening-balance record per
+     *      carrying household (via buildNewYearData), so the carried balance lands
+     *      in the new year's owed/annual total and first invoice; and
+     *   2. marks the prior year APPEND-ONLY — a `carry_forward` credit record per
+     *      carried credit (disposing it, so the old year's gate no longer sees it)
+     *      and an in-place `deferred` → `carried_forward` status transition on each
+     *      carried Usage Charge (preserved, never deleted) — then persists the
+     *      prior-year doc as a full document (round-trips through both apps).
+     *
+     * If nothing is undisposed, behaves exactly as before (no seeds, no prior-year
+     * write). The prior-year credit is materialized lazily here (ADR 0004/0007):
+     * if no next year ever existed, the credit stayed live; creating the next year
+     * is what carries it.
+     *
+     * #319 reconciliation (ADR 0003/0006): a credit re-opened by an active
+     * `not_received` is owed back THIS year and must not carry. Refund notices
+     * live in the `disputes` subcollection the service does not load, so the
+     * caller (which has `useRefundNotices`) passes the re-opened id set via
+     * `options.reopenedAdjustmentIds`; it threads into the carry computation so a
+     * resurfaced credit is held back. Defaults to empty.
+     *
      * @param {string} yearId
+     * @param {{ reopenedAdjustmentIds?: Set }} [options]
      */
-    async createYear(yearId) {
+    async createYear(yearId, options = {}) {
         if (!this._user) return;
-        const { billingYears, familyMembers, bills, settings } = this._state;
+        const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {
             throw new Error('Billing year "' + yearId + '" already exists.');
         }
 
+        // Compute what carries from the prior (current) year. A credit re-opened by
+        // an active not_received (#319, ADR 0003) is held back from the carry.
+        const carry = buildCarryForwardSummary(
+            familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
+            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
+        );
+        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : null;
+
+        // 1. Seed the new year with the netted opening balances.
         const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
-        const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId);
+        const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId, carry, priorLabel);
         newData.createdAt = serverTimestamp();
         newData.updatedAt = serverTimestamp();
         await setDoc(yearDocRef, newData);
+
+        // 2. Mark the prior year append-only and persist it (only if something carried
+        //    and we have a prior year to write back to).
+        if (activeYear && carry.memberCount > 0) {
+            const marked = applyCarryForwardToPriorYear(
+                creditAdjustments || [], owedAdjustments || [], carry,
+                { nextYearLabel: yearId, userId: this._user.uid, idFactory: () => generateCreditAdjustmentId() }
+            );
+            const priorEvent = {
+                id: generateEventId(),
+                timestamp: new Date().toISOString(),
+                actor: { type: 'admin', userId: this._user.uid },
+                eventType: 'YEAR_CARRIED_FORWARD',
+                payload: {
+                    toYear: yearId,
+                    memberCount: carry.memberCount,
+                    totalOpeningBalance: carry.totalOpeningBalance
+                },
+                note: '',
+                source: 'ui'
+            };
+            const priorEvents = [...(billingEvents || []), priorEvent];
+            const priorRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+            const priorPayload = buildSavePayload(
+                activeYear, familyMembers, bills, payments || [], priorEvents, settings,
+                marked.creditAdjustments, marked.owedAdjustments
+            );
+            if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
+            priorPayload.updatedAt = serverTimestamp();
+            await setDoc(priorRef, priorPayload);
+        }
 
         await this._loadYearsList();
         await this.switchYear(yearId);
