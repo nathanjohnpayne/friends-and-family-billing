@@ -223,6 +223,16 @@ describe('getCreditAdjustmentTotalForMember', () => {
         expect(getCreditAdjustmentTotalForMember([], 1)).toBe(0);
         expect(getCreditAdjustmentTotalForMember(undefined, 1)).toBe(0);
     });
+
+    it('excludes an adjustment whose id is in the reopened set (#319, ADR 0003)', () => {
+        // c1 (the 50 refund) re-opened by an active not_received — only c2 (20) remains.
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, new Set(['c1']))).toBe(20);
+    });
+
+    it('counts every active adjustment when the reopened set is null or empty', () => {
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, null)).toBe(70);
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, new Set())).toBe(70);
+    });
 });
 
 describe('getHouseholdFinancials', () => {
@@ -288,14 +298,27 @@ describe('getHouseholdFinancials', () => {
         expect(f.credit).toBe(0); // internal imbalance is invisible to the household credit
     });
 
-    // ── Service Credits (#321, ADR 0005): a −owed adjustment ──
-    it('an active service credit lowers the household owed (5th arg)', () => {
+    it('re-opens the credit when its refund is in the reopened set (#319, ADR 0003)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }]; // owed 600
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        // Without re-open the refund disposes the credit (net 600, credit 0). With c1
+        // re-opened, the disposition is excluded: net climbs back and the credit is owed again.
+        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments, new Set(['c1']));
+        expect(f.netContribution).toBeCloseTo(668.98, 5);
+        expect(f.credit).toBeCloseTo(68.98, 5);
+    });
+
+    // ── Service Credits (#321, ADR 0005): a −owed adjustment, 6th arg ──
+    // Combined signature is getHouseholdFinancials(member, summary, payments,
+    // creditAdjustments, reopenedAdjustmentIds, owedAdjustments): the reopen set is
+    // 5th (#319) and owedAdjustments is 6th (#321), so these pass null for the 5th.
+    it('an active service credit lowers the household owed (6th arg)', () => {
         const payments = [{ memberId: 1, amount: 600 }]; // exactly owed before the credit
         // $90 service credit for Alice → owed 510, she has paid 600 → credit 90
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(510, 5);
         expect(f.netContribution).toBeCloseTo(600, 5);
         expect(f.credit).toBeCloseTo(90, 5);
@@ -306,7 +329,7 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 50, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         // No new disposition path: the surplus rides netContribution − owed.
         expect(f.credit).toBeCloseTo(50, 5);
     });
@@ -316,7 +339,7 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 60, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(540, 5);
         expect(f.netContribution).toBeCloseTo(0, 5);
         expect(f.credit).toBe(0); // still owed 540, not a credit
@@ -328,7 +351,7 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 750, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBe(0); // never negative — owed cannot go below zero
         expect(f.credit).toBeCloseTo(600, 5); // entire payment is owed back
     });
@@ -338,7 +361,7 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'voided' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(600, 5); // voided credit does not reduce owed
         expect(f.credit).toBe(0);
     });
@@ -348,7 +371,7 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(600, 5); // a deferred usage charge never touches owed here
         expect(f.credit).toBe(0);
     });
@@ -365,12 +388,27 @@ describe('getHouseholdFinancials', () => {
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 30, status: 'active' },
             { id: 'o2', memberId: 3, kind: 'service_credit', amount: 20, status: 'active' }
         ];
-        const f = getHouseholdFinancials(householdMembers[0], hhSummary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(householdMembers[0], hhSummary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(1150, 5); // 1200 − 50
         expect(f.credit).toBeCloseTo(50, 5); // household paid 1200, owes 1150 → 50 back
     });
 
-    it('defaults owedAdjustments to empty (backward-compatible 4-arg call unaffected)', () => {
+    it('a service credit and a re-opened refund compose (reopen 5th, owedAdjustments 6th)', () => {
+        // #319 ⊕ #321 interaction: owed is reduced by the service credit AND the refund
+        // disposition is excluded by the reopen set, so the credit reflects both.
+        const payments = [{ memberId: 1, amount: 600 }]; // owed 600 before the credit
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 40, status: 'recorded' }];
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
+        ];
+        // owed = 600 − 90 = 510. Refund c1 re-opened → netContribution stays 600 (40 not subtracted).
+        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments, new Set(['c1']), owedAdjustments);
+        expect(f.owed).toBeCloseTo(510, 5);
+        expect(f.netContribution).toBeCloseTo(600, 5);
+        expect(f.credit).toBeCloseTo(90, 5);
+    });
+
+    it('defaults owedAdjustments to empty (backward-compatible call unaffected)', () => {
         const payments = [{ memberId: 1, amount: 600 }];
         const f = getHouseholdFinancials(members[0], summary, payments, []);
         expect(f.owed).toBe(600);
@@ -459,6 +497,26 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         expect(m.totalOutstanding).toBeCloseTo(100, 5);       // not the global 31.02
         expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);      // Alice's credit, separate axis
         expect(m.percentage).toBe(92);                         // (1200 − 100) / 1200, not gross 97
+    });
+
+    it('re-opens a not-received refund into totalCreditsOwed without touching outstanding (#319, ADR 0003)', () => {
+        // Alice's 68.98 refund was recorded (credit disposed), but she reported not_received.
+        // While the year is open the refund re-opens: the credit is owed again, yet outstanding
+        // stays zero (a re-opened credit is overpayment owed back, never a shortfall) and the
+        // household still counts as settled.
+        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set(['c1']));
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.paidCount).toBe(2);
+    });
+
+    it('keeps the refund disposed when the reopened set is empty (closed year / no active not_received)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set());
+        expect(m.totalCreditsOwed).toBe(0);
     });
 });
 
@@ -558,7 +616,7 @@ describe('deferred usage charges do not affect settlement', () => {
         // but a deferred USAGE CHARGE is a +owed item that is not yet billed, so it must
         // not raise owed. Passing it in explicitly proves the isolation. Reads settled.
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], owedAdjustments);
+        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
         expect(f.owed).toBeCloseTo(100, 5);
         expect(f.netContribution).toBeCloseTo(100, 5);
         expect(f.credit).toBe(0);
@@ -567,7 +625,7 @@ describe('deferred usage charges do not affect settlement', () => {
     it('settlement metrics ignore deferred charges entirely', () => {
         const payments = [{ memberId: 1, amount: 100 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
-        const m = calculateSettlementMetrics(members, bills, payments, [], owedAdjustments);
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalOutstanding).toBe(0);
         expect(m.paidCount).toBe(1);
         expect(m.percentage).toBe(100);
@@ -628,7 +686,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
-        const m = calculateSettlementMetrics(members, bills, payments, [], owedAdjustments);
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalCreditsOwed).toBeCloseTo(90, 5);
         expect(m.totalOutstanding).toBe(0);
         expect(m.paidCount).toBe(2);
@@ -641,7 +699,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'service_credit', amount: 40, status: 'active' }
         ];
-        const m = calculateSettlementMetrics(members, bills, payments, [], owedAdjustments);
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalOutstanding).toBeCloseTo(60, 5);
         expect(m.totalCreditsOwed).toBe(0);
         expect(m.paidCount).toBe(1);
@@ -652,7 +710,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
-        const m = calculateSettlementMetrics(members, bills, payments, [], owedAdjustments);
+        const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalAnnual).toBeCloseTo(1110, 5); // 1200 − 90
     });
 

@@ -80,13 +80,23 @@ export function getPaymentTotalForMember(payments, memberId) {
  * member. These leave the payments ledger and subtract from gross payments to
  * yield Net Contribution. Cancelled adjustments are excluded. Mirrors
  * getPaymentTotalForMember so household-grain math composes the same way.
+ *
+ * `reopenedAdjustmentIds` (optional, #319 / ADR 0003): adjustment ids whose
+ * credit has been re-opened by an active, unresolved `not_received` report.
+ * While the year is open these are excluded — the optimistic refund (#318) no
+ * longer counts, so the credit is owed again. Omit (or pass null/empty) and the
+ * function behaves exactly as before, so existing three-argument callers and the
+ * Record-Payment cap are unaffected.
+ *
  * @param {Array} creditAdjustments
  * @param {*} memberId
+ * @param {Set<string>|null} [reopenedAdjustmentIds]
  * @returns {number}
  */
-export function getCreditAdjustmentTotalForMember(creditAdjustments, memberId) {
+export function getCreditAdjustmentTotalForMember(creditAdjustments, memberId, reopenedAdjustmentIds = null) {
     return (creditAdjustments || [])
         .filter(a => a && a.memberId === memberId && a.status !== 'cancelled')
+        .filter(a => !(reopenedAdjustmentIds && reopenedAdjustmentIds.has(a.id)))
         .reduce((sum, a) => sum + (a.amount || 0), 0);
 }
 
@@ -229,10 +239,12 @@ export function getParentMember(familyMembers, memberId) {
  * @param {Object} summary  output of calculateAnnualSummary (owed per member)
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
+ * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
+ *   active not_received (#319, ADR 0003); excluded so the credit is owed again
  * @param {Array} [owedAdjustments]  Usage Charges (+owed, ignored here) and Service Credits (−owed, applied)
  * @returns {{ owed: number, grossOwed: number, serviceCreditTotal: number, grossPaid: number, creditAdjustmentTotal: number, netContribution: number, credit: number }}
  */
-export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], owedAdjustments = []) {
+export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const linkedIds = member.linkedMembers || [];
 
     let grossOwed = summary[member.id] ? summary[member.id].total : 0;
@@ -248,8 +260,8 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
     const grossPaid = getPaymentTotalForMember(payments, member.id)
         + linkedIds.reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
 
-    const creditAdjustmentTotal = getCreditAdjustmentTotalForMember(creditAdjustments, member.id)
-        + linkedIds.reduce((s, id) => s + getCreditAdjustmentTotalForMember(creditAdjustments, id), 0);
+    const creditAdjustmentTotal = getCreditAdjustmentTotalForMember(creditAdjustments, member.id, reopenedAdjustmentIds)
+        + linkedIds.reduce((s, id) => s + getCreditAdjustmentTotalForMember(creditAdjustments, id, reopenedAdjustmentIds), 0);
 
     const netContribution = grossPaid - creditAdjustmentTotal;
     const rawCredit = netContribution - owed;
@@ -263,10 +275,15 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
  * @param {Array} bills
  * @param {Array} payments
  * @param {Array} [creditAdjustments]  refunds + carried-forward credits (#316)
+ * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
+ *   active not_received (#319, ADR 0003); raises Net Contribution back so the
+ *   household credit (totalCreditsOwed) is owed again while the year is open.
+ *   Outstanding is unaffected — a re-opened credit is overpayment owed back, never
+ *   underpayment — so it never inflates settlement progress.
  * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed; deferred Usage Charges are ignored
  * @returns {{ totalAnnual: number, totalPayments: number, totalOutstanding: number, totalCreditsOwed: number, paidCount: number, totalMembers: number, percentage: number }}
  */
-export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
+export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const summary = calculateAnnualSummary(familyMembers, bills);
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
 
@@ -281,7 +298,7 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
         // what is actually owed after bill-level reductions, and a paid household whose
         // owed dropped below its Net Contribution surfaces a credit on the existing axis.
         const { owed, grossPaid, netContribution, credit } =
-            getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
+            getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
         totalAnnual += owed;
         totalPayments += grossPaid;
         totalCreditsOwed += credit;

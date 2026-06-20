@@ -119,6 +119,10 @@
         "function": "submitDisputeDecision"
       },
       {
+        "source": "/submitRefundConfirmation",
+        "function": "submitRefundConfirmation"
+      },
+      {
         "source": "/requestShareLink",
         "function": "requestShareLink"
       },

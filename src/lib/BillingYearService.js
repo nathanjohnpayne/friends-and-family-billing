@@ -1123,11 +1123,13 @@ export class BillingYearService {
         const reason = (data.reason || '').trim();
         if (!reason) throw new Error('A reason is required.');
 
-        // Cap at the household's current credit (Net Contribution − owed). owedAdjustments
-        // is included so a credit produced by a Service Credit (#321, reduced owed) is
-        // refundable through this same pipeline — no separate disposition path.
+        // Cap at the household's current credit (Net Contribution − owed). The reopen
+        // set is null (5th arg): the cap must NOT re-open a not_received refund (#319),
+        // because doing so would inflate the credit and permit a double-refund. owedAdjustments
+        // is passed as the 6th arg so a credit produced by a Service Credit (#321, reduced
+        // owed) is still refundable through this same pipeline — no separate disposition path.
         const summary = calculateAnnualSummary(familyMembers, bills);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
+        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
         if (amount > credit + CREDIT_EPSILON) {
             throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');

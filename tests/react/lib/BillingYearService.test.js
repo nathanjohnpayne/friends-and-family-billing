@@ -661,7 +661,7 @@ describe('BillingYearService', () => {
             svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 200, reason: 'Big credit' });
             const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
             const summary = calculateAnnualSummary(familyMembers, bills);
-            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), summary, payments, creditAdjustments, owedAdjustments);
+            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), summary, payments, creditAdjustments, null, owedAdjustments);
             expect(f.owed).toBeCloseTo(640, 5); // 840 − 200
             expect(f.credit).toBeCloseTo(200, 5); // paid 840, owes 640 → 200 back
         });

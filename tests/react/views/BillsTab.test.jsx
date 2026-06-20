@@ -5,7 +5,8 @@ const mockService = {
     addBill: vi.fn(),
     updateBill: vi.fn(),
     removeBill: vi.fn(),
-    toggleBillMember: vi.fn()
+    toggleBillMember: vi.fn(),
+    recordServiceCredit: vi.fn()
 };
 
 const mockState = {
@@ -228,5 +229,72 @@ describe('BillsTab', () => {
         fireEvent.change(urlInput, { target: { value: 'https://newsite.com' } });
         fireEvent.click(screen.getByText('Save Website'));
         expect(mockService.updateBill).toHaveBeenCalledWith(101, { website: 'https://newsite.com' });
+    });
+});
+
+// ── Service Credit entry point (#321, ADR 0005) ──
+// A Service Credit is bill-level, so its action lives on the bill's own action menu
+// (the closest precedent to "where bills are managed"). It opens ServiceCreditDialog
+// scoped to that bill and records via service.recordServiceCredit.
+describe('BillsTab — Service Credit', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        useBillingData.mockReturnValue(mockState);
+    });
+
+    it('shows "Issue Service Credit" in the bill action menu when the year is open', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.getByText('Issue Service Credit')).toBeInTheDocument();
+    });
+
+    it('hides "Issue Service Credit" when the year is read-only', () => {
+        renderTab({ activeYear: { id: '2024', label: '2024', status: 'archived' } });
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        expect(screen.queryByText('Issue Service Credit')).toBeNull();
+    });
+
+    it('opens the ServiceCreditDialog scoped to the bill', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Issue Service Credit'));
+        expect(screen.getByRole('dialog', { name: 'Issue Service Credit' })).toBeInTheDocument();
+        // Bill name appears in the dialog confirmation (the bill card also shows it).
+        expect(screen.getAllByText('Internet').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('records a bill-level service credit via the service on submit', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Issue Service Credit'));
+        fireEvent.change(screen.getByLabelText('Amount ($)'), { target: { value: '90' } });
+        fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Outage' } });
+        fireEvent.change(screen.getByLabelText('Incurred date'), { target: { value: '2026-02-01' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Credit' }));
+        expect(mockService.recordServiceCredit).toHaveBeenCalledWith({
+            billId: 101,
+            amount: 90,
+            reason: 'Outage',
+            incurredDate: '2026-02-01'
+        });
+    });
+
+    it('records a per-member service credit with the chosen memberId', () => {
+        renderTab();
+        fireEvent.click(screen.getByLabelText('Actions for Internet'));
+        fireEvent.click(screen.getByText('Issue Service Credit'));
+        fireEvent.click(screen.getByLabelText(/specific member/i));
+        fireEvent.change(screen.getByLabelText('Member'), { target: { value: '2' } });
+        fireEvent.change(screen.getByLabelText('Amount ($)'), { target: { value: '40' } });
+        fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Bob-only issue' } });
+        fireEvent.change(screen.getByLabelText('Incurred date'), { target: { value: '2026-03-01' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Credit' }));
+        expect(mockService.recordServiceCredit).toHaveBeenCalledWith({
+            billId: 101,
+            amount: 40,
+            reason: 'Bob-only issue',
+            incurredDate: '2026-03-01',
+            memberId: 2
+        });
     });
 });

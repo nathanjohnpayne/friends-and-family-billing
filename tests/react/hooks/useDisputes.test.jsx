@@ -146,6 +146,26 @@ describe('useDisputes', () => {
     });
 
     // -----------------------------------------------------------------------
+    // 2b. Refund Notices are excluded (#319) — they are outbound, not Review Requests
+    // -----------------------------------------------------------------------
+    it('excludes refund_notice docs so they never reach the Review Request UI/KPI', async () => {
+        setupMocks();
+        mockGetDocs.mockResolvedValue(fakeSnap([
+            { id: 'd1', status: 'open', createdAt: '2024-01-01T00:00:00Z' },
+            { id: 'rn1', kind: 'refund_notice', memberId: 1, amount: 100, createdAt: '2024-01-03T00:00:00Z' },
+            { id: 'd2', status: 'resolved', createdAt: '2024-01-02T00:00:00Z' }
+        ]));
+
+        const { result } = renderHook(() => useDisputes());
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        const ids = result.current.disputes.map(d => d.id);
+        expect(ids).toContain('d1');
+        expect(ids).toContain('d2');
+        expect(ids).not.toContain('rn1');
+    });
+
+    // -----------------------------------------------------------------------
     // 3. Load sorts by createdAt descending
     // -----------------------------------------------------------------------
     describe('sorting', () => {

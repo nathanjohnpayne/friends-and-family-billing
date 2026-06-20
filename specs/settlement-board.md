@@ -10,6 +10,7 @@ Covers the settlement board component for tracking household payment status, the
 
 - `tests/react/components/SettlementBoard.test.jsx`
 - `tests/react/components/UsageChargeDialog.test.jsx`
+- `tests/react/components/ServiceCreditDialog.test.jsx`
 - `tests/react/views/BillsTab.test.jsx`
 - `tests/react/views/DashboardView.test.jsx`
 
@@ -42,6 +43,7 @@ Covers the settlement board component for tracking household payment status, the
 - Secondary actions (Email Invoice, Generate Share Link, Manage Share Links) are in a three-dot overflow menu.
 - Shows "Record Payment" button for outstanding members; hides it when `readOnly` is true or when the member is fully settled.
 - Shows an "Issue Refund" button (#318) in the expanded card for a household carrying a credit (beyond the epsilon); hides it when `readOnly`. It opens a refund dialog with the amount defaulted to the household credit and capped at it, a method selector, and a required reason; on submit it calls `onIssueRefund` with `{ memberId, amount, method, reason }` (and validates a non-empty reason and a valid amount within the credit).
+- On the dashboard, `onIssueRefund` records the authoritative `creditAdjustment` via `service.issueRefund` and then fires a Refund Notice (#319) keyed to that `creditAdjustmentId` (member email + outbound `refund_notice` Request) as a non-blocking follow-up; an error in the notice path does not block the recorded refund.
 - Opens a payment dialog with amount input, method selector, and "Save Payment" button on "Record Payment" click.
 - Validates payment amount before submission (shows "Enter a valid amount." for invalid input).
 - Calls `onRecordPayment` with memberId, amount, method, and note when submitted.
@@ -65,6 +67,20 @@ Covers the settlement board component for tracking household payment status, the
 ### DashboardView — Add Charge
 
 - The dashboard wires the settlement board's "Add Charge" action to a `UsageChargeDialog`; submitting records the charge via `service.recordUsageCharge({ memberId, amount, description, incurredDate })` and shows a confirmation toast indicating the charge is pending and not yet billed.
+
+### ServiceCreditDialog Component (#321, ADR 0005)
+
+- Renders nothing when `open` is false.
+- When open, shows the bill name being credited and fields for Amount ($), Reason, and Incurred date, plus a cue that the bill itself is unchanged (Option B).
+- Offers an "Apply to" choice: **Whole bill** (default — the amount is split among the bill's members) vs **a specific member** (a per-member variant); selecting "a specific member" reveals a member select populated from the bill's members.
+- Calls `onSubmit` with `{ amount, reason, incurredDate }` for the bill-level case, plus `memberId` for the per-member case (amount parsed to a number, member id coerced to the stored type). Save on "Save Credit".
+- Blocks submit and shows a validation error for a non-positive amount or a missing reason.
+- Calls `onClose` on Cancel and on Escape. A throwing `onSubmit` (e.g. a service error) is shown inline and the dialog stays open — errors are never swallowed (mirrors `UsageChargeDialog` and the #318 refund dialog).
+
+### BillsTab — Issue Service Credit (#321)
+
+- Each bill's action menu shows an "Issue Service Credit" item when not read-only; it is hidden when the year is read-only. (A Service Credit is bill-level, so its entry point lives on the bill, the closest precedent to where bills are managed.)
+- Clicking it opens a `ServiceCreditDialog` scoped to that bill (its member list filtered to the bill's assigned members). On submit it records the credit via `service.recordServiceCredit({ billId, amount, reason, incurredDate, memberId? })` and shows a confirmation toast. The bill is unchanged (Option B).
 
 ### BillsTab View
 
@@ -94,7 +110,7 @@ Covers the settlement board component for tracking household payment status, the
   - Each enabled button triggers a ConfirmDialog before executing the transition.
 - Renders KPI cards for Outstanding, Owed to Members, Settled, and Open Reviews (4 cards; Status card removed as redundant with stepper).
 - The "Owed to Members" KPI shows the sum of unresolved household credits (`totalCreditsOwed`), distinct from "Outstanding"; it reads "None" when zero and a dollar amount otherwise, with the subtitle "Unresolved credits".
-- Open Reviews card shows "Review requests" subtitle text below the count.
+- Open Reviews card shows "Review requests" subtitle text below the count. The count excludes Refund Notices (`kind === 'refund_notice'`)—they are outbound/cooperative, surfaced on their own Refund Notices tab, never in this KPI (#319).
 - Renders progress bar with percentage and settlement message.
 - Progress bar headline is accurate for every lifecycle phase: "Planning in progress" (Open, < 100%), "Ready to start settlement" (Open, 100% settled), "Settlement in progress" (Settling), "Settlement complete" (Settling, all paid), "Year closed" (Closed), "Archive view" (Archived).
 - Shows empty state ("Add members and bills") when no members exist.

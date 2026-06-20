@@ -47,3 +47,11 @@ Covers data serialization, normalization, initial data construction, save queue 
 - `recordPayment` (legacy) appends payment entries to the ledger, tracks via `getPaymentTotalForMember`, and rejects non-positive amounts.
 - The legacy `/site/` app and the React app share the same billing-year documents, so both must round-trip `creditAdjustments` losslessly (consumer parity). Legacy `loadBillingYearData` loads `normalized.creditAdjustments` into state and `saveData` passes it to `buildSavePayload`; because the legacy save also writes with a full-document `set()`, omitting it would erase existing disposition records.
 - The same consumer-parity rule applies to `owedAdjustments` (Usage Charges, #317): legacy `loadBillingYearData` loads `normalized.owedAdjustments` into state (and resets it to `[]` on the missing-year branch), `saveData` passes it to `buildSavePayload`, and the `_set`/`_get` accessors round-trip it; omitting it from the full-document `set()` would erase existing usage charges.
+
+### Cloud Function Helpers (refund confirmation, #319)
+
+The pure helpers backing the `submitRefundConfirmation` Cloud Function (exported via `functions/index.js` `_testHelpers`):
+
+- `REFUND_NOTICE_KIND` equals `'refund_notice'`, matching the client substrate discriminator.
+- `validateRefundConfirmationInput` accepts only a non-empty string `noticeId` plus an `outcome` of `confirm` or `not_received`; it rejects a missing/non-string id, a missing outcome, and any other outcome value (so a member can never write the Review Request vocabulary or an arbitrary field).
+- `filterMemberRefundNotices` returns only `refund_notice` docs whose `memberId` matches the token member (ADR 0005 per-member scope—no household expansion), excludes Review Requests (kind-less docs), returns an empty array when the member has none, and projects only presentational fields (notably never leaking `tokenHash`).

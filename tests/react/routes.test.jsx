@@ -132,6 +132,17 @@ describe('Routes — authenticated user', () => {
         expect(screen.getByText('Bills')).toBeInTheDocument();
         expect(screen.getByText('Invoicing')).toBeInTheDocument();
         expect(screen.getByText('Review Requests')).toBeInTheDocument();
+        expect(screen.getByText('Refund Notices')).toBeInTheDocument();
+    });
+
+    it('renders the Refund Notices tab at /manage/refunds', async () => {
+        await renderAuthenticatedRoute(['/manage/refunds']);
+        // The tab nav renders and the refunds route mounts under ManageView.
+        // (The tab body itself depends on async billing state; its content is
+        // covered by tests/react/views/RefundNoticesTab.test.jsx.)
+        const tab = await screen.findByText('Refund Notices');
+        expect(tab).toBeInTheDocument();
+        expect(tab.getAttribute('href')).toContain('refunds');
     });
 
     it('renders settings view', async () => {

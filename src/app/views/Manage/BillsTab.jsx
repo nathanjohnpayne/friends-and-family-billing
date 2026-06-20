@@ -12,6 +12,7 @@ import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import BillAuditHistoryDialog from '../../components/BillAuditHistoryDialog.jsx';
+import ServiceCreditDialog from '../../components/ServiceCreditDialog.jsx';
 import CompanyLogo from '../../components/CompanyLogo.jsx';
 
 export default function BillsTab() {
@@ -48,6 +49,9 @@ export default function BillsTab() {
 
     // Audit history dialog
     const [historyTarget, setHistoryTarget] = useState(null);
+
+    // Service Credit dialog (#321) — the bill being credited.
+    const [creditTarget, setCreditTarget] = useState(null);
 
     if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
 
@@ -247,6 +251,7 @@ export default function BillsTab() {
                             onConvertFrequency={openFrequencyConvert}
                             onEditWebsite={openWebsiteEdit}
                             onViewHistory={setHistoryTarget}
+                            onIssueServiceCredit={setCreditTarget}
                             onUploadLogo={(billId, base64) => {
                                 service.updateBill(billId, { logo: base64 });
                                 showToast('Logo updated');
@@ -328,6 +333,21 @@ export default function BillsTab() {
                     onClose={() => setHistoryTarget(null)}
                 />
             )}
+
+            {creditTarget && (
+                <ServiceCreditDialog
+                    open
+                    bill={creditTarget}
+                    billMembers={familyMembers.filter(m => (creditTarget.members || []).includes(m.id))}
+                    onSubmit={data => {
+                        // Let errors propagate so the dialog shows the inline error and
+                        // stays open; the success toast runs only when the record succeeded.
+                        service.recordServiceCredit({ billId: creditTarget.id, ...data });
+                        showToast('Service credit recorded for ' + creditTarget.name + '.');
+                    }}
+                    onClose={() => setCreditTarget(null)}
+                />
+            )}
         </div>
     );
 }
@@ -337,7 +357,7 @@ function BillCard({
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit: _onCancelEdit, onEditKeyDown,
     splitExpanded, onToggleSplit, onToggleMember,
-    onDelete, onConvertFrequency, onEditWebsite, onViewHistory,
+    onDelete, onConvertFrequency, onEditWebsite, onViewHistory, onIssueServiceCredit,
     onUploadLogo, onRemoveLogo
 }) {
     const logoInputRef = useRef(null);
@@ -467,6 +487,11 @@ function BillCard({
                     <ActionMenuItem onClick={() => onViewHistory(bill)}>
                         View History
                     </ActionMenuItem>
+                    {!readOnly && onIssueServiceCredit && (
+                        <ActionMenuItem onClick={() => onIssueServiceCredit(bill)}>
+                            Issue Service Credit
+                        </ActionMenuItem>
+                    )}
                     {!readOnly && (
                         <ActionMenuItem onClick={() => onConvertFrequency(bill)}>
                             {isAnnual ? 'Convert to Monthly' : 'Convert to Annual'}

@@ -25,7 +25,9 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
+        // reopen set is null here (the legacy/close path has no refund-notice re-open,
+        // #319); owedAdjustments is passed as the 6th arg so Service Credits (#321) lower owed.
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;
     });

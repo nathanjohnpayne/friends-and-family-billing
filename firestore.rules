@@ -27,7 +27,14 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.billingYearId == yearId
             && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.scopes.hasAny(['disputes:create']);
 
-          // Allow dispute decision updates from share page (no auth)
+          // Allow dispute decision updates from share page (no auth).
+          // NOTE (#319): Refund Notices (kind == 'refund_notice') ride this same
+          // subcollection but members NEVER write them directly. Their confirm /
+          // not_received response goes through the submitRefundConfirmation Cloud
+          // Function (Admin SDK), which is the only writer of `confirmation` /
+          // `confirmedAt`. Those keys are deliberately absent from the hasOnly()
+          // allowlist below, so this unauthenticated path cannot forge a refund
+          // confirmation even with a disputes:read token (defense in depth).
           allow update: if request.auth == null
             && resource.data.tokenHash is string
             && exists(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash))
