@@ -915,7 +915,10 @@ describe('ShareView', () => {
 
         it('renders the refund notice with reason and amount when refunds:read is granted', async () => {
             setToken('abc123');
+            // A refunds:read link must resolve LIVE via the Cloud Function even on a
+            // cache hit (#319 P1b): notices are dynamic and not stored in publicShares.
             mockPublicSharesHit(refundData);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => refundData });
             render(<ShareView />);
 
             await waitFor(() => {
@@ -926,6 +929,8 @@ describe('ShareView', () => {
             // Pending notice shows the two response actions.
             expect(screen.getByRole('button', { name: /confirm receipt/i })).toBeInTheDocument();
             expect(screen.getByRole('button', { name: /not received/i })).toBeInTheDocument();
+            // The cache hit was bypassed for a live resolve (P1b regression guard).
+            expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.objectContaining({ method: 'POST' }));
         });
 
         it('does not render the refunds section when there are no notices', async () => {
@@ -939,6 +944,7 @@ describe('ShareView', () => {
         it('Confirm Receipt POSTs to /submitRefundConfirmation and shows confirmation', async () => {
             setToken('abc123');
             mockPublicSharesHit(refundData);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => refundData });
             render(<ShareView />);
 
             await waitFor(() => {
@@ -964,6 +970,7 @@ describe('ShareView', () => {
         it('Report Not Received POSTs outcome not_received', async () => {
             setToken('abc123');
             mockPublicSharesHit(refundData);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => refundData });
             render(<ShareView />);
 
             await waitFor(() => {
@@ -987,10 +994,29 @@ describe('ShareView', () => {
                 refundNotices: [{ id: 'rn2', memberId: 'member456', amount: 10, method: 'zelle', reason: 'x', confirmation: 'confirmed_by_member', createdAt: '2024-06-02' }]
             };
             mockPublicSharesHit(confirmed);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => confirmed });
             render(<ShareView />);
 
             await waitFor(() => expect(screen.getByText(/you confirmed/i)).toBeInTheDocument());
             expect(screen.queryByRole('button', { name: /confirm receipt/i })).not.toBeInTheDocument();
+        });
+
+        it('shows an error message and keeps the buttons when the confirmation POST fails', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(refundData);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => refundData });
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /confirm receipt/i })).toBeInTheDocument();
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Refund notice not found.' }) });
+            fireEvent.click(screen.getByRole('button', { name: /confirm receipt/i }));
+
+            await waitFor(() => expect(screen.getByText(/refund notice not found/i)).toBeInTheDocument());
+            // The member can retry — the action buttons remain.
+            expect(screen.getByRole('button', { name: /confirm receipt/i })).toBeInTheDocument();
         });
     });
 

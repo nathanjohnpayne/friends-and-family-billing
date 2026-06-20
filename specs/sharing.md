@@ -58,6 +58,10 @@ Covers share link generation, token validation, the share link dialog, and the p
 - When the token carries `refunds:read` and the resolved data includes `refundNotices`, a "Your Refunds" section renders each notice with its amount, payment method, and reason; the section is hidden when there are no notices.
 - A pending notice (no `confirmation`) shows two actions: **Confirm Receipt** and **I Have Not Received It**. Clicking either POSTs `{ token, noticeId, outcome }` to `/submitRefundConfirmation` (`outcome` is `confirm` or `not_received`)—never a direct Firestore write.
 - After confirming, the card shows "You confirmed you received this refund." and the action buttons are removed; after reporting non-receipt, it shows the "reported … as not received" message. A notice that already carries a `confirmation` seeds that terminal state on load (no action buttons).
+- If the `/submitRefundConfirmation` POST fails, the card surfaces the server (or a generic) error message and leaves the action buttons in place so the member can retry; the error clears on the next attempt.
+- **Live resolution:** because Refund Notices are dynamic (mutable confirmation state) and are NOT stored in the `publicShares` cache — and a freshly issued confirm link is minted before its notice document exists — a `refunds:read` link always resolves live via `resolveShareToken` even on a cache hit. Only dedicated refund-confirm links carry `refunds:read`, so normal share links keep using the cache.
+- **Routing:** `/submitRefundConfirmation` is registered as a Hosting rewrite in `firebase.json` (before the SPA catch-all), alongside the other share Cloud Functions, so the member POST reaches the function in deployed Hosting.
+- `resolveShareToken`'s `disputes:read` projection excludes `kind: 'refund_notice'` documents (mirroring `useDisputes`), so a normal review-enabled link never renders Refund Notices as empty Review Requests (ADR 0002).
 
 ### RefundNoticeService (issuance)
 

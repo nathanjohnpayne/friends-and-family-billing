@@ -110,9 +110,9 @@ function RefundNoticeCard({ notice, onResend, onCancel, onDismiss }) {
 
             {actionable && (
                 <div className="refund-notice-actions">
-                    <button className="btn btn-sm btn-primary" onClick={onResend}>Re-send Refund</button>
-                    <button className="btn btn-sm btn-secondary" onClick={onCancel}>Cancel Refund</button>
-                    <button className="btn btn-sm btn-tertiary" onClick={onDismiss}>Dismiss Report</button>
+                    <button type="button" className="btn btn-sm btn-primary" onClick={onResend}>Re-send Refund</button>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={onCancel}>Cancel Refund</button>
+                    <button type="button" className="btn btn-sm btn-tertiary" onClick={onDismiss}>Dismiss Report</button>
                 </div>
             )}
             {resolved && (

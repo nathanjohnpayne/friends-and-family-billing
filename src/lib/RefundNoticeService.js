@@ -56,6 +56,15 @@ export async function issueRefundNotice({
     activeYear,
     settings,
 }) {
+    // Guard the Firestore path components up front so a missing id fails with a
+    // clear error rather than a cryptic addDoc/collection-path failure later.
+    if (!userId || memberId == null || !billingYearId) {
+        throw new Error('issueRefundNotice requires userId, memberId, and billingYearId.');
+    }
+    if (!creditAdjustmentId) {
+        throw new Error('issueRefundNotice requires the creditAdjustmentId it notifies on.');
+    }
+
     // 1. Mint a refunds:read share link for the confirm CTA. The recipient also
     //    keeps summary:read so the link is a usable billing page. Best-effort —
     //    if it fails we still record the notice and email without the link.

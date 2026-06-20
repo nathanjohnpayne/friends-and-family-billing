@@ -71,6 +71,17 @@ export default function ShareView() {
                 }
             }
 
+            // Refund Notices (#319) carry mutable confirmation state and are NOT
+            // stored in the publicShares cache (buildPublicShareData omits them, and
+            // an issued refund's confirm link is minted before its notice doc even
+            // exists). A refunds:read link must therefore always resolve live via the
+            // Cloud Function, or a freshly emailed confirm link would hit the cache
+            // and render no "Your Refunds" section. Only dedicated refund-confirm
+            // links carry refunds:read, so this does not affect normal share links.
+            if (cacheValid && publicDoc.exists() && (publicDoc.data().scopes || []).includes('refunds:read')) {
+                cacheValid = false;
+            }
+
             if (cacheValid) {
                 shareData = publicDoc.data();
                 // Bump access count
@@ -525,11 +536,13 @@ function RefundNoticeCard({ notice, shareCtx }) {
     // Seed from the stored confirmation so a reloaded page reflects a past response.
     const [confirmation, setConfirmation] = useState(notice.confirmation || null);
     const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState(null);
     const created = notice.createdAt ? new Date(notice.createdAt).toLocaleDateString() : '';
 
     async function submit(outcome) {
         if (!shareCtx.token || submitting) return;
         setSubmitting(true);
+        setSubmitError(null);
         try {
             const resp = await fetch('/submitRefundConfirmation', {
                 method: 'POST',
@@ -543,6 +556,7 @@ function RefundNoticeCard({ notice, shareCtx }) {
             setConfirmation(outcome === 'confirm' ? 'confirmed_by_member' : 'not_received');
         } catch (err) {
             console.error('Refund confirmation error:', err);
+            setSubmitError(err.message || 'Could not record your response. Please try again.');
         }
         setSubmitting(false);
     }
@@ -558,14 +572,15 @@ function RefundNoticeCard({ notice, shareCtx }) {
 
             {!confirmation && (
                 <div className="share-refund-actions">
-                    <button className="btn btn-sm btn-primary" disabled={submitting} onClick={() => submit('confirm')}>
+                    <button type="button" className="btn btn-sm btn-primary" disabled={submitting} onClick={() => submit('confirm')}>
                         Confirm Receipt
                     </button>
-                    <button className="btn btn-sm btn-secondary" disabled={submitting} onClick={() => submit('not_received')}>
+                    <button type="button" className="btn btn-sm btn-secondary" disabled={submitting} onClick={() => submit('not_received')}>
                         I Have Not Received It
                     </button>
                 </div>
             )}
+            {submitError && <p className="share-refund-status not-received" role="alert">{submitError}</p>}
             {confirmation === 'confirmed_by_member' && (
                 <p className="share-refund-status confirmed">You confirmed you received this refund.</p>
             )}

@@ -272,7 +272,12 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .where("memberId", "==", tokenData.memberId)
         .get();
 
-      result.disputes = disputesSnap.docs.map((doc) => {
+      result.disputes = disputesSnap.docs
+        // Refund Notices (#319) ride this same subcollection but are outbound
+        // Requests, not Review Requests (ADR 0002) — exclude them so a normal
+        // disputes:read link never renders them as empty-bill/message disputes.
+        .filter((doc) => doc.data().kind !== "refund_notice")
+        .map((doc) => {
         const data = doc.data();
         let status = data.status || "open";
         if (status === "pending") status = "open";
