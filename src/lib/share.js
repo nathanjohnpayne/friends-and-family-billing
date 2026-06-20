@@ -1,5 +1,5 @@
 // Share link helpers — no DOM, no Firestore, no module-scoped state.
-import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember } from './calculations.js';
+import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember, getServiceCreditTotalForMember } from './calculations.js';
 import { sanitizeImageSrc } from './formatting.js';
 
 /**
@@ -137,10 +137,11 @@ function computeMemberSummaryForShare(familyMembers, bills, memberId) {
  * @param {string} userId
  * @param {{ id: string, label?: string }} activeYear
  * @param {{ paymentMethods?: Array }} settings
- * @param {Array} [owedAdjustments]  deferred Usage Charges (#317); included as
- *   `pendingCharges` when the scopes carry `usageCharges:read`, so the member-facing
- *   pending-charges view is reachable on a normally-generated link (not only via the
- *   Cloud Function self-heal).
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) reduce the household's
+ *   combinedAnnualTotal/balanceRemaining (floored at 0) so the share summary agrees with the
+ *   settlement board; and deferred Usage Charges (#317) are included as `pendingCharges` when
+ *   the scopes carry `usageCharges:read`, so the member-facing pending-charges view is reachable
+ *   on a normally-generated link (not only via the Cloud Function self-heal).
  * @returns {Object|null}
  */
 export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings, owedAdjustments) {
@@ -160,6 +161,13 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         combinedAnnual += ls.annualTotal;
         combinedPayment += getPaymentTotalForMember(payments, ls.memberId);
     });
+
+    // Active Service Credits (#321) lower the household's owed, floored at 0 so an
+    // over-large credit reads as fully paid rather than negative debt. Mirrors
+    // getHouseholdFinancials so the member-facing summary agrees with the board.
+    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments || [], memberId)
+        + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments || [], id), 0);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
 
     const enabledMethods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
 

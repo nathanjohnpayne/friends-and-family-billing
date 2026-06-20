@@ -140,6 +140,65 @@ describe('invoice helpers', () => {
     });
 });
 
+describe('getInvoiceSummaryContext — service credits reduce member-facing owed (#321)', () => {
+    // Alice (1) + linked Bob (2) on one $100/mo bill split 2 ways → each owes 600/yr,
+    // household combinedTotal = 1200. The optional owedAdjustments arg should reduce
+    // the household's combinedTotal (and therefore balance) by active service credits,
+    // mirroring getHouseholdFinancials (floored at 0). Billed Usage Charges and deferred
+    // charges are NOT applied here — they have their own surfaces.
+    it('reduces combinedTotal by the household active service-credit total', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBeCloseTo(1110, 5); // 1200 − 90
+        expect(ctx.balance).toBeCloseTo(1110, 5);
+    });
+
+    it('sums service credits across the primary and linked members', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 50, status: 'active' },
+            { id: 'o2', memberId: 2, kind: 'service_credit', amount: 30, status: 'active' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBeCloseTo(1120, 5); // 1200 − 80
+    });
+
+    it('floors the reduced owed at 0 for an over-large credit', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 5000, status: 'active' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBe(0);
+        expect(ctx.balance).toBe(0);
+    });
+
+    it('reduces the remaining balance when partially paid', () => {
+        const payments = [{ memberId: 1, amount: 300, method: 'cash' }];
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 200, status: 'active' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, payments, 1, year, {}, owedAdjustments);
+        // 1200 − 200 credit = 1000 owed, less 300 paid = 700 balance.
+        expect(ctx.combinedTotal).toBeCloseTo(1000, 5);
+        expect(ctx.balance).toBeCloseTo(700, 5);
+    });
+
+    it('ignores voided service credits and the +owed usage-charge direction', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 40, status: 'voided' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 70, status: 'billed' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBeCloseTo(1200, 5); // unchanged
+    });
+
+    it('defaults owedAdjustments to empty (backward-compatible 6-arg call unaffected)', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        expect(ctx.combinedTotal).toBeCloseTo(1200, 5);
+    });
+});
+
 describe('payment URL linkification (issue #116)', () => {
     const settingsWithPayment = {
         emailMessage: 'Your bill for %billing_year% is ready.\n\n%payment_methods%',

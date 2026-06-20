@@ -671,6 +671,18 @@ describe('getServiceCreditTotalForMember', () => {
         expect(getServiceCreditTotalForMember(undefined, 1)).toBe(0);
         expect(getServiceCreditTotalForMember([], 1)).toBe(0);
     });
+
+    it('ignores malformed amounts (string, NaN, negative, missing) and sums only finite positives', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 10, status: 'active' },
+            { id: 'o2', memberId: 1, kind: 'service_credit', amount: 'oops', status: 'active' },
+            { id: 'o3', memberId: 1, kind: 'service_credit', amount: NaN, status: 'active' },
+            { id: 'o4', memberId: 1, kind: 'service_credit', amount: -5, status: 'active' },
+            { id: 'o5', memberId: 1, kind: 'service_credit', status: 'active' }
+        ];
+        // Only the 10 counts; the string/NaN/negative/missing are dropped, not coerced.
+        expect(getServiceCreditTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
 });
 
 describe('calculateSettlementMetrics — service credits (#321)', () => {
@@ -760,6 +772,17 @@ describe('getBilledUsageChargeTotalForMember', () => {
     it('returns 0 for an undefined or empty array', () => {
         expect(getBilledUsageChargeTotalForMember(undefined, 1)).toBe(0);
         expect(getBilledUsageChargeTotalForMember([], 1)).toBe(0);
+    });
+
+    it('ignores malformed amounts (string, NaN, negative, missing) and sums only finite positives', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 'oops', status: 'billed' },
+            { id: 'o3', memberId: 1, kind: 'usage_charge', amount: NaN, status: 'billed' },
+            { id: 'o4', memberId: 1, kind: 'usage_charge', amount: -5, status: 'billed' },
+            { id: 'o5', memberId: 1, kind: 'usage_charge', status: 'billed' }
+        ];
+        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
     });
 });
 

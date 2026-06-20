@@ -20,6 +20,7 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 
 - `getInvoiceSummaryContext` returns a context object with firstName, combinedTotal, currentYear, and numMembers for a valid member; returns null for unknown members.
 - Context includes payment amount, remaining balance, and "remaining balance" label when partially paid.
+- The member-facing owed reflects the household's active Service Credits (#321): `getInvoiceSummaryContext` accepts an optional trailing `owedAdjustments` argument (defaulting to empty) and reduces `combinedTotal` — and therefore `balance` — by the sum of active `service_credit` adjustments for the primary plus linked members, floored at 0, mirroring `getHouseholdFinancials` so the invoice agrees with the dashboard/settlement board. Voided credits and the `+owed` Usage Charge direction are excluded; billed Usage Charges (#320) are NOT added here (they carry their own Charge Notice). A six-argument call is unchanged.
 - `buildInvoiceSubject` formats a subject line containing the billing year and member name.
 - `buildInvoiceBody` in "text-only" variant produces a greeting with the member's first name and billing year.
 - "text-link" variant includes the provided share URL in the body.

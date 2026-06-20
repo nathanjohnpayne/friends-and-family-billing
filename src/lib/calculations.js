@@ -9,6 +9,23 @@
 export const CREDIT_EPSILON = 0.005;
 
 /**
+ * Coerce an adjustment amount and add it to a running sum only when it is a
+ * finite, positive number. A malformed amount (a string, NaN, Infinity, a
+ * negative, or a missing field) is dropped rather than coerced into the total —
+ * `sum + (a.amount || 0)` would turn `'5'` into string concatenation and let a
+ * negative silently reduce a magnitude that is stored as a positive. Adjustment
+ * amounts are always positive magnitudes (the sign is applied by the consumer),
+ * so this is a pure defensive guard against bad persisted data.
+ * @param {number} sum
+ * @param {*} amount
+ * @returns {number}
+ */
+function addFinitePositiveAmount(sum, amount) {
+    const n = Number.parseFloat(amount);
+    return Number.isFinite(n) && n > 0 ? sum + n : sum;
+}
+
+/**
  * @param {{ billingFrequency?: string, amount: number }} bill
  * @returns {number}
  */
@@ -174,7 +191,7 @@ function isActiveServiceCreditFor(a, memberId) {
 export function getServiceCreditTotalForMember(owedAdjustments, memberId) {
     return (owedAdjustments || [])
         .filter(a => isActiveServiceCreditFor(a, memberId))
-        .reduce((sum, a) => sum + (a.amount || 0), 0);
+        .reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
 }
 
 /**
@@ -202,7 +219,7 @@ function isBilledUsageChargeFor(a, memberId) {
 export function getBilledUsageChargeTotalForMember(owedAdjustments, memberId) {
     return (owedAdjustments || [])
         .filter(a => isBilledUsageChargeFor(a, memberId))
-        .reduce((sum, a) => sum + (a.amount || 0), 0);
+        .reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
 }
 
 /**

@@ -254,6 +254,18 @@ describe('BillsTab — Service Credit', () => {
         expect(screen.queryByText('Issue Service Credit')).toBeNull();
     });
 
+    it('hides "Issue Service Credit" when the bill has no members to credit', () => {
+        // recordServiceCredit throws on a member-less bill, so the action must not be
+        // offered — guard the render condition on bill.members.length (#329).
+        renderTab({
+            bills: [
+                { id: 102, name: 'Storage', amount: 50, billingFrequency: 'monthly', members: [], logo: '', website: '' }
+            ]
+        });
+        fireEvent.click(screen.getByLabelText('Actions for Storage'));
+        expect(screen.queryByText('Issue Service Credit')).toBeNull();
+    });
+
     it('opens the ServiceCreditDialog scoped to the bill', () => {
         renderTab();
         fireEvent.click(screen.getByLabelText('Actions for Internet'));

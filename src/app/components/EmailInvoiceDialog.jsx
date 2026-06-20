@@ -26,7 +26,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
 
-    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings) : null;
+    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
 
     // Reset state when dialog opens
     useEffect(() => {

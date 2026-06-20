@@ -37,8 +37,11 @@ export default function ServiceCreditDialog({ open, bill, billMembers = [], onSu
     const [memberId, setMemberId] = useState('');
     const [error, setError] = useState('');
 
-    // Reset fields whenever the dialog (re)opens. Default the per-member select to
-    // the first bill member so the per-member path always has a valid target.
+    // Reset fields whenever the dialog (re)opens or the target bill changes. Keyed to
+    // a STABLE bill identity (bill?.id), NOT the billMembers array — BillsTab passes a
+    // freshly-filtered billMembers array each render, so depending on it would wipe
+    // in-progress input on any unrelated parent rerender (#329). billMembers is read
+    // inside the effect (for the per-member default), so it need not be a dependency.
     useEffect(() => {
         if (open) {
             setAmount('');
@@ -48,7 +51,7 @@ export default function ServiceCreditDialog({ open, bill, billMembers = [], onSu
             setMemberId(billMembers.length > 0 ? String(billMembers[0].id) : '');
             setError('');
         }
-    }, [open, bill, billMembers]);
+    }, [open, bill?.id]);
 
     // Close on Escape.
     useEffect(() => {

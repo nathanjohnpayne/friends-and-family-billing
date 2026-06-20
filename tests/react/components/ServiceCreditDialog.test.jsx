@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import ServiceCreditDialog from '@/app/components/ServiceCreditDialog.jsx';
 
 // A bill with two assigned members (Alice, Bob). The dialog is bill-scoped (#321,
@@ -110,6 +111,57 @@ describe('ServiceCreditDialog', () => {
         render(<ServiceCreditDialog open bill={bill} billMembers={billMembers} onSubmit={vi.fn()} onClose={onClose} />);
         fireEvent.keyDown(document, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it('preserves in-progress input when the parent rerenders with a fresh billMembers array', async () => {
+        // BillsTab passes `familyMembers.filter(...)` — a NEW array identity every
+        // render. The reset effect must key off open / bill identity only, so an
+        // unrelated parent rerender does not wipe the fields (CodeRabbit #329).
+        const user = userEvent.setup();
+
+        function Harness() {
+            const [, setTick] = useState(0);
+            // A fresh array on every render (identity churn), same logical members.
+            const freshBillMembers = [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }];
+            return (
+                <>
+                    <button onClick={() => setTick(t => t + 1)}>rerender parent</button>
+                    <ServiceCreditDialog
+                        open
+                        bill={bill}
+                        billMembers={freshBillMembers}
+                        onSubmit={vi.fn()}
+                        onClose={vi.fn()}
+                    />
+                </>
+            );
+        }
+
+        render(<Harness />);
+        await user.type(screen.getByLabelText('Amount ($)'), '42');
+        await user.type(screen.getByLabelText('Reason'), 'Outage credit');
+
+        // Trigger a parent rerender that hands the dialog a brand-new array identity.
+        await user.click(screen.getByRole('button', { name: 'rerender parent' }));
+
+        // Fields must still hold the in-progress input.
+        expect(screen.getByLabelText('Amount ($)')).toHaveValue(42);
+        expect(screen.getByLabelText('Reason')).toHaveValue('Outage credit');
+    });
+
+    it('still resets fields when the dialog reopens', async () => {
+        // Closing and reopening (open false → true) must clear, proving the reset
+        // still fires on the intended trigger after the dependency narrowing.
+        const { rerender } = render(
+            <ServiceCreditDialog open bill={bill} billMembers={billMembers} onSubmit={vi.fn()} onClose={vi.fn()} />
+        );
+        fireEvent.change(screen.getByLabelText('Amount ($)'), { target: { value: '77' } });
+        expect(screen.getByLabelText('Amount ($)')).toHaveValue(77);
+
+        rerender(<ServiceCreditDialog open={false} bill={bill} billMembers={billMembers} onSubmit={vi.fn()} onClose={vi.fn()} />);
+        rerender(<ServiceCreditDialog open bill={bill} billMembers={billMembers} onSubmit={vi.fn()} onClose={vi.fn()} />);
+
+        expect(screen.getByLabelText('Amount ($)')).toHaveValue(null); // empty after reopen
     });
 
     it('surfaces a throwing onSubmit as an inline error and keeps the dialog open', () => {

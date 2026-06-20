@@ -487,7 +487,7 @@ function BillCard({
                     <ActionMenuItem onClick={() => onViewHistory(bill)}>
                         View History
                     </ActionMenuItem>
-                    {!readOnly && onIssueServiceCredit && (
+                    {!readOnly && onIssueServiceCredit && bill.members.length > 0 && (
                         <ActionMenuItem onClick={() => onIssueServiceCredit(bill)}>
                             Issue Service Credit
                         </ActionMenuItem>
