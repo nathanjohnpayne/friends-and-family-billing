@@ -67,6 +67,7 @@ import {
     buildShareUrl as _buildShareUrl,
     computeExpiryDate as _computeExpiryDate,
     isShareTokenStale as _isShareTokenStale,
+    buildPendingChargesForShare as _buildPendingChargesForShare,
 } from './lib/share.js';
 
 // Data storage
@@ -3908,6 +3909,13 @@ function buildPublicShareData(memberId, scopes) {
             }
             return copy;
         });
+    }
+
+    // Deferred Usage Charges (#317): write the member's own pending charges into the
+    // shared publicShares doc so a legacy-generated link surfaces them on a cache hit
+    // (the React app and this app co-write publicShares — consumer parity).
+    if (scopes.includes('usageCharges:read')) {
+        data.pendingCharges = _buildPendingChargesForShare(familyMembers, owedAdjustments, memberId);
     }
 
     return data;

@@ -1807,6 +1807,36 @@ describe('buildPendingChargesForShare (Cloud Function)', () => {
     });
 });
 
+// ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
+
+describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
+    function seed(ctx) {
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Internet', amount: 100, logo: '', website: '', members: [1] }]);
+        ctx._set('payments', []);
+        ctx._set('owedAdjustments', [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 12, status: 'deferred', description: 'Roaming', incurredDate: '2025-02-01' }
+        ]);
+        ctx._set('currentBillingYear', { id: '2026', label: '2026' });
+    }
+
+    it('writes the member own pendingCharges when usageCharges:read is granted (cache-hit parity)', () => {
+        const ctx = createContext();
+        seed(ctx);
+        const data = ctx.buildPublicShareData(1, ['summary:read', 'usageCharges:read']);
+        assert.ok(data.pendingCharges, 'pendingCharges present in the publicShares doc');
+        assert.equal(data.pendingCharges.count, 1);
+        assert.equal(data.pendingCharges.charges[0].id, 'o1');
+    });
+
+    it('omits pendingCharges when the scope is absent', () => {
+        const ctx = createContext();
+        seed(ctx);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.equal(data.pendingCharges, undefined);
+    });
+});
+
 // ──────────────── submitDispute validation helpers ─────────────
 
 const { _testHelpers } = require(path.join(__dirname, '..', 'functions', 'index'));
