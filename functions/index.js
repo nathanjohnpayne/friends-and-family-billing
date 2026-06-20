@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -272,31 +272,11 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .where("memberId", "==", tokenData.memberId)
         .get();
 
-      result.disputes = disputesSnap.docs.map((doc) => {
-        const data = doc.data();
-        let status = data.status || "open";
-        if (status === "pending") status = "open";
-        if (status === "reviewed") status = "in_review";
-        return {
-          id: doc.id,
-          billId: data.billId,
-          billName: data.billName,
-          message: data.message,
-          proposedCorrection: data.proposedCorrection || null,
-          status: status,
-          resolutionNote: data.resolutionNote || null,
-          createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
-          resolvedAt: data.resolvedAt ? data.resolvedAt.toDate().toISOString() : null,
-          rejectedAt: data.rejectedAt ? data.rejectedAt.toDate().toISOString() : null,
-          evidence: (data.evidence || []).map((ev, idx) => ({
-            index: idx,
-            name: ev.name,
-            contentType: ev.contentType,
-            size: ev.size,
-          })),
-          userReview: data.userReview || null,
-        };
-      });
+      // Charge Notices (#320) share this subcollection but are outbound Requests, not
+      // Review Requests — projectMemberDisputes excludes them (ADR 0002, ADR 0005).
+      result.disputes = projectMemberDisputes(
+        disputesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      );
     }
 
     // Deferred Usage Charges (#317): the member's NOT-YET-DUE pending charges,

@@ -1807,6 +1807,52 @@ describe('buildPendingChargesForShare (Cloud Function)', () => {
     });
 });
 
+// ──────── projectMemberDisputes (Cloud Function, #320) ────────
+//
+// resolveShareToken projects the member's disputes for the share view. Charge
+// Notices (#320) ride the same `disputes` subcollection but are outbound Requests,
+// so they must be excluded from the disputes:read projection the same way useDisputes
+// excludes them client-side (ADR 0002, ADR 0005). The member contests a charge via a
+// Review Request, not by seeing the Charge Notice as one.
+
+const { projectMemberDisputes } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('projectMemberDisputes (Cloud Function, #320)', () => {
+    function tsDoc(obj) {
+        // Emulate a Firestore doc snapshot with createdAt as a Timestamp-like value.
+        return obj;
+    }
+
+    it('excludes charge_notice docs from the disputes projection', () => {
+        const docs = [
+            tsDoc({ id: 'd1', billId: 5, billName: 'Internet', message: 'Wrong', status: 'open' }),
+            tsDoc({ id: 'cn1', kind: 'charge_notice', amount: 25, status: 'open' }),
+            tsDoc({ id: 'd2', billId: 6, billName: 'Phone', message: 'Also wrong', status: 'in_review' })
+        ];
+        const out = projectMemberDisputes(docs);
+        const ids = out.map((d) => d.id);
+        assert.ok(ids.includes('d1'));
+        assert.ok(ids.includes('d2'));
+        assert.ok(!ids.includes('cn1'));
+    });
+
+    it('normalizes legacy statuses and exposes member-safe review fields', () => {
+        const docs = [
+            { id: 'd1', billId: 5, billName: 'Internet', message: 'Hi', proposedCorrection: 'Fix', status: 'pending', userReview: { state: 'requested' } }
+        ];
+        const out = projectMemberDisputes(docs);
+        assert.equal(out[0].status, 'open'); // pending → open
+        assert.equal(out[0].billName, 'Internet');
+        assert.equal(out[0].proposedCorrection, 'Fix');
+        assert.deepEqual(out[0].userReview, { state: 'requested' });
+    });
+
+    it('tolerates an empty or missing input', () => {
+        assert.deepEqual(projectMemberDisputes([]), []);
+        assert.deepEqual(projectMemberDisputes(undefined), []);
+    });
+});
+
 // ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
 
 describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {

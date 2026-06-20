@@ -146,6 +146,28 @@ describe('useDisputes', () => {
     });
 
     // -----------------------------------------------------------------------
+    // 2b. Charge Notices (#320) are excluded — they are outbound Requests, not
+    //     Review Requests, so they must never reach the Open Reviews KPI or the
+    //     actionable review filter (ADR 0002, ADR 0005).
+    // -----------------------------------------------------------------------
+    it('excludes charge_notice docs so they never reach the Review Request UI/KPI', async () => {
+        setupMocks();
+        mockGetDocs.mockResolvedValue(fakeSnap([
+            { id: 'd1', status: 'open', message: 'Real review', createdAt: '2024-01-01T00:00:00Z' },
+            { id: 'cn1', kind: 'charge_notice', status: 'open', amount: 25, createdAt: '2024-01-02T00:00:00Z' },
+            { id: 'd2', status: 'in_review', message: 'Another', createdAt: '2024-01-03T00:00:00Z' }
+        ]));
+
+        const { result } = renderHook(() => useDisputes());
+        await waitFor(() => expect(result.current.loading).toBe(false));
+
+        const ids = result.current.disputes.map(d => d.id);
+        expect(ids).toContain('d1');
+        expect(ids).toContain('d2');
+        expect(ids).not.toContain('cn1');
+    });
+
+    // -----------------------------------------------------------------------
     // 3. Load sorts by createdAt descending
     // -----------------------------------------------------------------------
     describe('sorting', () => {

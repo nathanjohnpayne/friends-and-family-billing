@@ -10,6 +10,7 @@ import { db, storage } from '../../lib/firebase.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBillingData } from './useBillingData.js';
 import { normalizeDisputeStatus } from '../../lib/validation.js';
+import { CHARGE_NOTICE_KIND } from '../../lib/chargeNotice.js';
 
 /**
  * @returns {{ disputes: Array, loading: boolean, error: string|null, reload: function, updateDispute: function, removeEvidence: function }}
@@ -34,11 +35,16 @@ export function useDisputes() {
         try {
             const col = collection(db, 'users', user.uid, 'billingYears', activeYear.id, 'disputes');
             const snap = await getDocs(col);
-            const items = snap.docs.map(d => {
-                const data = d.data();
-                data.status = normalizeDisputeStatus(data.status);
-                return { id: d.id, ...data };
-            });
+            const items = snap.docs
+                // Charge Notices (#320) ride the same subcollection but are outbound
+                // Requests, not Review Requests — exclude them here so the Open Reviews
+                // KPI and the actionable review filter never count them (ADR 0002, ADR 0005).
+                .filter(d => d.data().kind !== CHARGE_NOTICE_KIND)
+                .map(d => {
+                    const data = d.data();
+                    data.status = normalizeDisputeStatus(data.status);
+                    return { id: d.id, ...data };
+                });
             // Sort by createdAt descending
             items.sort((a, b) => {
                 const aTime = a.createdAt ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)) : new Date(0);
