@@ -36,6 +36,20 @@ describe('calculateOutstandingBalance', () => {
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 100, status: 'recorded' }];
         expect(calculateOutstandingBalance(members, bills, payments, creditAdjustments)).toBeCloseTo(100, 5);
     });
+
+    it('a service credit shrinks an outstanding shortfall (#321, ADR 0006 — never blocks the close more)', () => {
+        // Bob owes 600, paid 500 (100 short). A 40 service credit lowers his owed to 560,
+        // so outstanding drops to 60 — a −owed adjustment can only reduce present-tense debt.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 40, status: 'active' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBeCloseTo(60, 5);
+    });
+
+    it('a service credit that clears a household shortfall removes it from outstanding entirely', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 100, status: 'active' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBe(0);
+    });
 });
 
 describe('buildCloseYearMessage', () => {

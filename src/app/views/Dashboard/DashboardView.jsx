@@ -51,7 +51,7 @@ export default function DashboardView() {
         );
     }
 
-    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments);
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;

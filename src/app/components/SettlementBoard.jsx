@@ -72,16 +72,21 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // household (net == owed) reads Settled, and a household pushed net-underpaid
         // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
         // showing gross money received.
-        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
-        const balance = combinedTotal - netContribution;
-        const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
-        const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
+        // `owed` here is the post-Service-Credit owed (#321): an active service_credit
+        // lowers it, so balance, status, and credit all derive from the reduced figure
+        // — the household reads honestly once a service was canceled/discounted.
+        // combinedTotal stays the GROSS bill split for the displayed annual figure and
+        // the breakdown formula (the bill's own amount is unchanged, Option B).
+        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
+        const balance = owed - netContribution;
+        const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
+        const status = getPaymentStatus(owed, netForStatus) || 'settled';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
         const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
 
-        return { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges };
+        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled (mirrors main.js:1964)

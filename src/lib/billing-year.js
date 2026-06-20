@@ -8,18 +8,24 @@ import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, CREDI
  * the per-household NET shortfall summed by calculateSettlementMetrics, so the
  * close path and the dashboard agree and recorded refunds/carry-forwards never
  * mask a real shortfall.
+ *
+ * Service Credits (#321, ADR 0005) flow through getHouseholdFinancials by lowering
+ * owed, so a `−owed` adjustment can only SHRINK a household's shortfall — never
+ * inflate it. This keeps the close-gate honest (ADR 0006: it blocks only on
+ * present-tense money) and the close path aligned with the dashboard.
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed; deferred Usage Charges are ignored
  * @returns {number}
  */
-export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = []) {
+export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
     const summary = calculateAnnualSummary(familyMembers, bills);
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;
     });

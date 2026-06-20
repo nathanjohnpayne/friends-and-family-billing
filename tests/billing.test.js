@@ -1335,6 +1335,28 @@ describe('saveData owedAdjustments preservation', () => {
         ctx._set('owedAdjustments', owedAdjustments);
         assert.deepEqual(ctx._get('owedAdjustments'), owedAdjustments);
     });
+
+    it('preserves a service_credit kind verbatim in the legacy save payload (#321 dual-app parity)', async () => {
+        // Service Credits (#321) are a new owedAdjustments[] kind written only by the
+        // React app, but both apps write FULL documents. The legacy app must round-trip
+        // the −owed records untouched or a setDoc here would silently drop them.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' },
+            { id: 'oadj2', memberId: 1, billId: 101, kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active', incurredDate: '2026-02-01', createdAt: '2026-02-01T00:00:00.000Z' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        const payload = lastSet[0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+    });
 });
 
 // ──────────────── generateRawToken ────────────────────────────
