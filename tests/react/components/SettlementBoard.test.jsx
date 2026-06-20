@@ -527,6 +527,30 @@ describe('SettlementBoard — deferred usage charges', () => {
         expect(within(bobCard).getByText('Settled')).toBeInTheDocument();
     });
 
+    it('a BILLED usage charge raises owed so the household card no longer reads Settled (#320 P1)', () => {
+        // Contrast with the deferred case above: a BILLED Charge Notice is present-tense money,
+        // so it raises Bob's owed. The card must thread owedAdjustments into getHouseholdFinancials
+        // and reflect it (not "Settled"), matching the dashboard Outstanding KPI — not just the
+        // gross bill split.
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2025-02-01' }
+        ];
+        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // settled on bills, not the billed charge
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={payments}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+            />
+        );
+        const bobCard = screen.getByText('Bob').closest('.settlement-card');
+        expect(bobCard).not.toBeNull();
+        expect(within(bobCard).queryByText('Settled')).toBeNull();
+        expect(within(bobCard).getByText(/Partial|Outstanding/)).toBeInTheDocument();
+    });
+
     it('renders an Add Charge action in the expanded card and fires onAddCharge', () => {
         const onAddCharge = vi.fn();
         render(

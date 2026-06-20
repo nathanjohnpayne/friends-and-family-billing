@@ -76,10 +76,15 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // ADR 0003: a refund whose member reported an active, unresolved
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
-        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds);
-        const balance = combinedTotal - netContribution;
-        const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
-        const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
+        // owedAdjustments threads in BILLED Charge Notices (#320): a billed usage charge
+        // raises the household's owed, so the card balance/status/Record-Payment gate
+        // reflect it (matching the dashboard Outstanding KPI), not just gross bill split.
+        // Deferred charges are excluded (they never raise owed). `combinedTotal` stays the
+        // gross bill total for the "Annual" display.
+        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
+        const balance = owed - netContribution;
+        const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
+        const status = getPaymentStatus(owed, netForStatus) || 'settled';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.

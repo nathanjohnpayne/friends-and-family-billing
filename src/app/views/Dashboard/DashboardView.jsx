@@ -359,6 +359,11 @@ export default function DashboardView() {
                             // issue the outbound Charge Notice (email + share link), fire-and-forget.
                             const result = service.billDeferredCharges({ memberId: dialog.memberId, chargeIds });
                             showToast('Charges billed—Charge Notice sent.');
+                            // Read the POST-mutation state: billDeferredCharges just flipped the
+                            // selected charges deferred→billed, so the stale `owedAdjustments` prop
+                            // would still mark them deferred and the minted share link would show
+                            // the just-billed charges as pending/not-yet-due.
+                            const freshState = service.getState();
                             Promise.resolve(
                                 issueChargeNotice({
                                     userId: user ? user.uid : '',
@@ -372,9 +377,9 @@ export default function DashboardView() {
                                     familyMembers,
                                     bills,
                                     payments,
-                                    owedAdjustments,
+                                    owedAdjustments: freshState.owedAdjustments || [],
                                     activeYear,
-                                    settings: service.getState().settings || {},
+                                    settings: freshState.settings || {},
                                 })
                             ).catch(err => console.error('issueChargeNotice failed:', err));
                         }}

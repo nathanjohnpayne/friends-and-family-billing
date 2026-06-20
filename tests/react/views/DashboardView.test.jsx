@@ -238,7 +238,12 @@ describe('DashboardView', () => {
                 charges: [{ id: 'o1', description: 'Roaming', amount: 12.5, incurredDate: '2026-06-03' }]
             }));
             const service = {
-                getState: vi.fn(() => ({ settings: {} })),
+                // getState reflects the POST-billDeferredCharges state: o1 is now 'billed'
+                // (the real service flips it synchronously). The handler must read THIS fresh
+                // state, not the stale 'deferred' prop, when minting the Charge Notice link.
+                getState: vi.fn(() => ({ settings: {}, owedAdjustments: [
+                    { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
+                ] })),
                 recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
                 billDeferredCharges
             };
@@ -271,6 +276,13 @@ describe('DashboardView', () => {
             expect(arg.chargeIds).toEqual(['o1']);
             // The outbound Charge Notice (email + share link) is issued with the result.
             expect(mockIssueChargeNotice).toHaveBeenCalledTimes(1);
+            // P1.2: it receives the POST-mutation owedAdjustments (o1 now 'billed'), not the
+            // stale 'deferred' prop — so the minted share link never shows the just-billed
+            // charge as pending/not-yet-due.
+            const noticeArg = mockIssueChargeNotice.mock.calls[0][0];
+            expect(noticeArg.owedAdjustments).toEqual([
+                expect.objectContaining({ id: 'o1', status: 'billed' })
+            ]);
         });
 
         it('an unpaid BILLED charge raises the dashboard Outstanding KPI (ADR 0006)', () => {
