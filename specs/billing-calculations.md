@@ -41,6 +41,7 @@ Covers all pure calculation logic for annual billing summaries, payment totals, 
 - `calculateSettlementMetrics` computes total annual cost, total payments received, total outstanding balance, total credits owed to members, total member count, percentage settled (capped at 100), and count of fully paid members. It accepts an optional `creditAdjustments` array (defaulting to empty) so a three-argument call remains backward-compatible.
 - Linked members are combined under their parent for household-level settlement tracking; the total member count reflects households not individuals.
 - `totalCreditsOwed` is the sum of unresolved household credits and is tracked on a separate axis from `totalOutstanding`; an overpaid household still counts as settled (its surplus does not block settlement).
+- `totalOutstanding` is the sum of per-household **net** shortfalls (`max(0, owed − Net Contribution)` beyond the epsilon), not a global gross difference: a recorded refund leaves the ledger and one household's overpayment never masks another household's debt. `percentage` is derived from the net shortfall (`(totalAnnual − totalOutstanding) / totalAnnual`), so returned money is never counted as settlement progress. `totalPayments` remains gross money received.
 
 ### Household Net Contribution and Credit
 
@@ -49,6 +50,7 @@ Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations 
 - `CREDIT_EPSILON` is a sub-cent threshold (≈ half a cent); an overpayment at or below it is treated as zero so distributed-payment and bill-split rounding residue is not surfaced as money owed back.
 - `getCreditAdjustmentTotalForMember` sums a member's active refunds and carried-forward credits (records whose `status` is not `cancelled`), and returns 0 for an unknown member or an empty/missing array. These adjustments subtract from gross payments.
 - `getHouseholdFinancials` computes a household's `owed`, `grossPaid`, `creditAdjustmentTotal`, `netContribution` (gross paid minus refunds/carry-forwards), and `credit` (the net amount overpaid, with sub-cent residue zeroed by `CREDIT_EPSILON`) at the household grain. Owed, payments, and adjustments are summed across the primary and linked members before differencing, so internal imbalance between members nets out and is invisible to the household credit.
+- **Invariant:** in valid states a household's recorded dispositions (refunds + carry-forwards) are capped at its credit (enforced at the mutation/import boundary by later slices), so `netContribution >= owed` and a settled household never reads as underpaid. Every settlement surface — status, the collectable balance, the Record-Payment gate, and outstanding totals — derives from `netContribution`, so an over-disposition degrades to an honest collectable shortfall rather than splitting status from balance.
 
 ### Outstanding Balance and Year Close
 

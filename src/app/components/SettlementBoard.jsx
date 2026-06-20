@@ -67,11 +67,13 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
             + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
 
         // Household-grain credit (ADR 0001): Net Contribution = gross paid minus
-        // recorded refunds/carry-forwards. The household status reads from Net
-        // Contribution, so a refunded household (net == owed) reads Settled rather
-        // than Overpaid; the gross "Paid" box and Balance still reflect gross money in.
+        // recorded refunds/carry-forwards. Status, the collectable balance, and the
+        // Record-Payment gate all derive from Net Contribution, so a refunded
+        // household (net == owed) reads Settled, and a household pushed net-underpaid
+        // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
+        // showing gross money received.
         const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
-        const balance = combinedTotal - payment;
+        const balance = combinedTotal - netContribution;
         const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
         const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
 
@@ -206,7 +208,9 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
 
     const { member, data, combinedTotal, linkedData, payment, balance, credit, status } = row;
     const hasLinked = linkedData.length > 0;
-    const showPaymentAction = !readOnly && balance > 0;
+    // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
+    // reads as settled, matching the status badge and the credit epsilon.
+    const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
 
     function handleRecordPayment(e) {
         e.preventDefault();
@@ -286,7 +290,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         ) : (
                             <div className="settlement-summary-box">
                                 <span className="settlement-summary-label">Balance</span>
-                                <span className={'settlement-summary-value' + (balance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
+                                <span className={'settlement-summary-value' + (balance > CREDIT_EPSILON ? ' settlement-summary-balance' : ' settled-zero')}>{balance > CREDIT_EPSILON ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
                             </div>
                         )}
                     </div>
@@ -415,7 +419,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                             </button>
                         )}
                         <ActionMenu label={'More actions for ' + member.name}>
-                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}>
+                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
                                 Email Invoice
                             </ActionMenuItem>
                             <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
@@ -436,7 +440,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onTextInvoice
                         <form onSubmit={handleRecordPayment}>
                             <p className="payment-dialog-for">
                                 For: <strong>{member.name}</strong>
-                                {balance > 0 && (
+                                {balance > CREDIT_EPSILON && (
                                     <span className="payment-dialog-balance">
                                         {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
                                     </span>

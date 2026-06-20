@@ -436,4 +436,25 @@ describe('SettlementBoard — household credit', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expect(screen.queryByText('Credit')).toBeNull();
     });
+
+    it('shows a collectable Balance and Record Payment when Net Contribution falls below owed', () => {
+        // Bob owes 480, paid 600, but a recorded carry-forward of 200 nets him to 400 —
+        // below owed (an over-disposition later slices must prevent). The board must stay
+        // internally consistent: a real Balance and the Record Payment action, never "Paid".
+        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 200, status: 'recorded' }];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={payments}
+                creditAdjustments={creditAdjustments}
+                readOnly={false}
+            />
+        );
+        expect(screen.queryByText('Credit')).toBeNull();         // net is below owed, not a credit
+        expect(screen.getByText('$80.00')).toBeInTheDocument();   // Balance = owed 480 − net 400
+        expandCard('Bob');
+        expect(screen.getAllByText('Record Payment').length).toBeGreaterThanOrEqual(1);
+    });
 });

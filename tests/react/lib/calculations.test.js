@@ -341,4 +341,31 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         expect(m.totalCreditsOwed).toBe(0);
         expect(m.paidCount).toBe(2);
     });
+
+    it('does not let a recorded refund mask another household shortfall', () => {
+        // Alice paid 668.98 with a 68.98 refund (net 600, settled); Bob paid 500 (owes 100).
+        // The refunded money left the ledger and must not offset Bob's debt.
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 500 }
+        ];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments);
+        expect(m.totalOutstanding).toBeCloseTo(100, 5); // Bob's real shortfall, not 31.02
+        expect(m.totalCreditsOwed).toBe(0);
+        expect(m.paidCount).toBe(1);
+    });
+
+    it('does not let an overpayment mask another household shortfall or count as progress', () => {
+        // Alice overpaid (668.98 of 600, unrefunded); Bob paid 500 (owes 100). Per-household
+        // net shortfalls keep Alice's surplus from masking Bob's debt or inflating progress.
+        const payments = [
+            { memberId: 1, amount: 668.98 },
+            { memberId: 2, amount: 500 }
+        ];
+        const m = calculateSettlementMetrics(members, bills, payments);
+        expect(m.totalOutstanding).toBeCloseTo(100, 5);       // not the global 31.02
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);      // Alice's credit, separate axis
+        expect(m.percentage).toBe(92);                         // (1200 − 100) / 1200, not gross 97
+    });
 });

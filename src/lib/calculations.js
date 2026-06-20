@@ -129,6 +129,14 @@ export function getParentMember(familyMembers, memberId) {
  *   Net Contribution = gross paid − recorded refunds/carried-forward credits
  *   Credit           = max(0, Net Contribution − owed), sub-cent residue zeroed
  *
+ * Invariant: in valid states a household's recorded dispositions (refunds +
+ * carry-forwards) are capped at its credit, enforced at the mutation/import
+ * boundary by later slices, so netContribution >= owed and a settled household
+ * never reads as underpaid. The settlement board and metrics nonetheless derive
+ * every figure (status, balance, the Record-Payment gate, outstanding totals)
+ * from netContribution, so an over-disposition degrades to an honest collectable
+ * shortfall rather than splitting status from balance.
+ *
  * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
  * @param {Object} summary  output of calculateAnnualSummary (owed per member)
  * @param {Array} payments
@@ -167,6 +175,7 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
 
     let totalAnnual = 0;
     let totalPayments = 0;
+    let totalOutstanding = 0;
     let totalCreditsOwed = 0;
     let paidCount = 0;
 
@@ -176,15 +185,23 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
         totalAnnual += owed;
         totalPayments += grossPaid;
         totalCreditsOwed += credit;
-        // Settled = not underpaid beyond a sub-cent tolerance. Overpaid households
-        // satisfy this too (their credit is tracked separately, not as a shortfall).
-        // With no adjustments netContribution === grossPaid, so this matches the
-        // prior gross-payment check for all existing data.
+        // Outstanding is the sum of per-household NET shortfalls, not a global gross
+        // difference. A refund leaves the ledger, so it must not offset another
+        // household's debt, and one household's overpayment must not mask another's
+        // shortfall. With no adjustments netContribution === grossPaid, so for a
+        // household that is underpaid this equals the prior gross shortfall.
+        const shortfall = owed - netContribution;
+        if (shortfall > CREDIT_EPSILON) totalOutstanding += shortfall;
+        // Settled = not underpaid beyond a sub-cent tolerance (shortfall <= epsilon).
+        // Overpaid households satisfy this too (their credit is tracked separately).
         if (owed <= 0 || netContribution >= owed - CREDIT_EPSILON) paidCount++;
     });
 
-    const totalOutstanding = Math.max(0, totalAnnual - totalPayments);
-    const percentage = totalAnnual > 0 ? Math.min(100, Math.round((totalPayments / totalAnnual) * 100)) : 0;
+    // Progress = the share of total owed that is net-satisfied (totalAnnual − the
+    // net shortfall), so returned money never counts as settlement progress.
+    const percentage = totalAnnual > 0
+        ? Math.max(0, Math.min(100, Math.round(((totalAnnual - totalOutstanding) / totalAnnual) * 100)))
+        : 0;
 
     return {
         totalAnnual: totalAnnual,
