@@ -197,9 +197,8 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
 
 /**
  * Build the member-facing "Pending charges" payload for a share view (#317).
- * Returns the household's *deferred* Usage Charges (the primary member plus their
- * linked members, per ADR 0001), sorted by incurred date, each annotated with a
- * running total, plus the household count and grand total.
+ * Returns the token member's own *deferred* Usage Charges, sorted by incurred
+ * date, each annotated with a running total, plus the count and grand total.
  *
  * Only member-safe fields are exposed (description, amount, incurredDate,
  * runningTotal). Voided and already-billed charges, and charges belonging to

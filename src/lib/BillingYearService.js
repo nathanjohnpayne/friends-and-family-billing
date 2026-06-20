@@ -953,8 +953,12 @@ export class BillingYearService {
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
 
-        const amount = Math.round((parseFloat(data.amount) || 0) * 100) / 100;
-        if (amount <= 0) throw new Error('Amount must be greater than zero.');
+        const parsedAmount = Number.parseFloat(data.amount);
+        const cents = Number.isFinite(parsedAmount)
+            ? Math.round((parsedAmount + Number.EPSILON) * 100)
+            : 0;
+        if (cents <= 0) throw new Error('Amount must be greater than zero.');
+        const amount = cents / 100;
 
         const description = (data.description || '').trim();
         if (!description) throw new Error('A description is required.');

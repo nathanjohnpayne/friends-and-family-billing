@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import SettlementBoard from '@/app/components/SettlementBoard.jsx';
 
 const members = [
@@ -482,6 +482,7 @@ describe('SettlementBoard — deferred usage charges', () => {
         );
         // "Pending charges: $20.00" surfaced on Bob's card
         expect(screen.getByText(/Pending charges:\s*\$20\.00/)).toBeInTheDocument();
+        expect(screen.getByText(/\(2 charges\)/)).toBeInTheDocument();
     });
 
     it('aggregates pending charges at the household grain (primary + linked)', () => {
@@ -521,7 +522,9 @@ describe('SettlementBoard — deferred usage charges', () => {
             />
         );
         // Bob still reads Settled despite the large deferred charge
-        expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
+        const bobCard = screen.getByText('Bob').closest('.settlement-card');
+        expect(bobCard).not.toBeNull();
+        expect(within(bobCard).getByText('Settled')).toBeInTheDocument();
     });
 
     it('renders an Add Charge action in the expanded card and fires onAddCharge', () => {

@@ -106,6 +106,9 @@ describe('buildPendingChargesForShare', () => {
         expect(c).toHaveProperty('amount');
         expect(c).toHaveProperty('incurredDate');
         expect(c).toHaveProperty('runningTotal');
+        expect(c).not.toHaveProperty('status');
+        expect(c).not.toHaveProperty('kind');
+        expect(c).not.toHaveProperty('memberId');
     });
 
     it('returns an empty result when the member has no deferred charges', () => {

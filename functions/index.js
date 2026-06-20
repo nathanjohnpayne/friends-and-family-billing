@@ -301,8 +301,8 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
 
     // Deferred Usage Charges (#317): the member's NOT-YET-DUE pending charges,
     // gated behind the usageCharges:read scope. Sourced from the year document's
-    // owedAdjustments[] array (already loaded above), filtered to this household
-    // and to deferred status only. Member-safe fields only; never touches owed.
+    // owedAdjustments[] array (already loaded above), filtered to this token
+    // member and to deferred status only. Member-safe fields only; never touches owed.
     if (scopes.includes("usageCharges:read")) {
       const owedAdjustments = yearData.owedAdjustments || [];
       result.pendingCharges = buildPendingChargesForShare(

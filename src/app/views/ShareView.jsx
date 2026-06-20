@@ -510,10 +510,10 @@ function formatChargeDate(dateStr) {
     const parts = String(dateStr).split('-');
     if (parts.length === 3) {
         const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-        if (!isNaN(d)) return d.toLocaleDateString();
+        if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
     }
     const fallback = new Date(dateStr);
-    return isNaN(fallback) ? dateStr : fallback.toLocaleDateString();
+    return Number.isNaN(fallback.getTime()) ? dateStr : fallback.toLocaleDateString();
 }
 
 /**

@@ -438,6 +438,28 @@ describe('BillingYearService', () => {
             expect(charge.createdAt).toBeTruthy();
         });
 
+        it('normalizes decimal edge-case amounts to persisted cents', () => {
+            seedOpenYear();
+            const charge = svc.recordUsageCharge({ memberId: 1, amount: '1.005', description: 'Rounding edge', incurredDate: '2025-03-04' });
+
+            expect(charge.amount).toBe(1.01);
+            expect(svc.getState().owedAdjustments[0].amount).toBe(1.01);
+        });
+
+        it('defaults incurredDate to the local date when omitted', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date(2025, 4, 6, 12, 0, 0));
+            try {
+                seedOpenYear();
+                const charge = svc.recordUsageCharge({ memberId: 1, amount: 8.75, description: 'Local date fallback' });
+
+                expect(charge.incurredDate).toBe('2025-05-06');
+                expect(svc.getState().owedAdjustments[0].incurredDate).toBe('2025-05-06');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it('emits a USAGE_CHARGE_RECORDED billing event (mirrors the PAYMENT_RECORDED pattern)', () => {
             seedOpenYear();
             svc.recordUsageCharge({ memberId: 1, amount: 9, description: 'Late fee', incurredDate: '2025-02-01' });
