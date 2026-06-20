@@ -1275,4 +1275,79 @@ describe('ShareView', () => {
             }));
         });
     });
+
+    // -----------------------------------------------------------------------
+    // Pending charges (deferred usage charges, #317)
+    // -----------------------------------------------------------------------
+    describe('Pending charges section', () => {
+        const withPendingCharges = {
+            ...sampleShareData,
+            scopes: ['summary:read', 'paymentMethods:read', 'usageCharges:read'],
+            pendingCharges: {
+                count: 2,
+                total: 27.5,
+                charges: [
+                    { id: 'o1', description: 'Roaming overage', amount: 12.5, incurredDate: '2025-02-01', runningTotal: 12.5 },
+                    { id: 'o2', description: 'Device add-on', amount: 15, incurredDate: '2025-03-04', runningTotal: 27.5 }
+                ]
+            }
+        };
+
+        it('renders the pending charges list when scope usageCharges:read is present', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(withPendingCharges);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+            });
+            expect(screen.getByText('Device add-on')).toBeInTheDocument();
+            // running total of last row (also echoed in the TOTAL row)
+            expect(screen.getAllByText('$27.50').length).toBeGreaterThanOrEqual(1);
+        });
+
+        it('labels the pending charges as not yet due', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(withPendingCharges);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+            });
+            // A clear "not yet due" cue must be present so the member is not alarmed.
+            expect(screen.getAllByText(/not yet due/i).length).toBeGreaterThanOrEqual(1);
+        });
+
+        it('does not render pending charges when the scope is absent', async () => {
+            setToken('abc123');
+            // sampleShareData has no usageCharges:read scope and no pendingCharges
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+            expect(screen.queryByText(/Pending Charges/i)).toBeNull();
+        });
+
+        it('does not render the section when there are no deferred charges', async () => {
+            setToken('abc123');
+            const emptyPending = {
+                ...sampleShareData,
+                scopes: ['summary:read', 'paymentMethods:read', 'usageCharges:read'],
+                pendingCharges: { count: 0, total: 0, charges: [] }
+            };
+            mockPublicSharesHit(emptyPending);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+            expect(screen.queryByText(/Pending Charges/i)).toBeNull();
+        });
+    });
 });

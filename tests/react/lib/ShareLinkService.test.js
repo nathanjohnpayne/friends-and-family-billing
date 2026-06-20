@@ -114,7 +114,7 @@ describe('createAndPruneShareLink', () => {
         // buildShareTokenDoc receives the default scopes from the service
         expect(buildShareTokenDoc).toHaveBeenCalled();
         const callArgs = buildShareTokenDoc.mock.calls[0];
-        expect(callArgs[6]).toEqual(['summary:read', 'paymentMethods:read', 'disputes:create', 'disputes:read']);
+        expect(callArgs[6]).toEqual(['summary:read', 'paymentMethods:read', 'usageCharges:read', 'disputes:create', 'disputes:read']);
     });
 
     it('uses custom scopes when provided', async () => {

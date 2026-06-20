@@ -12,9 +12,11 @@
  * @param {Object} settings
  * @param {Array} [creditAdjustments]  refunds + carried-forward credits (#316). Preserved
  *   verbatim so a full-document save never drops them (save uses setDoc without merge).
+ * @param {Array} [owedAdjustments]  Usage Charges (#317) — signed owed-modifiers. Preserved
+ *   verbatim for the same reason: a full-document save would otherwise erase them.
  * @returns {Object}
  */
-export function buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments = []) {
+export function buildSavePayload(currentBillingYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments = [], owedAdjustments = []) {
     const settingsForSave = Object.assign({}, settings);
     // Strip transient migration flag — not user data.
     // _templateDocVersion IS persisted so the re-migration only runs once.
@@ -39,6 +41,7 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
         bills: bills,
         payments: payments,
         creditAdjustments: creditAdjustments,
+        owedAdjustments: owedAdjustments,
         billingEvents: billingEvents,
         settings: settingsForSave
     };
@@ -49,7 +52,7 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
  * Mutates member and bill objects in place (matching existing behavior).
  * @param {Object} yearData - raw Firestore document data
  * @param {string} yearId
- * @returns {{ year: Object, members: Array, bills: Array, payments: Array, creditAdjustments: Array, billingEvents: Array, settings: Object|null }}
+ * @returns {{ year: Object, members: Array, bills: Array, payments: Array, creditAdjustments: Array, owedAdjustments: Array, billingEvents: Array, settings: Object|null }}
  */
 export function normalizeYearData(yearData, yearId) {
     const year = {
@@ -79,6 +82,7 @@ export function normalizeYearData(yearData, yearId) {
 
     const payments = yearData.payments || [];
     const creditAdjustments = yearData.creditAdjustments || [];
+    const owedAdjustments = yearData.owedAdjustments || [];
     const billingEvents = yearData.billingEvents || [];
 
     let settings = yearData.settings || null;
@@ -87,7 +91,7 @@ export function normalizeYearData(yearData, yearId) {
         // paymentMethods migration is handled by caller (depends on migratePaymentLinksToMethods)
     }
 
-    return { year, members, bills, payments, creditAdjustments, billingEvents, settings };
+    return { year, members, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings };
 }
 
 /**
@@ -106,6 +110,7 @@ export function buildInitialYearData(yearId, settings) {
         bills: [],
         payments: [],
         creditAdjustments: [],
+        owedAdjustments: [],
         settings: settings
     };
 }

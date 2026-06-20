@@ -90,8 +90,9 @@ describe('refundNotice helpers', () => {
         });
 
         it('is backwards-compatible with the 2-arg dispute call', () => {
+            // usageCharges:read is always granted (#317), so the 2-arg call yields it too.
             const scopes = buildShareScopes(true, true);
-            expect(scopes).toEqual(['summary:read', 'paymentMethods:read', 'disputes:create', 'disputes:read']);
+            expect(scopes).toEqual(['summary:read', 'paymentMethods:read', 'usageCharges:read', 'disputes:create', 'disputes:read']);
         });
     });
 

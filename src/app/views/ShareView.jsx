@@ -200,6 +200,9 @@ export default function ShareView() {
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} />}
             {data.refundNotices && data.refundNotices.length > 0 && <RefundNoticesSection notices={data.refundNotices} shareCtx={shareCtx} />}
+            {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
+                <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
+            )}
             {data.disputes && data.disputes.length > 0 && <DisputesSection disputes={data.disputes} shareCtx={shareCtx} />}
         </div>
     );
@@ -569,6 +572,64 @@ function RefundNoticeCard({ notice, shareCtx }) {
             {confirmation === 'not_received' && (
                 <p className="share-refund-status not-received">You reported this refund as not received. The account owner will follow up.</p>
             )}
+        </div>
+    );
+}
+
+function formatChargeDate(dateStr) {
+    if (!dateStr) return '';
+    // incurredDate is a YYYY-MM-DD string; parse as local date to avoid TZ drift.
+    const parts = String(dateStr).split('-');
+    if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
+    }
+    const fallback = new Date(dateStr);
+    return Number.isNaN(fallback.getTime()) ? dateStr : fallback.toLocaleDateString();
+}
+
+/**
+ * Pending charges (deferred Usage Charges, #317). A running, clearly NOT-YET-DUE
+ * list shown only when the share token carries the usageCharges:read scope and
+ * the household has deferred charges. These do not affect the payment summary.
+ */
+function PendingChargesSection({ pendingCharges, year }) {
+    const charges = pendingCharges.charges || [];
+    return (
+        <div className="share-section share-pending-charges">
+            <h2>Pending Charges</h2>
+            <p className="share-pending-note">
+                These usage charges have been recorded for {year} but are <strong>not yet due</strong>.
+                They are shown for your visibility and are not part of your current balance. You will be
+                invoiced separately if they are billed.
+            </p>
+            <div className="share-table-wrap">
+                <table className="share-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th className="share-cell-number">Amount</th>
+                            <th className="share-cell-number">Running Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {charges.map((c, i) => (
+                            <tr key={c.id || i}>
+                                <td>{formatChargeDate(c.incurredDate)}</td>
+                                <td>{c.description || 'Usage charge'}</td>
+                                <td className="share-cell-number">{formatCurrency(c.amount)}</td>
+                                <td className="share-cell-number">{formatCurrency(c.runningTotal)}</td>
+                            </tr>
+                        ))}
+                        <tr className="share-total-row">
+                            <td colSpan={2}>TOTAL (not yet due)</td>
+                            <td className="share-cell-number"></td>
+                            <td className="share-cell-number"><strong>{formatCurrency(pendingCharges.total)}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }

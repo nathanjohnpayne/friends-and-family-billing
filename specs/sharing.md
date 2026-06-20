@@ -17,7 +17,9 @@ Covers share link generation, token validation, the share link dialog, and the p
 
 ### Share Helpers
 
-- `buildShareScopes` always includes `summary:read` and `paymentMethods:read`; adds `disputes:create` and/or `disputes:read` when the respective flags are true; adds `refunds:read` when the third flag is true (#319). The 2-argument dispute call stays backwards-compatible.
+- `buildShareScopes` always includes `summary:read`, `paymentMethods:read`, and `usageCharges:read` (#317 — a member always sees their own pending charges on their share, so the scope is on every normal link); adds `disputes:create` and/or `disputes:read` when the respective flags are true; and adds `refunds:read` when the third flag is true (#319). The 2-argument dispute call stays backwards-compatible.
+- `buildPublicShareData` includes the member's `pendingCharges` (via `buildPendingChargesForShare`) in the generated `publicShares` document when the scopes carry `usageCharges:read`, so the member-facing view is reachable directly from a normally-generated link (not only via the Cloud Function self-heal on a cache miss). It accepts an optional `owedAdjustments` array for this. **Both** share-link writers do this for cache-hit consumer parity: the React path (every share-generation caller threads `owedAdjustments` — `ShareLinkService`, the ShareLink/Email/Text dialogs, and `InvoicingTab`) and the legacy `/site/` `buildPublicShareData` (which writes the same shared `publicShares` doc).
+- `buildPendingChargesForShare` returns the token member's OWN deferred Usage Charges (per-member grain, ADR 0005 — "a linked member sees their own pending charges"; the household grain is only for the admin settlement board) as `{ charges, total, count }`: only `kind: 'usage_charge'` records with `status: 'deferred'` whose `memberId` is the token member are included; voided/billed charges and other members' charges (including linked household members) are excluded; charges are sorted by incurred date ascending and each carries a `runningTotal`; only member-safe fields (`id`, `description`, `amount`, `incurredDate`, `runningTotal`) are exposed; an unknown member or empty input yields an empty result.
 - `buildShareTokenDoc` includes rawToken when truthy and omits it when null (invoice flow); sets defaults for revoked (false), lastAccessedAt (null), accessCount (0).
 - `buildShareUrl` constructs a URL in the format `{origin}/share.html?token={token}`.
 - `computeExpiryDate` returns null for 0, null, or negative days; returns a future Date for positive days.
@@ -47,6 +49,7 @@ Covers share link generation, token validation, the share link dialog, and the p
 - Dispute approval/rejection: shows Approve/Reject buttons when `userReview.state` is "requested"; clicking Approve calls updateDoc and shows "You approved this resolution."; hides buttons when state is "approved_by_user" or "rejected_by_user".
 - Payment methods section renders method labels, handles, and Copy buttons; hidden when empty.
 - Disputes section renders dispute details (bill name, status, message, resolution note); hidden when empty.
+- Pending charges section (deferred Usage Charges, #317) renders a list of the member's own deferred charges (date, description, amount, running total) with a clear NOT-YET-DUE label, only when the resolved share data carries a non-empty `pendingCharges` (which the Cloud Function returns only for the `usageCharges:read` scope); hidden when the scope is absent or there are no deferred charges.
 - Trust banner renders a "secure annual billing summary" notice.
 - Shows loading message initially while data is being fetched.
 

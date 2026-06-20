@@ -129,6 +129,26 @@ describe('BillingYearService', () => {
             expect(svc.getState().creditAdjustments).toEqual(creditAdjustments);
         });
 
+        it('loads owedAdjustments from the year document into state (#317 read path)', async () => {
+            const owedAdjustments = [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+            mockStore['users/user-1'] = { activeBillingYear: '2025' };
+            mockStore['users/user-1/billingYears/2025'] = {
+                label: '2025', status: 'open',
+                familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], owedAdjustments, billingEvents: [],
+                settings: { emailMessage: 'test', paymentLinks: [], paymentMethods: [] }
+            };
+
+            await svc.setUser(TEST_USER);
+            expect(svc.getState().owedAdjustments).toEqual(owedAdjustments);
+        });
+
+        it('resets owedAdjustments to an empty array when user is null', async () => {
+            svc._setState({ owedAdjustments: [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 5, status: 'deferred' }] });
+            await svc.setUser(null);
+            expect(svc.getState().owedAdjustments).toEqual([]);
+        });
+
         it('creates default year for brand-new users with legacy email template', async () => {
             // No user doc → brand-new user path
             await svc.setUser(TEST_USER);
@@ -258,6 +278,22 @@ describe('BillingYearService', () => {
             expect(write.data.creditAdjustments).toEqual(creditAdjustments);
         });
 
+        it('preserves owedAdjustments in the save payload (#317 — no drop on full-document write)', async () => {
+            const owedAdjustments = [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                familyMembers: [{ id: 1, name: 'Alice' }],
+                bills: [], payments: [], owedAdjustments, billingEvents: [],
+                settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] }
+            });
+
+            await svc.save();
+
+            const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2025');
+            expect(write.data.owedAdjustments).toEqual(owedAdjustments);
+        });
+
         it('does nothing without a user', async () => {
             const before = setDocCalls.length;
             await svc.save();
@@ -364,6 +400,131 @@ describe('BillingYearService', () => {
 
             await expect(svc.setYearStatus('settling')).rejects.toThrow('permission denied');
             expect(svc.getState().activeYear.status).toBe('open');
+        });
+    });
+
+    // ── recordUsageCharge (#317) ──────────────────────────────────────
+
+    describe('recordUsageCharge', () => {
+        function seedOpenYear(extra = {}) {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                familyMembers: [
+                    { id: 1, name: 'Alice', linkedMembers: [] },
+                    { id: 2, name: 'Bob', linkedMembers: [] }
+                ],
+                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [],
+                billingEvents: [],
+                settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] },
+                ...extra
+            });
+        }
+
+        it('appends a deferred usage charge to owedAdjustments with the financial source of truth on the record', () => {
+            seedOpenYear();
+            const charge = svc.recordUsageCharge({ memberId: 1, amount: 12.5, description: 'Roaming overage', incurredDate: '2025-03-04' });
+
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.length).toBe(1);
+            expect(charge.kind).toBe('usage_charge');
+            expect(charge.status).toBe('deferred');
+            expect(charge.memberId).toBe(1);
+            expect(charge.amount).toBe(12.5);
+            expect(charge.description).toBe('Roaming overage');
+            expect(charge.incurredDate).toBe('2025-03-04');
+            expect(typeof charge.id).toBe('string');
+            expect(charge.id.length).toBeGreaterThan(0);
+            expect(charge.createdAt).toBeTruthy();
+        });
+
+        it('normalizes decimal edge-case amounts to persisted cents', () => {
+            seedOpenYear();
+            const charge = svc.recordUsageCharge({ memberId: 1, amount: '1.005', description: 'Rounding edge', incurredDate: '2025-03-04' });
+
+            expect(charge.amount).toBe(1.01);
+            expect(svc.getState().owedAdjustments[0].amount).toBe(1.01);
+        });
+
+        it('defaults incurredDate to the local date when omitted', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date(2025, 4, 6, 12, 0, 0));
+            try {
+                seedOpenYear();
+                const charge = svc.recordUsageCharge({ memberId: 1, amount: 8.75, description: 'Local date fallback' });
+
+                expect(charge.incurredDate).toBe('2025-05-06');
+                expect(svc.getState().owedAdjustments[0].incurredDate).toBe('2025-05-06');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('emits a USAGE_CHARGE_RECORDED billing event (mirrors the PAYMENT_RECORDED pattern)', () => {
+            seedOpenYear();
+            svc.recordUsageCharge({ memberId: 1, amount: 9, description: 'Late fee', incurredDate: '2025-02-01' });
+
+            const events = svc.getState().billingEvents;
+            const evt = events.find(e => e.eventType === 'USAGE_CHARGE_RECORDED');
+            expect(evt).toBeDefined();
+            expect(evt.payload.memberId).toBe(1);
+            expect(evt.payload.memberName).toBe('Alice');
+            expect(evt.payload.amount).toBe(9);
+            expect(evt.payload.status).toBe('deferred');
+            expect(evt.actor.userId).toBe('user-1');
+        });
+
+        it('is append-only across multiple charges (never overwrites prior entries)', () => {
+            seedOpenYear();
+            svc.recordUsageCharge({ memberId: 1, amount: 5, description: 'A', incurredDate: '2025-01-01' });
+            svc.recordUsageCharge({ memberId: 1, amount: 7, description: 'B', incurredDate: '2025-01-02' });
+            expect(svc.getState().owedAdjustments.length).toBe(2);
+        });
+
+        it('persists via save() (full-document write includes the new charge)', async () => {
+            seedOpenYear();
+            svc.recordUsageCharge({ memberId: 1, amount: 5, description: 'A', incurredDate: '2025-01-01' });
+            // recordUsageCharge calls save() internally; flush the queue
+            await svc.getSaveQueue()._chain;
+            const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2025');
+            expect(write).toBeDefined();
+            expect(write.data.owedAdjustments.length).toBe(1);
+            expect(write.data.owedAdjustments[0].description).toBe('A');
+        });
+
+        it('does NOT add the deferred charge to owed — settlement is unaffected', () => {
+            seedOpenYear();
+            svc.recordUsageCharge({ memberId: 1, amount: 100, description: 'Big charge', incurredDate: '2025-01-01' });
+            // payments and bills are untouched; a deferred charge lives only on owedAdjustments
+            expect(svc.getState().payments).toEqual([]);
+            const charge = svc.getState().owedAdjustments[0];
+            expect(charge.status).toBe('deferred');
+        });
+
+        it('rejects a non-positive amount', () => {
+            seedOpenYear();
+            expect(() => svc.recordUsageCharge({ memberId: 1, amount: 0, description: 'x', incurredDate: '2025-01-01' }))
+                .toThrow(/amount/i);
+            expect(() => svc.recordUsageCharge({ memberId: 1, amount: -5, description: 'x', incurredDate: '2025-01-01' }))
+                .toThrow(/amount/i);
+        });
+
+        it('requires a description', () => {
+            seedOpenYear();
+            expect(() => svc.recordUsageCharge({ memberId: 1, amount: 5, description: '   ', incurredDate: '2025-01-01' }))
+                .toThrow(/description/i);
+        });
+
+        it('throws when the member does not exist', () => {
+            seedOpenYear();
+            expect(() => svc.recordUsageCharge({ memberId: 999, amount: 5, description: 'x', incurredDate: '2025-01-01' }))
+                .toThrow(/member/i);
+        });
+
+        it('throws when the year is read-only (closed)', () => {
+            seedOpenYear({ activeYear: { id: '2025', label: '2025', status: 'closed' } });
+            expect(() => svc.recordUsageCharge({ memberId: 1, amount: 5, description: 'x', incurredDate: '2025-01-01' }))
+                .toThrow(/read-only/i);
         });
     });
 

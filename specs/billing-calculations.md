@@ -59,6 +59,14 @@ Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations 
 - **`totalOutstanding` is never affected by a re-open.** Excluding a refund only raises Net Contribution, which can only shrink a shortfall; a re-opened credit is overpayment owed back, never underpayment, so settlement progress is never inflated by an unconfirmed refund.
 - **Closed years are corrected forward (ADR 0007):** read-only years pass no re-open set, so a `not_received` arriving after close never reanimates a frozen ledger. The re-open is a derived display calculation only — the persisted `creditAdjustment` and the append-only ledger are never mutated.
 
+### Deferred Usage Charges (#317, ADR 0005)
+
+A Usage Charge is a `+owed` per-member ad-hoc debit stored in `owedAdjustments[]` (`kind: 'usage_charge'`). A **deferred** charge is recorded and visible but NOT yet billed, so these helpers surface a running "pending" figure that deliberately does **not** feed `owed`, `credit`, the settlement gate, or `calculateSettlementMetrics`.
+
+- `getDeferredUsageChargeTotalForMember` sums a member's deferred usage charges only (records with `kind: 'usage_charge'` and `status: 'deferred'`), and returns 0 for an unknown member or an empty/missing array. Voided and already-billed charges, and credit-direction adjustments (Service Credits, #321), are excluded.
+- `getHouseholdDeferredCharges` returns `{ count, total }` for a household (primary member plus their linked members, ADR 0001 grain), counting and summing only deferred usage charges. Another household's charges are not counted.
+- Deferred usage charges never change a household's `owed`, `netContribution`, `credit`, or settlement status/metrics; `getHouseholdFinancials` and `calculateSettlementMetrics` do not take `owedAdjustments` as input.
+
 ### Outstanding Balance and Year Close
 
 - `calculateOutstandingBalance` returns the sum of all unpaid household balances (per-household NET shortfall, accepting an optional `creditAdjustments` array so recorded refunds/carry-forwards are reflected), and returns 0 when everyone is paid up. It mirrors the outstanding figure in `calculateSettlementMetrics` so the close path and dashboard agree.
@@ -118,6 +126,12 @@ Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations 
 - Distributed payments: when `distribute=true` for a household member, creates proportional payment entries across the household summing to the original amount and emits events with `distributed: true`; when `distribute=false` or the member has no linked members, records a single payment.
 - `reversePayment` creates a negative reversal entry, marks the original as reversed, emits `PAYMENT_REVERSED` event, rejects unknown or already-reversed payments, and prevents reversing a reversal entry.
 - `updatePayment` edits a payment's method and/or note in place, emits `PAYMENT_UPDATED` event with before/after values for audit trail, returns original unchanged when no fields differ, and rejects edits on reversed or reversal entries.
+
+#### Usage Charges (#317)
+
+- `recordUsageCharge` appends a Usage Charge to `owedAdjustments[]` with a generated adjustment ID, `kind: 'usage_charge'`, the captured amount/description/incurredDate, `status: 'deferred'`, and a `createdAt` timestamp. The financial source of truth lives on the adjustment record. It emits a `USAGE_CHARGE_RECORDED` billing event (mirroring `PAYMENT_RECORDED`), rejects non-positive amounts, requires a non-empty description, rejects unknown members, and throws on read-only years.
+- The mutation is append-only: a charge is voided via a later status change, never physically deleted (mirroring payments-ledger immutability). It does not touch `recordPayment`/`reversePayment` or the `payments[]` ledger.
+- A deferred charge does NOT raise the member's owed and does not affect current-year settlement; it is surfaced only as a pending figure.
 
 #### Credit Dispositions
 

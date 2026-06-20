@@ -10,6 +10,8 @@ import {
     calculateSettlementMetrics,
     getCreditAdjustmentTotalForMember,
     getHouseholdFinancials,
+    getDeferredUsageChargeTotalForMember,
+    getHouseholdDeferredCharges,
     CREDIT_EPSILON
 } from '@/lib/calculations.js';
 
@@ -407,5 +409,114 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set());
         expect(m.totalCreditsOwed).toBe(0);
+    });
+});
+
+// ── Usage Charges (deferred, #317) ──────────────────────────────────────
+//
+// A deferred Usage Charge is a +owed per-member adjustment that is recorded and
+// visible but NOT yet billed, so it must not affect current-year settlement.
+// These helpers surface the running count and total without touching owed/credit.
+
+describe('getDeferredUsageChargeTotalForMember', () => {
+    it('sums only deferred usage charges for the given member', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 5.5, status: 'deferred' },
+            { id: 'o3', memberId: 2, kind: 'usage_charge', amount: 99, status: 'deferred' }
+        ];
+        expect(getDeferredUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(15.5, 5);
+    });
+
+    it('excludes voided charges (append-only: void via status, never delete)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 7, status: 'voided' }
+        ];
+        expect(getDeferredUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    it('excludes already-billed charges (only deferred are pending)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 20, status: 'billed' }
+        ];
+        expect(getDeferredUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    it('ignores credit-direction adjustments (service credits are #321, not usage charges)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 1, kind: 'service_credit', amount: -30, status: 'deferred' }
+        ];
+        expect(getDeferredUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    it('returns 0 for an undefined or empty array', () => {
+        expect(getDeferredUsageChargeTotalForMember(undefined, 1)).toBe(0);
+        expect(getDeferredUsageChargeTotalForMember([], 1)).toBe(0);
+    });
+});
+
+describe('getHouseholdDeferredCharges', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [3] },
+        { id: 2, name: 'Bob', linkedMembers: [] },
+        { id: 3, name: 'Carol', linkedMembers: [] }
+    ];
+
+    it('aggregates deferred count and total across the whole household (ADR 0001 grain)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'deferred' }, // linked member
+            { id: 'o3', memberId: 3, kind: 'usage_charge', amount: 2.5, status: 'deferred' }
+        ];
+        const { count, total } = getHouseholdDeferredCharges(members[0], owedAdjustments);
+        expect(count).toBe(3);
+        expect(total).toBeCloseTo(17.5, 5);
+    });
+
+    it('does not count another household charges', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 40, status: 'deferred' }
+        ];
+        const { count, total } = getHouseholdDeferredCharges(members[0], owedAdjustments);
+        expect(count).toBe(0);
+        expect(total).toBe(0);
+    });
+
+    it('excludes voided and billed charges from the running total', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 99, status: 'voided' },
+            { id: 'o3', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed' }
+        ];
+        const { count, total } = getHouseholdDeferredCharges(members[0], owedAdjustments);
+        expect(count).toBe(1);
+        expect(total).toBeCloseTo(10, 5);
+    });
+});
+
+describe('deferred usage charges do not affect settlement', () => {
+    const members = [{ id: 1, name: 'Alice', linkedMembers: [] }];
+    const bills = [{ id: 101, name: 'Internet', amount: 100, billingFrequency: 'annual', members: [1] }];
+
+    it('a deferred usage charge does NOT change owed, balance, or credit', () => {
+        const payments = [{ memberId: 1, amount: 100 }]; // fully settled on bills
+        const summary = calculateAnnualSummary(members, bills);
+        // owedAdjustments are intentionally not an input to getHouseholdFinancials:
+        // a deferred charge must not raise owed. The household reads settled.
+        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        expect(f.owed).toBeCloseTo(100, 5);
+        expect(f.netContribution).toBeCloseTo(100, 5);
+        expect(f.credit).toBe(0);
+    });
+
+    it('settlement metrics ignore deferred charges entirely', () => {
+        const payments = [{ memberId: 1, amount: 100 }];
+        const m = calculateSettlementMetrics(members, bills, payments, []);
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.paidCount).toBe(1);
+        expect(m.percentage).toBe(100);
     });
 });

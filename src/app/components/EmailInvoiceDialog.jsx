@@ -16,7 +16,7 @@ import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, showToast?: function, onClose: function }} props
  */
-export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, userId, billingYearId, showToast, onClose }) {
+export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, showToast, onClose }) {
     const { user } = useAuth();
     const [variant, setVariant] = useState('text-link');
     const [subject, setSubject] = useState('');
@@ -67,6 +67,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
                 familyMembers,
                 bills,
                 payments,
+                owedAdjustments,
                 activeYear,
                 settings,
             });

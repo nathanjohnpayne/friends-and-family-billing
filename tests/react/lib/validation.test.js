@@ -12,8 +12,30 @@ import {
     isClosedYear,
     isSettlingYear,
     isYearReadOnly,
-    yearReadOnlyMessage
+    yearReadOnlyMessage,
+    localDateString
 } from '@/lib/validation.js';
+
+describe('localDateString', () => {
+    it('formats a date as local YYYY-MM-DD (not UTC)', () => {
+        // Construct a local date; the helper must read local Y/M/D, not the UTC slice.
+        const d = new Date(2026, 0, 5); // local Jan 5 2026
+        expect(localDateString(d)).toBe('2026-01-05');
+    });
+
+    it('zero-pads month and day', () => {
+        expect(localDateString(new Date(2026, 8, 9))).toBe('2026-09-09');
+    });
+
+    it('avoids the UTC off-by-one for a late-evening local time behind UTC', () => {
+        // 2026-03-10 23:30 in a UTC-5 zone is already 2026-03-11 in UTC; the local
+        // helper must still return the 10th. Build the date from local components so
+        // the test is timezone-independent: local D/M/Y is what we assert.
+        const d = new Date(2026, 2, 10, 23, 30);
+        expect(localDateString(d)).toBe('2026-03-10');
+        // The UTC-based approach could disagree; the helper is defined to use local.
+    });
+});
 
 describe('PAYMENT_PROVIDER_PATTERN', () => {
     it('matches known providers case-insensitively', () => {

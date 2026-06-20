@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, CREDIT_EPSILON } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, CREDIT_EPSILON } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -81,7 +81,11 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
         const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
 
-        return { member, data, combinedTotal, linkedData, payment, balance, credit, status };
+        // Deferred Usage Charges (#317) — household-grain pending count/total.
+        // These are NOT-YET-DUE and deliberately excluded from balance/status above.
+        const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
+
+        return { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled (mirrors main.js:1964)
@@ -140,6 +144,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             onGenerateShareLink={onGenerateShareLink}
                             onManageShareLinks={onManageShareLinks}
                             onViewHistory={onViewHistory}
+                            onAddCharge={onAddCharge}
                             onIssueRefund={onIssueRefund}
                         />
                     ))
@@ -197,7 +202,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -216,8 +221,9 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, data, combinedTotal, linkedData, payment, balance, credit, status } = row;
+    const { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges } = row;
     const hasLinked = linkedData.length > 0;
+    const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
     // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
     // reads as settled, matching the status badge and the credit epsilon.
     const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
@@ -322,6 +328,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 ? 'Household includes ' + linkedData.length + ' linked member' + (linkedData.length > 1 ? 's' : '')
                                 : 'Individual'}
                         </span>
+                        {hasPendingCharges && (
+                            <span className="settlement-card-pending" title="Deferred usage charges — not yet billed">
+                                Pending charges: {formatAnnualSummaryCurrency(pendingCharges.total)}
+                                {' '}
+                                <span className="settlement-pending-count">
+                                    ({pendingCharges.count} {pendingCharges.count === 1 ? 'charge' : 'charges'})
+                                </span>
+                            </span>
+                        )}
                     </div>
                 </div>
                 <div className="settlement-card-right">
@@ -471,6 +486,14 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                         >
                             Payment History
                         </button>
+                        {!readOnly && onAddCharge && (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onAddCharge(member.id)}
+                            >
+                                Add Charge
+                            </button>
+                        )}
                         {member.phone && (
                             <button
                                 className="btn btn-tertiary btn-sm"

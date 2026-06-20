@@ -11,7 +11,7 @@ import { generateRawToken, hashToken } from './validation.js';
 import { buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from './share.js';
 
 const DEFAULT_EXPIRY_DAYS = 365;
-const DEFAULT_SCOPES = ['summary:read', 'paymentMethods:read', 'disputes:create', 'disputes:read'];
+const DEFAULT_SCOPES = ['summary:read', 'paymentMethods:read', 'usageCharges:read', 'disputes:create', 'disputes:read'];
 const MAX_ACTIVE_LINKS = 5;
 
 /**
@@ -27,6 +27,8 @@ const MAX_ACTIVE_LINKS = 5;
  * @param {Array}    opts.familyMembers
  * @param {Array}    opts.bills
  * @param {Array}    opts.payments
+ * @param {Array}    [opts.owedAdjustments]  deferred Usage Charges (#317), so the
+ *   generated publicShares doc carries the member's pendingCharges
  * @param {Object}   opts.activeYear
  * @param {Object}   opts.settings
  * @returns {Promise<{ url: string, tokenHash: string, rawToken: string }>}
@@ -41,6 +43,7 @@ export async function createAndPruneShareLink({
     familyMembers,
     bills,
     payments,
+    owedAdjustments,
     activeYear,
     settings,
 }) {
@@ -54,7 +57,7 @@ export async function createAndPruneShareLink({
     // Build documents
     const expiresAt = computeExpiryDate(resolvedExpiryDays);
     const tokenDocData = buildShareTokenDoc(userId, memberId, memberName, billingYearId, rawToken, expiresAt, resolvedScopes);
-    const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, resolvedScopes, userId, activeYear, settings);
+    const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, resolvedScopes, userId, activeYear, settings, owedAdjustments);
 
     // Query existing active links for this member+year
     const q = query(
