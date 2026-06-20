@@ -14,7 +14,7 @@ import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, isYearReadOnly, isValidE164 } from './validation.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
 
@@ -965,7 +965,7 @@ export class BillingYearService {
             kind: 'usage_charge',
             amount,
             description,
-            incurredDate: data.incurredDate || new Date().toISOString().slice(0, 10),
+            incurredDate: data.incurredDate || localDateString(),
             status: 'deferred',
             createdAt: new Date().toISOString()
         };

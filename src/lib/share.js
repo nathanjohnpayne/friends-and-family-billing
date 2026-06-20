@@ -4,17 +4,18 @@ import { sanitizeImageSrc } from './formatting.js';
 
 /**
  * Build the default scopes array for a share link.
+ *
+ * `usageCharges:read` is always granted (#317): a member always sees their OWN
+ * pending Usage Charges on their share page (the data is their own not-yet-due
+ * charges, per ADR 0005), so the feature must be reachable on every normal link.
  * @param {boolean} allowDisputeCreate
  * @param {boolean} allowDisputeRead
- * @param {boolean} [allowUsageChargesRead]  expose the member's deferred Usage
- *   Charges on their share page (#317). Defaults to false for backward compat.
  * @returns {string[]}
  */
-export function buildShareScopes(allowDisputeCreate, allowDisputeRead, allowUsageChargesRead) {
-    const scopes = ['summary:read', 'paymentMethods:read'];
+export function buildShareScopes(allowDisputeCreate, allowDisputeRead) {
+    const scopes = ['summary:read', 'paymentMethods:read', 'usageCharges:read'];
     if (allowDisputeCreate) scopes.push('disputes:create');
     if (allowDisputeRead) scopes.push('disputes:read');
-    if (allowUsageChargesRead) scopes.push('usageCharges:read');
     return scopes;
 }
 
@@ -133,9 +134,13 @@ function computeMemberSummaryForShare(familyMembers, bills, memberId) {
  * @param {string} userId
  * @param {{ id: string, label?: string }} activeYear
  * @param {{ paymentMethods?: Array }} settings
+ * @param {Array} [owedAdjustments]  deferred Usage Charges (#317); included as
+ *   `pendingCharges` when the scopes carry `usageCharges:read`, so the member-facing
+ *   pending-charges view is reachable on a normally-generated link (not only via the
+ *   Cloud Function self-heal).
  * @returns {Object|null}
  */
-export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings) {
+export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings, owedAdjustments) {
     const primarySummary = computeMemberSummaryForShare(familyMembers, bills, memberId);
     if (!primarySummary) return null;
 
@@ -181,6 +186,10 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
             if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
             return copy;
         });
+    }
+
+    if (scopes.includes('usageCharges:read')) {
+        data.pendingCharges = buildPendingChargesForShare(familyMembers, owedAdjustments || [], memberId);
     }
 
     return data;

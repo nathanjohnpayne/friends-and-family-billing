@@ -229,6 +229,7 @@ export default function DashboardView() {
                     familyMembers={familyMembers}
                     bills={bills}
                     payments={payments}
+                    owedAdjustments={owedAdjustments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
                     userId={user ? user.uid : ''}
@@ -245,6 +246,7 @@ export default function DashboardView() {
                     familyMembers={familyMembers}
                     bills={bills}
                     payments={payments}
+                    owedAdjustments={owedAdjustments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
                     userId={user ? user.uid : ''}
@@ -268,6 +270,7 @@ export default function DashboardView() {
                         familyMembers={familyMembers}
                         bills={bills}
                         payments={payments}
+                        owedAdjustments={owedAdjustments}
                         activeYear={activeYear}
                         settings={service.getState().settings || {}}
                         showToast={showToast}
@@ -284,12 +287,10 @@ export default function DashboardView() {
                         open
                         memberName={member ? member.name : ''}
                         onSubmit={data => {
-                            try {
-                                service.recordUsageCharge({ memberId: dialog.memberId, ...data });
-                                showToast('Usage charge recorded—pending, not yet billed.');
-                            } catch (err) {
-                                showToast('Error: ' + err.message);
-                            }
+                            // Let errors propagate so the dialog shows the inline error and
+                            // stays open; the success toast runs only when the record succeeded.
+                            service.recordUsageCharge({ memberId: dialog.memberId, ...data });
+                            showToast('Usage charge recorded—pending, not yet billed.');
                         }}
                         onClose={() => setDialog({ type: null, memberId: null })}
                     />

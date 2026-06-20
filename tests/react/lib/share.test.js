@@ -5,15 +5,40 @@ import {
     buildShareUrl,
     computeExpiryDate,
     isShareTokenStale,
-    buildPendingChargesForShare
+    buildPendingChargesForShare,
+    buildPublicShareData
 } from '@/lib/share.js';
 
+describe('buildPublicShareData — pendingCharges (#317 reachability)', () => {
+    const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
+    const bills = [{ id: 'b1', name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1] }];
+    const owedAdjustments = [
+        { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 12, status: 'deferred', description: 'Roaming', incurredDate: '2025-02-01' }
+    ];
+    const activeYear = { id: '2026', label: '2026' };
+
+    it('includes pendingCharges in the doc when usageCharges:read is granted', () => {
+        const scopes = buildShareScopes(false, false); // now always includes usageCharges:read
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        // The member-facing view is reachable on a normally-generated link.
+        expect(data.pendingCharges).toBeDefined();
+        expect(data.pendingCharges.count).toBe(1);
+        expect(data.pendingCharges.charges[0].id).toBe('o1');
+    });
+
+    it('omits pendingCharges when the scope is absent', () => {
+        const data = buildPublicShareData(familyMembers, bills, [], 1, ['summary:read'], 'uid', activeYear, {}, owedAdjustments);
+        expect(data.pendingCharges).toBeUndefined();
+    });
+});
+
 describe('buildShareScopes', () => {
-    it('always includes summary:read and paymentMethods:read', () => {
+    it('always includes summary:read, paymentMethods:read, and usageCharges:read', () => {
         const scopes = buildShareScopes(false, false);
         expect(scopes).toContain('summary:read');
         expect(scopes).toContain('paymentMethods:read');
-        expect(scopes).toHaveLength(2);
+        expect(scopes).toContain('usageCharges:read');
+        expect(scopes).toHaveLength(3);
     });
 
     it('adds disputes:create when allowed', () => {
@@ -29,17 +54,14 @@ describe('buildShareScopes', () => {
 
     it('adds both dispute scopes', () => {
         const scopes = buildShareScopes(true, true);
-        expect(scopes).toHaveLength(4);
+        expect(scopes).toHaveLength(5);
     });
 
-    it('adds usageCharges:read when allowed (#317)', () => {
-        const scopes = buildShareScopes(false, false, true);
-        expect(scopes).toContain('usageCharges:read');
-    });
-
-    it('does not add usageCharges:read by default (backward-compatible)', () => {
-        const scopes = buildShareScopes(true, true);
-        expect(scopes).not.toContain('usageCharges:read');
+    it('always grants usageCharges:read so the member can reach their own pending charges (#317)', () => {
+        // A member always sees their OWN deferred charges on their share page (ADR 0005);
+        // the scope must be on every normal link for the feature to be reachable.
+        expect(buildShareScopes(false, false)).toContain('usageCharges:read');
+        expect(buildShareScopes(true, true)).toContain('usageCharges:read');
     });
 });
 

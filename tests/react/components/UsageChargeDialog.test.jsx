@@ -80,4 +80,18 @@ describe('UsageChargeDialog', () => {
         fireEvent.keyDown(document, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledOnce();
     });
+
+    it('surfaces a throwing onSubmit as an inline error and keeps the dialog open', () => {
+        // The host (DashboardView) lets service errors propagate; the dialog must
+        // show the message inline and NOT close (so input is preserved).
+        const onSubmit = vi.fn(() => { throw new Error('Year is read-only.'); });
+        const onClose = vi.fn();
+        render(<UsageChargeDialog open memberName="Alice" onSubmit={onSubmit} onClose={onClose} />);
+        fireEvent.change(screen.getByLabelText(/Amount/), { target: { value: '9.02' } });
+        fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'Roaming' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save Charge' }));
+        expect(onSubmit).toHaveBeenCalled();
+        expect(screen.getByText(/read-only/i)).toBeInTheDocument(); // inline error
+        expect(onClose).not.toHaveBeenCalled();                     // dialog stays open
+    });
 });

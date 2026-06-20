@@ -32,7 +32,7 @@ const ALL_TOKEN_FIELDS = [
 ];
 
 export default function InvoicingTab() {
-    const { familyMembers, bills, payments, activeYear, loading, service } = useBillingData();
+    const { familyMembers, bills, payments, owedAdjustments = [], activeYear, loading, service } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
     const readOnly = isYearReadOnly(activeYear);
@@ -47,6 +47,7 @@ export default function InvoicingTab() {
                 familyMembers={familyMembers}
                 bills={bills}
                 payments={payments}
+                owedAdjustments={owedAdjustments}
                 activeYear={activeYear}
                 readOnly={readOnly}
                 userId={user ? user.uid : ''}
@@ -75,7 +76,7 @@ function deriveBodyText(settings) {
 
 // ── Email Template Editor ───────────────────────────────────────────
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
+function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAdjustments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
     const [activeTab, setActiveTab] = useState('edit');
     const [bodyDoc, setBodyDoc] = useState(() => deriveBodyDoc(settings));
     const [bodyText, setBodyText] = useState(() => deriveBodyText(settings));
@@ -166,7 +167,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, active
             const expiresAt = computeExpiryDate(365);
             const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, expiresAt, scopes);
             await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
-            const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings);
+            const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings, owedAdjustments);
             if (publicData) {
                 await setDoc(doc(db, 'publicShares', tokenHash), { ...publicData, updatedAt: serverTimestamp() });
             }

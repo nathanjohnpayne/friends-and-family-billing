@@ -5,10 +5,7 @@
  * dialog never touches the payments ledger or current-year settlement.
  */
 import { useEffect, useState } from 'react';
-
-function todayIso() {
-    return new Date().toISOString().slice(0, 10);
-}
+import { localDateString } from '../../lib/validation.js';
 
 /**
  * @param {{
@@ -21,7 +18,7 @@ function todayIso() {
 export default function UsageChargeDialog({ open, memberName, onSubmit, onClose }) {
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
-    const [incurredDate, setIncurredDate] = useState(todayIso());
+    const [incurredDate, setIncurredDate] = useState(localDateString());
     const [error, setError] = useState('');
 
     // Reset fields whenever the dialog (re)opens.
@@ -29,7 +26,7 @@ export default function UsageChargeDialog({ open, memberName, onSubmit, onClose 
         if (open) {
             setAmount('');
             setDescription('');
-            setIncurredDate(todayIso());
+            setIncurredDate(localDateString());
             setError('');
         }
     }, [open]);

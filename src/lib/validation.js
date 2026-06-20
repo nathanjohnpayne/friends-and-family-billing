@@ -59,6 +59,20 @@ export function generateUniqueAdjustmentId() {
 }
 
 /**
+ * A date as YYYY-MM-DD in the LOCAL timezone (not UTC). Avoids the off-by-one
+ * that `new Date().toISOString().slice(0, 10)` causes for users behind UTC,
+ * where the UTC date can already be "tomorrow" in the evening.
+ * @param {Date} [date]
+ * @returns {string}
+ */
+export function localDateString(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+/**
  * @returns {string}
  */
 export function generateRawToken() {
