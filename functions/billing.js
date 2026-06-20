@@ -45,4 +45,49 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
   };
 }
 
-module.exports = { computeMemberSummary };
+/**
+ * Build the member-facing "Pending charges" payload for a share view (#317).
+ * Mirror of src/lib/share.js `buildPendingChargesForShare` for the Cloud Function
+ * (CommonJS) side. Returns the token member's OWN *deferred* Usage Charges
+ * (per-member, ADR 0005 — "a linked member sees their own pending charges"),
+ * sorted by incurred date, each with a running total, plus a count and grand total.
+ *
+ * Only member-safe fields are exposed. Voided/billed charges and other households'
+ * charges are excluded. Deferred charges are NOT-YET-DUE and never touch owed.
+ *
+ * @param {Array} familyMembers
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @returns {{ charges: Array, total: number, count: number }}
+ */
+function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
+  const empty = { charges: [], total: 0, count: 0 };
+  const member = (familyMembers || []).find((m) => m.id === memberId);
+  if (!member) return empty;
+
+  // Per-member (ADR 0005): a member sees their OWN deferred charges on their share
+  // page, not the whole household's. The household grain is only for the admin board.
+  const deferred = (owedAdjustments || []).filter(
+    (a) => a && a.kind === "usage_charge" && a.status === "deferred" && a.memberId === memberId
+  );
+
+  deferred.sort((a, b) =>
+    String(a.incurredDate || "").localeCompare(String(b.incurredDate || ""))
+  );
+
+  let running = 0;
+  const charges = deferred.map((a) => {
+    running = Math.round((running + (a.amount || 0)) * 100) / 100;
+    return {
+      id: a.id,
+      description: a.description || "",
+      amount: a.amount || 0,
+      incurredDate: a.incurredDate || "",
+      runningTotal: running,
+    };
+  });
+
+  return { charges, total: running, count: charges.length };
+}
+
+module.exports = { computeMemberSummary, buildPendingChargesForShare };

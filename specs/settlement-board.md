@@ -9,6 +9,7 @@ Covers the settlement board component for tracking household payment status, the
 ## Test Coverage
 
 - `tests/react/components/SettlementBoard.test.jsx`
+- `tests/react/components/UsageChargeDialog.test.jsx`
 - `tests/react/views/BillsTab.test.jsx`
 - `tests/react/views/DashboardView.test.jsx`
 
@@ -45,6 +46,24 @@ Covers the settlement board component for tracking household payment status, the
 - Calls `onRecordPayment` with memberId, amount, method, and note when submitted.
 - Shows a distribute checkbox (checked by default) for household members in the payment dialog; passes `distribute: true` in the callback.
 - When settled, shows "Payment History" instead of "Record Payment" in the expanded detail.
+
+### Deferred Usage Charges (#317)
+
+- For a household carrying one or more *deferred* Usage Charges (`owedAdjustments[]` records with `kind: 'usage_charge'` and `status: 'deferred'`), the card header shows a "Pending charges: $X.XX" line with the household running total and a charge count. The total aggregates the primary member plus their linked members (household grain, ADR 0001). Households with no deferred charges show no pending-charges line.
+- Deferred Usage Charges are NOT-YET-DUE: they do not change the Annual, Paid, Balance, or status figures, and they do not affect the Record-Payment gate. A household with a large deferred charge but fully-paid bills still reads "Settled".
+- The expanded card shows an "Add Charge" action when not read-only and an `onAddCharge` handler is provided; clicking it calls `onAddCharge(memberId)`. The action is hidden when `readOnly` is true.
+
+### UsageChargeDialog Component
+
+- Renders nothing when `open` is false.
+- When open, shows the member name and fields for Amount ($), Description, and Incurred date, plus a cue that the charge is deferred / not billed yet.
+- Calls `onSubmit` with `{ amount, description, incurredDate }` (amount parsed to a number) on Save Charge.
+- Blocks submit and shows a validation error for a non-positive amount or a missing description.
+- Calls `onClose` on Cancel and on Escape.
+
+### DashboardView — Add Charge
+
+- The dashboard wires the settlement board's "Add Charge" action to a `UsageChargeDialog`; submitting records the charge via `service.recordUsageCharge({ memberId, amount, description, incurredDate })` and shows a confirmation toast indicating the charge is pending and not yet billed.
 
 ### BillsTab View
 

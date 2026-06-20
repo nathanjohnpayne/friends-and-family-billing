@@ -56,6 +56,17 @@ describe('buildSavePayload', () => {
         const payload = buildSavePayload(year, members, bills, payments, events, settings);
         expect(payload.creditAdjustments).toEqual([]);
     });
+
+    it('preserves owedAdjustments verbatim (the full-document save must not drop usage charges)', () => {
+        const owedAdjustments = [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+        const payload = buildSavePayload(year, members, bills, payments, events, settings, [], owedAdjustments);
+        expect(payload.owedAdjustments).toBe(owedAdjustments);
+    });
+
+    it('defaults owedAdjustments to an empty array when omitted', () => {
+        const payload = buildSavePayload(year, members, bills, payments, events, settings);
+        expect(payload.owedAdjustments).toEqual([]);
+    });
 });
 
 describe('normalizeYearData', () => {
@@ -102,6 +113,17 @@ describe('normalizeYearData', () => {
         const { creditAdjustments } = normalizeYearData({}, '2026');
         expect(creditAdjustments).toEqual([]);
     });
+
+    it('loads owedAdjustments from the document', () => {
+        const owedAdjustments = [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+        const loaded = normalizeYearData({ owedAdjustments }, '2026');
+        expect(loaded.owedAdjustments).toEqual(owedAdjustments);
+    });
+
+    it('defaults a missing owedAdjustments array to empty', () => {
+        const { owedAdjustments } = normalizeYearData({}, '2026');
+        expect(owedAdjustments).toEqual([]);
+    });
 });
 
 describe('creditAdjustments round-trip', () => {
@@ -119,6 +141,21 @@ describe('creditAdjustments round-trip', () => {
     });
 });
 
+describe('owedAdjustments round-trip', () => {
+    it('survives a load → save cycle without being dropped (lossless serialization)', () => {
+        // save() uses setDoc without merge, so an omitted field is erased from the
+        // document. A doc carrying owedAdjustments (usage charges) must round-trip verbatim.
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 12.5, status: 'deferred' },
+            { id: 'oadj2', memberId: 2, kind: 'usage_charge', amount: 8, status: 'deferred' }
+        ];
+        const yearDoc = { label: '2026', status: 'open', familyMembers: [], bills: [], payments: [], owedAdjustments };
+        const n = normalizeYearData(yearDoc, '2026');
+        const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings, n.creditAdjustments, n.owedAdjustments);
+        expect(payload.owedAdjustments).toEqual(owedAdjustments);
+    });
+});
+
 describe('buildInitialYearData', () => {
     it('creates an empty year with provided settings', () => {
         const settings = { emailMessage: 'Welcome' };
@@ -129,6 +166,7 @@ describe('buildInitialYearData', () => {
         expect(data.bills).toEqual([]);
         expect(data.payments).toEqual([]);
         expect(data.creditAdjustments).toEqual([]);
+        expect(data.owedAdjustments).toEqual([]);
         expect(data.settings).toBe(settings);
     });
 });

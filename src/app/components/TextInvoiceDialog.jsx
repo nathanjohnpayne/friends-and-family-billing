@@ -14,7 +14,7 @@ import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, onClose: function, showToast?: function }} props
  */
-export default function TextInvoiceDialog({ open, memberId, familyMembers, bills, payments, activeYear, settings, userId, billingYearId, onClose, showToast }) {
+export default function TextInvoiceDialog({ open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, onClose, showToast }) {
     const [variant, setVariant] = useState('text-link');
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
@@ -62,6 +62,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                 familyMembers,
                 bills,
                 payments,
+                owedAdjustments,
                 activeYear,
                 settings,
             });

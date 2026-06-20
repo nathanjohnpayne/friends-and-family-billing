@@ -4,12 +4,16 @@ import { sanitizeImageSrc } from './formatting.js';
 
 /**
  * Build the default scopes array for a share link.
+ *
+ * `usageCharges:read` is always granted (#317): a member always sees their OWN
+ * pending Usage Charges on their share page (the data is their own not-yet-due
+ * charges, per ADR 0005), so the feature must be reachable on every normal link.
  * @param {boolean} allowDisputeCreate
  * @param {boolean} allowDisputeRead
  * @returns {string[]}
  */
 export function buildShareScopes(allowDisputeCreate, allowDisputeRead) {
-    const scopes = ['summary:read', 'paymentMethods:read'];
+    const scopes = ['summary:read', 'paymentMethods:read', 'usageCharges:read'];
     if (allowDisputeCreate) scopes.push('disputes:create');
     if (allowDisputeRead) scopes.push('disputes:read');
     return scopes;
@@ -130,9 +134,13 @@ function computeMemberSummaryForShare(familyMembers, bills, memberId) {
  * @param {string} userId
  * @param {{ id: string, label?: string }} activeYear
  * @param {{ paymentMethods?: Array }} settings
+ * @param {Array} [owedAdjustments]  deferred Usage Charges (#317); included as
+ *   `pendingCharges` when the scopes carry `usageCharges:read`, so the member-facing
+ *   pending-charges view is reachable on a normally-generated link (not only via the
+ *   Cloud Function self-heal).
  * @returns {Object|null}
  */
-export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings) {
+export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings, owedAdjustments) {
     const primarySummary = computeMemberSummaryForShare(familyMembers, bills, memberId);
     if (!primarySummary) return null;
 
@@ -180,5 +188,54 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         });
     }
 
+    if (scopes.includes('usageCharges:read')) {
+        data.pendingCharges = buildPendingChargesForShare(familyMembers, owedAdjustments || [], memberId);
+    }
+
     return data;
+}
+
+/**
+ * Build the member-facing "Pending charges" payload for a share view (#317).
+ * Returns the token member's own *deferred* Usage Charges, sorted by incurred
+ * date, each annotated with a running total, plus the count and grand total.
+ *
+ * Only member-safe fields are exposed (description, amount, incurredDate,
+ * runningTotal). Voided and already-billed charges, and charges belonging to
+ * other households, are excluded. Deferred charges are NOT-YET-DUE — this payload
+ * never touches owed or the settlement summary.
+ *
+ * @param {Array} familyMembers
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @returns {{ charges: Array<{ id: *, description: string, amount: number, incurredDate: string, runningTotal: number }>, total: number, count: number }}
+ */
+export function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
+    const empty = { charges: [], total: 0, count: 0 };
+    const member = (familyMembers || []).find(m => m.id === memberId);
+    if (!member) return empty;
+
+    // Per-member (ADR 0005): a member sees their OWN deferred charges on their share
+    // page — "a linked member sees their own pending charges". The household grain is
+    // only for the admin settlement board, not this member-facing view.
+    const deferred = (owedAdjustments || []).filter(a =>
+        a && a.kind === 'usage_charge' && a.status === 'deferred' && a.memberId === memberId
+    );
+
+    // Sort by incurred date ascending so the running total reads chronologically.
+    deferred.sort((a, b) => String(a.incurredDate || '').localeCompare(String(b.incurredDate || '')));
+
+    let running = 0;
+    const charges = deferred.map(a => {
+        running = Math.round((running + (a.amount || 0)) * 100) / 100;
+        return {
+            id: a.id,
+            description: a.description || '',
+            amount: a.amount || 0,
+            incurredDate: a.incurredDate || '',
+            runningTotal: running
+        };
+    });
+
+    return { charges, total: running, count: charges.length };
 }
