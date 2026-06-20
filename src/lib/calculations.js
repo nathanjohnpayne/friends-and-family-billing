@@ -91,6 +91,50 @@ export function getCreditAdjustmentTotalForMember(creditAdjustments, memberId) {
 }
 
 /**
+ * Predicate: a deferred Usage Charge for a specific member (#317).
+ * A Usage Charge is a `+owed` per-member adjustment (kind `usage_charge`).
+ * "deferred" means recorded and visible but NOT yet billed, so only deferred
+ * charges count toward the member's pending total. Voided (append-only void via
+ * status) and already-billed charges are excluded, as are credit-direction
+ * adjustments (Service Credits, #321), which are a different kind.
+ * @param {Object} a  an owedAdjustments[] record
+ * @param {*} memberId
+ * @returns {boolean}
+ */
+function isDeferredUsageChargeFor(a, memberId) {
+    return !!a && a.memberId === memberId && a.kind === 'usage_charge' && a.status === 'deferred';
+}
+
+/**
+ * Sum of a member's *deferred* Usage Charges (#317). Deferred charges are not
+ * yet billed, so this is a "pending" figure that never feeds owed/credit/the
+ * settlement gate — it is surfaced for transparency only.
+ * @param {Array} owedAdjustments
+ * @param {*} memberId
+ * @returns {number}
+ */
+export function getDeferredUsageChargeTotalForMember(owedAdjustments, memberId) {
+    return (owedAdjustments || [])
+        .filter(a => isDeferredUsageChargeFor(a, memberId))
+        .reduce((sum, a) => sum + (a.amount || 0), 0);
+}
+
+/**
+ * Household-grain (ADR 0001) pending Usage Charge summary: the count and running
+ * total of deferred charges across a primary member and their linked members.
+ * Used by the settlement board to show "Pending charges: $X.XX" per household.
+ * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
+ * @param {Array} owedAdjustments
+ * @returns {{ count: number, total: number }}
+ */
+export function getHouseholdDeferredCharges(member, owedAdjustments) {
+    const ids = [member.id, ...((member.linkedMembers) || [])];
+    const deferred = (owedAdjustments || []).filter(a => ids.some(id => isDeferredUsageChargeFor(a, id)));
+    const total = deferred.reduce((sum, a) => sum + (a.amount || 0), 0);
+    return { count: deferred.length, total };
+}
+
+/**
  * @param {Array} payments
  * @param {*} memberId
  * @returns {Array}

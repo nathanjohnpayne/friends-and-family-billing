@@ -14,7 +14,7 @@ import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, isYearReadOnly, isValidE164 } from './validation.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
 
@@ -88,6 +88,7 @@ export class BillingYearService {
             bills: [],
             payments: [],
             creditAdjustments: [],
+            owedAdjustments: [],
             billingEvents: [],
             settings: null,
             loading: true,
@@ -157,7 +158,7 @@ export class BillingYearService {
         if (!user) {
             this._setState({
                 billingYears: [], activeYear: null, familyMembers: [],
-                bills: [], payments: [], creditAdjustments: [], billingEvents: [],
+                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
                 settings: null, loading: false, error: null
             });
             return;
@@ -248,6 +249,7 @@ export class BillingYearService {
                 bills: normalized.bills,
                 payments: normalized.payments,
                 creditAdjustments: normalized.creditAdjustments,
+                owedAdjustments: normalized.owedAdjustments,
                 billingEvents: normalized.billingEvents,
                 settings: normalized.settings
             });
@@ -255,7 +257,7 @@ export class BillingYearService {
             this._setState({
                 activeYear: { id: yearId, label: yearId, status: 'open', createdAt: null, archivedAt: null },
                 familyMembers: [], bills: [], payments: [],
-                creditAdjustments: [], billingEvents: [], settings: null
+                creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: null
             });
         }
     }
@@ -284,7 +286,7 @@ export class BillingYearService {
     save() {
         // E2E mode: no-op, don't write to Firestore
         if (this._e2eMode) return Promise.resolve();
-        const { activeYear, familyMembers, bills, payments, creditAdjustments, billingEvents, settings } = this._state;
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
         if (!this._user || !activeYear) return Promise.resolve();
         if (activeYear.status === 'closed' || activeYear.status === 'archived') {
             console.warn('Cannot save: year is ' + activeYear.status);
@@ -293,7 +295,7 @@ export class BillingYearService {
 
         return this._saveQueue.enqueue(async () => {
             const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
-            const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments);
+            const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
             if (!payload.createdAt) payload.createdAt = serverTimestamp();
             payload.updatedAt = serverTimestamp();
             await setDoc(yearDocRef, payload);
@@ -923,6 +925,67 @@ export class BillingYearService {
         this._setState({ payments: updatedPayments, billingEvents: events });
         this.save();
         return updated;
+    }
+
+    // ── Usage Charges (owedAdjustments, #317) ──
+
+    /**
+     * Record a per-member Usage Charge — a `+owed` ad-hoc debit (e.g. a roaming
+     * overage). Appends to owedAdjustments[] defaulting to status `deferred`:
+     * recorded and visible to the member, but NOT yet billed, so it does NOT
+     * affect current-year settlement (it is not added to owed). The financial
+     * source of truth lives on the adjustment record.
+     *
+     * Append-only: a charge is voided via a later status change, NEVER deleted
+     * (mirrors the payments-ledger immutability discipline). Emits a
+     * USAGE_CHARGE_RECORDED billing event following the PAYMENT_RECORDED pattern.
+     *
+     * This is a NEW mutation; it deliberately does not touch recordPayment /
+     * reversePayment or the payments[] ledger.
+     *
+     * @param {{ memberId: *, amount: number, description: string, incurredDate?: string }} data
+     * @returns {Object} the new owedAdjustments[] record
+     */
+    recordUsageCharge(data) {
+        this._guardReadOnly();
+        const { owedAdjustments, familyMembers } = this._state;
+
+        const member = familyMembers.find(m => m.id === data.memberId);
+        if (!member) throw new Error('Member not found.');
+
+        const amount = Math.round((parseFloat(data.amount) || 0) * 100) / 100;
+        if (amount <= 0) throw new Error('Amount must be greater than zero.');
+
+        const description = (data.description || '').trim();
+        if (!description) throw new Error('A description is required.');
+
+        const charge = {
+            id: generateUniqueAdjustmentId(),
+            memberId: data.memberId,
+            kind: 'usage_charge',
+            amount,
+            description,
+            incurredDate: data.incurredDate || new Date().toISOString().slice(0, 10),
+            status: 'deferred',
+            createdAt: new Date().toISOString()
+        };
+
+        const events = this._emitEvent('USAGE_CHARGE_RECORDED', {
+            adjustmentId: charge.id,
+            memberId: charge.memberId,
+            memberName: member.name,
+            amount: charge.amount,
+            description: charge.description,
+            incurredDate: charge.incurredDate,
+            status: charge.status
+        });
+
+        this._setState({
+            owedAdjustments: [...(owedAdjustments || []), charge],
+            billingEvents: events
+        });
+        this.save();
+        return charge;
     }
 
     // ── Settings ──

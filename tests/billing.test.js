@@ -1310,6 +1310,33 @@ describe('saveData creditAdjustments preservation', () => {
     });
 });
 
+// ──────────────── saveData preserves owedAdjustments (#317) ──
+
+describe('saveData owedAdjustments preservation', () => {
+    it('writes owedAdjustments in the legacy save payload (shared doc must not be dropped)', async () => {
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const owedAdjustments = [{ id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        const payload = lastSet[0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+    });
+
+    it('round-trips owedAdjustments through the _set/_get accessors', () => {
+        const ctx = createContext();
+        const owedAdjustments = [{ id: 'oadj1', memberId: 2, kind: 'usage_charge', amount: 8, status: 'deferred' }];
+        ctx._set('owedAdjustments', owedAdjustments);
+        assert.deepEqual(ctx._get('owedAdjustments'), owedAdjustments);
+    });
+});
+
 // ──────────────── generateRawToken ────────────────────────────
 
 describe('generateRawToken', () => {
@@ -1723,6 +1750,54 @@ describe('computeMemberSummary', () => {
         ];
         const result = computeMemberSummary(members, bills, 1);
         assert.equal(result.annualTotal, 0);
+    });
+});
+
+// ──────────────── buildPendingChargesForShare (Cloud Function, #317) ───────
+
+const { buildPendingChargesForShare: cfBuildPendingCharges } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('buildPendingChargesForShare (Cloud Function)', () => {
+    const familyMembers = [
+        { id: 1, name: 'Alice', linkedMembers: [3] },
+        { id: 2, name: 'Bob', linkedMembers: [] },
+        { id: 3, name: 'Carol', linkedMembers: [] },
+    ];
+    const owedAdjustments = [
+        { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', description: 'Roaming', incurredDate: '2025-02-01' },
+        { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'deferred', description: 'Add-on', incurredDate: '2025-01-10' },
+        { id: 'o3', memberId: 2, kind: 'usage_charge', amount: 99, status: 'deferred', description: 'Other', incurredDate: '2025-01-01' },
+        { id: 'o4', memberId: 1, kind: 'usage_charge', amount: 77, status: 'voided', description: 'Voided', incurredDate: '2025-01-05' },
+        { id: 'o5', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed', description: 'Billed', incurredDate: '2025-01-06' },
+    ];
+
+    it('returns this household deferred charges only, sorted with running totals', () => {
+        const result = cfBuildPendingCharges(familyMembers, owedAdjustments, 1);
+        assert.deepEqual(result.charges.map((c) => c.id), ['o2', 'o1']);
+        assert.equal(result.count, 2);
+        assert.ok(Math.abs(result.total - 15) < 1e-9);
+        assert.ok(Math.abs(result.charges[0].runningTotal - 5) < 1e-9);
+        assert.ok(Math.abs(result.charges[1].runningTotal - 15) < 1e-9);
+    });
+
+    it('excludes voided and billed charges', () => {
+        const result = cfBuildPendingCharges(familyMembers, owedAdjustments, 1);
+        const ids = result.charges.map((c) => c.id);
+        assert.ok(!ids.includes('o4'));
+        assert.ok(!ids.includes('o5'));
+    });
+
+    it('returns empty for an unknown member', () => {
+        const result = cfBuildPendingCharges(familyMembers, owedAdjustments, 999);
+        assert.deepEqual(result.charges, []);
+        assert.equal(result.count, 0);
+        assert.equal(result.total, 0);
+    });
+
+    it('tolerates a missing owedAdjustments array', () => {
+        const result = cfBuildPendingCharges(familyMembers, undefined, 1);
+        assert.deepEqual(result.charges, []);
+        assert.equal(result.count, 0);
     });
 });
 

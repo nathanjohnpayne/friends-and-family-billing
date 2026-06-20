@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -299,6 +299,19 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       });
     }
 
+    // Deferred Usage Charges (#317): the member's NOT-YET-DUE pending charges,
+    // gated behind the usageCharges:read scope. Sourced from the year document's
+    // owedAdjustments[] array (already loaded above), filtered to this household
+    // and to deferred status only. Member-safe fields only; never touches owed.
+    if (scopes.includes("usageCharges:read")) {
+      const owedAdjustments = yearData.owedAdjustments || [];
+      result.pendingCharges = buildPendingChargesForShare(
+        familyMembers,
+        owedAdjustments,
+        tokenData.memberId
+      );
+    }
+
     // Self-heal: recreate publicShares doc for future direct Firestore reads.
     // publicShares is the single source of truth for view counts.
     //
@@ -335,6 +348,9 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     }
     if (result.paymentMethods) {
       publicShareData.paymentMethods = result.paymentMethods;
+    }
+    if (result.pendingCharges) {
+      publicShareData.pendingCharges = result.pendingCharges;
     }
     // merge:true ensures refreshOnly writes don't clobber accessCount/lastAccessedAt
     db.collection("publicShares").doc(hash).set(publicShareData, { merge: true }).catch((err) => {

@@ -4,7 +4,8 @@ import {
     buildShareTokenDoc,
     buildShareUrl,
     computeExpiryDate,
-    isShareTokenStale
+    isShareTokenStale,
+    buildPendingChargesForShare
 } from '@/lib/share.js';
 
 describe('buildShareScopes', () => {
@@ -29,6 +30,63 @@ describe('buildShareScopes', () => {
     it('adds both dispute scopes', () => {
         const scopes = buildShareScopes(true, true);
         expect(scopes).toHaveLength(4);
+    });
+
+    it('adds usageCharges:read when allowed (#317)', () => {
+        const scopes = buildShareScopes(false, false, true);
+        expect(scopes).toContain('usageCharges:read');
+    });
+
+    it('does not add usageCharges:read by default (backward-compatible)', () => {
+        const scopes = buildShareScopes(true, true);
+        expect(scopes).not.toContain('usageCharges:read');
+    });
+});
+
+describe('buildPendingChargesForShare', () => {
+    const familyMembers = [
+        { id: 1, name: 'Alice', linkedMembers: [3] },
+        { id: 2, name: 'Bob', linkedMembers: [] },
+        { id: 3, name: 'Carol', linkedMembers: [] }
+    ];
+    const owedAdjustments = [
+        { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', description: 'Roaming', incurredDate: '2025-02-01' },
+        { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'deferred', description: 'Add-on', incurredDate: '2025-01-10' },
+        { id: 'o3', memberId: 2, kind: 'usage_charge', amount: 99, status: 'deferred', description: 'Other household', incurredDate: '2025-01-01' },
+        { id: 'o4', memberId: 1, kind: 'usage_charge', amount: 77, status: 'voided', description: 'Voided', incurredDate: '2025-01-05' },
+        { id: 'o5', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed', description: 'Already billed', incurredDate: '2025-01-06' }
+    ];
+
+    it('returns only this household deferred charges, sorted by incurred date, with a running total', () => {
+        const result = buildPendingChargesForShare(familyMembers, owedAdjustments, 1);
+        // Alice (1) + Carol (3) deferred only; voided + billed + Bob excluded
+        expect(result.charges.map(c => c.id)).toEqual(['o2', 'o1']); // sorted by incurredDate asc
+        expect(result.charges[0].runningTotal).toBeCloseTo(5, 5);
+        expect(result.charges[1].runningTotal).toBeCloseTo(15, 5);
+        expect(result.total).toBeCloseTo(15, 5);
+        expect(result.count).toBe(2);
+    });
+
+    it('exposes member-safe fields only (no internal status/kind leakage of other members)', () => {
+        const result = buildPendingChargesForShare(familyMembers, owedAdjustments, 1);
+        const c = result.charges[0];
+        expect(c).toHaveProperty('description');
+        expect(c).toHaveProperty('amount');
+        expect(c).toHaveProperty('incurredDate');
+        expect(c).toHaveProperty('runningTotal');
+    });
+
+    it('returns an empty result when the member has no deferred charges', () => {
+        const result = buildPendingChargesForShare(familyMembers, [], 2);
+        expect(result.charges).toEqual([]);
+        expect(result.total).toBe(0);
+        expect(result.count).toBe(0);
+    });
+
+    it('returns an empty result for an unknown member', () => {
+        const result = buildPendingChargesForShare(familyMembers, owedAdjustments, 999);
+        expect(result.charges).toEqual([]);
+        expect(result.count).toBe(0);
     });
 });
 

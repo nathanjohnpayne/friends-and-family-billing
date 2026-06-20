@@ -13,13 +13,14 @@ import EmailInvoiceDialog from '../../components/EmailInvoiceDialog.jsx';
 import TextInvoiceDialog from '../../components/TextInvoiceDialog.jsx';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
+import UsageChargeDialog from '../../components/UsageChargeDialog.jsx';
 
 /**
  * DashboardView — hero status panel + KPIs.
  * Port of renderDashboardStatus() from main.js.
  */
 export default function DashboardView() {
-    const { activeYear, familyMembers, bills, payments, creditAdjustments = [], loading, service } = useBillingData();
+    const { activeYear, familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], loading, service } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
 
@@ -180,8 +181,10 @@ export default function DashboardView() {
                 bills={bills}
                 payments={payments}
                 creditAdjustments={creditAdjustments}
+                owedAdjustments={owedAdjustments}
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
+                onAddCharge={memberId => setDialog({ type: 'addCharge', memberId })}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
                         showToast('No balance due\u2014nothing to invoice.');
@@ -270,6 +273,25 @@ export default function DashboardView() {
                         showToast={showToast}
                         onClose={() => setDialog({ type: null, memberId: null })}
                         onLinkGenerated={url => service.updateSettings({ invoiceShareUrl: url })}
+                    />
+                );
+            })()}
+
+            {dialog.type === 'addCharge' && (() => {
+                const member = familyMembers.find(m => m.id === dialog.memberId);
+                return (
+                    <UsageChargeDialog
+                        open
+                        memberName={member ? member.name : ''}
+                        onSubmit={data => {
+                            try {
+                                service.recordUsageCharge({ memberId: dialog.memberId, ...data });
+                                showToast('Usage charge recorded—pending, not yet billed.');
+                            } catch (err) {
+                                showToast('Error: ' + err.message);
+                            }
+                        }}
+                        onClose={() => setDialog({ type: null, memberId: null })}
                     />
                 );
             })()}

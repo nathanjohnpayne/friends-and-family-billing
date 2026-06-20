@@ -45,4 +45,48 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
   };
 }
 
-module.exports = { computeMemberSummary };
+/**
+ * Build the member-facing "Pending charges" payload for a share view (#317).
+ * Mirror of src/lib/share.js `buildPendingChargesForShare` for the Cloud Function
+ * (CommonJS) side. Returns the household's *deferred* Usage Charges (primary
+ * member plus linked members, per ADR 0001), sorted by incurred date, each with a
+ * running total, plus the household count and grand total.
+ *
+ * Only member-safe fields are exposed. Voided/billed charges and other households'
+ * charges are excluded. Deferred charges are NOT-YET-DUE and never touch owed.
+ *
+ * @param {Array} familyMembers
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @returns {{ charges: Array, total: number, count: number }}
+ */
+function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
+  const empty = { charges: [], total: 0, count: 0 };
+  const member = (familyMembers || []).find((m) => m.id === memberId);
+  if (!member) return empty;
+
+  const ids = [member.id, ...((member.linkedMembers) || [])];
+  const deferred = (owedAdjustments || []).filter(
+    (a) => a && a.kind === "usage_charge" && a.status === "deferred" && ids.includes(a.memberId)
+  );
+
+  deferred.sort((a, b) =>
+    String(a.incurredDate || "").localeCompare(String(b.incurredDate || ""))
+  );
+
+  let running = 0;
+  const charges = deferred.map((a) => {
+    running = Math.round((running + (a.amount || 0)) * 100) / 100;
+    return {
+      id: a.id,
+      description: a.description || "",
+      amount: a.amount || 0,
+      incurredDate: a.incurredDate || "",
+      runningTotal: running,
+    };
+  });
+
+  return { charges, total: running, count: charges.length };
+}
+
+module.exports = { computeMemberSummary, buildPendingChargesForShare };

@@ -16,8 +16,9 @@ Covers data serialization, normalization, initial data construction, save queue 
 
 ### Save Payload Construction
 
-- `buildSavePayload` includes all top-level fields: label, status, familyMembers, bills, payments, creditAdjustments, billingEvents, and settings.
+- `buildSavePayload` includes all top-level fields: label, status, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, and settings.
 - `creditAdjustments` (refunds + carried-forward credits, #316) is preserved verbatim and defaults to an empty array when omitted. Because `save()` writes with `setDoc` and no merge, an omitted field is erased from the document; preserving `creditAdjustments` keeps the load → save round-trip lossless.
+- `owedAdjustments` (Usage Charges, #317 — signed owed-modifiers) is preserved verbatim and defaults to an empty array when omitted, for the same reason: a full-document save would otherwise erase it.
 - QR codes are stripped from payment methods in the payload and replaced with a `hasQrCode: true` flag; the original settings object is not mutated.
 
 ### Year Data Normalization
@@ -25,11 +26,11 @@ Covers data serialization, normalization, initial data construction, save queue 
 - `normalizeYearData` applies defaults to members missing fields (empty string for email/phone/avatar, 0 for paymentReceived, empty array for linkedMembers).
 - Bills missing fields get defaults (empty string for logo/website, empty array for members, "monthly" for billingFrequency).
 - The year object receives fallback values for id, label ("open" status, null archivedAt).
-- Missing payments, creditAdjustments, and billingEvents arrays are initialized as empty arrays; a present `creditAdjustments` array is loaded through to state.
+- Missing payments, creditAdjustments, owedAdjustments, and billingEvents arrays are initialized as empty arrays; a present `creditAdjustments` or `owedAdjustments` array is loaded through to state.
 
 ### Initial Year Data
 
-- `buildInitialYearData` creates a year with the given label, "open" status, empty familyMembers, bills, payments, and creditAdjustments arrays, and the provided settings object.
+- `buildInitialYearData` creates a year with the given label, "open" status, empty familyMembers, bills, payments, creditAdjustments, and owedAdjustments arrays, and the provided settings object.
 
 ### SaveQueue
 
@@ -45,3 +46,4 @@ Covers data serialization, normalization, initial data construction, save queue 
 - `calculateAnnualSummary` (legacy) splits bills evenly among assigned members, excludes unassigned members, accumulates across multiple bills, and handles bills with no assigned members.
 - `recordPayment` (legacy) appends payment entries to the ledger, tracks via `getPaymentTotalForMember`, and rejects non-positive amounts.
 - The legacy `/site/` app and the React app share the same billing-year documents, so both must round-trip `creditAdjustments` losslessly (consumer parity). Legacy `loadBillingYearData` loads `normalized.creditAdjustments` into state and `saveData` passes it to `buildSavePayload`; because the legacy save also writes with a full-document `set()`, omitting it would erase existing disposition records.
+- The same consumer-parity rule applies to `owedAdjustments` (Usage Charges, #317): legacy `loadBillingYearData` loads `normalized.owedAdjustments` into state (and resets it to `[]` on the missing-year branch), `saveData` passes it to `buildSavePayload`, and the `_set`/`_get` accessors round-trip it; omitting it from the full-document `set()` would erase existing usage charges.

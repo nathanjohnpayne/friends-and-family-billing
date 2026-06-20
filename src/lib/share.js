@@ -6,12 +6,15 @@ import { sanitizeImageSrc } from './formatting.js';
  * Build the default scopes array for a share link.
  * @param {boolean} allowDisputeCreate
  * @param {boolean} allowDisputeRead
+ * @param {boolean} [allowUsageChargesRead]  expose the member's deferred Usage
+ *   Charges on their share page (#317). Defaults to false for backward compat.
  * @returns {string[]}
  */
-export function buildShareScopes(allowDisputeCreate, allowDisputeRead) {
+export function buildShareScopes(allowDisputeCreate, allowDisputeRead, allowUsageChargesRead) {
     const scopes = ['summary:read', 'paymentMethods:read'];
     if (allowDisputeCreate) scopes.push('disputes:create');
     if (allowDisputeRead) scopes.push('disputes:read');
+    if (allowUsageChargesRead) scopes.push('usageCharges:read');
     return scopes;
 }
 
@@ -181,4 +184,48 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
     }
 
     return data;
+}
+
+/**
+ * Build the member-facing "Pending charges" payload for a share view (#317).
+ * Returns the household's *deferred* Usage Charges (the primary member plus their
+ * linked members, per ADR 0001), sorted by incurred date, each annotated with a
+ * running total, plus the household count and grand total.
+ *
+ * Only member-safe fields are exposed (description, amount, incurredDate,
+ * runningTotal). Voided and already-billed charges, and charges belonging to
+ * other households, are excluded. Deferred charges are NOT-YET-DUE — this payload
+ * never touches owed or the settlement summary.
+ *
+ * @param {Array} familyMembers
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @returns {{ charges: Array<{ id: *, description: string, amount: number, incurredDate: string, runningTotal: number }>, total: number, count: number }}
+ */
+export function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
+    const empty = { charges: [], total: 0, count: 0 };
+    const member = (familyMembers || []).find(m => m.id === memberId);
+    if (!member) return empty;
+
+    const ids = [member.id, ...((member.linkedMembers) || [])];
+    const deferred = (owedAdjustments || []).filter(a =>
+        a && a.kind === 'usage_charge' && a.status === 'deferred' && ids.includes(a.memberId)
+    );
+
+    // Sort by incurred date ascending so the running total reads chronologically.
+    deferred.sort((a, b) => String(a.incurredDate || '').localeCompare(String(b.incurredDate || '')));
+
+    let running = 0;
+    const charges = deferred.map(a => {
+        running = Math.round((running + (a.amount || 0)) * 100) / 100;
+        return {
+            id: a.id,
+            description: a.description || '',
+            amount: a.amount || 0,
+            incurredDate: a.incurredDate || '',
+            runningTotal: running
+        };
+    });
+
+    return { charges, total: running, count: charges.length };
 }

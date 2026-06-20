@@ -50,6 +50,15 @@ export function generateUniquePaymentId() {
 }
 
 /**
+ * ID for an owed-adjustment record (Usage Charge, #317). Distinct prefix so
+ * adjustment records are never confused with payment-ledger entries.
+ * @returns {string}
+ */
+export function generateUniqueAdjustmentId() {
+    return 'oadj_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+}
+
+/**
  * @returns {string}
  */
 export function generateRawToken() {

@@ -458,3 +458,102 @@ describe('SettlementBoard — household credit', () => {
         expect(screen.getAllByText('Record Payment').length).toBeGreaterThanOrEqual(1);
     });
 });
+
+// ──────────────── Deferred usage charges (#317) ────────────────
+//
+// A deferred Usage Charge is recorded + visible but NOT yet billed: it must not
+// change Annual/Paid/Balance, but the board surfaces a per-household pending
+// count + running total and an "Add Charge" entry point.
+
+describe('SettlementBoard — deferred usage charges', () => {
+    it('shows a per-household pending charges total and count', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'deferred', description: 'Roaming', incurredDate: '2025-02-01' },
+            { id: 'o2', memberId: 2, kind: 'usage_charge', amount: 7.5, status: 'deferred', description: 'Add-on', incurredDate: '2025-03-01' }
+        ];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+            />
+        );
+        // "Pending charges: $20.00" surfaced on Bob's card
+        expect(screen.getByText(/Pending charges:\s*\$20\.00/)).toBeInTheDocument();
+    });
+
+    it('aggregates pending charges at the household grain (primary + linked)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', description: 'Alice charge', incurredDate: '2025-02-01' },
+            { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'deferred', description: 'Carol charge', incurredDate: '2025-03-01' }
+        ];
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+            />
+        );
+        expect(screen.getByText(/Pending charges:\s*\$15\.00/)).toBeInTheDocument();
+    });
+
+    it('does not show a pending charges line for a household with no deferred charges', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} owedAdjustments={[]} readOnly={false} />);
+        expect(screen.queryByText(/Pending charges:/)).toBeNull();
+    });
+
+    it('does NOT change the Annual/Balance figures (a deferred charge is not yet owed)', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 999, status: 'deferred', description: 'Huge', incurredDate: '2025-02-01' }
+        ];
+        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // Bob fully settled on bills
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={payments}
+                owedAdjustments={owedAdjustments}
+                readOnly={false}
+            />
+        );
+        // Bob still reads Settled despite the large deferred charge
+        expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders an Add Charge action in the expanded card and fires onAddCharge', () => {
+        const onAddCharge = vi.fn();
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={[]}
+                readOnly={false}
+                onAddCharge={onAddCharge}
+            />
+        );
+        expandCard('Bob');
+        const addBtn = screen.getByText('Add Charge');
+        fireEvent.click(addBtn);
+        expect(onAddCharge).toHaveBeenCalledWith(2);
+    });
+
+    it('hides the Add Charge action when readOnly', () => {
+        render(
+            <SettlementBoard
+                familyMembers={members}
+                bills={bills}
+                payments={[]}
+                owedAdjustments={[]}
+                readOnly={true}
+                onAddCharge={vi.fn()}
+            />
+        );
+        expandCard('Bob');
+        expect(screen.queryByText('Add Charge')).toBeNull();
+    });
+});
