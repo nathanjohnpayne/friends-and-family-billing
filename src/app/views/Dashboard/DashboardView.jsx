@@ -182,6 +182,14 @@ export default function DashboardView() {
                 creditAdjustments={creditAdjustments}
                 readOnly={isYearReadOnly(activeYear)}
                 onRecordPayment={data => service.recordPayment(data)}
+                onIssueRefund={data => {
+                    try {
+                        service.issueRefund(data);
+                        showToast('Refund recorded');
+                    } catch (err) {
+                        showToast('Error: ' + err.message);
+                    }
+                }}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
                         showToast('No balance due\u2014nothing to invoice.');

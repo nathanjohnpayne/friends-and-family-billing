@@ -458,3 +458,59 @@ describe('SettlementBoard — household credit', () => {
         expect(screen.getAllByText('Record Payment').length).toBeGreaterThanOrEqual(1);
     });
 });
+
+// ──────────────── Issue Refund action (#318) ────────────────
+//
+// Bob (independent) owes $480/yr; paying $548.98 leaves a $68.98 household credit.
+
+describe('SettlementBoard — Issue Refund', () => {
+    const overpaid = [{ memberId: 2, amount: 548.98, method: 'cash' }];
+
+    it('shows Issue Refund in the expanded card for a household with a credit', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={() => {}} />);
+        expandCard('Bob');
+        expect(screen.getAllByText('Issue Refund').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not show Issue Refund for a household with no credit', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} onIssueRefund={() => {}} />);
+        expandCard('Bob');
+        expect(screen.queryByText('Issue Refund')).toBeNull();
+    });
+
+    it('hides Issue Refund when readOnly', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={true} onIssueRefund={() => {}} />);
+        expandCard('Bob');
+        expect(screen.queryByText('Issue Refund')).toBeNull();
+    });
+
+    it('opens a refund dialog defaulting the amount to the household credit', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={() => {}} />);
+        expandCard('Bob');
+        fireEvent.click(screen.getByText('Issue Refund'));
+        expect(screen.getByText('Save Refund')).toBeInTheDocument();
+        expect(screen.getByLabelText(/Refund amount/).value).toBe('68.98');
+    });
+
+    it('calls onIssueRefund with memberId, amount, method, and reason', () => {
+        const onIssueRefund = vi.fn();
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={onIssueRefund} />);
+        expandCard('Bob');
+        fireEvent.click(screen.getByText('Issue Refund'));
+        fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Overpaid Q1' } });
+        fireEvent.click(screen.getByText('Save Refund'));
+        expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({
+            memberId: 2, amount: 68.98, reason: 'Overpaid Q1'
+        }));
+    });
+
+    it('requires a reason before submitting', () => {
+        const onIssueRefund = vi.fn();
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={onIssueRefund} />);
+        expandCard('Bob');
+        fireEvent.click(screen.getByText('Issue Refund'));
+        fireEvent.click(screen.getByText('Save Refund'));
+        expect(onIssueRefund).not.toHaveBeenCalled();
+        expect(screen.getByText(/reason is required/i)).toBeInTheDocument();
+    });
+});
