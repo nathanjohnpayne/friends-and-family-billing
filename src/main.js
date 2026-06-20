@@ -115,7 +115,7 @@ function getPaymentTotalForMember(memberId) { return _getPaymentTotalForMember(p
 function getMemberPayments(memberId) { return _getMemberPayments(payments, memberId); }
 function isLinkedToAnyone(memberId) { return _isLinkedToAnyone(familyMembers, memberId); }
 function getParentMember(memberId) { return _getParentMember(familyMembers, memberId); }
-function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, owedAdjustments); }
+function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, null, owedAdjustments); }
 function getEnabledPaymentMethods() { return (settings.paymentMethods || []).filter(m => m.enabled); }
 
 // Version checking — polls version.json to detect deploys while the page is open

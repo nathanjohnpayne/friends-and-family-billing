@@ -114,7 +114,10 @@ function toIso(v) {
  */
 function projectMemberDisputes(docs) {
   return (docs || [])
-    .filter((data) => data && data.kind !== CHARGE_NOTICE_KIND)
+    // Charge Notices (#320) and Refund Notices (#319) ride the same disputes
+    // subcollection but are outbound Requests, not Review Requests — exclude both
+    // so a disputes:read link never renders them as empty Review Requests.
+    .filter((data) => data && data.kind !== CHARGE_NOTICE_KIND && data.kind !== "refund_notice")
     .map((data) => {
       let status = data.status || "open";
       if (status === "pending") status = "open";

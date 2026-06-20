@@ -14,6 +14,7 @@ const MembersTab = lazy(() => import('./views/Manage/MembersTab.jsx'));
 const BillsTab = lazy(() => import('./views/Manage/BillsTab.jsx'));
 const InvoicingTab = lazy(() => import('./views/Manage/InvoicingTab.jsx'));
 const ReviewsTab = lazy(() => import('./views/Manage/ReviewsTab.jsx'));
+const RefundNoticesTab = lazy(() => import('./views/Manage/RefundNoticesTab.jsx'));
 const SettingsView = lazy(() => import('./views/Settings/SettingsView.jsx'));
 const ShareView = lazy(() => import('./views/ShareView.jsx'));
 
@@ -49,6 +50,7 @@ export function AppRoutes() {
                     <Route path="bills" element={<BillsTab />} />
                     <Route path="invoicing" element={<InvoicingTab />} />
                     <Route path="reviews" element={<ReviewsTab />} />
+                    <Route path="refunds" element={<RefundNoticesTab />} />
                 </Route>
                 <Route path="settings" element={<SettingsView />} />
             </Route>

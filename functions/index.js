@@ -272,11 +272,30 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .where("memberId", "==", tokenData.memberId)
         .get();
 
-      // Charge Notices (#320) share this subcollection but are outbound Requests, not
-      // Review Requests — projectMemberDisputes excludes them (ADR 0002, ADR 0005).
+      // Refund Notices (#319) and Charge Notices (#320) share this subcollection but
+      // are outbound Requests, not Review Requests — projectMemberDisputes excludes
+      // both kinds so a normal disputes:read link never renders them as empty
+      // Review Requests (ADR 0002, ADR 0005).
       result.disputes = projectMemberDisputes(
         disputesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       );
+    }
+
+    // Refund Notices (#319) — outbound Requests sharing the disputes subcollection.
+    // Member sees only THEIR OWN notices (ADR 0005); the CF filters by memberId.
+    if (scopes.includes("refunds:read")) {
+      const refundSnap = await db
+        .collection("users")
+        .doc(tokenData.ownerId)
+        .collection("billingYears")
+        .doc(tokenData.billingYearId)
+        .collection("disputes")
+        .where("kind", "==", "refund_notice")
+        .where("memberId", "==", tokenData.memberId)
+        .get();
+
+      const refundDocs = refundSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      result.refundNotices = filterMemberRefundNotices(refundDocs, tokenData.memberId);
     }
 
     // Deferred Usage Charges (#317): the member's NOT-YET-DUE pending charges,
@@ -369,7 +388,75 @@ function validateDisputeInput({ billId, billName, message, proposedCorrection })
 
 const LINK_REQUEST_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-exports._testHelpers = { validateToken, validateDisputeInput, DISPUTE_RATE_LIMIT, EVIDENCE_URL_EXPIRY_MS, LINK_REQUEST_RATE_WINDOW_MS };
+// ── Refund Notice (#319) ────────────────────────────────────────────────────
+//
+// A Refund Notice is an OUTBOUND Request riding the shared `disputes`
+// subcollection as a distinct KIND (ADR 0002). Members confirm receipt or report
+// non-receipt via submitRefundConfirmation — they never write Firestore directly.
+
+const REFUND_NOTICE_KIND = "refund_notice";
+
+/** Map the wire `outcome` to the stored confirmation state. Returns null for unknown. */
+function refundConfirmationOutcome(outcome) {
+  if (outcome === "confirm") return "confirmed_by_member";
+  if (outcome === "not_received") return "not_received";
+  return null;
+}
+
+/**
+ * Validate a submitRefundConfirmation request body. Only `confirm` and
+ * `not_received` are accepted — never the Review Request vocabulary or any
+ * other field name (members cannot write arbitrary fields).
+ */
+function validateRefundConfirmationInput({ noticeId, outcome }) {
+  if (!noticeId || typeof noticeId !== "string") {
+    return { valid: false, status: 400, error: "Missing refund notice ID." };
+  }
+  if (refundConfirmationOutcome(outcome) === null) {
+    return { valid: false, status: 400, error: "Outcome must be 'confirm' or 'not_received'." };
+  }
+  return { valid: true };
+}
+
+/**
+ * Project the token member's OWN Refund Notices for the share page.
+ * ADR 0005 lesson: filter to the token member's memberId — NEVER expand to the
+ * household. A refund is issued to the primary, so it appears on the primary's
+ * share only. Only presentational fields are returned (tokenHash never leaks).
+ *
+ * @param {Array<Object>} docs — raw notice/dispute docs (with an `id`)
+ * @param {number} memberId — the share token's member
+ * @returns {Array<Object>}
+ */
+function filterMemberRefundNotices(docs, memberId) {
+  return (docs || [])
+    .filter((d) => d && d.kind === REFUND_NOTICE_KIND && d.memberId === memberId)
+    .map((d) => ({
+      id: d.id,
+      memberId: d.memberId,
+      amount: d.amount,
+      method: d.method || null,
+      reason: d.reason || null,
+      confirmation: d.confirmation || null,
+      resolution: d.resolution ? { type: d.resolution.type } : null,
+      createdAt: d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().toISOString()
+        : (typeof d.createdAt === "string" ? d.createdAt : null),
+      confirmedAt: d.confirmedAt && d.confirmedAt.toDate ? d.confirmedAt.toDate().toISOString()
+        : (typeof d.confirmedAt === "string" ? d.confirmedAt : null),
+    }));
+}
+
+exports._testHelpers = {
+  validateToken,
+  validateDisputeInput,
+  validateRefundConfirmationInput,
+  filterMemberRefundNotices,
+  refundConfirmationOutcome,
+  REFUND_NOTICE_KIND,
+  DISPUTE_RATE_LIMIT,
+  EVIDENCE_URL_EXPIRY_MS,
+  LINK_REQUEST_RATE_WINDOW_MS,
+};
 
 /**
  * requestShareLink — allows a member visiting an expired/revoked link to
@@ -829,6 +916,137 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
     res.status(200).json({ message: "Decision recorded successfully." });
   } catch (err) {
     console.error("submitDisputeDecision error:", err);
+    res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+  }
+});
+
+/**
+ * submitRefundConfirmation (#319) — the member's advisory response to a Refund
+ * Notice. Records `confirmed_by_member` or `not_received` on the member's OWN
+ * refund_notice Request. Confirmation does NOT change settlement (the
+ * creditAdjustment already cleared the gate in #318, ADR 0003). An active
+ * `not_received` surfaces to the admin as a follow-up.
+ *
+ * SECURITY (HIGH-RISK, mirrors submitDisputeDecision):
+ * - requires a valid, unexpired, non-revoked share token with the refunds:read scope
+ * - only writes a notice whose memberId === the token's memberId (no household reach)
+ * - only ever writes confirmation/confirmedAt — never arbitrary fields
+ * - idempotent: a second submit is a no-op once a confirmation is recorded
+ */
+exports.submitRefundConfirmation = onRequest({ region: "us-central1" }, async (req, res) => {
+  setCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { token, noticeId, outcome } = req.body || {};
+
+  const tokenCheck = validateToken(token);
+  if (!tokenCheck.valid) {
+    res.status(tokenCheck.status).json({ error: tokenCheck.error });
+    return;
+  }
+
+  const inputCheck = validateRefundConfirmationInput({ noticeId, outcome });
+  if (!inputCheck.valid) {
+    res.status(inputCheck.status).json({ error: inputCheck.error });
+    return;
+  }
+
+  try {
+    const result = await resolveAndValidateToken(token, "refunds:read");
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    const { tokenData } = result;
+
+    const noticeRef = db
+      .collection("users")
+      .doc(tokenData.ownerId)
+      .collection("billingYears")
+      .doc(tokenData.billingYearId)
+      .collection("disputes")
+      .doc(noticeId);
+
+    const noticeDoc = await noticeRef.get();
+
+    if (!noticeDoc.exists) {
+      res.status(404).json({ error: "Refund notice not found." });
+      return;
+    }
+
+    const noticeData = noticeDoc.data();
+
+    // Must be a Refund Notice (never let this CF mutate a Review Request).
+    if (noticeData.kind !== REFUND_NOTICE_KIND) {
+      res.status(400).json({ error: "This is not a refund notice." });
+      return;
+    }
+
+    // Per-member scope (ADR 0005): only the member the notice belongs to may respond.
+    if (noticeData.memberId !== tokenData.memberId) {
+      res.status(403).json({ error: "Access denied." });
+      return;
+    }
+
+    const newConfirmation = refundConfirmationOutcome(outcome);
+
+    // Idempotent: a confirmation is terminal. A member who already responded
+    // cannot flip the outcome (re-opening a not_received is the admin's job).
+    if (noticeData.confirmation) {
+      res.status(200).json({ message: "Response already recorded.", alreadyRecorded: true });
+      return;
+    }
+
+    // Only ever write the confirmation fields — never anything else.
+    await noticeRef.update({
+      confirmation: newConfirmation,
+      confirmedAt: FieldValue.serverTimestamp(),
+    });
+
+    appendAuditLog(tokenData.ownerId, {
+      action: "refund_confirmation",
+      noticeId: noticeId,
+      outcome: newConfirmation,
+      memberId: tokenData.memberId,
+      billingYearId: tokenData.billingYearId,
+      ip: req.ip || null,
+    });
+
+    // Notify the admin — a not_received is an actionable follow-up.
+    try {
+      const adminUser = await getAuth().getUser(tokenData.ownerId);
+      if (adminUser.email) {
+        const memberName = tokenData.memberName || "A member";
+        if (newConfirmation === "not_received") {
+          const nSubject = "Refund Not Received—" + memberName;
+          let nBody = "**" + memberName + "** reported they have **not received** their refund.\n\n";
+          nBody += "Follow up by re-sending the refund, cancelling it, or dismissing the report with a reason.\n\n";
+          nBody += "[Open Dashboard](" + APP_ORIGIN + "/app/)";
+          await queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+        } else {
+          const nSubject = "Refund Confirmed—" + memberName;
+          let nBody = "**" + memberName + "** confirmed they received their refund.\n\n";
+          nBody += "No further action is needed.";
+          await queueEmailFromFunction(adminUser.email, nSubject, nBody, tokenData.ownerId);
+        }
+      }
+    } catch (emailErr) {
+      console.error("Refund confirmation notification failed:", emailErr);
+    }
+
+    res.status(200).json({ message: "Response recorded successfully." });
+  } catch (err) {
+    console.error("submitRefundConfirmation error:", err);
     res.status(500).json({ error: "An unexpected error occurred. Please try again." });
   }
 });

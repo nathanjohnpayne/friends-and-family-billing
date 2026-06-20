@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -72,7 +72,11 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // household (net == owed) reads Settled, and a household pushed net-underpaid
         // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
         // showing gross money received.
-        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        //
+        // ADR 0003: a refund whose member reported an active, unresolved
+        // not_received is re-opened (its disposition excluded), so Net Contribution
+        // rises back and the household's credit is owed again while the year is open.
+        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds);
         const balance = combinedTotal - netContribution;
         const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
         const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';

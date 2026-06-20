@@ -23,7 +23,9 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, owedAdjustments);
+        // reopenedAdjustmentIds is null here: the close-gate outstanding figure does not
+        // re-open credits (#319), and a re-opened credit never creates a shortfall anyway.
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;
     });

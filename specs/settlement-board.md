@@ -41,6 +41,7 @@ Covers the settlement board component for tracking household payment status, the
 - Secondary actions (Email Invoice, Generate Share Link, Manage Share Links) are in a three-dot overflow menu.
 - Shows "Record Payment" button for outstanding members; hides it when `readOnly` is true or when the member is fully settled.
 - Shows an "Issue Refund" button (#318) in the expanded card for a household carrying a credit (beyond the epsilon); hides it when `readOnly`. It opens a refund dialog with the amount defaulted to the household credit and capped at it, a method selector, and a required reason; on submit it calls `onIssueRefund` with `{ memberId, amount, method, reason }` (and validates a non-empty reason and a valid amount within the credit).
+- On the dashboard, `onIssueRefund` records the authoritative `creditAdjustment` via `service.issueRefund` and then fires a Refund Notice (#319) keyed to that `creditAdjustmentId` (member email + outbound `refund_notice` Request) as a non-blocking follow-up; an error in the notice path does not block the recorded refund.
 - Opens a payment dialog with amount input, method selector, and "Save Payment" button on "Record Payment" click.
 - Validates payment amount before submission (shows "Enter a valid amount." for invalid input).
 - Calls `onRecordPayment` with memberId, amount, method, and note when submitted.
@@ -109,7 +110,7 @@ Covers the settlement board component for tracking household payment status, the
   - Each enabled button triggers a ConfirmDialog before executing the transition.
 - Renders KPI cards for Outstanding, Owed to Members, Settled, and Open Reviews (4 cards; Status card removed as redundant with stepper).
 - The "Owed to Members" KPI shows the sum of unresolved household credits (`totalCreditsOwed`), distinct from "Outstanding"; it reads "None" when zero and a dollar amount otherwise, with the subtitle "Unresolved credits".
-- Open Reviews card shows "Review requests" subtitle text below the count.
+- Open Reviews card shows "Review requests" subtitle text below the count. The count excludes Refund Notices (`kind === 'refund_notice'`)—they are outbound/cooperative, surfaced on their own Refund Notices tab, never in this KPI (#319).
 - Renders progress bar with percentage and settlement message.
 - Progress bar headline is accurate for every lifecycle phase: "Planning in progress" (Open, < 100%), "Ready to start settlement" (Open, 100% settled), "Settlement in progress" (Settling), "Settlement complete" (Settling, all paid), "Year closed" (Closed), "Archive view" (Archived).
 - Shows empty state ("Add members and bills") when no members exist.

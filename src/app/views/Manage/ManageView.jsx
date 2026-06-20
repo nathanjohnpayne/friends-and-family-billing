@@ -4,7 +4,8 @@ const TABS = [
     { to: 'members', label: 'Members' },
     { to: 'bills', label: 'Bills' },
     { to: 'invoicing', label: 'Invoicing' },
-    { to: 'reviews', label: 'Review Requests' }
+    { to: 'reviews', label: 'Review Requests' },
+    { to: 'refunds', label: 'Refund Notices' }
 ];
 
 /**
