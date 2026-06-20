@@ -54,17 +54,27 @@ describe('buildPendingChargesForShare', () => {
         { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'deferred', description: 'Add-on', incurredDate: '2025-01-10' },
         { id: 'o3', memberId: 2, kind: 'usage_charge', amount: 99, status: 'deferred', description: 'Other household', incurredDate: '2025-01-01' },
         { id: 'o4', memberId: 1, kind: 'usage_charge', amount: 77, status: 'voided', description: 'Voided', incurredDate: '2025-01-05' },
-        { id: 'o5', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed', description: 'Already billed', incurredDate: '2025-01-06' }
+        { id: 'o5', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed', description: 'Already billed', incurredDate: '2025-01-06' },
+        { id: 'o6', memberId: 1, kind: 'usage_charge', amount: 20, status: 'deferred', description: 'Earlier roaming', incurredDate: '2025-01-15' }
     ];
 
-    it('returns only this household deferred charges, sorted by incurred date, with a running total', () => {
+    it('returns only this member own deferred charges, sorted by incurred date, with a running total', () => {
         const result = buildPendingChargesForShare(familyMembers, owedAdjustments, 1);
-        // Alice (1) + Carol (3) deferred only; voided + billed + Bob excluded
-        expect(result.charges.map(c => c.id)).toEqual(['o2', 'o1']); // sorted by incurredDate asc
-        expect(result.charges[0].runningTotal).toBeCloseTo(5, 5);
-        expect(result.charges[1].runningTotal).toBeCloseTo(15, 5);
-        expect(result.total).toBeCloseTo(15, 5);
+        // Per-member (ADR 0005): Alice's OWN deferred only. Carol's o2 belongs on
+        // Carol's own share page, not Alice's; voided (o4), billed (o5), Bob (o3) excluded.
+        expect(result.charges.map(c => c.id)).toEqual(['o6', 'o1']); // sorted by incurredDate asc
+        expect(result.charges[0].runningTotal).toBeCloseTo(20, 5);
+        expect(result.charges[1].runningTotal).toBeCloseTo(30, 5);
+        expect(result.total).toBeCloseTo(30, 5);
         expect(result.count).toBe(2);
+    });
+
+    it('a linked member sees only their own deferred charges, not the household (ADR 0005)', () => {
+        // Carol (3) is linked to Alice but her share shows only her own charge (o2).
+        const result = buildPendingChargesForShare(familyMembers, owedAdjustments, 3);
+        expect(result.charges.map(c => c.id)).toEqual(['o2']);
+        expect(result.total).toBeCloseTo(5, 5);
+        expect(result.count).toBe(1);
     });
 
     it('exposes member-safe fields only (no internal status/kind leakage of other members)', () => {

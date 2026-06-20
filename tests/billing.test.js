@@ -1771,13 +1771,19 @@ describe('buildPendingChargesForShare (Cloud Function)', () => {
         { id: 'o5', memberId: 1, kind: 'usage_charge', amount: 50, status: 'billed', description: 'Billed', incurredDate: '2025-01-06' },
     ];
 
-    it('returns this household deferred charges only, sorted with running totals', () => {
+    it('returns the member own deferred charges only, sorted with running totals', () => {
         const result = cfBuildPendingCharges(familyMembers, owedAdjustments, 1);
-        assert.deepEqual(result.charges.map((c) => c.id), ['o2', 'o1']);
-        assert.equal(result.count, 2);
-        assert.ok(Math.abs(result.total - 15) < 1e-9);
-        assert.ok(Math.abs(result.charges[0].runningTotal - 5) < 1e-9);
-        assert.ok(Math.abs(result.charges[1].runningTotal - 15) < 1e-9);
+        // Per-member (ADR 0005): Alice's own deferred only; Carol's o2 is on Carol's share.
+        assert.deepEqual(result.charges.map((c) => c.id), ['o1']);
+        assert.equal(result.count, 1);
+        assert.ok(Math.abs(result.total - 10) < 1e-9);
+        assert.ok(Math.abs(result.charges[0].runningTotal - 10) < 1e-9);
+    });
+
+    it('a linked member sees only their own deferred charges (ADR 0005)', () => {
+        const result = cfBuildPendingCharges(familyMembers, owedAdjustments, 3);
+        assert.deepEqual(result.charges.map((c) => c.id), ['o2']);
+        assert.equal(result.count, 1);
     });
 
     it('excludes voided and billed charges', () => {

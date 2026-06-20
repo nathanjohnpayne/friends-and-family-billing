@@ -207,9 +207,11 @@ export function buildPendingChargesForShare(familyMembers, owedAdjustments, memb
     const member = (familyMembers || []).find(m => m.id === memberId);
     if (!member) return empty;
 
-    const ids = [member.id, ...((member.linkedMembers) || [])];
+    // Per-member (ADR 0005): a member sees their OWN deferred charges on their share
+    // page — "a linked member sees their own pending charges". The household grain is
+    // only for the admin settlement board, not this member-facing view.
     const deferred = (owedAdjustments || []).filter(a =>
-        a && a.kind === 'usage_charge' && a.status === 'deferred' && ids.includes(a.memberId)
+        a && a.kind === 'usage_charge' && a.status === 'deferred' && a.memberId === memberId
     );
 
     // Sort by incurred date ascending so the running total reads chronologically.

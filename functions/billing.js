@@ -48,9 +48,9 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
 /**
  * Build the member-facing "Pending charges" payload for a share view (#317).
  * Mirror of src/lib/share.js `buildPendingChargesForShare` for the Cloud Function
- * (CommonJS) side. Returns the household's *deferred* Usage Charges (primary
- * member plus linked members, per ADR 0001), sorted by incurred date, each with a
- * running total, plus the household count and grand total.
+ * (CommonJS) side. Returns the token member's OWN *deferred* Usage Charges
+ * (per-member, ADR 0005 — "a linked member sees their own pending charges"),
+ * sorted by incurred date, each with a running total, plus a count and grand total.
  *
  * Only member-safe fields are exposed. Voided/billed charges and other households'
  * charges are excluded. Deferred charges are NOT-YET-DUE and never touch owed.
@@ -65,9 +65,10 @@ function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
   const member = (familyMembers || []).find((m) => m.id === memberId);
   if (!member) return empty;
 
-  const ids = [member.id, ...((member.linkedMembers) || [])];
+  // Per-member (ADR 0005): a member sees their OWN deferred charges on their share
+  // page, not the whole household's. The household grain is only for the admin board.
   const deferred = (owedAdjustments || []).filter(
-    (a) => a && a.kind === "usage_charge" && a.status === "deferred" && ids.includes(a.memberId)
+    (a) => a && a.kind === "usage_charge" && a.status === "deferred" && a.memberId === memberId
   );
 
   deferred.sort((a, b) =>
