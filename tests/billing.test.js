@@ -1335,6 +1335,27 @@ describe('saveData owedAdjustments preservation', () => {
         ctx._set('owedAdjustments', owedAdjustments);
         assert.deepEqual(ctx._get('owedAdjustments'), owedAdjustments);
     });
+
+    it('preserves a BILLED charge with its Charge Notice fields verbatim (#320 dual-app parity)', async () => {
+        // The React app bills a charge (deferred → billed, stamping chargeNoticeId +
+        // billedAt). A legacy full-document save must not drop the new status or fields,
+        // or the shared doc would silently lose the billing on the next legacy save.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] }]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed', chargeNoticeId: 'cn_1', billedAt: '2026-06-20T00:00:00Z', description: 'Roaming', incurredDate: '2026-06-03' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const payload = ctx._saved[ctx._saved.length - 1][0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+        assert.equal(payload.owedAdjustments[0].status, 'billed');
+        assert.equal(payload.owedAdjustments[0].chargeNoticeId, 'cn_1');
+        assert.equal(payload.owedAdjustments[0].billedAt, '2026-06-20T00:00:00Z');
+    });
 });
 
 // ──────────────── generateRawToken ────────────────────────────
@@ -1880,6 +1901,23 @@ describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
         seed(ctx);
         const data = ctx.buildPublicShareData(1, ['summary:read']);
         assert.equal(data.pendingCharges, undefined);
+    });
+
+    it('excludes a BILLED charge from the member pendingCharges (it is now owed, not pending) (#320)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Internet', amount: 100, logo: '', website: '', members: [1] }]);
+        ctx._set('payments', []);
+        ctx._set('owedAdjustments', [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 12, status: 'deferred', description: 'Still pending', incurredDate: '2026-02-01' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 30, status: 'billed', chargeNoticeId: 'cn_1', description: 'Now billed', incurredDate: '2026-03-01' }
+        ]);
+        ctx._set('currentBillingYear', { id: '2026', label: '2026' });
+
+        const data = ctx.buildPublicShareData(1, ['summary:read', 'usageCharges:read']);
+        // Only the deferred charge is "pending"; the billed one has moved to owed.
+        assert.equal(data.pendingCharges.count, 1);
+        assert.equal(data.pendingCharges.charges[0].id, 'o1');
     });
 });
 

@@ -7,6 +7,8 @@ spec_test_map:
     - "tests/react/lib/billing-year.test.js"
     - "tests/react/lib/BillingYearService.test.js"
     - "tests/react/lib/BillingYearService.mutations.test.js"
+    - "tests/react/lib/chargeNotice.test.js"
+    - "tests/react/lib/ChargeNoticeService.test.js"
   billing-persistence:
     - "tests/react/lib/persistence.test.js"
     - "tests/react/lib/SaveQueue.test.js"
@@ -15,6 +17,7 @@ spec_test_map:
     - "tests/react/components/SettlementBoard.test.jsx"
     - "tests/react/views/BillsTab.test.jsx"
     - "tests/react/views/DashboardView.test.jsx"
+    - "tests/react/components/ChargeNoticeDialog.test.jsx"
   invoicing:
     - "tests/react/lib/invoice.test.js"
     - "tests/react/views/InvoicingTab.test.jsx"
