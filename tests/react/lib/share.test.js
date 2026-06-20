@@ -123,6 +123,17 @@ describe('buildPendingChargesForShare', () => {
         expect(result.charges).toEqual([]);
         expect(result.count).toBe(0);
     });
+
+    it('adds refunds:read when allowed (#319)', () => {
+        const scopes = buildShareScopes(false, false, true);
+        expect(scopes).toContain('refunds:read');
+        expect(scopes).not.toContain('disputes:read');
+    });
+
+    it('omits refunds:read when the third arg is falsy', () => {
+        expect(buildShareScopes(false, false)).not.toContain('refunds:read');
+        expect(buildShareScopes(true, true, false)).not.toContain('refunds:read');
+    });
 });
 
 describe('buildShareTokenDoc', () => {

@@ -222,6 +222,16 @@ describe('getCreditAdjustmentTotalForMember', () => {
         expect(getCreditAdjustmentTotalForMember([], 1)).toBe(0);
         expect(getCreditAdjustmentTotalForMember(undefined, 1)).toBe(0);
     });
+
+    it('excludes an adjustment whose id is in the reopened set (#319, ADR 0003)', () => {
+        // c1 (the 50 refund) re-opened by an active not_received — only c2 (20) remains.
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, new Set(['c1']))).toBe(20);
+    });
+
+    it('counts every active adjustment when the reopened set is null or empty', () => {
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, null)).toBe(70);
+        expect(getCreditAdjustmentTotalForMember(adjustments, 1, new Set())).toBe(70);
+    });
 });
 
 describe('getHouseholdFinancials', () => {
@@ -285,6 +295,16 @@ describe('getHouseholdFinancials', () => {
         expect(f.grossPaid).toBe(1200);
         expect(f.netContribution).toBe(1200);
         expect(f.credit).toBe(0); // internal imbalance is invisible to the household credit
+    });
+
+    it('re-opens the credit when its refund is in the reopened set (#319, ADR 0003)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }]; // owed 600
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        // Without re-open the refund disposes the credit (net 600, credit 0). With c1
+        // re-opened, the disposition is excluded: net climbs back and the credit is owed again.
+        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments, new Set(['c1']));
+        expect(f.netContribution).toBeCloseTo(668.98, 5);
+        expect(f.credit).toBeCloseTo(68.98, 5);
     });
 });
 
@@ -369,6 +389,26 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         expect(m.totalOutstanding).toBeCloseTo(100, 5);       // not the global 31.02
         expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);      // Alice's credit, separate axis
         expect(m.percentage).toBe(92);                         // (1200 − 100) / 1200, not gross 97
+    });
+
+    it('re-opens a not-received refund into totalCreditsOwed without touching outstanding (#319, ADR 0003)', () => {
+        // Alice's 68.98 refund was recorded (credit disposed), but she reported not_received.
+        // While the year is open the refund re-opens: the credit is owed again, yet outstanding
+        // stays zero (a re-opened credit is overpayment owed back, never a shortfall) and the
+        // household still counts as settled.
+        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set(['c1']));
+        expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.paidCount).toBe(2);
+    });
+
+    it('keeps the refund disposed when the reopened set is empty (closed year / no active not_received)', () => {
+        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
+        const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set());
+        expect(m.totalCreditsOwed).toBe(0);
     });
 });
 
