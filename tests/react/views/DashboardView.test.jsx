@@ -274,6 +274,40 @@ describe('DashboardView', () => {
             expect(within(outstandingCard).getByText('$40.00')).toBeInTheDocument();
         });
 
+        it('bills a linked member deferred charge through the full wiring (ADR 0001)', () => {
+            // Alice (primary) links Carol; only Carol has a deferred charge. Billing the
+            // household must reach Carol's charge — the dialog previews it and the
+            // confirm passes its real id to billDeferredCharges keyed to the primary.
+            const billDeferredCharges = vi.fn(() => ({
+                chargeNoticeId: 'cn_1', memberId: 1, amount: 9, chargeIds: ['c1'],
+                charges: [{ id: 'c1', description: 'Carol roaming', amount: 9, incurredDate: '2026-06-04' }]
+            }));
+            const service = {
+                getState: vi.fn(() => ({ settings: {} })),
+                recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
+                billDeferredCharges
+            };
+            renderDashboard({
+                familyMembers: [
+                    { id: 1, name: 'Alice', email: 'a@x.com', phone: '', avatar: '', linkedMembers: [3], paymentReceived: 0 },
+                    { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+                    { id: 3, name: 'Carol', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+                ],
+                owedAdjustments: [
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 9, status: 'deferred', description: 'Carol roaming', incurredDate: '2026-06-04' }
+                ],
+                service
+            });
+            // Alice's household card carries the Bill Charges action (household-grain).
+            fireEvent.click(screen.getByText('Alice').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            expect(screen.getByText('Carol roaming')).toBeInTheDocument(); // previewed in the dialog
+            fireEvent.click(screen.getByText('Bill & Notify'));
+            const arg = billDeferredCharges.mock.calls[0][0];
+            expect(arg.memberId).toBe(1);          // keyed to the primary
+            expect(arg.chargeIds).toEqual(['c1']);  // the linked member's charge
+        });
+
         it('a DEFERRED charge does NOT raise the dashboard Outstanding KPI', () => {
             renderDashboard({
                 payments: [

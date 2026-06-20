@@ -56,6 +56,16 @@ describe('selectBillableCharges', () => {
         expect(selectBillableCharges([], 1)).toEqual([]);
         expect(selectBillableCharges(undefined, 1)).toEqual([]);
     });
+
+    it('accepts an array of member ids for household-grain selection (ADR 0001)', () => {
+        // Bill across a household: member 1 plus a linked member 2.
+        const hh = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+            { id: 'oL', memberId: 2, kind: 'usage_charge', amount: 4, status: 'deferred', incurredDate: '2026-06-04' }
+        ];
+        const sel = selectBillableCharges(hh, [1, 2]);
+        expect(sel.map(c => c.id)).toEqual(['o1', 'oL']);
+    });
 });
 
 describe('monthRange', () => {

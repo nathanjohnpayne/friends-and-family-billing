@@ -35,22 +35,24 @@ export function isChargeNotice(request) {
 }
 
 /**
- * Select a member's *deferred* Usage Charges that are billable now, optionally
- * filtered to an inclusive incurred-date range (the period). Defaults to ALL of
- * the member's own deferred charges. Already-billed, voided, other-member, and
- * credit-direction (Service Credit) adjustments are excluded. Sorted by incurred
- * date ascending so a preview reads chronologically.
+ * Select *deferred* Usage Charges that are billable now for one member OR a whole
+ * household (pass an array of member ids — primary plus linked, ADR 0001 grain),
+ * optionally filtered to an inclusive incurred-date range (the period). Defaults to
+ * ALL of the deferred charges for the given member(s). Already-billed, voided,
+ * other-member, and credit-direction (Service Credit) adjustments are excluded.
+ * Sorted by incurred date ascending so a preview reads chronologically.
  *
  * @param {Array} owedAdjustments
- * @param {*} memberId  the member being off-cycle-billed
+ * @param {*|Array} memberId  the member id, or an array of household member ids
  * @param {{ from?: string, to?: string }} [range]  inclusive YYYY-MM-DD bounds
  * @returns {Array} the matching deferred usage-charge records
  */
 export function selectBillableCharges(owedAdjustments, memberId, range = {}) {
     const { from, to } = range;
+    const ids = Array.isArray(memberId) ? memberId : [memberId];
     return (owedAdjustments || [])
         .filter(a =>
-            a && a.memberId === memberId && a.kind === 'usage_charge' && a.status === 'deferred'
+            a && ids.includes(a.memberId) && a.kind === 'usage_charge' && a.status === 'deferred'
         )
         .filter(a => {
             const d = String(a.incurredDate || '');

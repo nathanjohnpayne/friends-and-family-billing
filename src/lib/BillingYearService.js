@@ -1022,8 +1022,10 @@ export class BillingYearService {
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
 
-        // Select the deferred charges to bill (default: all of this member's).
-        let selected = selectBillableCharges(owedAdjustments, data.memberId, data.range || {});
+        // Select the deferred charges to bill at the household grain (ADR 0001):
+        // the primary plus their linked members. Default: all of the household's.
+        const householdIds = [member.id, ...(member.linkedMembers || [])];
+        let selected = selectBillableCharges(owedAdjustments, householdIds, data.range || {});
         if (Array.isArray(data.chargeIds)) {
             const wanted = new Set(data.chargeIds);
             selected = selected.filter(c => wanted.has(c.id));

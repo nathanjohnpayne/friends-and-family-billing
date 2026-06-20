@@ -587,6 +587,35 @@ describe('BillingYearService', () => {
             expect(owedAdjustments.find(a => a.id === 'o1').status).toBe('deferred');
         });
 
+        it('bills a linked member charge when billing the household primary (ADR 0001 grain)', () => {
+            // Alice (primary, id 1) links Carol (id 3). Carol has a deferred charge.
+            // Billing the household must flip Carol's charge too, not just Alice's.
+            seedWithCharges({
+                owedAdjustments: [
+                    { id: 'a1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 20, status: 'deferred', incurredDate: '2026-06-04' }
+                ]
+            });
+            const result = svc.billDeferredCharges({ memberId: 1, chargeIds: ['a1', 'c1'] });
+            expect(result.chargeIds.sort()).toEqual(['a1', 'c1']);
+            expect(result.amount).toBeCloseTo(30, 5);
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.find(a => a.id === 'a1').status).toBe('billed');
+            expect(owedAdjustments.find(a => a.id === 'c1').status).toBe('billed'); // linked member billed too
+        });
+
+        it('defaults to ALL of the household deferred charges (primary + linked)', () => {
+            seedWithCharges({
+                owedAdjustments: [
+                    { id: 'a1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 20, status: 'deferred', incurredDate: '2026-06-04' }
+                ]
+            });
+            const result = svc.billDeferredCharges({ memberId: 1 });
+            expect(result.chargeIds.sort()).toEqual(['a1', 'c1']);
+            expect(result.amount).toBeCloseTo(30, 5);
+        });
+
         it('does not touch another household charges', () => {
             seedWithCharges({
                 owedAdjustments: [
