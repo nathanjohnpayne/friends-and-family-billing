@@ -54,7 +54,7 @@ Off-cycle credits (#316, ADR 0001, ADR 0005) are read-only display calculations 
 
 ### Outstanding Balance and Year Close
 
-- `calculateOutstandingBalance` returns the sum of all unpaid household balances, and returns 0 when everyone is paid up.
+- `calculateOutstandingBalance` returns the sum of all unpaid household balances (per-household NET shortfall, accepting an optional `creditAdjustments` array so recorded refunds/carry-forwards are reflected), and returns 0 when everyone is paid up. It mirrors the outstanding figure in `calculateSettlementMetrics` so the close path and dashboard agree.
 - `buildCloseYearMessage` includes the outstanding dollar amount when greater than zero, and omits the outstanding warning when the balance is zero.
 
 ### Year Label Management

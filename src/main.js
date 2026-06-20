@@ -113,7 +113,7 @@ function getPaymentTotalForMember(memberId) { return _getPaymentTotalForMember(p
 function getMemberPayments(memberId) { return _getMemberPayments(payments, memberId); }
 function isLinkedToAnyone(memberId) { return _isLinkedToAnyone(familyMembers, memberId); }
 function getParentMember(memberId) { return _getParentMember(familyMembers, memberId); }
-function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments); }
+function calculateSettlementMetrics() { return _calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments); }
 function getEnabledPaymentMethods() { return (settings.paymentMethods || []).filter(m => m.enabled); }
 
 // Version checking — polls version.json to detect deploys while the page is open
@@ -730,7 +730,7 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
-    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments);
+    const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments);
     const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
 
     showConfirmationDialog(

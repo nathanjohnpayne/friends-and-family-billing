@@ -29,6 +29,13 @@ describe('calculateOutstandingBalance', () => {
         ];
         expect(calculateOutstandingBalance(members, bills, payments)).toBe(0);
     });
+
+    it('uses Net Contribution — a recorded disposition that nets a household below owed surfaces a shortfall', () => {
+        // Bob paid 600 (= owed) but a recorded carry-forward of 100 nets him to 500.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 100, status: 'recorded' }];
+        expect(calculateOutstandingBalance(members, bills, payments, creditAdjustments)).toBeCloseTo(100, 5);
+    });
 });
 
 describe('buildCloseYearMessage', () => {

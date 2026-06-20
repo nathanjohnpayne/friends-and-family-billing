@@ -1,28 +1,27 @@
 // Billing year lifecycle helpers — no DOM, no Firestore, no module-scoped state.
 
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone } from './calculations.js';
+import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, CREDIT_EPSILON } from './calculations.js';
 
 /**
  * Calculate total outstanding balance across all main (non-linked) households.
- * Used by closeCurrentYear to show the user how much is still unpaid.
+ * Used by closeCurrentYear to show the user how much is still unpaid. Mirrors
+ * the per-household NET shortfall summed by calculateSettlementMetrics, so the
+ * close path and the dashboard agree and recorded refunds/carry-forwards never
+ * mask a real shortfall.
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
+ * @param {Array} [creditAdjustments]
  * @returns {number}
  */
-export function calculateOutstandingBalance(familyMembers, bills, payments) {
+export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = []) {
     const summary = calculateAnnualSummary(familyMembers, bills);
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
-        let combinedTotal = summary[member.id] ? summary[member.id].total : 0;
-        (member.linkedMembers || []).forEach(id => {
-            if (summary[id]) combinedTotal += summary[id].total;
-        });
-        const paid = getPaymentTotalForMember(payments, member.id) +
-            (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
-        const balance = combinedTotal - paid;
-        if (balance > 0) total += balance;
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        const shortfall = owed - netContribution;
+        if (shortfall > CREDIT_EPSILON) total += shortfall;
     });
     return total;
 }

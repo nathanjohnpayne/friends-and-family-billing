@@ -2199,6 +2199,26 @@ describe('calculateSettlementMetrics', () => {
         assert.equal(m.paidCount, 1);
         assert.equal(m.percentage, 100);
     });
+
+    it('incorporates creditAdjustments via the wrapper (legacy math is net-aware)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        ctx._set('bills', [
+            { id: 1, name: 'Rent', amount: 50, logo: '', website: '', members: [1] }, // owed 600/yr
+        ]);
+        ctx._set('payments', [
+            { id: 'p1', memberId: 1, amount: 668.98, receivedAt: new Date().toISOString(), note: '', method: 'cash' },
+        ]);
+        ctx._set('creditAdjustments', [
+            { id: 'cadj1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' },
+        ]);
+
+        // Net contribution 600 == owed → credit nets to zero (gross would report 68.98).
+        const m = ctx.calculateSettlementMetrics();
+        assert.ok(m.totalCreditsOwed < 0.005, 'refunded credit should net to zero through the wrapper');
+    });
 });
 
 // ──────────────── getPaymentStatusBadge (Settled label) ───────
