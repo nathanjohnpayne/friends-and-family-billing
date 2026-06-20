@@ -34,6 +34,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
+import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -547,6 +548,88 @@ describe('BillingYearService — CRUD mutations', () => {
     });
 
     // ── Settings ──
+
+    describe('issueRefund', () => {
+        // Alice (id 1, solo) owes 600 on Internet; overpay so the household carries a credit.
+        function withCredit(amount = 700) {
+            const svc = createService();
+            svc._setState({ payments: [{ id: 'pay_1', memberId: 1, amount, receivedAt: '2026-01-01', note: '', method: 'cash' }] });
+            return svc;
+        }
+
+        function householdCredit(svc, memberId) {
+            const { familyMembers, bills, payments, creditAdjustments } = svc.getState();
+            const summary = calculateAnnualSummary(familyMembers, bills);
+            return getHouseholdFinancials(familyMembers.find(m => m.id === memberId), summary, payments, creditAdjustments);
+        }
+
+        it('records a refund to creditAdjustments and triggers save', () => {
+            const svc = withCredit();
+            const entry = svc.issueRefund({ memberId: 1, amount: 100, method: 'venmo', reason: 'Overpaid' });
+            expect(entry.type).toBe('refund');
+            expect(entry.status).toBe('recorded');
+            expect(entry.amount).toBe(100);
+            expect(entry.memberId).toBe(1);
+            expect(svc.getState().creditAdjustments).toHaveLength(1);
+        });
+
+        it('clears the household credit so Net Contribution nets to owed (Model B, no confirmation)', () => {
+            const svc = withCredit(); // credit 100
+            svc.issueRefund({ memberId: 1, amount: 100, method: 'venmo', reason: 'Overpaid' });
+            const f = householdCredit(svc, 1);
+            expect(f.credit).toBe(0);
+            expect(f.netContribution).toBeCloseTo(600, 5); // == owed
+        });
+
+        it('caps the refund at the household credit (rejects an amount over it)', () => {
+            const svc = withCredit(); // credit 100
+            expect(() => svc.issueRefund({ memberId: 1, amount: 150, reason: 'x' })).toThrow(/exceed|credit/i);
+        });
+
+        it('rejects a household with no credit', () => {
+            const svc = createService(); // Alice paid 50 → underpaid, no credit
+            expect(() => svc.issueRefund({ memberId: 1, amount: 10, reason: 'x' })).toThrow(/no credit/i);
+        });
+
+        it('rejects zero or negative amounts', () => {
+            const svc = withCredit();
+            expect(() => svc.issueRefund({ memberId: 1, amount: 0, reason: 'x' })).toThrow(/greater than zero/i);
+        });
+
+        it('requires a reason', () => {
+            const svc = withCredit();
+            expect(() => svc.issueRefund({ memberId: 1, amount: 50, reason: '   ' })).toThrow(/reason/i);
+        });
+
+        it('rejects an unknown member', () => {
+            const svc = withCredit();
+            expect(() => svc.issueRefund({ memberId: 999, amount: 50, reason: 'x' })).toThrow(/not found/i);
+        });
+
+        it('must target the household primary (rejects a linked member)', () => {
+            const svc = createService(); // Carol (3) is linked to Bob (2)
+            expect(() => svc.issueRefund({ memberId: 3, amount: 10, reason: 'x' })).toThrow(/primary|household/i);
+        });
+
+        it('emits a REFUND_ISSUED billing event', () => {
+            const svc = withCredit();
+            svc.issueRefund({ memberId: 1, amount: 100, method: 'venmo', reason: 'Overpaid' });
+            expect(svc.getState().billingEvents.some(e => e.eventType === 'REFUND_ISSUED')).toBe(true);
+        });
+
+        it('is append-only — a partial refund leaves a residual credit', () => {
+            const svc = withCredit(); // credit 100
+            svc.issueRefund({ memberId: 1, amount: 60, method: 'venmo', reason: 'Partial' });
+            expect(svc.getState().creditAdjustments).toHaveLength(1);
+            expect(householdCredit(svc, 1).credit).toBeCloseTo(40, 5); // 100 − 60
+        });
+
+        it('throws on a read-only year', () => {
+            const svc = withCredit();
+            svc._setState({ activeYear: { id: '2024', status: 'closed' } });
+            expect(() => svc.issueRefund({ memberId: 1, amount: 50, reason: 'x' })).toThrow(/read-only/i);
+        });
+    });
 
     describe('updateSettings', () => {
         it('merges settings', () => {

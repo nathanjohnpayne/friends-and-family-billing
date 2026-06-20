@@ -75,6 +75,13 @@ export function localDateString(date = new Date()) {
 /**
  * @returns {string}
  */
+export function generateCreditAdjustmentId() {
+    return 'cadj_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+}
+
+/**
+ * @returns {string}
+ */
 export function generateRawToken() {
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);

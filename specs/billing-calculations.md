@@ -126,6 +126,11 @@ A Usage Charge is a `+owed` per-member ad-hoc debit stored in `owedAdjustments[]
 - The mutation is append-only: a charge is voided via a later status change, never physically deleted (mirroring payments-ledger immutability). It does not touch `recordPayment`/`reversePayment` or the `payments[]` ledger.
 - A deferred charge does NOT raise the member's owed and does not affect current-year settlement; it is surfaced only as a pending figure.
 
+#### Credit Dispositions
+
+- `issueRefund` records a Refund (#318) for a household that carries a Credit by appending to `creditAdjustments[]` (append-only; `type: 'refund'`, `status: 'recorded'`, the household primary's `memberId`). Recording it clears the credit immediately (Model B, ADR 0003 — no member confirmation), since the refund subtracts from Net Contribution and lives outside the payments ledger; `payments[]` and the payment math are untouched. It emits a `REFUND_ISSUED` billing event and triggers save.
+- The refund must target the household primary (rejects a linked member, ADR 0001), requires a non-empty reason, rejects non-positive amounts, rejects a household with no credit, and **caps the amount at the household's current credit** (the credit is computed from `getHouseholdFinancials`). Throws on a read-only year.
+
 #### Settings
 
 - `updateSettings` merges new settings into existing ones, preserving unmodified keys, and throws on read-only years.

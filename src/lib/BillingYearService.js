@@ -14,8 +14,8 @@ import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
-import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
-import { isLinkedToAnyone, calculateAnnualSummary } from './calculations.js';
+import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
+import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, CREDIT_EPSILON } from './calculations.js';
 import { SaveQueue } from './SaveQueue.js';
 
 /** Default settings matching the legacy app (main.js line 77). */
@@ -986,6 +986,76 @@ export class BillingYearService {
         });
         this.save();
         return charge;
+    }
+
+    // ── Credit dispositions (#318) ──
+
+    /**
+     * Issue a Refund for a household that carries a Credit. Recording the refund
+     * (Model B, ADR 0003) clears the credit immediately — no member confirmation
+     * required — by appending to creditAdjustments[] (append-only; void via status,
+     * never deleted). The refund lives OUTSIDE the payments ledger and reduces the
+     * household's Net Contribution so it reads Settled. The amount is capped at the
+     * household's current credit. HIGH-RISK: settlement/ledger boundary.
+     * @param {{ memberId: number, amount: number, method?: string, reason: string }} data
+     * @returns {Object} the recorded creditAdjustment
+     */
+    issueRefund(data) {
+        this._guardReadOnly();
+        const { familyMembers, bills, payments, creditAdjustments } = this._state;
+        const member = familyMembers.find(m => m.id === data.memberId);
+        if (!member) throw new Error('Member not found.');
+        // A Refund is a household disposition (ADR 0001) — issued to the primary member.
+        if (isLinkedToAnyone(familyMembers, member.id)) {
+            throw new Error('Refunds are issued to the household primary member.');
+        }
+
+        const amount = Math.round((parseFloat(data.amount) || 0) * 100) / 100;
+        if (amount <= 0) throw new Error('Refund amount must be greater than zero.');
+
+        const reason = (data.reason || '').trim();
+        if (!reason) throw new Error('A reason is required.');
+
+        // Cap at the household's current credit (Net Contribution − owed).
+        const summary = calculateAnnualSummary(familyMembers, bills);
+        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
+        if (amount > credit + CREDIT_EPSILON) {
+            throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');
+        }
+
+        const entry = {
+            id: generateCreditAdjustmentId(),
+            memberId: member.id,
+            type: 'refund',
+            amount,
+            method: data.method || 'other',
+            reason,
+            status: 'recorded',
+            createdAt: new Date().toISOString()
+        };
+        const event = {
+            id: generateEventId(),
+            timestamp: new Date().toISOString(),
+            actor: { type: 'admin', userId: this._user ? this._user.uid : null },
+            eventType: 'REFUND_ISSUED',
+            payload: {
+                adjustmentId: entry.id,
+                memberId: member.id,
+                memberName: member.name,
+                amount,
+                method: entry.method
+            },
+            note: '',
+            source: 'ui'
+        };
+
+        this._setState({
+            creditAdjustments: [...(creditAdjustments || []), entry],
+            billingEvents: [...(this._state.billingEvents || []), event]
+        });
+        this.save();
+        return entry;
     }
 
     // ── Settings ──

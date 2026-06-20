@@ -40,6 +40,7 @@ Covers the settlement board component for tracking household payment status, the
 - Expanded detail shows primary actions (Record Payment, Payment History, Text Invoice) as direct buttons.
 - Secondary actions (Email Invoice, Generate Share Link, Manage Share Links) are in a three-dot overflow menu.
 - Shows "Record Payment" button for outstanding members; hides it when `readOnly` is true or when the member is fully settled.
+- Shows an "Issue Refund" button (#318) in the expanded card for a household carrying a credit (beyond the epsilon); hides it when `readOnly`. It opens a refund dialog with the amount defaulted to the household credit and capped at it, a method selector, and a required reason; on submit it calls `onIssueRefund` with `{ memberId, amount, method, reason }` (and validates a non-empty reason and a valid amount within the credit).
 - Opens a payment dialog with amount input, method selector, and "Save Payment" button on "Record Payment" click.
 - Validates payment amount before submission (shows "Enter a valid amount." for invalid input).
 - Calls `onRecordPayment` with memberId, amount, method, and note when submitted.
