@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import ServiceCreditDialog from '@/app/components/ServiceCreditDialog.jsx';
@@ -72,6 +72,25 @@ describe('ServiceCreditDialog', () => {
             incurredDate: '2026-03-01',
             memberId: 2
         });
+    });
+
+    it('renders the "Apply to" choice as a styled fieldset/legend so it is not clipped (#336)', () => {
+        // Regression guard for #336: the radio group is a semantic <fieldset> with a
+        // <legend>, and both carry the class hooks the dialog CSS styles
+        // (.service-credit-scope / .service-credit-scope-legend). Without those hooks
+        // the fieldset falls back to browser-default chrome (groove border,
+        // min-content min-width, overlapping legend) and clips. jsdom can't assert
+        // layout, so we pin the structure + class hooks the visual fix depends on.
+        render(<ServiceCreditDialog open bill={bill} billMembers={billMembers} onSubmit={vi.fn()} onClose={vi.fn()} />);
+        const fieldset = screen.getByRole('group', { name: 'Apply to' });
+        expect(fieldset.tagName).toBe('FIELDSET');
+        expect(fieldset).toHaveClass('service-credit-scope');
+        const legend = within(fieldset).getByText('Apply to');
+        expect(legend.tagName).toBe('LEGEND');
+        expect(legend).toHaveClass('service-credit-scope-legend');
+        // Both radio options live inside the fieldset box (not clipped out of it).
+        expect(within(fieldset).getByLabelText(/whole bill/i)).toBeInTheDocument();
+        expect(within(fieldset).getByLabelText(/specific member/i)).toBeInTheDocument();
     });
 
     it('blocks submit and shows an error for a non-positive amount', async () => {
