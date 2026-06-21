@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, CREDIT_EPSILON } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance, CREDIT_EPSILON } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -52,16 +52,23 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         const data = summary[member.id];
         if (!data) return null;
 
-        let combinedTotal = data.total;
+        let billsTotal = data.total;
         const linkedData = [];
 
         (member.linkedMembers || []).forEach(linkedId => {
             const ls = summary[linkedId];
             if (ls) {
-                combinedTotal += ls.total;
+                billsTotal += ls.total;
                 linkedData.push(ls);
             }
         });
+
+        // Carried opening balance (#322, ADR 0005/0006): a carried credit (negative)
+        // lowers the household's owed/annual total, a carried charge (positive) raises
+        // it. Floored at 0 to match getHouseholdFinancials. combinedTotal is the
+        // household's effective owed for THIS year (bills ± carried opening balance).
+        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+        const combinedTotal = Math.max(0, billsTotal + openingBalance);
 
         const payment = getPaymentTotalForMember(payments, member.id)
             + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
@@ -77,14 +84,16 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
         //
-        // `owed` here is the post-adjustment owed: an active service_credit (#321)
-        // LOWERS it and a billed Usage Charge / Charge Notice (#320) RAISES it, so the
-        // card balance, status, credit, and Record-Payment gate all derive from the
-        // adjusted figure (matching the dashboard Outstanding KPI), not just the gross
-        // bill split. Deferred charges (#317) are excluded — they never raise owed.
-        // `combinedTotal` stays the GROSS bill split for the displayed "Annual" figure
-        // and the breakdown formula (the bill's own amount is unchanged, Option B).
-        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
+        // `owed` here is the fully-composed owed from getHouseholdFinancials: an active
+        // service_credit (#321) LOWERS it, a billed Usage Charge / Charge Notice (#320)
+        // RAISES it, and the carried opening balance (#322) adjusts it (credit −, charge
+        // +). The card balance, status, credit, and Record-Payment gate all derive from
+        // this adjusted figure (matching the dashboard Outstanding KPI), not just the
+        // gross bill split. Deferred charges (#317) are excluded — they never raise owed.
+        // `combinedTotal` (above) stays the gross bill split ± the carried opening balance
+        // for the displayed "Annual" figure; service credits and billed charges follow
+        // Option B and surface only in the balance, not the bill's own amount.
+        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
         const balance = owed - netContribution;
         const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
         const status = getPaymentStatus(owed, netForStatus) || 'settled';

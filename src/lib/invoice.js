@@ -2,19 +2,21 @@
  * Invoice helpers — extracted from legacy main.js for React consumption.
  * Pure functions, no DOM or global state dependencies.
  */
-import { calculateAnnualSummary, getPaymentTotalForMember, getServiceCreditTotalForMember } from './calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, getServiceCreditTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
 import { escapeHtml } from './formatting.js';
 
 /**
  * Build the full invoice context for a member (mirrors main.js:4310).
  *
- * `owedAdjustments` (optional, #321): the member-facing owed reflects the
- * household's active Service Credits. The combined bill-derived total is reduced
- * by the sum of active `service_credit` adjustments for the primary plus linked
- * members, floored at 0 — mirroring getHouseholdFinancials so the invoice agrees
- * with the dashboard/settlement board. Billed Usage Charges (#320) are NOT added
- * here (they have their own Charge Notice), and deferred charges never touch owed.
- * Omit the argument and the function behaves exactly as before.
+ * `owedAdjustments` (optional, #321/#322): the member-facing owed reflects the
+ * household's active Service Credits AND its carried-forward opening balance. The
+ * combined bill-derived total is reduced by the sum of active `service_credit`
+ * adjustments for the primary plus linked members, then adjusted by the netted
+ * `carry_opening` opening balance (a carried credit lowers it, a carried charge
+ * raises it), floored at 0 — mirroring getHouseholdFinancials so the invoice
+ * agrees with the dashboard/settlement board. Billed Usage Charges (#320) are NOT
+ * added here (they have their own Charge Notice), and deferred charges never touch
+ * owed. Omit the argument and the function behaves exactly as before.
  *
  * @param {Array} familyMembers
  * @param {Array} bills
@@ -22,7 +24,8 @@ import { escapeHtml } from './formatting.js';
  * @param {number} memberId
  * @param {{ label?: string, id?: string }} activeYear
  * @param {{ emailMessage?: string, paymentMethods?: Array }} settings
- * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) reduce the household total
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) reduce the household
+ *   total and the `carry_opening` seed records (#322) fold the carried opening balance in
  * @returns {Object|null}
  */
 export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments = []) {
@@ -36,12 +39,16 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
 
     let combinedTotal = memberData ? memberData.total : 0;
     linkedMembersData.forEach(d => { combinedTotal += d.total; });
-
-    // Active Service Credits (#321) lower the household's owed, floored at 0 so an
-    // over-large credit reads as fully paid rather than negative debt.
+    // Compose both member-facing owed modifiers in ONE floored expression, exactly
+    // mirroring getHouseholdFinancials' bill-derived owed: active Service Credits
+    // (#321) subtract, and the netted carried opening balance (#322) adds (a carried
+    // credit is negative → lowers the first invoice total, a carried charge positive
+    // → raises it). Floored at 0 so neither an over-large credit nor a carried credit
+    // ever shows the member owing a negative amount.
     const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, memberId)
         + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
-    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal);
+    const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal + openingBalance);
 
     let payment = getPaymentTotalForMember(payments, memberId);
     linkedIds.forEach(id => { payment += getPaymentTotalForMember(payments, id); });

@@ -8,14 +8,14 @@
  * Depends on: Firestore (modular SDK), SaveQueue, extracted pure helpers.
  */
 import {
-    collection, doc, getDocs, getDoc, setDoc, serverTimestamp
+    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
-import { buildNewYearData, isYearLabelDuplicate } from './billing-year.js';
+import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
-import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, CREDIT_EPSILON } from './calculations.js';
+import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
 import { selectBillableCharges } from './chargeNotice.js';
 import { SaveQueue } from './SaveQueue.js';
 
@@ -356,21 +356,112 @@ export class BillingYearService {
 
     /**
      * Create a new billing year cloned from the current one.
+     *
+     * Carry-forward seam (#322, ADR 0005/0006/0007). HIGH-RISK: new-year
+     * construction + the append-only marking of the prior year. Before building
+     * the new year, computes the prior (current) year's UNDISPOSED items —
+     * household credits and still-deferred Usage Charges — nets them per
+     * household, and:
+     *   1. seeds the new year with one `carry_opening` opening-balance record per
+     *      carrying household (via buildNewYearData), so the carried balance lands
+     *      in the new year's owed/annual total and first invoice; and
+     *   2. marks the prior year APPEND-ONLY — a `carry_forward` credit record per
+     *      carried credit (disposing it, so the old year's gate no longer sees it)
+     *      and an in-place `deferred` → `carried_forward` status transition on each
+     *      carried Usage Charge (preserved, never deleted) — then persists the
+     *      prior-year doc as a full document (round-trips through both apps).
+     *
+     * If nothing is undisposed, behaves exactly as before (no seeds, no prior-year
+     * write). The prior-year credit is materialized lazily here (ADR 0004/0007):
+     * if no next year ever existed, the credit stayed live; creating the next year
+     * is what carries it.
+     *
+     * #319 reconciliation (ADR 0003/0006): a credit re-opened by an active
+     * `not_received` is owed back THIS year and must not carry. Refund notices
+     * live in the `disputes` subcollection the service does not load, so the
+     * caller (which has `useRefundNotices`) passes the re-opened id set via
+     * `options.reopenedAdjustmentIds`; it threads into the carry computation so a
+     * resurfaced credit is held back. Defaults to empty.
+     *
      * @param {string} yearId
+     * @param {{ reopenedAdjustmentIds?: Set }} [options]
      */
-    async createYear(yearId) {
+    async createYear(yearId, options = {}) {
         if (!this._user) return;
-        const { billingYears, familyMembers, bills, settings } = this._state;
+        const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {
             throw new Error('Billing year "' + yearId + '" already exists.');
         }
 
-        const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
-        const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId);
+        // Compute what carries from the prior (current) year. A credit re-opened by
+        // an active not_received (#319, ADR 0003) is held back from the carry.
+        const carry = buildCarryForwardSummary(
+            familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
+            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
+        );
+        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : null;
+
+        // 1. Build the new-year seed (netted opening balances) — do NOT write inline.
+        const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
+        const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId, carry, priorLabel);
         newData.createdAt = serverTimestamp();
         newData.updatedAt = serverTimestamp();
-        await setDoc(yearDocRef, newData);
+
+        // 2. Build the prior-year append-only marking payload (only if something carried
+        //    and we have a prior year to write back to) — again, do NOT write inline.
+        let priorWrite = null;
+        if (activeYear && carry.memberCount > 0) {
+            const marked = applyCarryForwardToPriorYear(
+                creditAdjustments || [], owedAdjustments || [], carry,
+                { nextYearLabel: yearId, userId: this._user.uid, idFactory: () => generateCreditAdjustmentId() }
+            );
+            const priorEvent = {
+                id: generateEventId(),
+                timestamp: new Date().toISOString(),
+                actor: { type: 'admin', userId: this._user.uid },
+                eventType: 'YEAR_CARRIED_FORWARD',
+                payload: {
+                    toYear: yearId,
+                    memberCount: carry.memberCount,
+                    totalOpeningBalance: carry.totalOpeningBalance
+                },
+                note: '',
+                source: 'ui'
+            };
+            const priorEvents = [...(billingEvents || []), priorEvent];
+            const priorRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+            const priorPayload = buildSavePayload(
+                activeYear, familyMembers, bills, payments || [], priorEvents, settings,
+                marked.creditAdjustments, marked.owedAdjustments
+            );
+            if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
+            priorPayload.updatedAt = serverTimestamp();
+            priorWrite = { ref: priorRef, payload: priorPayload };
+        }
+
+        // 3. Commit BOTH writes as a single Firestore writeBatch INSIDE the SaveQueue
+        //    (#330 P1). The queue SERIALIZES the rollover behind any pending full-document
+        //    save of the prior/active year (so a queued pre-carry save lands first and the
+        //    carry-marked write then supersedes it — no lost carry_forward records), and
+        //    the batch makes the new-year seed + prior-year marking ATOMIC (if the prior
+        //    write fails, the new year is never created, so retrying the same label does
+        //    not throw duplicate against a half-written rollover). The SaveQueue swallows
+        //    write errors (it only notifies listeners), so capture any commit failure and
+        //    re-throw after the enqueue settles to fail createYear loudly and skip the
+        //    switch into a non-existent year.
+        let rolloverError = null;
+        await this._saveQueue.enqueue(async () => {
+            try {
+                const batch = writeBatch(db);
+                batch.set(newYearRef, newData);
+                if (priorWrite) batch.set(priorWrite.ref, priorWrite.payload);
+                await batch.commit();
+            } catch (err) {
+                rolloverError = err;
+            }
+        });
+        if (rolloverError) throw rolloverError;
 
         await this._loadYearsList();
         await this.switchYear(yearId);
@@ -1206,8 +1297,11 @@ export class BillingYearService {
         // because doing so would inflate the credit and permit a double-refund. owedAdjustments
         // is passed as the 6th arg so a credit produced by a Service Credit (#321, reduced
         // owed) is still refundable through this same pipeline — no separate disposition path.
+        // openingBalance is the 7th arg so a household that carried in a credit (#322) has
+        // its refundable credit computed exactly as the board shows (the carry lowered owed).
         const summary = calculateAnnualSummary(familyMembers, bills);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
+        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
         if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
         if (amount > credit + CREDIT_EPSILON) {
             throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');

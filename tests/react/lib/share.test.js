@@ -83,6 +83,79 @@ describe('buildPublicShareData — service credits reduce owed (#321)', () => {
     });
 });
 
+describe('buildPublicShareData — carried opening balance folds into owed (#322)', () => {
+    // Alice (1) solo on one $50/mo bill → owes 600/yr. A carried opening balance
+    // (carry_opening seed) must adjust combinedAnnualTotal/balanceRemaining the same
+    // way the invoice and settlement board do: a carried CREDIT (negative amount)
+    // lowers owed, a carried CHARGE (positive amount) raises it, the combined
+    // (after service credits) figure floored at 0.
+    const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
+    const bills = [{ id: 'b1', name: 'Internet', amount: 50, billingFrequency: 'monthly', members: [1] }];
+    const activeYear = { id: '2027', label: '2027' };
+    const scopes = ['summary:read'];
+
+    it('lowers combinedAnnualTotal by a carried credit (negative carry_opening)', () => {
+        const owedAdjustments = [
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(520, 5); // 600 − 80
+        expect(data.paymentSummary.balanceRemaining).toBeCloseTo(520, 5);
+    });
+
+    it('raises combinedAnnualTotal by a carried charge (positive carry_opening)', () => {
+        const owedAdjustments = [
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: 30, status: 'carried_in' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(630, 5); // 600 + 30
+        expect(data.paymentSummary.balanceRemaining).toBeCloseTo(630, 5);
+    });
+
+    it('composes a service credit and a carried credit, floored at 0 (matches getHouseholdFinancials)', () => {
+        const owedAdjustments = [
+            { id: 's1', memberId: 1, kind: 'service_credit', amount: 100, status: 'active' },
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        // 600 − 100 (service credit) − 80 (carried credit) = 420.
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(420, 5);
+    });
+
+    it('floors at 0 when an over-large carried credit would drive owed negative', () => {
+        const owedAdjustments = [
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -5000, status: 'carried_in' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBe(0);
+        expect(data.paymentSummary.balanceRemaining).toBe(0);
+    });
+
+    it('sums carry_opening across the household (primary + linked) and ignores voided seeds', () => {
+        const fm = [
+            { id: 1, name: 'Alice', linkedMembers: [2] },
+            { id: 2, name: 'Bob', linkedMembers: [] }
+        ];
+        const householdBills = [
+            { id: 'b1', name: 'Internet', amount: 50, billingFrequency: 'monthly', members: [1] },
+            { id: 'b2', name: 'Phone', amount: 50, billingFrequency: 'monthly', members: [2] }
+        ];
+        const owedAdjustments = [
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' },
+            { id: 'coadj_2026_2', memberId: 2, kind: 'carry_opening', amount: 30, status: 'carried_in' },
+            { id: 'coadj_void', memberId: 1, kind: 'carry_opening', amount: -999, status: 'voided' }
+        ];
+        const data = buildPublicShareData(fm, householdBills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        // Household owes 1200; net carried −80 + 30 = −50 → 1150. Voided seed ignored.
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(1150, 5);
+    });
+
+    it('leaves owed unchanged when there is no carry_opening seed', () => {
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, []);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(600, 5);
+    });
+});
+
 describe('buildShareScopes', () => {
     it('always includes summary:read, paymentMethods:read, and usageCharges:read', () => {
         const scopes = buildShareScopes(false, false);

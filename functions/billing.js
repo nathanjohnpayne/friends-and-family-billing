@@ -160,4 +160,30 @@ function getServiceCreditTotalForMember(owedAdjustments, memberId) {
     }, 0);
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, CHARGE_NOTICE_KIND };
+/**
+ * Household-grain (ADR 0001) carried-forward opening balance (#322). CommonJS
+ * mirror of src/lib/calculations.js `getHouseholdOpeningBalance` for the Cloud
+ * Function side: the SIGNED sum of `carry_opening` seed records across a primary
+ * member and their linked members. A carried credit is stored negative (owe less)
+ * and a carried charge positive (owe more); they net to one number. Only non-voided
+ * seeds count. resolveShareToken folds this into the member-facing owed so the
+ * Cloud Function fallback (cache-miss / legacy-cache / stale-refresh, self-healed
+ * back into publicShares) agrees with the React + legacy buildPublicShareData
+ * writers and the settlement board, and never persists an uncarried total.
+ *
+ * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
+ * @param {Array} owedAdjustments
+ * @returns {number}
+ */
+function getHouseholdOpeningBalance(member, owedAdjustments) {
+  if (!member) return 0;
+  const ids = [member.id, ...((member.linkedMembers) || [])];
+  return (owedAdjustments || [])
+    .filter((a) => a && a.kind === "carry_opening" && a.status !== "voided" && ids.includes(a.memberId))
+    .reduce((sum, a) => {
+      const n = Number.parseFloat(a.amount);
+      return Number.isFinite(n) ? sum + n : sum;
+    }, 0);
+}
+
+module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, getHouseholdOpeningBalance, CHARGE_NOTICE_KIND };

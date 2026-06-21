@@ -1,5 +1,5 @@
 // Share link helpers — no DOM, no Firestore, no module-scoped state.
-import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember, getServiceCreditTotalForMember } from './calculations.js';
+import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember, getServiceCreditTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
 import { sanitizeImageSrc } from './formatting.js';
 
 /**
@@ -138,10 +138,12 @@ function computeMemberSummaryForShare(familyMembers, bills, memberId) {
  * @param {{ id: string, label?: string }} activeYear
  * @param {{ paymentMethods?: Array }} settings
  * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) reduce the household's
- *   combinedAnnualTotal/balanceRemaining (floored at 0) so the share summary agrees with the
- *   settlement board; and deferred Usage Charges (#317) are included as `pendingCharges` when
- *   the scopes carry `usageCharges:read`, so the member-facing pending-charges view is reachable
- *   on a normally-generated link (not only via the Cloud Function self-heal).
+ *   combinedAnnualTotal/balanceRemaining and the netted carried opening balance
+ *   (carry_opening seeds, #322) adjusts it (carried credit −, carried charge +), the
+ *   combined result floored at 0 so the share summary agrees with the settlement board;
+ *   and deferred Usage Charges (#317) are included as `pendingCharges` when the scopes
+ *   carry `usageCharges:read`, so the member-facing pending-charges view is reachable on
+ *   a normally-generated link (not only via the Cloud Function self-heal).
  * @returns {Object|null}
  */
 export function buildPublicShareData(familyMembers, bills, payments, memberId, scopes, userId, activeYear, settings, owedAdjustments) {
@@ -162,12 +164,17 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         combinedPayment += getPaymentTotalForMember(payments, ls.memberId);
     });
 
-    // Active Service Credits (#321) lower the household's owed, floored at 0 so an
-    // over-large credit reads as fully paid rather than negative debt. Mirrors
-    // getHouseholdFinancials so the member-facing summary agrees with the board.
+    // Compose the member-facing owed exactly as getHouseholdFinancials / the invoice
+    // do (#321 + #322): active Service Credits subtract and the netted carried opening
+    // balance (carry_opening seeds for the primary + linked members — a carried credit
+    // is negative, a carried charge positive) adjusts, the combined result floored at 0
+    // so neither an over-large credit nor a carried credit reads as negative debt. The
+    // carry_opening seeds are a distinct kind, so getServiceCreditTotalForMember ignores
+    // them — no double-count. Mirrors the board so the share summary agrees with it.
     const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments || [], memberId)
         + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments || [], id), 0);
-    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+    const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments || []);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal + openingBalance);
 
     const enabledMethods = ((settings && settings.paymentMethods) || []).filter(m => m.enabled);
 

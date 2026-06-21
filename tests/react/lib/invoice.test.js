@@ -74,6 +74,29 @@ describe('invoice helpers', () => {
         expect(ctx.amountLabel).toBe('remaining balance');
     });
 
+    it('folds a carried opening balance into the invoice total (#322)', () => {
+        // Household owes 1200 on the Internet bill; a −200 carried credit lowers the
+        // first invoice total to 1000. The opening balance is passed as owedAdjustments.
+        const owedAdjustments = [
+            { id: 's1', memberId: 1, kind: 'carry_opening', amount: -200, status: 'carried_in', fromYear: '2025' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBeCloseTo(1000, 5);
+    });
+
+    it('a carried charge raises the invoice total (#322)', () => {
+        const owedAdjustments = [
+            { id: 's1', memberId: 1, kind: 'carry_opening', amount: 150, status: 'carried_in', fromYear: '2025' }
+        ];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {}, owedAdjustments);
+        expect(ctx.combinedTotal).toBeCloseTo(1350, 5);
+    });
+
+    it('defaults owedAdjustments to empty (backward-compatible 6-arg call)', () => {
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
+        expect(ctx.combinedTotal).toBeCloseTo(1200, 5);
+    });
+
     it('buildInvoiceSubject uses template with tokens when provided', () => {
         const ctx = getInvoiceSummaryContext(members, bills, [], 1, year, {});
         const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '%billing_year% Invoice\u2014%member_name%', ctx);

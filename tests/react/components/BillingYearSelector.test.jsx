@@ -20,6 +20,12 @@ vi.mock('@/app/hooks/useBillingData.js', () => ({
     }))
 }));
 
+// useRefundNotices (#319) — the selector reads it to hold back a re-opened credit
+// from carry-forward (#322). Mock it so the component does not pull in Firebase.
+vi.mock('@/app/hooks/useRefundNotices.js', () => ({
+    useRefundNotices: vi.fn(() => ({ refundNotices: [] }))
+}));
+
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import BillingYearSelector from '@/app/components/BillingYearSelector.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
@@ -130,7 +136,10 @@ describe('BillingYearSelector', () => {
         await act(async () => {
             fireEvent.click(screen.getByText('Create Year'));
         });
-        expect(mockService.createYear).toHaveBeenCalledWith('2027');
+        // The selector passes the re-opened credit set (#319/#322) as options.
+        expect(mockService.createYear).toHaveBeenCalledWith('2027', expect.objectContaining({
+            reopenedAdjustmentIds: expect.any(Set)
+        }));
     });
 
     it('shows error for duplicate year label', () => {

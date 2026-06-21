@@ -428,4 +428,32 @@ describe('DashboardView', () => {
         expect(args.billingYearId).toBe('2026');
         expect(args.userId).toBe('test-user');
     });
+
+    // ── Deferred charges indicator (#322) ─────────────────────────────────
+    it('shows a "Deferred charges" indicator when a household carries deferred usage charges', () => {
+        renderDashboard({
+            owedAdjustments: [
+                { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 42.5, status: 'deferred' }
+            ]
+        });
+        const indicator = screen.getByTestId('deferred-charges-indicator');
+        expect(indicator).toBeInTheDocument();
+        expect(indicator).toHaveTextContent(/deferred charges/i);
+        expect(indicator).toHaveTextContent('$42.50');
+    });
+
+    it('does not show the "Deferred charges" indicator when there are none', () => {
+        renderDashboard({ owedAdjustments: [] });
+        expect(screen.queryByTestId('deferred-charges-indicator')).toBeNull();
+    });
+
+    it('excludes already-carried and voided charges from the deferred indicator', () => {
+        renderDashboard({
+            owedAdjustments: [
+                { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'carried_forward' },
+                { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 20, status: 'voided' }
+            ]
+        });
+        expect(screen.queryByTestId('deferred-charges-indicator')).toBeNull();
+    });
 });

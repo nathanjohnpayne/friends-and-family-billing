@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { getBillingYearStatusLabel } from '@/lib/formatting.js';
 import { suggestNextYearLabel, isYearLabelDuplicate } from '@/lib/billing-year.js';
+import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
 import { useBillingData } from '../hooks/useBillingData.js';
+import { useRefundNotices } from '../hooks/useRefundNotices.js';
 import { useToast } from '../contexts/ToastContext.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
@@ -12,6 +14,7 @@ import ConfirmDialog from './ConfirmDialog.jsx';
  */
 export default function BillingYearSelector() {
     const { billingYears, activeYear, service } = useBillingData();
+    const { refundNotices } = useRefundNotices();
     const { showToast } = useToast();
     const [busy, setBusy] = useState(false);
 
@@ -72,7 +75,10 @@ export default function BillingYearSelector() {
         setNewYearOpen(false);
         setBusy(true);
         try {
-            await service.createYear(yearId);
+            // #319/#322: a credit re-opened by an active not_received is owed back
+            // this (prior) year and must not carry forward (ADR 0003/0006).
+            const reopenedAdjustmentIds = reopenedCreditAdjustmentIds(refundNotices);
+            await service.createYear(yearId, { reopenedAdjustmentIds });
         } catch (err) {
             showToast('Error: ' + err.message);
         } finally {

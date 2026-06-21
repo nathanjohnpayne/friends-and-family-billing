@@ -10,6 +10,7 @@ import {
     isLinkedToAnyone as _isLinkedToAnyone,
     getParentMember as _getParentMember,
     calculateSettlementMetrics as _calculateSettlementMetrics,
+    getHouseholdOpeningBalance as _getHouseholdOpeningBalance,
     getServiceCreditTotalForMember as _getServiceCreditTotalForMember,
 } from './lib/calculations.js';
 import {
@@ -19,6 +20,7 @@ import {
     normalizeDisputeStatus,
     generateEventId,
     generateUniquePaymentId,
+    generateCreditAdjustmentId as _generateCreditAdjustmentId,
     generateRawToken,
     hashToken,
     generateUniqueId as _generateUniqueId,
@@ -53,6 +55,8 @@ import {
 import {
     calculateOutstandingBalance as _calculateOutstandingBalance,
     buildCloseYearMessage as _buildCloseYearMessage,
+    buildCarryForwardSummary as _buildCarryForwardSummary,
+    applyCarryForwardToPriorYear as _applyCarryForwardToPriorYear,
     suggestNextYearLabel as _suggestNextYearLabel,
     isYearLabelDuplicate as _isYearLabelDuplicate,
     buildNewYearData as _buildNewYearData,
@@ -577,11 +581,67 @@ async function startNewYear() {
     try {
         const userDocRef = db.collection('users').doc(currentUser.uid);
 
-        const yearData = _buildNewYearData(familyMembers, bills, settings, yearId);
+        // Carry-forward seam (#322, ADR 0005/0006/0007). Dual-app parity with the
+        // React BillingYearService.createYear: compute the prior (current) year's
+        // UNDISPOSED items, seed the new year with their netted opening balances,
+        // and mark the prior year APPEND-ONLY. Snapshot the prior-year state first
+        // because loadBillingYearData() below overwrites module state.
+        const priorBillingYear = currentBillingYear;
+        const priorLabel = priorBillingYear ? (priorBillingYear.label || priorBillingYear.id) : null;
+        const priorMembers = familyMembers;
+        const priorBills = bills;
+        const priorPayments = payments;
+        const priorCreditAdjustments = creditAdjustments;
+        const priorOwedAdjustments = owedAdjustments;
+        const priorEvents = billingEvents;
+        const priorSettings = settings;
+
+        const carry = _buildCarryForwardSummary(
+            priorMembers, priorBills, priorPayments || [], priorCreditAdjustments || [], priorOwedAdjustments || []
+        );
+
+        const yearData = _buildNewYearData(priorMembers, priorBills, priorSettings, yearId, carry, priorLabel);
         yearData.createdAt = FieldValue.serverTimestamp();
         yearData.updatedAt = FieldValue.serverTimestamp();
 
-        await userDocRef.collection('billingYears').doc(yearId).set(yearData);
+        // Atomic rollover (#330 P1, dual-app parity with the React BillingYearService):
+        // commit the new-year seed and the prior-year append-only marking in ONE batch so
+        // a prior-year write failure can never leave the new year seeded while the old year
+        // still holds the undisposed credit/charge (retrying the same label would then throw
+        // duplicate). The legacy app has no save queue, so the React queue-serialization
+        // concern does not apply here; the atomicity (batch) fix does. The activeBillingYear
+        // pointer is updated after the batch commits (a pointer, not part of the carry).
+        const batch = db.batch();
+        const newYearRef = userDocRef.collection('billingYears').doc(yearId);
+        batch.set(newYearRef, yearData);
+
+        // Mark the prior year append-only and add it to the batch (only when something carried).
+        if (priorBillingYear && carry.memberCount > 0) {
+            const marked = _applyCarryForwardToPriorYear(
+                priorCreditAdjustments || [], priorOwedAdjustments || [], carry,
+                { nextYearLabel: yearId, userId: currentUser.uid, idFactory: () => _generateCreditAdjustmentId() }
+            );
+            const carryEvent = {
+                id: generateEventId(),
+                timestamp: new Date().toISOString(),
+                actor: { type: 'admin', userId: currentUser.uid },
+                eventType: 'YEAR_CARRIED_FORWARD',
+                payload: { toYear: yearId, memberCount: carry.memberCount, totalOpeningBalance: carry.totalOpeningBalance },
+                note: '',
+                source: 'ui'
+            };
+            const priorPayload = _buildSavePayload(
+                priorBillingYear, priorMembers, priorBills, priorPayments || [],
+                [...(priorEvents || []), carryEvent], priorSettings,
+                marked.creditAdjustments, marked.owedAdjustments
+            );
+            if (!priorPayload.createdAt) priorPayload.createdAt = FieldValue.serverTimestamp();
+            priorPayload.updatedAt = FieldValue.serverTimestamp();
+            batch.set(userDocRef.collection('billingYears').doc(priorBillingYear.id), priorPayload);
+        }
+
+        await batch.commit();
+
         await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
 
         await loadBillingYearsList();
@@ -736,11 +796,15 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
-    // owedAdjustments threads BILLED usage charges (#320) and Service Credits (#321)
+    // owedAdjustments threads BILLED usage charges (#320, raise Outstanding → block
+    // close), Service Credits (#321, lower owed), and carried opening balances (#322)
     // into the close gate so the legacy app agrees with the React dashboard
     // (ADR 0005/0006); deferred charges do not block.
     const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
-    const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding);
+    // State the carry-forward amount + member count in the confirmation (#322): at
+    // close, undisposed credits/charges auto-carry rather than block (ADR 0006).
+    const carry = _buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
+    const msg = _buildCloseYearMessage(currentBillingYear.label, totalOutstanding, carry);
 
     showConfirmationDialog(
         'Close Billing Year',
@@ -3882,12 +3946,18 @@ function buildPublicShareData(memberId, scopes) {
             .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
-    // Active Service Credits (#321) lower the household's owed, floored at 0, so the
-    // shared publicShares doc this app writes agrees with the React writer (both apps
-    // co-write the doc — dual-app parity) and with the settlement board.
+    // Compose the member-facing owed exactly as the React buildPublicShareData and the
+    // invoice/getHouseholdFinancials do (#321 + #322): active Service Credits subtract and
+    // the netted carried opening balance (carry_opening seeds, #322 — a carried credit is
+    // negative, a carried charge positive, summed across the primary + linked members)
+    // adjusts it, the combined result floored at 0. Both apps co-write the shared
+    // publicShares doc (dual-app parity), so this must match the React writer and the
+    // settlement board. carry_opening is a distinct kind, so getServiceCreditTotalForMember
+    // ignores it — no double-count.
     const serviceCreditTotal = getServiceCreditTotalForMember(memberId)
         + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(id), 0);
-    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+    const openingBalance = _getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal + openingBalance);
 
     const enabledMethods = getEnabledPaymentMethods();
 
@@ -4401,13 +4471,15 @@ function getInvoiceSummaryContext(memberId) {
 
     let combinedTotal = memberData ? memberData.total : 0;
     linkedMembersData.forEach(d => { combinedTotal += d.total; });
-
-    // Active Service Credits (#321) lower the household's owed, floored at 0, so the
-    // legacy invoice agrees with the dashboard/board and the React writer (dual-app
-    // parity). Reads the module-scoped owedAdjustments via the wrapper.
+    // Compose both member-facing owed modifiers in ONE floored expression (parity with
+    // the React invoice.js and getHouseholdFinancials, dual-app parity): active Service
+    // Credits (#321) subtract and the netted carried opening balance (#322) adds (a
+    // carried credit lowers the first invoice total, a carried charge raises it).
+    // Floored at 0 so neither an over-large credit nor a carried credit shows a negative.
     const serviceCreditTotal = getServiceCreditTotalForMember(memberId)
         + member.linkedMembers.reduce((s, id) => s + getServiceCreditTotalForMember(id), 0);
-    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal);
+    const openingBalance = _getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal + openingBalance);
 
     let payment = getPaymentTotalForMember(memberId);
     member.linkedMembers.forEach(id => { payment += getPaymentTotalForMember(id); });
