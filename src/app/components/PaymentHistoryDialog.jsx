@@ -3,7 +3,15 @@
  * Port of showPaymentHistory() from main.js:5310.
  */
 import { useState } from 'react';
-import { getMemberPayments, getPaymentTotalForMember, calculateAnnualSummary } from '../../lib/calculations.js';
+import {
+    getMemberPayments,
+    getPaymentTotalForMember,
+    calculateAnnualSummary,
+    getHouseholdRecordedRefund,
+    getHouseholdFinancials,
+    getHouseholdOpeningBalance,
+    CREDIT_EPSILON
+} from '../../lib/calculations.js';
 import { getPaymentMethodLabel, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
@@ -21,9 +29,9 @@ const PAYMENT_METHODS = [
 ];
 
 /**
- * @param {{ open: boolean, memberId: number, memberName: string, familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onReverse?: function, onEditPayment?: function, onClose: function }} props
+ * @param {{ open: boolean, memberId: number, memberName: string, familyMembers: Array, bills: Array, payments: Array, creditAdjustments?: Array, owedAdjustments?: Array, reopenedAdjustmentIds?: Set<string>|null, readOnly: boolean, onReverse?: function, onEditPayment?: function, onClose: function }} props
  */
-export default function PaymentHistoryDialog({ open, memberId, memberName, familyMembers, bills, payments, readOnly, onReverse, onEditPayment, onClose }) {
+export default function PaymentHistoryDialog({ open, memberId, memberName, familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], reopenedAdjustmentIds = null, readOnly, onReverse, onEditPayment, onClose }) {
     const [reverseTarget, setReverseTarget] = useState(null);
     const [editTarget, setEditTarget] = useState(null);
 
@@ -35,10 +43,55 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     const memberTotal = summary[memberId] ? summary[memberId].total : 0;
     const balance = memberTotal - totalPaid;
 
+    // Reversal-after-refund warning (#331, ADR 0003). PaymentHistoryDialog is opened
+    // for the household primary (SettlementBoard wires onViewHistory(member.id)), so
+    // its linkedMembers give the whole household. If the household carries an active
+    // recorded Refund, reversing a payment is an informed action: it lowers Net
+    // Contribution → the household flips to Outstanding, while the refund stays on the
+    // books (never auto-clawed-back). We warn, but never block — pure display.
+    const household = familyMembers.find(m => m.id === memberId);
+    const recordedRefund = getHouseholdRecordedRefund(household, creditAdjustments);
+
+    /**
+     * Resulting household Outstanding if `target` (a positive original payment) is
+     * reversed: reversing appends a −amount entry, so Net Contribution drops by that
+     * amount and the collectable shortfall rises by it. Derived from the same
+     * household financials the settlement board shows, so the figure matches the card.
+     */
+    function resultingOutstandingAfterReversal(target) {
+        if (!household || !target) return 0;
+        const openingBalance = getHouseholdOpeningBalance(household, owedAdjustments);
+        const { owed, netContribution } = getHouseholdFinancials(
+            household, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance
+        );
+        return Math.max(0, (owed - netContribution) + Math.abs(target.amount));
+    }
+
     function handleReverse() {
         if (!reverseTarget || !onReverse) return;
         onReverse(reverseTarget.id);
         setReverseTarget(null);
+    }
+
+    /** Confirm message for the reverse action — warns when the household has a recorded refund. */
+    function reverseConfirmMessage() {
+        if (!reverseTarget) return '';
+        const amountLabel = formatAnnualSummaryCurrency(reverseTarget.amount);
+        const dateLabel = new Date(reverseTarget.receivedAt).toLocaleDateString();
+        if (recordedRefund.has) {
+            const refundLabel = formatAnnualSummaryCurrency(recordedRefund.total);
+            const resulting = resultingOutstandingAfterReversal(reverseTarget);
+            // Usually the reversal flips the household Outstanding; with a partial refund
+            // the household can keep residual credit, so don't claim a false "$0.00 Outstanding".
+            const impact = resulting > CREDIT_EPSILON
+                ? 'will make them Outstanding by ' + formatAnnualSummaryCurrency(resulting)
+                : 'lowers their Net Contribution but leaves the household in credit';
+            return 'This household received a ' + refundLabel + ' refund. Reversing the ' + amountLabel
+                + ' payment from ' + dateLabel + ' ' + impact
+                + ' — the refund is not automatically clawed back. This creates a reversal entry in the audit trail. Reverse anyway?';
+        }
+        return 'Reverse the ' + amountLabel + ' payment from ' + dateLabel
+            + '? This creates a reversal entry in the audit trail.';
     }
 
     return (
@@ -115,10 +168,8 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
 
                 <ConfirmDialog
                     open={reverseTarget !== null}
-                    title="Reverse Payment"
-                    message={reverseTarget
-                        ? 'Reverse the ' + formatAnnualSummaryCurrency(reverseTarget.amount) + ' payment from ' + new Date(reverseTarget.receivedAt).toLocaleDateString() + '? This creates a reversal entry in the audit trail.'
-                        : ''}
+                    title={recordedRefund.has ? 'Reverse Payment — Refund on Record' : 'Reverse Payment'}
+                    message={reverseConfirmMessage()}
                     confirmLabel="Reverse"
                     destructive
                     onConfirm={handleReverse}
