@@ -8,7 +8,7 @@ npm test
 
 This runs the React test suite (`tests/react/`) and the Cloud Functions test suite (`tests/functions.test.js`) plus a tracked-file secret scan (`scripts/check-no-public-secrets.mjs`). Failing the secret scan means API keys or tokens are present in tracked files—fix before committing.
 
-The Cloud Functions test loads `functions/index.js`, whose `firebase-functions`/`firebase-admin` deps live in the nested `functions/` package. `scripts/bootstrap.sh` and CI install these; on a manual checkout run `cd functions && npm ci` once before `npm test`.
+The Cloud Functions test loads `functions/index.js`, whose `firebase-functions`/`firebase-admin` deps live in the nested `functions/` package. The root `postinstall` hook installs them automatically on `npm install`, so the documented `npm install` + `npm test` flow works on a clean checkout (CI also runs `cd functions && npm ci`).
 
 ## Coverage
 

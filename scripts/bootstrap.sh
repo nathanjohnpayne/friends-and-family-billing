@@ -188,13 +188,9 @@ echo ""
 if [[ -f "$REPO_ROOT/package.json" ]]; then
   echo "Installing npm dependencies..."
   if ! $DRY_RUN; then
+    # The root postinstall hook also installs the nested functions/ deps, which
+    # the Cloud Functions test suite (test:functions) needs.
     cd "$REPO_ROOT" && npm install
-    # Cloud Functions deps live in the nested functions/ package and are
-    # required by `npm test` (the test:functions step loads functions/index.js).
-    if [[ -f "$REPO_ROOT/functions/package.json" ]]; then
-      echo "Installing Cloud Functions dependencies..."
-      cd "$REPO_ROOT/functions" && npm install
-    fi
   fi
 fi
 
