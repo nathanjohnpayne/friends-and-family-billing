@@ -10,6 +10,7 @@ Covers the settlement board component for tracking household payment status, the
 
 - `tests/react/components/SettlementBoard.test.jsx`
 - `tests/react/components/UsageChargeDialog.test.jsx`
+- `tests/react/components/ServiceCreditDialog.test.jsx`
 - `tests/react/views/BillsTab.test.jsx`
 - `tests/react/views/DashboardView.test.jsx`
 
@@ -25,6 +26,7 @@ Covers the settlement board component for tracking household payment status, the
 - The household card status is derived from the household's Net Contribution (gross paid minus recorded refunds/carry-forwards), not gross payments: a household whose Net Contribution equals its owed reads "Settled" even when gross paid exceeds owed (e.g. after a refund), while a household carrying an unresolved overpayment reads "Overpaid".
 - Card header shows Annual/Paid/Balance summary boxes; Balance shows "Paid" when settled. For a household carrying an unresolved credit (overpayment net of refunds/carry-forwards beyond the sub-cent epsilon), the third box shows "Credit" with the household credit amount instead of "Balance"; internal imbalance between household members nets out (ADR 0001).
 - The Balance, the Record-Payment action, and the payment-dialog balance all derive from the net shortfall (`owed − Net Contribution`), consistent with the card status. A household pushed below its owed (e.g. by a refund/carry-forward) shows a collectable Balance and the Record Payment action rather than "Paid"; the Paid box continues to show gross money received.
+- The `owed` used for status, Balance, and Credit is the household owed **after active Service Credits** (#321): a `−owed` adjustment lowers it, so a service that was canceled/discounted reduces the collectable Balance and, for an already-paid household, surfaces a Credit. The displayed Annual figure and the bill breakdown formula remain the gross bill split (the bill's own amount is unchanged, Option B).
 - Card header shows a "+N" badge next to the member name for households with linked members.
 - Displays "Household includes N linked member(s)" text for members with linked members, and "Individual" for standalone members.
 - Cards expand via a "Details / Hide details" toggle to show bill breakdown, linked members, and household total.
@@ -54,6 +56,22 @@ Covers the settlement board component for tracking household payment status, the
 - Deferred Usage Charges are NOT-YET-DUE: they do not change the Annual, Paid, Balance, or status figures, and they do not affect the Record-Payment gate. A household with a large deferred charge but fully-paid bills still reads "Settled".
 - The expanded card shows an "Add Charge" action when not read-only and an `onAddCharge` handler is provided; clicking it calls `onAddCharge(memberId)`. The action is hidden when `readOnly` is true.
 
+### Off-cycle Billing — Bill Charges (Charge Notice, #320)
+
+- The expanded card shows a "Bill Charges" action when the household carries one or more deferred Usage Charges (aggregated at the household grain, ADR 0001), an `onBillCharges` handler is provided, and the year is not read-only; clicking it calls `onBillCharges(memberId)` keyed to the household primary. The action is hidden when `readOnly` is true and when the household has no deferred charges.
+- A **billed** usage charge raises the household's owed: `SettlementBoard` threads `owedAdjustments` into `getHouseholdFinancials`, so the card's **Balance**, **status**, and the Record-Payment gate reflect it (an unpaid billed charge reads Outstanding and keeps Record Payment, matching the dashboard Outstanding KPI). The **Annual** figure stays the gross bill split. A deferred charge remains a not-yet-due pending figure and never raises owed.
+
+### ChargeNoticeDialog Component (#320)
+
+- Renders nothing when `open` is false.
+- When open, shows the member name, a "Bill Charges" title, and a preview of the candidate deferred charges (description, incurred date, amount) with a combined total.
+- Defaults the period to **all** deferred charges; a "This month" preset narrows the preview (and the resulting selection) to charges incurred in the current calendar month.
+- On confirm ("Bill & Notify"), calls `onConfirm(chargeIds)` with the ids of the selected charges (chronological) and closes; "Bill & Notify" is disabled and an empty state shows when no charges match the period. Calls `onClose` on Cancel and on Escape.
+
+### DashboardView — Bill Charges
+
+- The dashboard wires the settlement board's "Bill Charges" action to a `ChargeNoticeDialog` seeded with the household's deferred charges; confirming calls `service.billDeferredCharges({ memberId, chargeIds })`, then issues the outbound Charge Notice via `issueChargeNotice` (share link + member email, fire-and-forget) and shows a confirmation toast. `issueChargeNotice` is passed the **post-billing** `owedAdjustments` read from `service.getState()` after the mutation — not the stale pre-mutation prop — so the minted share link reflects the just-billed charges as billed, never as still-pending. The dashboard's KPIs thread `owedAdjustments` into `calculateSettlementMetrics`, so an unpaid billed charge raises the Outstanding KPI and a deferred charge does not.
+
 ### UsageChargeDialog Component
 
 - Renders nothing when `open` is false.
@@ -69,6 +87,20 @@ Covers the settlement board component for tracking household payment status, the
 ### DashboardView — Deferred charges indicator (#322)
 
 - When one or more households carry still-`deferred` Usage Charges, the dashboard shows a "Deferred charges" indicator (`data-testid="deferred-charges-indicator"`) stating the aggregate deferred total across households (ADR 0001 grain) and the charge count, noting the charges are not yet billed and will carry forward to next year (ADR 0006). The indicator is hidden when no household carries a deferred charge. Already-carried (`status: 'carried_forward'`), voided, and billed charges are excluded from the indicator (only `status: 'deferred'` usage charges count).
+
+### ServiceCreditDialog Component (#321, ADR 0005)
+
+- Renders nothing when `open` is false.
+- When open, shows the bill name being credited and fields for Amount ($), Reason, and Incurred date, plus a cue that the bill itself is unchanged (Option B).
+- Offers an "Apply to" choice: **Whole bill** (default — the amount is split among the bill's members) vs **a specific member** (a per-member variant); selecting "a specific member" reveals a member select populated from the bill's members.
+- Calls `onSubmit` with `{ amount, reason, incurredDate }` for the bill-level case, plus `memberId` for the per-member case (amount parsed to a number, member id coerced to the stored type). Save on "Save Credit".
+- Blocks submit and shows a validation error for a non-positive amount or a missing reason.
+- Calls `onClose` on Cancel and on Escape. A throwing `onSubmit` (e.g. a service error) is shown inline and the dialog stays open — errors are never swallowed (mirrors `UsageChargeDialog` and the #318 refund dialog).
+
+### BillsTab — Issue Service Credit (#321)
+
+- Each bill's action menu shows an "Issue Service Credit" item when not read-only; it is hidden when the year is read-only. (A Service Credit is bill-level, so its entry point lives on the bill, the closest precedent to where bills are managed.)
+- Clicking it opens a `ServiceCreditDialog` scoped to that bill (its member list filtered to the bill's assigned members). On submit it records the credit via `service.recordServiceCredit({ billId, amount, reason, incurredDate, memberId? })` and shows a confirmation toast. The bill is unchanged (Option B).
 
 ### BillsTab View
 

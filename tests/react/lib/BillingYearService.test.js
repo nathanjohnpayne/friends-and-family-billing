@@ -43,6 +43,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
+import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -683,6 +684,331 @@ describe('BillingYearService', () => {
                 .toThrow(/read-only/i);
         });
     });
+
+    // ── recordServiceCredit (#321) ────────────────────────────────────
+
+    describe('recordServiceCredit', () => {
+        // Internet bill (id 101) is split among members 1 and 2.
+        function seedOpenYear(extra = {}) {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2025', label: '2025', status: 'open' },
+                familyMembers: [
+                    { id: 1, name: 'Alice', linkedMembers: [] },
+                    { id: 2, name: 'Bob', linkedMembers: [] },
+                    { id: 3, name: 'Carol', linkedMembers: [] }
+                ],
+                bills: [
+                    { id: 101, name: 'Internet', amount: 100, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2] },
+                    { id: 102, name: 'Streaming', amount: 20, billingFrequency: 'monthly', logo: '', website: '', members: [1] }
+                ],
+                payments: [], creditAdjustments: [], owedAdjustments: [],
+                billingEvents: [],
+                settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] },
+                ...extra
+            });
+        }
+
+        it('records a bill-level credit split evenly among the bill members', () => {
+            seedOpenYear();
+            const records = svc.recordServiceCredit({ billId: 101, amount: 90, reason: 'Outage refund' });
+
+            // Bill 101 has 2 members → 45 each
+            expect(Array.isArray(records)).toBe(true);
+            expect(records.length).toBe(2);
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.length).toBe(2);
+            for (const r of owedAdjustments) {
+                expect(r.kind).toBe('service_credit');
+                expect(r.status).toBe('active');
+                expect(r.billId).toBe(101);
+                expect(r.reason).toBe('Outage refund');
+                expect(r.amount).toBeCloseTo(45, 5);
+                expect(typeof r.id).toBe('string');
+                expect(r.createdAt).toBeTruthy();
+            }
+            expect(owedAdjustments.map(r => r.memberId).sort()).toEqual([1, 2]);
+        });
+
+        it('splits an indivisible amount with the last member absorbing the remainder (sums exactly)', () => {
+            seedOpenYear();
+            // 10.00 across 3 members would be 3.333… — use a bill with 2 members and an odd cent.
+            const records = svc.recordServiceCredit({ billId: 101, amount: 10.01, reason: 'Odd split' });
+            const total = records.reduce((s, r) => s + r.amount, 0);
+            expect(Math.round(total * 100) / 100).toBeCloseTo(10.01, 5); // no money lost or created
+            // First member gets the floor share, the last absorbs the remainder.
+            expect(records.length).toBe(2);
+        });
+
+        it('records a per-member credit when a memberId is supplied (one-person issue)', () => {
+            seedOpenYear();
+            const records = svc.recordServiceCredit({ billId: 101, memberId: 2, amount: 30, reason: 'Bob-only issue' });
+            expect(records.length).toBe(1);
+            expect(records[0].memberId).toBe(2);
+            expect(records[0].amount).toBeCloseTo(30, 5);
+            expect(records[0].billId).toBe(101);
+            expect(svc.getState().owedAdjustments.length).toBe(1);
+        });
+
+        it('does NOT edit the bill — amount and members are unchanged (Option B)', () => {
+            seedOpenYear();
+            const before = JSON.parse(JSON.stringify(svc.getState().bills.find(b => b.id === 101)));
+            svc.recordServiceCredit({ billId: 101, amount: 50, reason: 'No bill edit' });
+            const after = svc.getState().bills.find(b => b.id === 101);
+            expect(after).toEqual(before); // bill history stays honest
+        });
+
+        it('normalizes decimal edge-case amounts to persisted cents', () => {
+            seedOpenYear();
+            // Per-member path avoids split rounding so we can assert the cents normalization directly.
+            const records = svc.recordServiceCredit({ billId: 102, memberId: 1, amount: '1.005', reason: 'Rounding edge' });
+            expect(records[0].amount).toBe(1.01);
+            expect(svc.getState().owedAdjustments[0].amount).toBe(1.01);
+        });
+
+        it('defaults incurredDate to the local date when omitted', () => {
+            vi.useFakeTimers();
+            vi.setSystemTime(new Date(2025, 4, 6, 12, 0, 0));
+            try {
+                seedOpenYear();
+                const records = svc.recordServiceCredit({ billId: 102, memberId: 1, amount: 5, reason: 'Date fallback' });
+                expect(records[0].incurredDate).toBe('2025-05-06');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('emits a SERVICE_CREDIT_RECORDED billing event (mirrors USAGE_CHARGE_RECORDED)', () => {
+            seedOpenYear();
+            svc.recordServiceCredit({ billId: 101, amount: 90, reason: 'Outage refund' });
+            const evt = svc.getState().billingEvents.find(e => e.eventType === 'SERVICE_CREDIT_RECORDED');
+            expect(evt).toBeDefined();
+            expect(evt.payload.billId).toBe(101);
+            expect(evt.payload.billName).toBe('Internet');
+            expect(evt.payload.amount).toBeCloseTo(90, 5); // the gross bill-level amount
+            expect(evt.payload.reason).toBe('Outage refund');
+            expect(evt.actor.userId).toBe('user-1');
+        });
+
+        it('is append-only across multiple credits (never overwrites prior entries)', () => {
+            seedOpenYear();
+            svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 5, reason: 'A' });
+            svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 7, reason: 'B' });
+            expect(svc.getState().owedAdjustments.length).toBe(2);
+        });
+
+        it('persists via save() (full-document write includes the new credits)', async () => {
+            seedOpenYear();
+            svc.recordServiceCredit({ billId: 101, amount: 90, reason: 'Outage refund' });
+            await svc.getSaveQueue()._chain;
+            const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2025');
+            expect(write).toBeDefined();
+            expect(write.data.owedAdjustments.length).toBe(2);
+            expect(write.data.owedAdjustments[0].kind).toBe('service_credit');
+        });
+
+        it('lowers the affected members owed and yields a household credit when already paid', () => {
+            seedOpenYear({
+                payments: [{ id: 'pay_1', memberId: 1, amount: 840, receivedAt: '2025-01-01', note: '', method: 'cash' }]
+            });
+            // Alice (id 1) owes 840 (Internet 1200/yr ÷ 2 = 600, Streaming 20/mo = 240/yr).
+            // She paid 840 (exactly settled). A 200 per-member service credit on Internet
+            // lowers her owed to 640, so 200 is now owed back as a household Credit.
+            svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 200, reason: 'Big credit' });
+            const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
+            const summary = calculateAnnualSummary(familyMembers, bills);
+            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), summary, payments, creditAdjustments, null, owedAdjustments);
+            expect(f.owed).toBeCloseTo(640, 5); // 840 − 200
+            expect(f.credit).toBeCloseTo(200, 5); // paid 840, owes 640 → 200 back
+        });
+
+        it('rejects a non-positive amount', () => {
+            seedOpenYear();
+            expect(() => svc.recordServiceCredit({ billId: 101, amount: 0, reason: 'x' })).toThrow(/amount/i);
+            expect(() => svc.recordServiceCredit({ billId: 101, amount: -5, reason: 'x' })).toThrow(/amount/i);
+        });
+
+        it('requires a reason', () => {
+            seedOpenYear();
+            expect(() => svc.recordServiceCredit({ billId: 101, amount: 50, reason: '   ' })).toThrow(/reason/i);
+        });
+
+        it('throws when the bill does not exist', () => {
+            seedOpenYear();
+            expect(() => svc.recordServiceCredit({ billId: 999, amount: 50, reason: 'x' })).toThrow(/bill/i);
+        });
+
+        it('throws when the bill has no members to split across', () => {
+            seedOpenYear({
+                bills: [{ id: 103, name: 'Empty', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [] }]
+            });
+            expect(() => svc.recordServiceCredit({ billId: 103, amount: 50, reason: 'x' })).toThrow(/member/i);
+        });
+
+        it('throws when a per-member target is not on the bill', () => {
+            seedOpenYear();
+            // Carol (3) is not on Internet (101)
+            expect(() => svc.recordServiceCredit({ billId: 101, memberId: 3, amount: 10, reason: 'x' })).toThrow(/bill/i);
+        });
+
+        it('throws when the year is read-only (closed)', () => {
+            seedOpenYear({ activeYear: { id: '2025', label: '2025', status: 'closed' } });
+            expect(() => svc.recordServiceCredit({ billId: 101, amount: 5, reason: 'x' })).toThrow(/read-only/i);
+        });
+    });
+
+    // ── billDeferredCharges (Charge Notice, #320) ─────────────────────
+
+    describe('billDeferredCharges', () => {
+        function seedWithCharges(extra = {}) {
+            svc._user = TEST_USER;
+            svc._setState({
+                activeYear: { id: '2026', label: '2026', status: 'open' },
+                familyMembers: [
+                    { id: 1, name: 'Alice', linkedMembers: [3] },
+                    { id: 2, name: 'Bob', linkedMembers: [] },
+                    { id: 3, name: 'Carol', linkedMembers: [] }
+                ],
+                bills: [], payments: [], creditAdjustments: [],
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03', createdAt: 't1' },
+                    { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 5, status: 'deferred', incurredDate: '2026-06-20', createdAt: 't2' },
+                    { id: 'o3', memberId: 1, kind: 'usage_charge', amount: 7, status: 'deferred', incurredDate: '2026-05-15', createdAt: 't3' }
+                ],
+                billingEvents: [],
+                settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] },
+                ...extra
+            });
+        }
+
+        it('flips all of a member deferred charges to billed and stamps the charge-notice id', () => {
+            seedWithCharges();
+            const result = svc.billDeferredCharges({ memberId: 1 });
+
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.every(a => a.status === 'billed')).toBe(true);
+            // Each billed record carries the linkage + a billedAt timestamp.
+            owedAdjustments.forEach(a => {
+                expect(a.chargeNoticeId).toBe(result.chargeNoticeId);
+                expect(a.billedAt).toBeTruthy();
+            });
+            // The result reports what was billed.
+            expect(result.chargeIds.sort()).toEqual(['o1', 'o2', 'o3']);
+            expect(result.amount).toBeCloseTo(22, 5);
+            expect(typeof result.chargeNoticeId).toBe('string');
+        });
+
+        it('bills only the charges in a given incurred-date range (the "this month" preset)', () => {
+            seedWithCharges();
+            const result = svc.billDeferredCharges({ memberId: 1, range: { from: '2026-06-01', to: '2026-06-30' } });
+            expect(result.chargeIds.sort()).toEqual(['o1', 'o2']); // o3 (May) stays deferred
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.find(a => a.id === 'o3').status).toBe('deferred');
+            expect(owedAdjustments.find(a => a.id === 'o1').status).toBe('billed');
+        });
+
+        it('bills only an explicit subset when chargeIds is given', () => {
+            seedWithCharges();
+            const result = svc.billDeferredCharges({ memberId: 1, chargeIds: ['o2'] });
+            expect(result.chargeIds).toEqual(['o2']);
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.find(a => a.id === 'o2').status).toBe('billed');
+            expect(owedAdjustments.find(a => a.id === 'o1').status).toBe('deferred');
+        });
+
+        it('bills a linked member charge when billing the household primary (ADR 0001 grain)', () => {
+            // Alice (primary, id 1) links Carol (id 3). Carol has a deferred charge.
+            // Billing the household must flip Carol's charge too, not just Alice's.
+            seedWithCharges({
+                owedAdjustments: [
+                    { id: 'a1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 20, status: 'deferred', incurredDate: '2026-06-04' }
+                ]
+            });
+            const result = svc.billDeferredCharges({ memberId: 1, chargeIds: ['a1', 'c1'] });
+            expect(result.chargeIds.sort()).toEqual(['a1', 'c1']);
+            expect(result.amount).toBeCloseTo(30, 5);
+            const { owedAdjustments } = svc.getState();
+            expect(owedAdjustments.find(a => a.id === 'a1').status).toBe('billed');
+            expect(owedAdjustments.find(a => a.id === 'c1').status).toBe('billed'); // linked member billed too
+        });
+
+        it('defaults to ALL of the household deferred charges (primary + linked)', () => {
+            seedWithCharges({
+                owedAdjustments: [
+                    { id: 'a1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+                    { id: 'c1', memberId: 3, kind: 'usage_charge', amount: 20, status: 'deferred', incurredDate: '2026-06-04' }
+                ]
+            });
+            const result = svc.billDeferredCharges({ memberId: 1 });
+            expect(result.chargeIds.sort()).toEqual(['a1', 'c1']);
+            expect(result.amount).toBeCloseTo(30, 5);
+        });
+
+        it('does not touch another household charges', () => {
+            seedWithCharges({
+                owedAdjustments: [
+                    { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'deferred', incurredDate: '2026-06-03' },
+                    { id: 'oX', memberId: 2, kind: 'usage_charge', amount: 99, status: 'deferred', incurredDate: '2026-06-03' }
+                ]
+            });
+            svc.billDeferredCharges({ memberId: 1 });
+            expect(svc.getState().owedAdjustments.find(a => a.id === 'oX').status).toBe('deferred');
+        });
+
+        it('emits a CHARGES_BILLED billing event (mirrors USAGE_CHARGE_RECORDED / REFUND_ISSUED)', () => {
+            seedWithCharges();
+            const result = svc.billDeferredCharges({ memberId: 1 });
+            const evt = svc.getState().billingEvents.find(e => e.eventType === 'CHARGES_BILLED');
+            expect(evt).toBeDefined();
+            expect(evt.payload.memberId).toBe(1);
+            expect(evt.payload.memberName).toBe('Alice');
+            expect(evt.payload.amount).toBeCloseTo(22, 5);
+            expect(evt.payload.chargeNoticeId).toBe(result.chargeNoticeId);
+            expect(evt.payload.count).toBe(3);
+            expect(evt.actor.userId).toBe('user-1');
+        });
+
+        it('is append-only: never deletes records, only flips status (ledger immutability)', () => {
+            seedWithCharges();
+            const before = svc.getState().owedAdjustments.length;
+            svc.billDeferredCharges({ memberId: 1 });
+            expect(svc.getState().owedAdjustments.length).toBe(before); // same records, new status
+        });
+
+        it('persists via save() (full-document write carries the billed status)', async () => {
+            seedWithCharges();
+            svc.billDeferredCharges({ memberId: 1 });
+            await svc.getSaveQueue()._chain;
+            const write = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2026');
+            expect(write).toBeDefined();
+            expect(write.data.owedAdjustments.every(a => a.status === 'billed')).toBe(true);
+            expect(write.data.owedAdjustments[0].chargeNoticeId).toBeTruthy();
+        });
+
+        it('does NOT touch the payments ledger', () => {
+            seedWithCharges();
+            svc.billDeferredCharges({ memberId: 1 });
+            expect(svc.getState().payments).toEqual([]);
+        });
+
+        it('throws when there are no deferred charges to bill in the period', () => {
+            seedWithCharges();
+            expect(() => svc.billDeferredCharges({ memberId: 1, range: { from: '2030-01-01', to: '2030-12-31' } }))
+                .toThrow(/no deferred charges|nothing/i);
+        });
+
+        it('throws when the member does not exist', () => {
+            seedWithCharges();
+            expect(() => svc.billDeferredCharges({ memberId: 999 })).toThrow(/member/i);
+        });
+
+        it('throws when the year is read-only (closed)', () => {
+            seedWithCharges({ activeYear: { id: '2026', label: '2026', status: 'closed' } });
+            expect(() => svc.billDeferredCharges({ memberId: 1 })).toThrow(/read-only/i);
+        });
+    });
+
 
     // ── switchYear ────────────────────────────────────────────────────
 

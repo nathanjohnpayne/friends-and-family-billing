@@ -39,7 +39,7 @@ describe('calculateOutstandingBalance', () => {
         expect(calculateOutstandingBalance(members, bills, payments, creditAdjustments)).toBeCloseTo(100, 5);
     });
 
-    // ── Close-gate: blocks only on present-tense money (#322, ADR 0006) ──────
+    // ── Close-gate: blocks only on present-tense money (#320/#321/#322, ADR 0006) ──
     it('does NOT count an undisposed credit as outstanding (a surplus never blocks the close)', () => {
         // Alice overpaid by 100 (undisposed credit), Bob is fully paid. Nothing is owed.
         const payments = [{ memberId: 1, amount: 700 }, { memberId: 2, amount: 600 }];
@@ -51,7 +51,8 @@ describe('calculateOutstandingBalance', () => {
         // close gate ignores it (it auto-carries instead of blocking, ADR 0006).
         const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 250, status: 'deferred' }];
-        // owedAdjustments are not an input to calculateOutstandingBalance — confirm 0.
+        // owedAdjustments IS an input post-#320/#321/#322, but a DEFERRED charge never
+        // raises owed (only billed does), so outstanding stays 0.
         expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBe(0);
     });
 
@@ -69,6 +70,29 @@ describe('calculateOutstandingBalance', () => {
             { id: 's2', memberId: 2, kind: 'carry_opening', amount: 60, status: 'carried_in' }
         ];
         expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBeCloseTo(60, 5);
+    });
+
+    it('a service credit shrinks an outstanding shortfall (#321, ADR 0006 — never blocks the close more)', () => {
+        // Bob owes 600, paid 500 (100 short). A 40 service credit lowers his owed to 560,
+        // so outstanding drops to 60 — a −owed adjustment can only reduce present-tense debt.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 40, status: 'active' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBeCloseTo(60, 5);
+    });
+
+    it('a service credit that clears a household shortfall removes it from outstanding entirely', () => {
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 100, status: 'active' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBe(0);
+    });
+
+    it('counts an unpaid BILLED usage charge as outstanding, but not a deferred one (#320, ADR 0006)', () => {
+        // Everyone paid their bills; Alice has a $40 charge.
+        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const billed = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
+        const deferred = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
+        expect(calculateOutstandingBalance(members, bills, payments, [], billed)).toBeCloseTo(40, 5);
+        expect(calculateOutstandingBalance(members, bills, payments, [], deferred)).toBe(0);
     });
 });
 
@@ -246,8 +270,9 @@ describe('buildNewYearData', () => {
         // Re-derive owed for the new year using the seeded opening balance.
         const summary = calculateAnnualSummary(data.familyMembers, data.bills);
         const opening = getHouseholdOpeningBalance(data.familyMembers[0], data.owedAdjustments);
-        // openingBalance is the 6th arg (5th is #319's reopenedAdjustmentIds).
-        const f = getHouseholdFinancials(data.familyMembers[0], summary, data.payments, data.creditAdjustments, null, opening);
+        // openingBalance is the 7th arg (5th is #319's reopenedAdjustmentIds, 6th is
+        // #320/#321's owedAdjustments — the seed carry_opening rides that array too).
+        const f = getHouseholdFinancials(data.familyMembers[0], summary, data.payments, data.creditAdjustments, null, data.owedAdjustments, opening);
         // Alice's household (Alice + linked Bob) owes summary[1] + summary[2] on the
         // shared Internet bill, minus the carried 80 credit.
         const householdBillsOwed = summary[1].total + summary[2].total;

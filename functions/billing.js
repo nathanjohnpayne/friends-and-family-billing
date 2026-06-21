@@ -90,4 +90,74 @@ function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
   return { charges, total: running, count: charges.length };
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare };
+/** Discriminator for an outbound Charge Notice in the shared `disputes` subcollection (#320). */
+const CHARGE_NOTICE_KIND = "charge_notice";
+
+/** ISO string from a Firestore Timestamp, an ISO string, or null. */
+function toIso(v) {
+  if (!v) return null;
+  if (v.toDate) return v.toDate().toISOString();
+  if (typeof v === "string") return v;
+  return null;
+}
+
+/**
+ * Project a member's `disputes` documents for the member-facing share view (#320).
+ * Charge Notices ride the same subcollection but are outbound Requests, not Review
+ * Requests, so they are EXCLUDED here — mirroring the client-side useDisputes
+ * exclusion (ADR 0002, ADR 0005). The member contests a charge via a Review Request,
+ * never by seeing the Charge Notice projected as one. Legacy statuses are normalized
+ * and only member-safe review fields are surfaced.
+ *
+ * @param {Array} docs  raw dispute doc data objects (each may carry Timestamp fields)
+ * @returns {Array} the member-safe Review Request projections
+ */
+function projectMemberDisputes(docs) {
+  return (docs || [])
+    // Charge Notices (#320) and Refund Notices (#319) ride the same disputes
+    // subcollection but are outbound Requests, not Review Requests — exclude both
+    // so a disputes:read link never renders them as empty Review Requests.
+    .filter((data) => data && data.kind !== CHARGE_NOTICE_KIND && data.kind !== "refund_notice")
+    .map((data) => {
+      let status = data.status || "open";
+      if (status === "pending") status = "open";
+      if (status === "reviewed") status = "in_review";
+      return {
+        id: data.id,
+        billId: data.billId,
+        billName: data.billName,
+        message: data.message,
+        proposedCorrection: data.proposedCorrection || null,
+        status: status,
+        resolutionNote: data.resolutionNote || null,
+        createdAt: toIso(data.createdAt),
+        resolvedAt: toIso(data.resolvedAt),
+        rejectedAt: toIso(data.rejectedAt),
+        evidence: (data.evidence || []).map((ev, idx) => ({
+          index: idx,
+          name: ev.name,
+          contentType: ev.contentType,
+          size: ev.size,
+        })),
+        userReview: data.userReview || null,
+      };
+    });
+}
+
+/**
+ * Sum a member's active Service Credits (#321) as a positive magnitude. Mirrors
+ * the client getServiceCreditTotalForMember: only `service_credit` records with
+ * `status: 'active'` and a finite positive amount count. The Cloud Function uses
+ * this to reduce the member-facing owed so resolveShareToken agrees with
+ * buildPublicShareData (React + legacy) and never self-heals a gross total.
+ */
+function getServiceCreditTotalForMember(owedAdjustments, memberId) {
+  return (owedAdjustments || [])
+    .filter((a) => a && a.kind === "service_credit" && a.status === "active" && a.memberId === memberId)
+    .reduce((sum, a) => {
+      const n = Number.parseFloat(a.amount);
+      return Number.isFinite(n) && n > 0 ? sum + n : sum;
+    }, 0);
+}
+
+module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, CHARGE_NOTICE_KIND };

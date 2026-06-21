@@ -9,15 +9,22 @@ import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, getHo
  * close path and the dashboard agree and recorded refunds/carry-forwards never
  * mask a real shortfall.
  *
- * Carried opening balances (#322) fold into owed via getHouseholdOpeningBalance,
- * so a carried charge becomes collectable and a carried credit lowers what is
- * owed — keeping the close gate's Outstanding figure consistent with the board.
- * (Deferred Usage Charges in owedAdjustments are still ignored — pending, not owed.)
+ * owedAdjustments (#320/#321) flow through getHouseholdFinancials: a billed Usage
+ * Charge (#320) RAISES owed, so an unpaid billed charge surfaces as outstanding
+ * (ADR 0006) and blocks close on present-tense money, while a Service Credit (#321,
+ * ADR 0005) LOWERS owed and can only shrink a shortfall, never inflate it. The
+ * carried opening balance (#322) folds into owed via getHouseholdOpeningBalance —
+ * a carried charge becomes collectable and a carried credit lowers what is owed —
+ * keeping the Outstanding figure consistent with the board. Deferred Usage Charges
+ * (#317) are ignored (pending, not owed). Both args default to empty/0, so existing
+ * 4-arg callers are unaffected.
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
- * @param {Array} [owedAdjustments]
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed, billed
+ *   Usage Charges (+owed, #320) raise it, and the `carry_opening` seeds (#322) fold the
+ *   carried opening balance in; deferred Usage Charges (#317) are ignored
  * @returns {number}
  */
 export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
@@ -25,11 +32,13 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
     let total = 0;
     mainMembers.forEach(member => {
+        // reopenedAdjustmentIds is null (5th arg): the close-gate outstanding figure
+        // does not re-open credits (#319), and a re-opened credit never creates a
+        // shortfall anyway. owedAdjustments is the 6th arg so billed Usage Charges
+        // (#320) raise owed and Service Credits (#321) lower it on this close path;
+        // openingBalance is the 7th arg so the carried balance (#322) folds in too.
         const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        // openingBalance is the 6th arg of getHouseholdFinancials (5th is #319's
-        // reopenedAdjustmentIds, which Outstanding never needs: a re-opened credit
-        // is overpayment owed back, never underpayment, so it cannot raise Outstanding).
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, openingBalance);
+        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;
     });

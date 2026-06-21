@@ -11,6 +11,7 @@ import {
     getParentMember as _getParentMember,
     calculateSettlementMetrics as _calculateSettlementMetrics,
     getHouseholdOpeningBalance as _getHouseholdOpeningBalance,
+    getServiceCreditTotalForMember as _getServiceCreditTotalForMember,
 } from './lib/calculations.js';
 import {
     PAYMENT_PROVIDER_PATTERN as _PAYMENT_PROVIDER_PATTERN,
@@ -116,6 +117,7 @@ function getBillAnnualAmount(bill) { return _getBillAnnualAmount(bill); }
 function getBillMonthlyAmount(bill) { return _getBillMonthlyAmount(bill); }
 function calculateAnnualSummary() { return _calculateAnnualSummary(familyMembers, bills); }
 function getPaymentTotalForMember(memberId) { return _getPaymentTotalForMember(payments, memberId); }
+function getServiceCreditTotalForMember(memberId) { return _getServiceCreditTotalForMember(owedAdjustments, memberId); }
 function getMemberPayments(memberId) { return _getMemberPayments(payments, memberId); }
 function isLinkedToAnyone(memberId) { return _isLinkedToAnyone(familyMembers, memberId); }
 function getParentMember(memberId) { return _getParentMember(familyMembers, memberId); }
@@ -783,6 +785,10 @@ function renderArchivedBanner() {
 async function closeCurrentYear() {
     if (!currentBillingYear) return;
 
+    // owedAdjustments threads BILLED usage charges (#320, raise Outstanding → block
+    // close), Service Credits (#321, lower owed), and carried opening balances (#322)
+    // into the close gate so the legacy app agrees with the React dashboard
+    // (ADR 0005/0006); deferred charges do not block.
     const totalOutstanding = _calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments, owedAdjustments);
     // State the carry-forward amount + member count in the confirmation (#322): at
     // close, undisposed credits/charges auto-carry rather than block (ADR 0006).
@@ -3929,6 +3935,13 @@ function buildPublicShareData(memberId, scopes) {
             .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
+    // Active Service Credits (#321) lower the household's owed, floored at 0, so the
+    // shared publicShares doc this app writes agrees with the React writer (both apps
+    // co-write the doc — dual-app parity) and with the settlement board.
+    const serviceCreditTotal = getServiceCreditTotalForMember(memberId)
+        + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(id), 0);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+
     const enabledMethods = getEnabledPaymentMethods();
 
     const data = {
@@ -4441,10 +4454,15 @@ function getInvoiceSummaryContext(memberId) {
 
     let combinedTotal = memberData ? memberData.total : 0;
     linkedMembersData.forEach(d => { combinedTotal += d.total; });
-    // Carried opening balance (#322): fold the household's carried credit/charge
-    // into the first invoice total (parity with the React invoice). Floored at 0.
+    // Compose both member-facing owed modifiers in ONE floored expression (parity with
+    // the React invoice.js and getHouseholdFinancials, dual-app parity): active Service
+    // Credits (#321) subtract and the netted carried opening balance (#322) adds (a
+    // carried credit lowers the first invoice total, a carried charge raises it).
+    // Floored at 0 so neither an over-large credit nor a carried credit shows a negative.
+    const serviceCreditTotal = getServiceCreditTotalForMember(memberId)
+        + member.linkedMembers.reduce((s, id) => s + getServiceCreditTotalForMember(id), 0);
     const openingBalance = _getHouseholdOpeningBalance(member, owedAdjustments);
-    combinedTotal = Math.max(0, combinedTotal + openingBalance);
+    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal + openingBalance);
 
     let payment = getPaymentTotalForMember(memberId);
     member.linkedMembers.forEach(id => { payment += getPaymentTotalForMember(id); });

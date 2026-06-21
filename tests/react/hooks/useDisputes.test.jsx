@@ -146,14 +146,17 @@ describe('useDisputes', () => {
     });
 
     // -----------------------------------------------------------------------
-    // 2b. Refund Notices are excluded (#319) — they are outbound, not Review Requests
+    // 2b. Refund Notices (#319) and Charge Notices (#320) are excluded — they are
+    //     outbound Requests, not Review Requests, so they must never reach the Open
+    //     Reviews KPI or the actionable review filter (ADR 0002, ADR 0005).
     // -----------------------------------------------------------------------
-    it('excludes refund_notice docs so they never reach the Review Request UI/KPI', async () => {
+    it('excludes refund_notice and charge_notice docs so they never reach the Review Request UI/KPI', async () => {
         setupMocks();
         mockGetDocs.mockResolvedValue(fakeSnap([
-            { id: 'd1', status: 'open', createdAt: '2024-01-01T00:00:00Z' },
+            { id: 'd1', status: 'open', message: 'Real review', createdAt: '2024-01-01T00:00:00Z' },
+            { id: 'cn1', kind: 'charge_notice', status: 'open', amount: 25, createdAt: '2024-01-02T00:00:00Z' },
             { id: 'rn1', kind: 'refund_notice', memberId: 1, amount: 100, createdAt: '2024-01-03T00:00:00Z' },
-            { id: 'd2', status: 'resolved', createdAt: '2024-01-02T00:00:00Z' }
+            { id: 'd2', status: 'in_review', message: 'Another', createdAt: '2024-01-04T00:00:00Z' }
         ]));
 
         const { result } = renderHook(() => useDisputes());
@@ -162,6 +165,7 @@ describe('useDisputes', () => {
         const ids = result.current.disputes.map(d => d.id);
         expect(ids).toContain('d1');
         expect(ids).toContain('d2');
+        expect(ids).not.toContain('cn1');
         expect(ids).not.toContain('rn1');
     });
 

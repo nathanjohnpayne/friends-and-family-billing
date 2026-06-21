@@ -10,6 +10,7 @@ import { db, storage } from '../../lib/firebase.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useBillingData } from './useBillingData.js';
 import { normalizeDisputeStatus } from '../../lib/validation.js';
+import { CHARGE_NOTICE_KIND } from '../../lib/chargeNotice.js';
 
 /**
  * @returns {{ disputes: Array, loading: boolean, error: string|null, reload: function, updateDispute: function, removeEvidence: function }}
@@ -35,10 +36,14 @@ export function useDisputes() {
             const col = collection(db, 'users', user.uid, 'billingYears', activeYear.id, 'disputes');
             const snap = await getDocs(col);
             const items = snap.docs
-                // Refund Notices (#319) ride the same subcollection but are outbound
-                // Requests, not Review Requests — exclude them here so the Open Reviews
-                // KPI and the actionable review filter never count them (ADR 0002).
-                .filter(d => d.data().kind !== 'refund_notice')
+                // Refund Notices (#319) and Charge Notices (#320) ride the same disputes
+                // subcollection but are outbound Requests, not Review Requests — exclude
+                // both so the Open Reviews KPI and the actionable review filter never count
+                // them (ADR 0002, ADR 0005).
+                .filter(d => {
+                    const kind = d.data().kind;
+                    return kind !== 'refund_notice' && kind !== CHARGE_NOTICE_KIND;
+                })
                 .map(d => {
                     const data = d.data();
                     data.status = normalizeDisputeStatus(data.status);

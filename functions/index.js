@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -215,6 +215,15 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
+    // Active Service Credits (#321) lower the household's owed; reduce combinedAnnual
+    // here (floored at 0) so this Cloud Function fallback — used by ShareView on cache
+    // miss / legacy-cache / stale-refresh, and self-healed back into publicShares —
+    // agrees with buildPublicShareData (React + legacy) and never persists the gross total.
+    const owedAdjustments = yearData.owedAdjustments || [];
+    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, tokenData.memberId)
+      + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+
     // Skip access increment and audit log on background refreshes (refreshOnly)
     // to avoid double-counting when the client already incremented publicShares.
     if (!refreshOnly) {
@@ -272,36 +281,13 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .where("memberId", "==", tokenData.memberId)
         .get();
 
-      result.disputes = disputesSnap.docs
-        // Refund Notices (#319) ride this same subcollection but are outbound
-        // Requests, not Review Requests (ADR 0002) — exclude them so a normal
-        // disputes:read link never renders them as empty-bill/message disputes.
-        .filter((doc) => doc.data().kind !== "refund_notice")
-        .map((doc) => {
-        const data = doc.data();
-        let status = data.status || "open";
-        if (status === "pending") status = "open";
-        if (status === "reviewed") status = "in_review";
-        return {
-          id: doc.id,
-          billId: data.billId,
-          billName: data.billName,
-          message: data.message,
-          proposedCorrection: data.proposedCorrection || null,
-          status: status,
-          resolutionNote: data.resolutionNote || null,
-          createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
-          resolvedAt: data.resolvedAt ? data.resolvedAt.toDate().toISOString() : null,
-          rejectedAt: data.rejectedAt ? data.rejectedAt.toDate().toISOString() : null,
-          evidence: (data.evidence || []).map((ev, idx) => ({
-            index: idx,
-            name: ev.name,
-            contentType: ev.contentType,
-            size: ev.size,
-          })),
-          userReview: data.userReview || null,
-        };
-      });
+      // Refund Notices (#319) and Charge Notices (#320) share this subcollection but
+      // are outbound Requests, not Review Requests — projectMemberDisputes excludes
+      // both kinds so a normal disputes:read link never renders them as empty
+      // Review Requests (ADR 0002, ADR 0005).
+      result.disputes = projectMemberDisputes(
+        disputesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      );
     }
 
     // Refund Notices (#319) — outbound Requests sharing the disputes subcollection.
@@ -326,7 +312,6 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     // owedAdjustments[] array (already loaded above), filtered to this token
     // member and to deferred status only. Member-safe fields only; never touches owed.
     if (scopes.includes("usageCharges:read")) {
-      const owedAdjustments = yearData.owedAdjustments || [];
       result.pendingCharges = buildPendingChargesForShare(
         familyMembers,
         owedAdjustments,

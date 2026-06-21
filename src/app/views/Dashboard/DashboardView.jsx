@@ -18,6 +18,8 @@ import TextInvoiceDialog from '../../components/TextInvoiceDialog.jsx';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import UsageChargeDialog from '../../components/UsageChargeDialog.jsx';
+import ChargeNoticeDialog from '../../components/ChargeNoticeDialog.jsx';
+import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
 
 /**
  * DashboardView — hero status panel + KPIs.
@@ -62,8 +64,13 @@ export default function DashboardView() {
     const yearReadOnly = isYearReadOnly(activeYear);
     const reopenedAdjustments = yearReadOnly ? null : reopenedCreditAdjustmentIds(refundNotices);
 
-    // #319 reopened-credit set AND #322 carried opening balance both feed metrics:
-    // the re-open raises totalCreditsOwed; the carry_opening seeds fold into owed.
+    // owedAdjustments threaded into the settlement metrics (reopen set 5th,
+    // owedAdjustments 6th; calculateSettlementMetrics derives each household's opening
+    // balance from the carry_opening seeds internally): BILLED usage charges (#320)
+    // raise Outstanding and block close (ADR 0006), active Service Credits (#321) lower
+    // owed, and a carried opening balance (#322) folds into owed and raises
+    // totalCreditsOwed when it is a carried credit. The #319 reopened-credit set raises
+    // totalCreditsOwed too. Deferred charges (#317) do not affect the gate.
     const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments);
 
     // Deferred-charges indicator (#322): aggregate still-deferred Usage Charges
@@ -75,7 +82,6 @@ export default function DashboardView() {
             const { count, total } = getHouseholdDeferredCharges(m, owedAdjustments);
             return { count: acc.count + count, total: acc.total + total };
         }, { count: 0, total: 0 });
-
 
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
@@ -218,6 +224,7 @@ export default function DashboardView() {
                 readOnly={yearReadOnly}
                 onRecordPayment={data => service.recordPayment(data)}
                 onAddCharge={memberId => setDialog({ type: 'addCharge', memberId })}
+                onBillCharges={memberId => setDialog({ type: 'billCharges', memberId })}
                 onIssueRefund={data => {
                     // Let errors propagate so the board's dialog shows the inline
                     // error and stays open (mirrors onRecordPayment). The success
@@ -352,6 +359,53 @@ export default function DashboardView() {
                             // stays open; the success toast runs only when the record succeeded.
                             service.recordUsageCharge({ memberId: dialog.memberId, ...data });
                             showToast('Usage charge recorded—pending, not yet billed.');
+                        }}
+                        onClose={() => setDialog({ type: null, memberId: null })}
+                    />
+                );
+            })()}
+
+            {dialog.type === 'billCharges' && (() => {
+                const member = familyMembers.find(m => m.id === dialog.memberId);
+                // Household-grain candidates (ADR 0001): the primary's + linked members'
+                // own deferred charges, surfaced for the off-cycle billing preview.
+                const householdIds = member ? [member.id, ...(member.linkedMembers || [])] : [];
+                const candidates = owedAdjustments.filter(a =>
+                    a && a.kind === 'usage_charge' && a.status === 'deferred' && householdIds.includes(a.memberId)
+                );
+                return (
+                    <ChargeNoticeDialog
+                        open
+                        memberName={member ? member.name : ''}
+                        charges={candidates}
+                        onConfirm={chargeIds => {
+                            // Bill the selected charges (deferred → billed; raises owed), then
+                            // issue the outbound Charge Notice (email + share link), fire-and-forget.
+                            const result = service.billDeferredCharges({ memberId: dialog.memberId, chargeIds });
+                            showToast('Charges billed—Charge Notice sent.');
+                            // Read the POST-mutation state: billDeferredCharges just flipped the
+                            // selected charges deferred→billed, so the stale `owedAdjustments` prop
+                            // would still mark them deferred and the minted share link would show
+                            // the just-billed charges as pending/not-yet-due.
+                            const freshState = service.getState();
+                            Promise.resolve(
+                                issueChargeNotice({
+                                    userId: user ? user.uid : '',
+                                    billingYearId: activeYear.id,
+                                    yearLabel,
+                                    memberId: dialog.memberId,
+                                    memberName: member ? member.name : '',
+                                    memberEmail: member ? member.email : '',
+                                    chargeNoticeId: result.chargeNoticeId,
+                                    charges: result.charges,
+                                    familyMembers,
+                                    bills,
+                                    payments,
+                                    owedAdjustments: freshState.owedAdjustments || [],
+                                    activeYear,
+                                    settings: freshState.settings || {},
+                                })
+                            ).catch(err => console.error('issueChargeNotice failed:', err));
                         }}
                         onClose={() => setDialog({ type: null, memberId: null })}
                     />

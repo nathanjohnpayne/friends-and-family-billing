@@ -38,7 +38,7 @@ const PAYMENT_METHODS = [
 /**
  * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -80,20 +80,29 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
         // showing gross money received.
         //
-        // ADR 0003: a refund whose member reported an active, unresolved
+        // ADR 0003 (#319): a refund whose member reported an active, unresolved
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
-        // #322: the carried openingBalance also adjusts owed (folded into combinedTotal).
-        const { netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, openingBalance);
-        const balance = combinedTotal - netContribution;
-        const netForStatus = Math.abs(netContribution - combinedTotal) <= CREDIT_EPSILON ? combinedTotal : netContribution;
-        const status = getPaymentStatus(combinedTotal, netForStatus) || 'settled';
+        //
+        // `owed` here is the fully-composed owed from getHouseholdFinancials: an active
+        // service_credit (#321) LOWERS it, a billed Usage Charge / Charge Notice (#320)
+        // RAISES it, and the carried opening balance (#322) adjusts it (credit −, charge
+        // +). The card balance, status, credit, and Record-Payment gate all derive from
+        // this adjusted figure (matching the dashboard Outstanding KPI), not just the
+        // gross bill split. Deferred charges (#317) are excluded — they never raise owed.
+        // `combinedTotal` (above) stays the gross bill split ± the carried opening balance
+        // for the displayed "Annual" figure; service credits and billed charges follow
+        // Option B and surface only in the balance, not the bill's own amount.
+        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
+        const balance = owed - netContribution;
+        const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
+        const status = getPaymentStatus(owed, netForStatus) || 'settled';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
         const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
 
-        return { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges };
+        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled (mirrors main.js:1964)
@@ -153,6 +162,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             onManageShareLinks={onManageShareLinks}
                             onViewHistory={onViewHistory}
                             onAddCharge={onAddCharge}
+                            onBillCharges={onBillCharges}
                             onIssueRefund={onIssueRefund}
                         />
                     ))
@@ -210,7 +220,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge }) {
+function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -500,6 +510,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 onClick={() => onAddCharge(member.id)}
                             >
                                 Add Charge
+                            </button>
+                        )}
+                        {!readOnly && onBillCharges && hasPendingCharges && (
+                            <button
+                                className="btn btn-tertiary btn-sm"
+                                onClick={() => onBillCharges(member.id)}
+                                title="Off-cycle-bill this household's deferred charges as a single Charge Notice"
+                            >
+                                Bill Charges
                             </button>
                         )}
                         {member.phone && (

@@ -32,6 +32,57 @@ describe('buildPublicShareData — pendingCharges (#317 reachability)', () => {
     });
 });
 
+describe('buildPublicShareData — service credits reduce owed (#321)', () => {
+    // Alice (1) solo on one $100/mo bill → owes 1200/yr. An active service credit must
+    // reduce combinedAnnualTotal and balanceRemaining (floored at 0), mirroring
+    // getHouseholdFinancials, so the member-facing share summary agrees with the board.
+    const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
+    const bills = [{ id: 'b1', name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1] }];
+    const activeYear = { id: '2026', label: '2026' };
+    const scopes = ['summary:read'];
+
+    it('reduces combinedAnnualTotal and balanceRemaining by the active service-credit total', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 200, status: 'active' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(1000, 5); // 1200 − 200
+        expect(data.paymentSummary.balanceRemaining).toBeCloseTo(1000, 5);
+        expect(data.paymentSummary.combinedMonthlyTotal).toBeCloseTo(1000 / 12, 2);
+    });
+
+    it('reduces balanceRemaining net of payments', () => {
+        const payments = [{ memberId: 1, amount: 400 }];
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 200, status: 'active' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, payments, 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(1000, 5);
+        expect(data.paymentSummary.balanceRemaining).toBeCloseTo(600, 5); // 1000 − 400
+    });
+
+    it('floors the reduced owed at 0 for an over-large credit', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 5000, status: 'active' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBe(0);
+        expect(data.paymentSummary.balanceRemaining).toBe(0);
+    });
+
+    it('ignores voided credits and the +owed usage-charge direction; defaults to no reduction', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: 40, status: 'voided' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 70, status: 'billed' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(1200, 5);
+        // No owedAdjustments at all → unchanged.
+        const baseline = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {});
+        expect(baseline.paymentSummary.combinedAnnualTotal).toBeCloseTo(1200, 5);
+    });
+});
+
 describe('buildShareScopes', () => {
     it('always includes summary:read, paymentMethods:read, and usageCharges:read', () => {
         const scopes = buildShareScopes(false, false);

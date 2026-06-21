@@ -1409,6 +1409,49 @@ describe('saveData owedAdjustments preservation', () => {
         ctx._set('owedAdjustments', owedAdjustments);
         assert.deepEqual(ctx._get('owedAdjustments'), owedAdjustments);
     });
+
+    it('preserves a service_credit kind verbatim in the legacy save payload (#321 dual-app parity)', async () => {
+        // Service Credits (#321) are a new owedAdjustments[] kind written only by the
+        // React app, but both apps write FULL documents. The legacy app must round-trip
+        // the −owed records untouched or a setDoc here would silently drop them.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' },
+            { id: 'oadj2', memberId: 1, billId: 101, kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active', incurredDate: '2026-02-01', createdAt: '2026-02-01T00:00:00.000Z' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        const payload = lastSet[0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+    });
+
+    it('preserves a BILLED charge with its Charge Notice fields verbatim (#320 dual-app parity)', async () => {
+        // The React app bills a charge (deferred → billed, stamping chargeNoticeId +
+        // billedAt). A legacy full-document save must not drop the new status or fields,
+        // or the shared doc would silently lose the billing on the next legacy save.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] }]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed', chargeNoticeId: 'cn_1', billedAt: '2026-06-20T00:00:00Z', description: 'Roaming', incurredDate: '2026-06-03' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const payload = ctx._saved[ctx._saved.length - 1][0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+        assert.equal(payload.owedAdjustments[0].status, 'billed');
+        assert.equal(payload.owedAdjustments[0].chargeNoticeId, 'cn_1');
+        assert.equal(payload.owedAdjustments[0].billedAt, '2026-06-20T00:00:00Z');
+    });
 });
 
 // ──────────────── generateRawToken ────────────────────────────
@@ -1881,6 +1924,96 @@ describe('buildPendingChargesForShare (Cloud Function)', () => {
     });
 });
 
+// ──────── projectMemberDisputes (Cloud Function, #320) ────────
+//
+// resolveShareToken projects the member's disputes for the share view. Charge
+// Notices (#320) ride the same `disputes` subcollection but are outbound Requests,
+// so they must be excluded from the disputes:read projection the same way useDisputes
+// excludes them client-side (ADR 0002, ADR 0005). The member contests a charge via a
+// Review Request, not by seeing the Charge Notice as one.
+
+const { projectMemberDisputes } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('projectMemberDisputes (Cloud Function, #320)', () => {
+    function tsDoc(obj) {
+        // Emulate a Firestore doc snapshot with createdAt as a Timestamp-like value.
+        return obj;
+    }
+
+    it('excludes charge_notice docs from the disputes projection', () => {
+        const docs = [
+            tsDoc({ id: 'd1', billId: 5, billName: 'Internet', message: 'Wrong', status: 'open' }),
+            tsDoc({ id: 'cn1', kind: 'charge_notice', amount: 25, status: 'open' }),
+            tsDoc({ id: 'd2', billId: 6, billName: 'Phone', message: 'Also wrong', status: 'in_review' })
+        ];
+        const out = projectMemberDisputes(docs);
+        const ids = out.map((d) => d.id);
+        assert.ok(ids.includes('d1'));
+        assert.ok(ids.includes('d2'));
+        assert.ok(!ids.includes('cn1'));
+    });
+
+    it('normalizes legacy statuses and exposes member-safe review fields', () => {
+        const docs = [
+            { id: 'd1', billId: 5, billName: 'Internet', message: 'Hi', proposedCorrection: 'Fix', status: 'pending', userReview: { state: 'requested' } }
+        ];
+        const out = projectMemberDisputes(docs);
+        assert.equal(out[0].status, 'open'); // pending → open
+        assert.equal(out[0].billName, 'Internet');
+        assert.equal(out[0].proposedCorrection, 'Fix');
+        assert.deepEqual(out[0].userReview, { state: 'requested' });
+    });
+
+    it('tolerates an empty or missing input', () => {
+        assert.deepEqual(projectMemberDisputes([]), []);
+        assert.deepEqual(projectMemberDisputes(undefined), []);
+    });
+});
+
+// ──────── getServiceCreditTotalForMember (Cloud Function, #321) ────────
+//
+// resolveShareToken reduces the member-facing combinedAnnual by the household's
+// active Service Credits, so the Cloud Function fallback (cache-miss / legacy-cache
+// / stale-refresh, self-healed back into publicShares) agrees with the React +
+// legacy buildPublicShareData writers. This is the shared helper behind that.
+
+const { getServiceCreditTotalForMember: cfGetServiceCreditTotal } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('getServiceCreditTotalForMember (Cloud Function, #321)', () => {
+    it('sums active service_credit records for the member only', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: 50 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 20 },
+            { id: 's3', memberId: 2, kind: 'service_credit', status: 'active', amount: 999 } // other member
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 70);
+    });
+
+    it('excludes voided credits and other owedAdjustment kinds', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'voided', amount: 999 },
+            { id: 'u1', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 999 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 30 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 30);
+    });
+
+    it('drops non-finite, negative, and missing amounts (no coercion)', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: NaN },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: -5 },
+            { id: 's3', memberId: 1, kind: 'service_credit', status: 'active' }, // missing
+            { id: 's4', memberId: 1, kind: 'service_credit', status: 'active', amount: 12.5 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 12.5);
+    });
+
+    it('tolerates empty or missing input', () => {
+        assert.equal(cfGetServiceCreditTotal([], 1), 0);
+        assert.equal(cfGetServiceCreditTotal(undefined, 1), 0);
+    });
+});
+
 // ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
 
 describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
@@ -1908,6 +2041,23 @@ describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
         seed(ctx);
         const data = ctx.buildPublicShareData(1, ['summary:read']);
         assert.equal(data.pendingCharges, undefined);
+    });
+
+    it('excludes a BILLED charge from the member pendingCharges (it is now owed, not pending) (#320)', () => {
+        const ctx = createContext();
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Internet', amount: 100, logo: '', website: '', members: [1] }]);
+        ctx._set('payments', []);
+        ctx._set('owedAdjustments', [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 12, status: 'deferred', description: 'Still pending', incurredDate: '2026-02-01' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 30, status: 'billed', chargeNoticeId: 'cn_1', description: 'Now billed', incurredDate: '2026-03-01' }
+        ]);
+        ctx._set('currentBillingYear', { id: '2026', label: '2026' });
+
+        const data = ctx.buildPublicShareData(1, ['summary:read', 'usageCharges:read']);
+        // Only the deferred charge is "pending"; the billed one has moved to owed.
+        assert.equal(data.pendingCharges.count, 1);
+        assert.equal(data.pendingCharges.charges[0].id, 'o1');
     });
 });
 
