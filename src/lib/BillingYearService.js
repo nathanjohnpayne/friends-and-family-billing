@@ -993,6 +993,111 @@ export class BillingYearService {
         return charge;
     }
 
+    // ── Service Credits (owedAdjustments, #321) ──
+
+    /**
+     * Record a Service Credit — a `−owed`, bill-level reduction for a service that
+     * was canceled, reduced, discounted, or had an issue (#321, ADR 0005). It is
+     * the negative mirror of a Usage Charge: appended to owedAdjustments[] with
+     * `kind: 'service_credit'` and `status: 'active'`, the financial source of truth
+     * on the record. It does NOT edit the bill (Option B): the bill's `amount` and
+     * history are untouched, so the bill's record stays honest.
+     *
+     * Bill-level by default: the amount is split among the bill's current members
+     * (last member absorbs the rounding remainder so the per-member records sum
+     * exactly to the gross amount, mirroring distributed payments). Pass a
+     * `memberId` for the per-member variant (a one-person issue); that member must
+     * be assigned to the bill.
+     *
+     * The reduction LOWERS the affected members' owed (getHouseholdFinancials, #321).
+     * When a member has already paid, the surplus surfaces as a household Credit on
+     * the EXISTING refund/carry pipeline (#316) — no new disposition path.
+     *
+     * Append-only: a credit is voided via a later status change, NEVER deleted
+     * (mirrors recordUsageCharge / the payments-ledger discipline). Emits a
+     * SERVICE_CREDIT_RECORDED billing event. Does not touch recordPayment /
+     * reversePayment, the payments[] ledger, or the bill.
+     *
+     * @param {{ billId: *, amount: number, reason: string, memberId?: *, incurredDate?: string }} data
+     * @returns {Array<Object>} the new owedAdjustments[] records (one per affected member)
+     */
+    recordServiceCredit(data) {
+        this._guardReadOnly();
+        const { owedAdjustments, bills } = this._state;
+
+        const bill = bills.find(b => b.id === data.billId);
+        if (!bill) throw new Error('Bill not found.');
+
+        const billMembers = bill.members || [];
+        if (billMembers.length === 0) {
+            throw new Error('This bill has no members to credit.');
+        }
+
+        const parsedAmount = Number.parseFloat(data.amount);
+        const totalCents = Number.isFinite(parsedAmount)
+            ? Math.round((parsedAmount + Number.EPSILON) * 100)
+            : 0;
+        if (totalCents <= 0) throw new Error('Amount must be greater than zero.');
+
+        const reason = (data.reason || '').trim();
+        if (!reason) throw new Error('A reason is required.');
+
+        // Determine the target members and each one's share in cents.
+        let targetIds;
+        if (data.memberId !== undefined && data.memberId !== null) {
+            // Per-member variant: the whole amount lands on one member, who must be on the bill.
+            if (!billMembers.includes(data.memberId)) {
+                throw new Error('That member is not on this bill.');
+            }
+            targetIds = [data.memberId];
+        } else {
+            // Bill-level: split evenly across the bill's members.
+            targetIds = billMembers.slice();
+        }
+
+        const baseCents = Math.floor(totalCents / targetIds.length);
+        const incurredDate = data.incurredDate || localDateString();
+        const createdAt = new Date().toISOString();
+
+        const records = [];
+        let allocated = 0;
+        targetIds.forEach((memberId, i) => {
+            // Last member absorbs the remainder so the shares sum exactly to totalCents.
+            const shareCents = i === targetIds.length - 1 ? totalCents - allocated : baseCents;
+            allocated += shareCents;
+            records.push({
+                id: generateUniqueAdjustmentId(),
+                memberId,
+                billId: bill.id,
+                kind: 'service_credit',
+                amount: shareCents / 100,
+                reason,
+                incurredDate,
+                status: 'active',
+                createdAt
+            });
+        });
+
+        const events = this._emitEvent('SERVICE_CREDIT_RECORDED', {
+            billId: bill.id,
+            billName: bill.name,
+            amount: totalCents / 100,
+            reason,
+            incurredDate,
+            memberId: data.memberId !== undefined && data.memberId !== null ? data.memberId : null,
+            memberCount: records.length
+        });
+
+        this._setState({
+            owedAdjustments: [...(owedAdjustments || []), ...records],
+            billingEvents: events
+        });
+        this.save();
+        return records;
+    }
+
+    // ── Off-cycle billing: Charge Notice (owedAdjustments, #320) ──
+
     /**
      * Off-cycle-bill a member's deferred Usage Charges via a Charge Notice (#320).
      * Flips the selected `owedAdjustments[]` records from `deferred` to `billed`
@@ -1082,7 +1187,7 @@ export class BillingYearService {
      */
     issueRefund(data) {
         this._guardReadOnly();
-        const { familyMembers, bills, payments, creditAdjustments } = this._state;
+        const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = this._state;
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
         // A Refund is a household disposition (ADR 0001) — issued to the primary member.
@@ -1096,9 +1201,13 @@ export class BillingYearService {
         const reason = (data.reason || '').trim();
         if (!reason) throw new Error('A reason is required.');
 
-        // Cap at the household's current credit (Net Contribution − owed).
+        // Cap at the household's current credit (Net Contribution − owed). The reopen
+        // set is null (5th arg): the cap must NOT re-open a not_received refund (#319),
+        // because doing so would inflate the credit and permit a double-refund. owedAdjustments
+        // is passed as the 6th arg so a credit produced by a Service Credit (#321, reduced
+        // owed) is still refundable through this same pipeline — no separate disposition path.
         const summary = calculateAnnualSummary(familyMembers, bills);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments);
+        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
         if (amount > credit + CREDIT_EPSILON) {
             throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');

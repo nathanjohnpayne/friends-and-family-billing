@@ -22,7 +22,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
     const [generating, setGenerating] = useState(false);
     const bodyEditedRef = useRef(false);
 
-    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings) : null;
+    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
 
     // Reset state when dialog opens
     useEffect(() => {

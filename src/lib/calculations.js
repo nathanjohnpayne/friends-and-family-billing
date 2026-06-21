@@ -9,6 +9,23 @@
 export const CREDIT_EPSILON = 0.005;
 
 /**
+ * Coerce an adjustment amount and add it to a running sum only when it is a
+ * finite, positive number. A malformed amount (a string, NaN, Infinity, a
+ * negative, or a missing field) is dropped rather than coerced into the total —
+ * `sum + (a.amount || 0)` would turn `'5'` into string concatenation and let a
+ * negative silently reduce a magnitude that is stored as a positive. Adjustment
+ * amounts are always positive magnitudes (the sign is applied by the consumer),
+ * so this is a pure defensive guard against bad persisted data.
+ * @param {number} sum
+ * @param {*} amount
+ * @returns {number}
+ */
+function addFinitePositiveAmount(sum, amount) {
+    const n = Number.parseFloat(amount);
+    return Number.isFinite(n) && n > 0 ? sum + n : sum;
+}
+
+/**
  * @param {{ billingFrequency?: string, amount: number }} bill
  * @returns {number}
  */
@@ -145,6 +162,39 @@ export function getHouseholdDeferredCharges(member, owedAdjustments) {
 }
 
 /**
+ * Predicate: an active Service Credit for a specific member (#321, ADR 0005).
+ * A Service Credit is the `−owed` mirror of a Usage Charge — a bill-level
+ * reduction recorded per-member (kind `service_credit`). Its `amount` is stored
+ * as a positive magnitude; the sign (subtraction from owed) is applied by the
+ * consumer. Unlike a deferred Usage Charge it takes effect immediately, so only
+ * `active` records reduce owed; voided ones (append-only void via status) are
+ * excluded, as is the `+owed` Usage Charge direction (a different kind).
+ * @param {Object} a  an owedAdjustments[] record
+ * @param {*} memberId
+ * @returns {boolean}
+ */
+function isActiveServiceCreditFor(a, memberId) {
+    return !!a && a.memberId === memberId && a.kind === 'service_credit' && a.status === 'active';
+}
+
+/**
+ * Sum of a member's *active* Service Credits (#321) as a positive magnitude.
+ * This figure is subtracted from the member's owed by getHouseholdFinancials, so
+ * a paid household's reduced owed surfaces as a Credit on the existing
+ * refund/carry axis (no new disposition path). Mirrors
+ * getDeferredUsageChargeTotalForMember / getCreditAdjustmentTotalForMember so the
+ * household-grain math composes the same way.
+ * @param {Array} owedAdjustments
+ * @param {*} memberId
+ * @returns {number}
+ */
+export function getServiceCreditTotalForMember(owedAdjustments, memberId) {
+    return (owedAdjustments || [])
+        .filter(a => isActiveServiceCreditFor(a, memberId))
+        .reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
+}
+
+/**
  * Predicate: a *billed* Usage Charge for a specific member (Charge Notice, #320).
  * "billed" means an off-cycle Charge Notice has invoiced the charge, so unlike a
  * deferred charge it IS now owed. Voided charges (append-only void via status) and
@@ -169,7 +219,7 @@ function isBilledUsageChargeFor(a, memberId) {
 export function getBilledUsageChargeTotalForMember(owedAdjustments, memberId) {
     return (owedAdjustments || [])
         .filter(a => isBilledUsageChargeFor(a, memberId))
-        .reduce((sum, a) => sum + (a.amount || 0), 0);
+        .reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
 }
 
 /**
@@ -208,8 +258,19 @@ export function getParentMember(familyMembers, memberId) {
  * household before differencing, so internal imbalance between members (one over,
  * one under) nets out and never surfaces as a household credit.
  *
+ *   owed             = bill-derived owed − active Service Credits, floored at 0
  *   Net Contribution = gross paid − recorded refunds/carried-forward credits
  *   Credit           = max(0, Net Contribution − owed), sub-cent residue zeroed
+ *
+ * Service Credits (#321, ADR 0005) are the `−owed` direction of owedAdjustments[]:
+ * an active service_credit LOWERS the affected members' owed. When the household
+ * has already paid (Net Contribution now exceeds the reduced owed) the surplus
+ * surfaces as a Credit on the EXISTING refund/carry axis above — no new
+ * disposition path. owed is floored at 0 so an over-large credit becomes a Credit
+ * rather than negative debt. Deferred Usage Charges in the same array are NOT
+ * applied here (they are `+owed` but not yet billed); only active Service Credits
+ * feed owed. Passing owedAdjustments is optional and defaults to empty, so every
+ * existing four-argument caller is unaffected.
  *
  * Invariant: in valid states a household's recorded dispositions (refunds +
  * carry-forwards) are capped at its credit, enforced at the mutation/import
@@ -232,19 +293,28 @@ export function getParentMember(familyMembers, memberId) {
  * @param {Array} [creditAdjustments]
  * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
  *   active not_received (#319, ADR 0003); excluded so the credit is owed again
- * @param {Array} [owedAdjustments]  Usage Charges (#317/#320); only BILLED ones add to owed
- * @returns {{ owed: number, grossPaid: number, creditAdjustmentTotal: number, billedChargeTotal: number, netContribution: number, credit: number }}
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321, applied) and billed
+ *   Usage Charges (+owed, #320, added); deferred Usage Charges (#317) are ignored
+ * @returns {{ owed: number, grossOwed: number, serviceCreditTotal: number, grossPaid: number, creditAdjustmentTotal: number, billedChargeTotal: number, netContribution: number, credit: number }}
  */
 export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
     const linkedIds = member.linkedMembers || [];
 
-    let owed = summary[member.id] ? summary[member.id].total : 0;
-    linkedIds.forEach(id => { if (summary[id]) owed += summary[id].total; });
+    let grossOwed = summary[member.id] ? summary[member.id].total : 0;
+    linkedIds.forEach(id => { if (summary[id]) grossOwed += summary[id].total; });
+
+    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, member.id)
+        + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
 
     // Billed Usage Charges raise owed at the household grain (ADR 0001, #320).
     const billedChargeTotal = getBilledUsageChargeTotalForMember(owedAdjustments, member.id)
         + linkedIds.reduce((s, id) => s + getBilledUsageChargeTotalForMember(owedAdjustments, id), 0);
-    owed += billedChargeTotal;
+
+    // A Service Credit (#321) lowers the bill-derived owed, floored at 0 so an
+    // over-large credit surfaces as a Credit on the netContribution axis rather
+    // than negative debt; a billed Usage Charge (#320) is a separate source added
+    // on top of that floored figure (ADR 0005).
+    const owed = Math.max(0, grossOwed - serviceCreditTotal) + billedChargeTotal;
 
     const grossPaid = getPaymentTotalForMember(payments, member.id)
         + linkedIds.reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
@@ -256,7 +326,7 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
     const rawCredit = netContribution - owed;
     const credit = rawCredit > CREDIT_EPSILON ? rawCredit : 0;
 
-    return { owed, grossPaid, creditAdjustmentTotal, billedChargeTotal, netContribution, credit };
+    return { owed, grossOwed, serviceCreditTotal, grossPaid, creditAdjustmentTotal, billedChargeTotal, netContribution, credit };
 }
 
 /**
@@ -274,7 +344,8 @@ export function getHouseholdFinancials(member, summary, payments, creditAdjustme
  *   household credit (totalCreditsOwed) is owed again while the year is open.
  *   Outstanding is unaffected — a re-opened credit is overpayment owed back, never
  *   underpayment — so it never inflates settlement progress.
- * @param {Array} [owedAdjustments]  Usage Charges (#317/#320); only BILLED ones raise owed
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed and billed
+ *   Usage Charges (+owed, #320) raise it; deferred Usage Charges (#317) are ignored
  * @returns {{ totalAnnual: number, totalPayments: number, totalOutstanding: number, totalCreditsOwed: number, paidCount: number, totalMembers: number, percentage: number }}
  */
 export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
@@ -288,6 +359,9 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
     let paidCount = 0;
 
     mainMembers.forEach(member => {
+        // `owed` here is the post-Service-Credit owed (#321), so totalAnnual reflects
+        // what is actually owed after bill-level reductions, and a paid household whose
+        // owed dropped below its Net Contribution surfaces a credit on the existing axis.
         const { owed, grossPaid, netContribution, credit } =
             getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
         totalAnnual += owed;

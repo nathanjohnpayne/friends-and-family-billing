@@ -63,8 +63,10 @@ export default function DashboardView() {
     const yearReadOnly = isYearReadOnly(activeYear);
     const reopenedAdjustments = yearReadOnly ? null : reopenedCreditAdjustmentIds(refundNotices);
 
-    // owedAdjustments threads BILLED usage charges into the gate: an unpaid billed
-    // charge raises Outstanding and blocks close (#320, ADR 0006); deferred do not.
+    // owedAdjustments threaded into the settlement metrics (reopen set 5th,
+    // owedAdjustments 6th): BILLED usage charges (#320) raise Outstanding and block
+    // close (ADR 0006), while active Service Credits (#321) lower owed; deferred
+    // charges (#317) do not affect the gate.
     const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments);
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';

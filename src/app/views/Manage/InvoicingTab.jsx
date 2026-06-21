@@ -190,7 +190,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
     let previewBodyHTML = '';
     if (previewMember) {
         const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
-        const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings);
+        const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings, owedAdjustments);
         if (ctx) {
             previewCtx = ctx;
             previewEmailPayload = buildInvoiceTemplateEmailPayload(ctx, previewShareUrl);

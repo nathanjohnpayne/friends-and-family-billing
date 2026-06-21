@@ -8,14 +8,20 @@ import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, CREDI
  * the per-household NET shortfall summed by calculateSettlementMetrics, so the
  * close path and the dashboard agree and recorded refunds/carry-forwards never
  * mask a real shortfall.
- * Billed Usage Charges (#320, optional trailing arg) raise a household's owed, so an
- * unpaid billed charge surfaces as outstanding (ADR 0006); deferred charges do not.
- * The arg defaults to empty, so existing 4-arg callers are unaffected.
+ *
+ * owedAdjustments (#320/#321, optional trailing arg) flow through
+ * getHouseholdFinancials: a billed Usage Charge (#320) RAISES owed, so an unpaid
+ * billed charge surfaces as outstanding (ADR 0006), while a Service Credit (#321,
+ * ADR 0005) LOWERS owed and can only shrink a shortfall, never inflate it. Deferred
+ * charges (#317) are ignored. This keeps the close-gate honest (it blocks only on
+ * present-tense money) and aligned with the dashboard. The arg defaults to empty, so
+ * existing 4-arg callers are unaffected.
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
- * @param {Array} [owedAdjustments]  Usage Charges; only BILLED ones raise owed
+ * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed and billed
+ *   Usage Charges (+owed, #320) raise it; deferred Usage Charges (#317) are ignored
  * @returns {number}
  */
 export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
@@ -25,6 +31,8 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
     mainMembers.forEach(member => {
         // reopenedAdjustmentIds is null here: the close-gate outstanding figure does not
         // re-open credits (#319), and a re-opened credit never creates a shortfall anyway.
+        // owedAdjustments is passed as the 6th arg so billed Usage Charges (#320) raise owed
+        // and Service Credits (#321) lower it on this close path.
         const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments);
         const shortfall = owed - netContribution;
         if (shortfall > CREDIT_EPSILON) total += shortfall;

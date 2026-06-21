@@ -73,14 +73,17 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // shows an honest collectable balance instead of "Paid". The "Paid" box keeps
         // showing gross money received.
         //
-        // ADR 0003: a refund whose member reported an active, unresolved
+        // ADR 0003 (#319): a refund whose member reported an active, unresolved
         // not_received is re-opened (its disposition excluded), so Net Contribution
         // rises back and the household's credit is owed again while the year is open.
-        // owedAdjustments threads in BILLED Charge Notices (#320): a billed usage charge
-        // raises the household's owed, so the card balance/status/Record-Payment gate
-        // reflect it (matching the dashboard Outstanding KPI), not just gross bill split.
-        // Deferred charges are excluded (they never raise owed). `combinedTotal` stays the
-        // gross bill total for the "Annual" display.
+        //
+        // `owed` here is the post-adjustment owed: an active service_credit (#321)
+        // LOWERS it and a billed Usage Charge / Charge Notice (#320) RAISES it, so the
+        // card balance, status, credit, and Record-Payment gate all derive from the
+        // adjusted figure (matching the dashboard Outstanding KPI), not just the gross
+        // bill split. Deferred charges (#317) are excluded — they never raise owed.
+        // `combinedTotal` stays the GROSS bill split for the displayed "Annual" figure
+        // and the breakdown formula (the bill's own amount is unchanged, Option B).
         const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments);
         const balance = owed - netContribution;
         const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
@@ -90,7 +93,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
         const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
 
-        return { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges };
+        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled (mirrors main.js:1964)

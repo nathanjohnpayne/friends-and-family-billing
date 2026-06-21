@@ -1336,6 +1336,28 @@ describe('saveData owedAdjustments preservation', () => {
         assert.deepEqual(ctx._get('owedAdjustments'), owedAdjustments);
     });
 
+    it('preserves a service_credit kind verbatim in the legacy save payload (#321 dual-app parity)', async () => {
+        // Service Credits (#321) are a new owedAdjustments[] kind written only by the
+        // React app, but both apps write FULL documents. The legacy app must round-trip
+        // the −owed records untouched or a setDoc here would silently drop them.
+        const ctx = createContext();
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('familyMembers', [
+            { id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+        ]);
+        const owedAdjustments = [
+            { id: 'oadj1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' },
+            { id: 'oadj2', memberId: 1, billId: 101, kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active', incurredDate: '2026-02-01', createdAt: '2026-02-01T00:00:00.000Z' }
+        ];
+        ctx._set('owedAdjustments', owedAdjustments);
+
+        await ctx.saveData();
+
+        const lastSet = ctx._saved[ctx._saved.length - 1];
+        const payload = lastSet[0];
+        assert.deepEqual(payload.owedAdjustments, owedAdjustments);
+    });
+
     it('preserves a BILLED charge with its Charge Notice fields verbatim (#320 dual-app parity)', async () => {
         // The React app bills a charge (deferred → billed, stamping chargeNoticeId +
         // billedAt). A legacy full-document save must not drop the new status or fields,
@@ -1871,6 +1893,50 @@ describe('projectMemberDisputes (Cloud Function, #320)', () => {
     it('tolerates an empty or missing input', () => {
         assert.deepEqual(projectMemberDisputes([]), []);
         assert.deepEqual(projectMemberDisputes(undefined), []);
+    });
+});
+
+// ──────── getServiceCreditTotalForMember (Cloud Function, #321) ────────
+//
+// resolveShareToken reduces the member-facing combinedAnnual by the household's
+// active Service Credits, so the Cloud Function fallback (cache-miss / legacy-cache
+// / stale-refresh, self-healed back into publicShares) agrees with the React +
+// legacy buildPublicShareData writers. This is the shared helper behind that.
+
+const { getServiceCreditTotalForMember: cfGetServiceCreditTotal } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('getServiceCreditTotalForMember (Cloud Function, #321)', () => {
+    it('sums active service_credit records for the member only', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: 50 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 20 },
+            { id: 's3', memberId: 2, kind: 'service_credit', status: 'active', amount: 999 } // other member
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 70);
+    });
+
+    it('excludes voided credits and other owedAdjustment kinds', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'voided', amount: 999 },
+            { id: 'u1', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 999 },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: 30 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 30);
+    });
+
+    it('drops non-finite, negative, and missing amounts (no coercion)', () => {
+        const adj = [
+            { id: 's1', memberId: 1, kind: 'service_credit', status: 'active', amount: NaN },
+            { id: 's2', memberId: 1, kind: 'service_credit', status: 'active', amount: -5 },
+            { id: 's3', memberId: 1, kind: 'service_credit', status: 'active' }, // missing
+            { id: 's4', memberId: 1, kind: 'service_credit', status: 'active', amount: 12.5 }
+        ];
+        assert.equal(cfGetServiceCreditTotal(adj, 1), 12.5);
+    });
+
+    it('tolerates empty or missing input', () => {
+        assert.equal(cfGetServiceCreditTotal([], 1), 0);
+        assert.equal(cfGetServiceCreditTotal(undefined, 1), 0);
     });
 });
 
