@@ -1628,6 +1628,34 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text-secondary, #5B6475);
 }
 
+/* ── Service Credit: "Apply to" fieldset (#336) ────────────
+   The radio group is a semantic <fieldset>/<legend> for accessibility, but the
+   browser-default chrome (2px groove border, min-inline-size: min-content, and an
+   unstyled legend) collides with the dialog layout and clips. Reset those defaults
+   and restyle as a clean bordered group consistent with the dialog's other fields. */
+.service-credit-scope {
+    min-width: 0;
+    margin: 0 0 var(--space-3, 12px);
+    padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: 6px;
+}
+
+.service-credit-scope-legend {
+    padding: 0 var(--space-1, 4px);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-text-secondary, #5B6475);
+}
+
+.service-credit-scope .checkbox-item + .checkbox-item {
+    margin-top: var(--space-2, 8px);
+}
+
+.service-credit-scope .payment-field-group {
+    margin-top: var(--space-2, 8px);
+}
+
 /* ── Link Manager Dialog ───────────────────────────────── */
 .link-manager-hint {
     font-size: 0.85rem;
