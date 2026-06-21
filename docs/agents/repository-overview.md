@@ -320,9 +320,9 @@ npm run dev            # Vite dev server with HMR
 ```
 
 **How it works:**
-1. `build:react` — Vite builds `src/app/` → `app/` (code-split chunks; ~238 KB index + ~400 KB jsx-runtime + ~401 KB InvoicingTab/TipTap lazy chunk)
-2. `build:assemble` — generates the runtime `firebase-config.local.js` bridge, copies shared assets (design tokens, logos, favicon, OG image, QR code) into `app/`, and relocates the React `index.html` to `app/index.html`
-- `src/app/main.jsx` is the Vite entry point (React `createRoot`)
+1. `build:react` — Vite builds the root `index.html` React entry → `app/` (code-split chunks; ~238 KB index + ~400 KB jsx-runtime + ~401 KB InvoicingTab/TipTap lazy chunk)
+2. `build:assemble` — generates the runtime `firebase-config.local.js` bridge and copies shared assets (design tokens, logos, favicon, OG image, QR code) into `app/` (Vite already emits the root `index.html` to `app/index.html`)
+- `index.html` (project root) is the HTML entry; `src/app/main.jsx` is the JS entry point (React `createRoot`)
 - `src/app/App.jsx` is the root component with React Router and lazy-loaded views
 - `src/lib/` contains pure business logic (no React dependency) shared across components
 - The `app/` output directory is **gitignored**; source of truth is `src/`

@@ -367,7 +367,7 @@ Firebase Hosting deploys the `app/` directory (`"public": "app"` in `firebase.js
 | Step | Build command | Output | Served at |
 |------|---------------|--------|-----------|
 | 1. React SPA | `npm run build:react` | `app/` directory (Vite) | `/` |
-| 2. Assemble | `npm run build:assemble` | generates the config bridge, copies shared assets → `app/`, relocates React `index.html` → `app/index.html` | `/` |
+| 2. Assemble | `npm run build:assemble` | generates the config bridge, copies shared assets → `app/` | `/` |
 
 ```bash
 # Build all (two-step pipeline)

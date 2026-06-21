@@ -14,10 +14,7 @@ export default defineConfig({
         //       the main bundle under 500 KB. Current size ~690 KB due to settlement
         //       dialogs and Firebase SDK.
         outDir: 'app',
-        emptyOutDir: true,
-        rollupOptions: {
-            input: path.resolve(__dirname, 'src/app/index.html')
-        }
+        emptyOutDir: true
     },
     resolve: {
         alias: {

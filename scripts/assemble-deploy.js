@@ -45,13 +45,7 @@ for (const file of sharedFiles) {
     copy(file, path.join(OUT, file));
 }
 
-// --- React SPA index.html → app/ root ---
-// Vite outputs index.html to app/src/app/index.html (mirroring source structure).
-// Firebase SPA rewrite needs it at app/index.html (served as /).
-const reactIndex = path.join(OUT, 'src', 'app', 'index.html');
-if (fs.existsSync(reactIndex)) {
-    fs.copyFileSync(reactIndex, path.join(OUT, 'index.html'));
-    console.log('\nCopied React index.html → app/index.html (SPA root)');
-}
+// Vite builds the root index.html directly to app/index.html (served as / by
+// Firebase Hosting and the dev server), so no relocation step is needed.
 
 console.log('\nAssembly complete.');
