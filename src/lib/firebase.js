@@ -2,8 +2,8 @@
  * Modular Firebase initialization for the React app.
  *
  * Reads config from window.__FIREBASE_CONFIG__ (set by firebase-config.local.js
- * loaded via <script> tag in index.html). This keeps firebase-config.local.js
- * as the single source of truth for both the legacy and React apps.
+ * loaded via <script> tag in index.html). firebase-config.local.js is the single
+ * source of truth for the React app's runtime Firebase config.
  */
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';

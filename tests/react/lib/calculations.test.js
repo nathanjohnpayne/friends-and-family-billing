@@ -176,6 +176,16 @@ describe('calculateSettlementMetrics', () => {
         expect(m.paidCount).toBe(2);
     });
 
+    it('counts a zero-balance household (on no bill) as paid so it does not block Ready to Close', () => {
+        // Only Alice is on the bill; Bob is assigned to nothing → zero balance.
+        const oneOnBill = [{ id: 'b1', amount: 100, billingFrequency: 'annual', members: [1] }];
+        const payments = [{ memberId: 1, amount: 100 }];
+        const m = calculateSettlementMetrics(members, oneOnBill, payments);
+        expect(m.paidCount).toBe(2); // both households count as paid
+        expect(m.totalOutstanding).toBe(0);
+        expect(m.percentage).toBe(100);
+    });
+
     it('handles linked members — combines totals under parent', () => {
         const linked = [
             { id: 1, name: 'Parent', linkedMembers: [3] },

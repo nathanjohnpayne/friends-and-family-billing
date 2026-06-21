@@ -17,8 +17,6 @@ Thumbs.db
 *.swo
 
 # Build artifacts
-/script.js
-/script.js.map
 /app/
 
 # Test coverage

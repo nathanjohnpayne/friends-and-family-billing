@@ -215,13 +215,13 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
-    // Compose the member-facing owed exactly as buildPublicShareData (React + legacy)
+    // Compose the member-facing owed exactly as buildPublicShareData (the React writer)
     // and getHouseholdFinancials do: active Service Credits (#321) lower owed and the
     // netted carried opening balance (carry_opening seeds, #322 — a carried credit is
     // negative, a carried charge positive, summed across the primary + linked members)
     // adjusts it, the combined result floored at 0. This Cloud Function fallback — used
-    // by ShareView on cache miss / legacy-cache / stale-refresh and self-healed back
-    // into publicShares — must agree with both writers and never persist an uncarried
+    // by ShareView on cache miss / stale-refresh and self-healed back
+    // into publicShares — must agree with the React writer and never persist an uncarried
     // (or gross) total. carry_opening is a distinct kind, so the service-credit helper
     // ignores it — no double-count.
     const owedAdjustments = yearData.owedAdjustments || [];

@@ -185,8 +185,8 @@ export function isYearLabelDuplicate(billingYears, label) {
  * household — a netted opening balance (carried credit negative, carried charge
  * positive). `getHouseholdOpeningBalance` reads these so the carried balance
  * lands in the new year's owed (its annual total) and first invoice. The seed
- * records ride the same verbatim `owedAdjustments[]` round-trip both apps already
- * persist, so they are never dropped (dual-app parity). If no carry is supplied,
+ * records ride the same verbatim `owedAdjustments[]` round-trip the full-document
+ * save preserves, so they are never dropped. If no carry is supplied,
  * the arrays initialize empty (parity with buildSavePayload / buildInitialYearData).
  *
  * @param {Array} familyMembers

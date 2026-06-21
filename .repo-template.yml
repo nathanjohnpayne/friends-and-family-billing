@@ -12,7 +12,6 @@ spec_test_map:
   billing-persistence:
     - "tests/react/lib/persistence.test.js"
     - "tests/react/lib/SaveQueue.test.js"
-    - "tests/billing.test.js"
   settlement-board:
     - "tests/react/components/SettlementBoard.test.jsx"
     - "tests/react/views/BillsTab.test.jsx"
@@ -50,4 +49,3 @@ spec_test_map:
   formatting-validation:
     - "tests/react/lib/formatting.test.js"
     - "tests/react/lib/validation.test.js"
-  ffb-mitigation: "tests/ffb-mitigation-plan.test.js"

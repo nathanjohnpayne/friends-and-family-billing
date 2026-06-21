@@ -362,24 +362,23 @@ There is no staging environment. All deploys go directly to production.
 
 ## Build Process
 
-Firebase Hosting deploys the `app/` directory (`"public": "app"` in `firebase.json`). The React SPA is the primary app at `/`; the legacy vanilla JS build is retained at `/site/`.
+Firebase Hosting deploys the `app/` directory (`"public": "app"` in `firebase.json`). The React SPA is the sole client at `/`.
 
 | Step | Build command | Output | Served at |
 |------|---------------|--------|-----------|
 | 1. React SPA | `npm run build:react` | `app/` directory (Vite) | `/` |
-| 2. Legacy (vanilla JS) | `npm run build:legacy` | `script.js` (repo root, intermediate) | — |
-| 3. Assemble | `npm run build:assemble` | copies legacy → `app/site/`, shared assets → `app/` | `/site/` |
+| 2. Assemble | `npm run build:assemble` | generates the config bridge, copies shared assets → `app/` | `/` |
 
 ```bash
-# Build all (three-step pipeline)
+# Build all (two-step pipeline)
 npm run build
 ```
 
-`npm run build` runs `build:react` (Vite) then `build:legacy` (esbuild) then `build:assemble` (assembly script).
+`npm run build` runs `build:react` (Vite) then `build:assemble` (assembly script).
 
 ### Firebase config (required before build or deploy)
 
-Both apps read Firebase config from `firebase-config.local.js` (gitignored), which
+The React app reads Firebase config from `firebase-config.local.js` (gitignored), which
 sets `window.__FIREBASE_CONFIG__`. This file **must exist in the repo root** before
 building or deploying. Create it from the template:
 
@@ -389,15 +388,13 @@ cp firebase-config.local.example.js firebase-config.local.js
 ```
 
 The React app also supports `.env.local` with `VITE_FIREBASE_*` variables (used by
-Vite at build time), but the runtime config bridge uses `window.__FIREBASE_CONFIG__`
-for compatibility with the legacy app.
+Vite at build time), and the runtime config bridge uses `window.__FIREBASE_CONFIG__`.
 
 ### Predeploy hook caveat
 
-The `firebase.json` predeploy hook (`npm run build && node stamp-version.js`) may
-fail under `op-firebase-deploy` because the esbuild step in `build:legacy` can't
-read stdin in the non-interactive environment. **Workaround:** build locally first,
-then deploy with the predeploy hook stripped:
+The `firebase.json` predeploy hook (`npm run build && node stamp-version.js`) can
+fail under `op-firebase-deploy` in the non-interactive deploy environment.
+**Workaround:** build locally first, then deploy with the predeploy hook stripped:
 
 ```bash
 npm run build && node stamp-version.js
@@ -422,8 +419,8 @@ op-firebase-deploy --only firestore:rules,storage
 
 ### If predeploy fails under op-firebase-deploy
 
-The `build:legacy` esbuild step can fail in the non-interactive deploy
-environment. Build locally first, then deploy without predeploy:
+The predeploy hook can fail in the non-interactive deploy environment.
+Build locally first, then deploy without predeploy:
 
 ```bash
 npm run build && node stamp-version.js
@@ -503,27 +500,19 @@ Or use Firebase Console → Hosting → Release History → Roll back.
 
 ## Post-Deployment Verification
 
-Verify both apps after each deploy:
+Verify the app after each deploy:
 
-### React app (primary)
+### React app
 
 1. Open https://friends-and-family-billing.web.app/ in an incognito window
 2. Sign in — confirm the dashboard loads with KPIs and settlement board
 3. Verify data populates (settlement board, members, bills)
 4. Check browser DevTools → Console for errors
 
-### Legacy app (secondary)
-
-1. Open https://friends-and-family-billing.web.app/site/ in the same window
-2. Confirm the legacy settlement workspace loads
-3. Check browser DevTools → Console for errors
-
 ### Common deploy issues
 - **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it
   exists in the repo root before deploying. It is gitignored so it won't
   appear in `git status`.
-- **Legacy app shows "Missing Firebase web config"**: Same cause — the legacy
-  app's `firebase-config.js` loads `firebase-config.local.js` at runtime.
 - **Predeploy fails**: See "If predeploy fails" section above.
 
 ## CI/CD Integration
