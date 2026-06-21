@@ -36,6 +36,11 @@
         "type": 301
       },
       {
+        "source": "/site/share.html",
+        "destination": "/share",
+        "type": 301
+      },
+      {
         "source": "/site/**",
         "destination": "/",
         "type": 301
