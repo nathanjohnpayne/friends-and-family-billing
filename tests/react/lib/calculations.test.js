@@ -292,6 +292,18 @@ describe('getHouseholdRecordedRefund (#331)', () => {
         expect(getHouseholdRecordedRefund(undefined, [{ id: 'c1', memberId: 1, type: 'refund', amount: 5, status: 'recorded' }]))
             .toEqual({ has: false, total: 0 });
     });
+
+    it('keeps total finite when a refund amount is malformed (no NaN/string leakage)', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' },
+            { id: 'c2', memberId: 1, type: 'refund', amount: 'not-a-number', status: 'recorded' },
+            { id: 'c3', memberId: 1, type: 'refund', status: 'recorded' } // missing amount
+        ];
+        const { has, total } = getHouseholdRecordedRefund(members[0], adjustments);
+        expect(has).toBe(true); // the active refund records still trigger the warning
+        expect(Number.isFinite(total)).toBe(true);
+        expect(total).toBeCloseTo(50, 5); // only the valid amount contributes
+    });
 });
 
 describe('getHouseholdFinancials', () => {

@@ -143,6 +143,12 @@ function isActiveRefundFor(a, memberId) {
  * flips to Outstanding, while the refund stays on the books (append-only, never
  * auto-clawed-back). This is pure display — it has no effect on owed, credit, the
  * settlement gate, or any mutation.
+ *
+ * `total` is summed through addFinitePositiveAmount (as getServiceCreditTotalForMember /
+ * getBilledUsageChargeTotalForMember do), so a malformed persisted amount (a string,
+ * NaN, negative, or missing) is dropped rather than leaking a `NaN`/string into the
+ * warning copy. `has` keys off the existence of an active refund record, independent of
+ * amount validity, so the warning still fires for a refund whose amount is unparseable.
  * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
  * @param {Array} creditAdjustments
  * @returns {{ has: boolean, total: number }}
@@ -151,7 +157,7 @@ export function getHouseholdRecordedRefund(member, creditAdjustments) {
     if (!member) return { has: false, total: 0 };
     const ids = [member.id, ...((member.linkedMembers) || [])];
     const refunds = (creditAdjustments || []).filter(a => ids.some(id => isActiveRefundFor(a, id)));
-    const total = refunds.reduce((sum, a) => sum + (a.amount || 0), 0);
+    const total = refunds.reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
     return { has: refunds.length > 0, total };
 }
 
