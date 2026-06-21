@@ -67,6 +67,17 @@ describe('buildSavePayload', () => {
         const payload = buildSavePayload(year, members, bills, payments, events, settings);
         expect(payload.owedAdjustments).toEqual([]);
     });
+
+    it('threads closedAt from the year (the full save must not drop it)', () => {
+        const closedYear = { label: '2026', status: 'closed', createdAt: 'ts1', archivedAt: null, closedAt: 'ts-closed' };
+        const payload = buildSavePayload(closedYear, members, bills, payments, events, settings);
+        expect(payload.closedAt).toBe('ts-closed');
+    });
+
+    it('defaults closedAt to null when the year has none', () => {
+        const payload = buildSavePayload(year, members, bills, payments, events, settings);
+        expect(payload.closedAt).toBeNull();
+    });
 });
 
 describe('normalizeYearData', () => {
@@ -124,6 +135,16 @@ describe('normalizeYearData', () => {
         const { owedAdjustments } = normalizeYearData({}, '2026');
         expect(owedAdjustments).toEqual([]);
     });
+
+    it('loads closedAt from the document', () => {
+        const { year } = normalizeYearData({ closedAt: 'ts-closed' }, '2026');
+        expect(year.closedAt).toBe('ts-closed');
+    });
+
+    it('defaults a missing closedAt to null', () => {
+        const { year } = normalizeYearData({}, '2026');
+        expect(year.closedAt).toBeNull();
+    });
 });
 
 describe('creditAdjustments round-trip', () => {
@@ -153,6 +174,24 @@ describe('owedAdjustments round-trip', () => {
         const n = normalizeYearData(yearDoc, '2026');
         const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings, n.creditAdjustments, n.owedAdjustments);
         expect(payload.owedAdjustments).toEqual(owedAdjustments);
+    });
+});
+
+describe('closedAt round-trip (#326 regression)', () => {
+    it('a closed year survives a load → save cycle without dropping closedAt', () => {
+        // setYearStatus('closed') writes closedAt via a setDoc merge, but save() persists
+        // the whole document with setDoc (no merge). Before #326, closedAt was absent from
+        // buildSavePayload's allowlist, so the next full save silently erased it. The React
+        // SPA is now the sole writer, so the allowlist IS the schema (ADR 0008): every
+        // persisted field — including merge-path fields like closedAt — must round-trip.
+        const yearDoc = {
+            label: '2026', status: 'closed', archivedAt: null, closedAt: 'ts-closed-2026',
+            familyMembers: [], bills: [], payments: []
+        };
+        const n = normalizeYearData(yearDoc, '2026');
+        expect(n.year.closedAt).toBe('ts-closed-2026');
+        const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings, n.creditAdjustments, n.owedAdjustments);
+        expect(payload.closedAt).toBe('ts-closed-2026');
     });
 });
 

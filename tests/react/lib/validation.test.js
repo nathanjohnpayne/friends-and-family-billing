@@ -62,9 +62,19 @@ describe('detectDuplicatePaymentText', () => {
         expect(detectDuplicatePaymentText('Pay via Venmo. Methods: %payment_methods%')).toBe(true);
     });
 
-    it('returns false for null/empty', () => {
+    it('matches additional providers (Zelle, Apple Cash) alongside the token', () => {
+        expect(detectDuplicatePaymentText('%payment_methods%\nAlso pay via Zelle to 555-1234')).toBe(true);
+        expect(detectDuplicatePaymentText('%payment_methods%\nApple Cash: 555-1234')).toBe(true);
+    });
+
+    it('matches provider names case-insensitively', () => {
+        expect(detectDuplicatePaymentText('%payment_methods%\nVENMO: @handle')).toBe(true);
+    });
+
+    it('returns false for null/empty/undefined', () => {
         expect(detectDuplicatePaymentText(null)).toBe(false);
         expect(detectDuplicatePaymentText('')).toBe(false);
+        expect(detectDuplicatePaymentText(undefined)).toBe(false);
     });
 });
 

@@ -67,7 +67,9 @@ function generate() {
         return false;
     }
 
-    // Build config object — include logodevKey for the legacy app (src/main.js)
+    // Build the runtime Firebase config bridge consumed by src/lib/firebase.js
+    // (window.__FIREBASE_CONFIG__). Logo.dev uses VITE_LOGODEV_KEY at build time,
+    // not this bridge, so it is intentionally not emitted here.
     const lines = [
         `    apiKey: ${JSON.stringify(apiKey)}`,
         `    authDomain: ${JSON.stringify(env.VITE_FIREBASE_AUTH_DOMAIN || '')}`,
@@ -77,9 +79,6 @@ function generate() {
         `    appId: ${JSON.stringify(env.VITE_FIREBASE_APP_ID || '')}`,
         `    measurementId: ${JSON.stringify(env.VITE_FIREBASE_MEASUREMENT_ID || '')}`,
     ];
-    if (env.VITE_LOGODEV_KEY) {
-        lines.push(`    logodevKey: ${JSON.stringify(env.VITE_LOGODEV_KEY)}`);
-    }
     const content = `window.__FIREBASE_CONFIG__ = {\n${lines.join(',\n')}\n};\n`;
 
     fs.writeFileSync(OUT_PATH, content, 'utf8');

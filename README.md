@@ -350,6 +350,13 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 
 ## Changelog
 
+### Legacy App Retirement (2026-06) --- #326
+
+- ✅ React is now the sole client; the legacy vanilla-JS app (formerly served at `/site/`) is removed from source, build, hosting, and tests
+- ✅ esbuild and the three-step build replaced by a two-step React-only build (`build:react` → `build:assemble`)
+- ✅ Still-relevant Cloud Functions coverage consolidated into `tests/functions.test.js`
+- ✅ Persistence fix folded in: the billing-year `closedAt` field is now preserved by the full-document save (see ADR 0008)
+
 ### TipTap Editor, Check Payment Method, QR Codes (2026-04)
 - ✅ TipTap WYSIWYG rich-text editor for invoice templates (TemplateEditor, SubjectEditor)
 - ✅ Custom TipTap nodes: inline %token% pills and block /slash_command tokens

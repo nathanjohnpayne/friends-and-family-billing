@@ -4,7 +4,7 @@
 /**
  * Build the Firestore save payload from current state.
  * Does NOT include FieldValue.serverTimestamp() — caller adds createdAt fallback and updatedAt.
- * @param {{ label: string, status: string, createdAt: *, archivedAt: * }} currentBillingYear
+ * @param {{ label: string, status: string, createdAt: *, archivedAt: *, closedAt: * }} currentBillingYear
  * @param {Array} familyMembers
  * @param {Array} bills
  * @param {Array} payments
@@ -37,6 +37,10 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
         status: currentBillingYear.status,
         createdAt: currentBillingYear.createdAt || null,
         archivedAt: currentBillingYear.archivedAt || null,
+        // closedAt is written by the status-transition merge path (setYearStatus →
+        // setDoc merge). It MUST be threaded through this allowlist or the next
+        // full-document save (setDoc without merge) silently erases it. See ADR 0008.
+        closedAt: currentBillingYear.closedAt || null,
         familyMembers: familyMembers,
         bills: bills,
         payments: payments,
@@ -60,7 +64,8 @@ export function normalizeYearData(yearData, yearId) {
         label: yearData.label || yearId,
         status: yearData.status || 'open',
         createdAt: yearData.createdAt,
-        archivedAt: yearData.archivedAt || null
+        archivedAt: yearData.archivedAt || null,
+        closedAt: yearData.closedAt || null
     };
 
     const members = (yearData.familyMembers || []).map(m => {

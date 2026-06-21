@@ -6,7 +6,7 @@ The test suite uses **Vitest** with **React Testing Library**. Run with:
 npm test
 ```
 
-This runs the React test suite (`tests/react/`) plus a tracked-file secret scan (`scripts/check-no-public-secrets.mjs`). Failing the secret scan means API keys or tokens are present in tracked files—fix before committing.
+This runs the React test suite (`tests/react/`) and the Cloud Functions test suite (`tests/functions.test.js`) plus a tracked-file secret scan (`scripts/check-no-public-secrets.mjs`). Failing the secret scan means API keys or tokens are present in tracked files—fix before committing.
 
 ## Coverage
 
@@ -20,7 +20,7 @@ Coverage output lands in `coverage/react/` (text summary printed to terminal, pl
 
 ## Test count
 
-**~628 React test/it declarations** (37 test files) covering services, hooks, components, and views. **290 legacy test/it declarations** via Node's native test runner. **Playwright E2E tests** in `tests/e2e/`.
+**~1029 React tests across 46 files** covering services, hooks, components, and views, plus **58 Cloud Functions tests** in `tests/functions.test.js` via Node's native test runner. **Playwright E2E tests** in `tests/e2e/`.
 
 ```bash
 npm run test:e2e       # Playwright end-to-end tests (builds first, serves at :4174)

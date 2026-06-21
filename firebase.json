@@ -22,17 +22,22 @@
       },
       {
         "source": "/login.html",
-        "destination": "/site/login.html",
+        "destination": "/login",
         "type": 301
       },
       {
         "source": "/check_data.html",
-        "destination": "/site/check_data.html",
+        "destination": "/",
         "type": 301
       },
       {
         "source": "/share.html",
         "destination": "/share",
+        "type": 301
+      },
+      {
+        "source": "/site/**",
+        "destination": "/",
         "type": 301
       }
     ],
@@ -48,24 +53,6 @@
       },
       {
         "source": "version.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
-      {
-        "source": "site/version.json",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
-      {
-        "source": "site/share.html",
         "headers": [
           {
             "key": "Cache-Control",
@@ -125,10 +112,6 @@
       {
         "source": "/requestShareLink",
         "function": "requestShareLink"
-      },
-      {
-        "source": "/site/**",
-        "destination": "/site/index.html"
       },
       {
         "source": "**",

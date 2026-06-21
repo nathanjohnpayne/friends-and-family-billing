@@ -149,7 +149,7 @@ function projectMemberDisputes(docs) {
  * the client getServiceCreditTotalForMember: only `service_credit` records with
  * `status: 'active'` and a finite positive amount count. The Cloud Function uses
  * this to reduce the member-facing owed so resolveShareToken agrees with
- * buildPublicShareData (React + legacy) and never self-heals a gross total.
+ * buildPublicShareData (the React writer) and never self-heals a gross total.
  */
 function getServiceCreditTotalForMember(owedAdjustments, memberId) {
   return (owedAdjustments || [])
@@ -167,9 +167,9 @@ function getServiceCreditTotalForMember(owedAdjustments, memberId) {
  * member and their linked members. A carried credit is stored negative (owe less)
  * and a carried charge positive (owe more); they net to one number. Only non-voided
  * seeds count. resolveShareToken folds this into the member-facing owed so the
- * Cloud Function fallback (cache-miss / legacy-cache / stale-refresh, self-healed
- * back into publicShares) agrees with the React + legacy buildPublicShareData
- * writers and the settlement board, and never persists an uncarried total.
+ * Cloud Function fallback (cache-miss / stale-refresh, self-healed
+ * back into publicShares) agrees with the React buildPublicShareData
+ * writer and the settlement board, and never persists an uncarried total.
  *
  * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
  * @param {Array} owedAdjustments

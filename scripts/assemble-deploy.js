@@ -1,21 +1,17 @@
 /**
  * assemble-deploy.js — copies static assets into app/ (the Firebase public dir)
- * after Vite and esbuild have finished their builds.
+ * after Vite has finished the React build.
  *
- * Run order: build:react → build:legacy → build:assemble
+ * Run order: build:react → build:assemble
  *   - Vite builds React into app/ (emptyOutDir clears it first)
- *   - esbuild builds legacy JS to script.js at repo root
- *   - This script copies legacy + shared files into app/
+ *   - This script generates the runtime Firebase config bridge and copies
+ *     shared assets into app/, then relocates the React index.html to app/.
  */
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'app');
-
-function ensureDir(dir) {
-    fs.mkdirSync(dir, { recursive: true });
-}
 
 function copy(src, dest) {
     const srcPath = path.join(ROOT, src);
@@ -27,34 +23,9 @@ function copy(src, dest) {
     console.log(`  ${src} → ${path.relative(ROOT, dest)}`);
 }
 
-// --- Legacy site → app/site/ ---
-const siteDir = path.join(OUT, 'site');
-ensureDir(siteDir);
-
-console.log('Assembling legacy site into app/site/:');
-const legacyFiles = [
-    'index.html',
-    'login.html',
-    'share.html',
-    'check_data.html',
-    'auth.js',
-    'styles.css',
-    'login.css',
-    'annual-summary.css',
-];
-for (const file of legacyFiles) {
-    copy(file, path.join(siteDir, file));
-}
-
-// Legacy build artifact
-copy('script.js', path.join(siteDir, 'script.js'));
-if (fs.existsSync(path.join(ROOT, 'script.js.map'))) {
-    copy('script.js.map', path.join(siteDir, 'script.js.map'));
-}
-
 // --- Generate firebase-config.local.js if missing ---
 const { generate: generateFirebaseConfig } = require('./generate-firebase-config.js');
-console.log('\nEnsuring firebase-config.local.js exists:');
+console.log('Ensuring firebase-config.local.js exists:');
 if (!generateFirebaseConfig()) {
     console.error('\nBuild aborted: firebase-config.local.js is required for deploy.');
     process.exit(1);
@@ -63,7 +34,6 @@ if (!generateFirebaseConfig()) {
 // --- Shared assets → app/ root ---
 console.log('\nCopying shared assets into app/:');
 const sharedFiles = [
-    'firebase-config.js',
     'firebase-config.local.js',
     'design-tokens.css',
     'favicon.svg',

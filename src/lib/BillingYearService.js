@@ -19,7 +19,7 @@ import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHo
 import { selectBillableCharges } from './chargeNotice.js';
 import { SaveQueue } from './SaveQueue.js';
 
-/** Default settings matching the legacy app (main.js line 77). */
+/** Default settings for a new billing year. */
 const DEFAULT_SETTINGS = {
     emailMessage: 'Hello %first_name%,\n\nYour annual billing summary for %billing_year% is ready. Your annual amount due is %household_total%. Thank you for your prompt payment via any of the payment methods below.',
     emailSubject: '',
@@ -369,7 +369,7 @@ export class BillingYearService {
      *      carried credit (disposing it, so the old year's gate no longer sees it)
      *      and an in-place `deferred` → `carried_forward` status transition on each
      *      carried Usage Charge (preserved, never deleted) — then persists the
-     *      prior-year doc as a full document (round-trips through both apps).
+     *      prior-year doc as a full document (round-trips through the full-document save).
      *
      * If nothing is undisposed, behaves exactly as before (no seeds, no prior-year
      * write). The prior-year credit is materialized lazily here (ADR 0004/0007):
