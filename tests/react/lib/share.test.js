@@ -141,6 +141,20 @@ describe('buildServiceCreditsForShare (#337)', () => {
         const [item] = buildServiceCreditsForShare(bills, owedAdjustments, 1, []).items;
         expect(Object.keys(item).sort()).toEqual(['amount', 'billName', 'reason']);
     });
+
+    it('rounds once after aggregation, avoiding per-add cent drift', () => {
+        // Two sub-cent credits on the same bill+reason: rounding on each add would give
+        // 0.02; rounding once after aggregation gives 0.01, keeping the line item and
+        // total in cent-level parity with the raw service-credit sum.
+        const owedAdjustments = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0.005, reason: 'Proration', status: 'active' },
+            { id: 'c2', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0.005, reason: 'Proration', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, owedAdjustments, 1, []);
+        expect(res.items).toHaveLength(1);
+        expect(res.items[0].amount).toBe(0.01);
+        expect(res.total).toBe(0.01);
+    });
 });
 
 describe('buildPublicShareData — service credit line items (#337)', () => {

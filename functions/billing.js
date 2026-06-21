@@ -195,13 +195,19 @@ function buildServiceCreditsForShare(bills, owedAdjustments, memberId, linkedIds
     const key = String(a.billId) + "|" + reason;
     const existing = groups.get(key);
     if (existing) {
-      existing.amount = Math.round((existing.amount + amt) * 100) / 100;
+      existing.amount += amt; // accumulate raw; round once below
     } else {
-      groups.set(key, { reason, billName: billName(a.billId), amount: Math.round(amt * 100) / 100 });
+      groups.set(key, { reason, billName: billName(a.billId), amount: amt });
     }
   });
-  const items = Array.from(groups.values());
-  const total = Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+  // Round once, after aggregation, so per-add rounding can't drift the line items or the
+  // total from the raw service-credit sum (cent-level parity with getServiceCreditTotalForMember).
+  let rawTotal = 0;
+  const items = Array.from(groups.values()).map((it) => {
+    rawTotal += it.amount;
+    return { reason: it.reason, billName: it.billName, amount: Math.round(it.amount * 100) / 100 };
+  });
+  const total = Math.round(rawTotal * 100) / 100;
   return { items, total };
 }
 

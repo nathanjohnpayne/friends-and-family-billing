@@ -364,9 +364,11 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       publicShareData.summary = result.summary;
       publicShareData.linkedMembers = result.linkedMembers || [];
       publicShareData.paymentSummary = result.paymentSummary;
-    }
-    if (result.serviceCredits) {
-      publicShareData.serviceCredits = result.serviceCredits;
+      // Always reconcile serviceCredits within the summary so a refresh that drops the
+      // household's credits to zero CLEARS a stale value left behind by merge:true (the
+      // field is omitted only when there are none). FieldValue.delete() is a no-op when
+      // the field is already absent.
+      publicShareData.serviceCredits = result.serviceCredits || FieldValue.delete();
     }
     if (result.paymentMethods) {
       publicShareData.paymentMethods = result.paymentMethods;

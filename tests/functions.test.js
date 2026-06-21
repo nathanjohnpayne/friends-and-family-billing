@@ -342,6 +342,20 @@ describe('buildServiceCreditsForShare (#337)', () => {
         assert.equal(buildServiceCreditsForShare(bills, adj, 1, [2]).total, viaTotal);
     });
 
+    it('rounds once after aggregation, avoiding per-add cent drift', () => {
+        // Two sub-cent credits on the same bill+reason: rounding on each add would give
+        // 0.02 (round(0.005) + round(0.005)); rounding once after aggregation gives 0.01,
+        // preserving cent-level parity with the raw service-credit sum.
+        const adj = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0.005, reason: 'Proration', status: 'active' },
+            { id: 'c2', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0.005, reason: 'Proration', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, adj, 1, []);
+        assert.equal(res.items.length, 1);
+        assert.equal(res.items[0].amount, 0.01);
+        assert.equal(res.total, 0.01);
+    });
+
     it('tolerates empty / missing input', () => {
         assert.deepEqual(buildServiceCreditsForShare(bills, [], 1, []), { items: [], total: 0 });
         assert.deepEqual(buildServiceCreditsForShare(undefined, undefined, 1, undefined), { items: [], total: 0 });
