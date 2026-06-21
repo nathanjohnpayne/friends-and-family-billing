@@ -477,7 +477,13 @@ If `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed
 `op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
 1. Enables the IAM Credentials API
 2. Creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` if needed
-3. Grants deploy roles to that service account
+3. Grants deploy roles to that service account:
+   - `roles/firebase.admin`
+   - `roles/cloudfunctions.admin`
+   - `roles/secretmanager.viewer`
+   - `roles/iam.serviceAccountUser`
+   - `roles/artifactregistry.writer`
+   - `roles/run.admin`
 4. Grants your current principal `roles/iam.serviceAccountTokenCreator` on the deployer
 5. Creates or updates a dedicated `gcloud` configuration named `friends-and-family-billing`, including `billing/quota_project=friends-and-family-billing`
 
@@ -575,6 +581,13 @@ firebase functions:secrets:access RESEND_API_KEY
 ```
 
 Secrets are accessed in Cloud Functions via `defineSecret()` (Firebase Functions v2 params) and are only loaded at runtime for functions that declare them.
+
+The deployer service account needs `roles/secretmanager.viewer` on this project
+so Firebase CLI can validate `defineSecret()` declarations during functions
+deploy analysis. If `op-firebase-deploy --only functions --dry-run` fails with
+`Permission 'secretmanager.secrets.get' denied` for `RESEND_API_KEY`, rerun the
+current `op-firebase-setup friends-and-family-billing` helper or grant that role
+to `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
 
 ## Email Delivery (Resend)
 
