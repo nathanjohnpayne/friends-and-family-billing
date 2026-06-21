@@ -11,6 +11,7 @@ Covers the settlement board component for tracking household payment status, the
 - `tests/react/components/SettlementBoard.test.jsx`
 - `tests/react/components/UsageChargeDialog.test.jsx`
 - `tests/react/components/ServiceCreditDialog.test.jsx`
+- `tests/react/components/PaymentHistoryDialog.test.jsx`
 - `tests/react/views/BillsTab.test.jsx`
 - `tests/react/views/DashboardView.test.jsx`
 
@@ -136,3 +137,11 @@ Covers the settlement board component for tracking household payment status, the
 - Shows empty state ("Add members and bills") when no members exist.
 - Shows loading state ("Loading...") when data is loading.
 - Backward lifecycle transitions (Back to Open, Reopen to Settling) are not available on the dashboard; they remain exclusively in Settings → Billing Controls.
+
+### Payment History — reversal-after-refund warning (#331, ADR 0003)
+
+The `PaymentHistoryDialog` is opened from the household card's "Payment History" action (`onViewHistory(member.id)`), so it is scoped to the household primary; its `creditAdjustments`, `owedAdjustments`, and the reopened-adjustment set are threaded in from the dashboard.
+
+- When the household holds an **active recorded Refund** (a `creditAdjustments[]` record with `type: 'refund'` and `status !== 'cancelled'`, summed across the primary + linked members via `getHouseholdRecordedRefund`), reversing a payment opens a confirmation titled "Reverse Payment — Refund on Record" whose message names (a) the recorded refund amount and (b) the resulting household Outstanding balance — `(owed − Net Contribution) + reversed amount`, derived from the same `getHouseholdFinancials` the board shows — and states the refund is not automatically clawed back. In the uncommon case where a partial refund leaves residual credit so the reversal does not actually flip the household Outstanding (resulting balance ≤ the credit epsilon), the message says the reversal "lowers their Net Contribution but leaves the household in credit" instead of naming a misleading "$0.00 Outstanding".
+- The warning is **non-blocking**: the "Reverse" action stays available and proceeds on confirm. Reversing is the correct, automatic mechanism — gross paid drops, Net Contribution falls, the household reads Outstanding — and the refund record is left in place (append-only).
+- A household with **no** active recorded refund (none, all cancelled, or only carried-forward credits with `type: 'carry_forward'`) shows the unchanged confirmation ("Reverse the $X payment from <date>? This creates a reversal entry in the audit trail.") titled "Reverse Payment" — the existing reverse flow is untouched.

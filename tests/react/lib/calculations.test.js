@@ -9,6 +9,7 @@ import {
     getParentMember,
     calculateSettlementMetrics,
     getCreditAdjustmentTotalForMember,
+    getHouseholdRecordedRefund,
     getHouseholdFinancials,
     getDeferredUsageChargeTotalForMember,
     getHouseholdDeferredCharges,
@@ -235,6 +236,73 @@ describe('getCreditAdjustmentTotalForMember', () => {
     it('counts every active adjustment when the reopened set is null or empty', () => {
         expect(getCreditAdjustmentTotalForMember(adjustments, 1, null)).toBe(70);
         expect(getCreditAdjustmentTotalForMember(adjustments, 1, new Set())).toBe(70);
+    });
+});
+
+describe('getHouseholdRecordedRefund (#331)', () => {
+    const members = [
+        { id: 1, name: 'Alice', linkedMembers: [3] },
+        { id: 2, name: 'Bob', linkedMembers: [] },
+        { id: 3, name: 'Carol', linkedMembers: [] }
+    ];
+
+    it('detects an active refund issued to the primary and reports the total', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' }
+        ];
+        const { has, total } = getHouseholdRecordedRefund(members[0], adjustments);
+        expect(has).toBe(true);
+        expect(total).toBeCloseTo(50, 5);
+    });
+
+    it('sums refunds across the whole household (primary + linked, ADR 0001 grain)', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' },
+            { id: 'c2', memberId: 3, type: 'refund', amount: 12.5, status: 'recorded' } // linked member
+        ];
+        const { has, total } = getHouseholdRecordedRefund(members[0], adjustments);
+        expect(has).toBe(true);
+        expect(total).toBeCloseTo(62.5, 5);
+    });
+
+    it('excludes cancelled refunds', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'refund', amount: 999, status: 'cancelled' }
+        ];
+        expect(getHouseholdRecordedRefund(members[0], adjustments)).toEqual({ has: false, total: 0 });
+    });
+
+    it('excludes carried-forward credits — only true refunds count (#316)', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'carry_forward', amount: 40, status: 'recorded' }
+        ];
+        expect(getHouseholdRecordedRefund(members[0], adjustments)).toEqual({ has: false, total: 0 });
+    });
+
+    it('does not count another household refund', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 2, type: 'refund', amount: 30, status: 'recorded' }
+        ];
+        expect(getHouseholdRecordedRefund(members[0], adjustments)).toEqual({ has: false, total: 0 });
+    });
+
+    it('is safe for an empty/missing array or missing member', () => {
+        expect(getHouseholdRecordedRefund(members[0], [])).toEqual({ has: false, total: 0 });
+        expect(getHouseholdRecordedRefund(members[0], undefined)).toEqual({ has: false, total: 0 });
+        expect(getHouseholdRecordedRefund(undefined, [{ id: 'c1', memberId: 1, type: 'refund', amount: 5, status: 'recorded' }]))
+            .toEqual({ has: false, total: 0 });
+    });
+
+    it('keeps total finite when a refund amount is malformed (no NaN/string leakage)', () => {
+        const adjustments = [
+            { id: 'c1', memberId: 1, type: 'refund', amount: 50, status: 'recorded' },
+            { id: 'c2', memberId: 1, type: 'refund', amount: 'not-a-number', status: 'recorded' },
+            { id: 'c3', memberId: 1, type: 'refund', status: 'recorded' } // missing amount
+        ];
+        const { has, total } = getHouseholdRecordedRefund(members[0], adjustments);
+        expect(has).toBe(true); // the active refund records still trigger the warning
+        expect(Number.isFinite(total)).toBe(true);
+        expect(total).toBeCloseTo(50, 5); // only the valid amount contributes
     });
 });
 

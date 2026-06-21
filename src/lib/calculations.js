@@ -118,6 +118,50 @@ export function getCreditAdjustmentTotalForMember(creditAdjustments, memberId, r
 }
 
 /**
+ * Predicate: an active recorded Refund for a specific member (#318, ADR 0003).
+ * A Refund is a `type: 'refund'` creditAdjustment; "active" is `status !== 'cancelled'`,
+ * the same active test getCreditAdjustmentTotalForMember applies (a cancelled refund no
+ * longer counts). Carried-forward credits (`type: 'carry_forward'`, #316) share the
+ * array but are a different type and excluded — only a true refund is relevant here.
+ * @param {Object} a  a creditAdjustments[] record
+ * @param {*} memberId
+ * @returns {boolean}
+ */
+function isActiveRefundFor(a, memberId) {
+    return !!a && a.memberId === memberId && a.type === 'refund' && a.status !== 'cancelled';
+}
+
+/**
+ * Household-grain (ADR 0001) recorded-Refund summary: whether the household holds an
+ * active Refund and the running total of those refunds, summed across a primary member
+ * and their linked members. Refunds are always issued to the primary
+ * (BillingYearService.issueRefund), but linked ids are checked too so the household
+ * grain holds regardless of where a refund is recorded. Mirrors getHouseholdDeferredCharges.
+ *
+ * Drives the non-blocking warning shown when an admin reverses a payment for a refunded
+ * household (#331): reversing lowers gross paid → Net Contribution drops → the household
+ * flips to Outstanding, while the refund stays on the books (append-only, never
+ * auto-clawed-back). This is pure display — it has no effect on owed, credit, the
+ * settlement gate, or any mutation.
+ *
+ * `total` is summed through addFinitePositiveAmount (as getServiceCreditTotalForMember /
+ * getBilledUsageChargeTotalForMember do), so a malformed persisted amount (a string,
+ * NaN, negative, or missing) is dropped rather than leaking a `NaN`/string into the
+ * warning copy. `has` keys off the existence of an active refund record, independent of
+ * amount validity, so the warning still fires for a refund whose amount is unparseable.
+ * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
+ * @param {Array} creditAdjustments
+ * @returns {{ has: boolean, total: number }}
+ */
+export function getHouseholdRecordedRefund(member, creditAdjustments) {
+    if (!member) return { has: false, total: 0 };
+    const ids = [member.id, ...((member.linkedMembers) || [])];
+    const refunds = (creditAdjustments || []).filter(a => ids.some(id => isActiveRefundFor(a, id)));
+    const total = refunds.reduce((sum, a) => addFinitePositiveAmount(sum, a.amount), 0);
+    return { has: refunds.length > 0, total };
+}
+
+/**
  * Predicate: a deferred Usage Charge for a specific member (#317).
  * A Usage Charge is a `+owed` per-member adjustment (kind `usage_charge`).
  * "deferred" means recorded and visible but NOT yet billed, so only deferred

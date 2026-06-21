@@ -276,6 +276,9 @@ export default function DashboardView() {
                         familyMembers={familyMembers}
                         bills={bills}
                         payments={payments}
+                        creditAdjustments={creditAdjustments}
+                        owedAdjustments={owedAdjustments}
+                        reopenedAdjustmentIds={reopenedAdjustments}
                         readOnly={isYearReadOnly(activeYear)}
                         onReverse={paymentId => {
                             service.reversePayment(paymentId);

@@ -18,6 +18,7 @@ Covers data serialization, normalization, initial data construction, save queue 
 
 - `buildSavePayload` includes all top-level fields: label, status, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, and settings.
 - `creditAdjustments` (refunds + carried-forward credits, #316) is preserved verbatim and defaults to an empty array when omitted. Because `save()` writes with `setDoc` and no merge, an omitted field is erased from the document; preserving `creditAdjustments` keeps the load → save round-trip lossless.
+- The reversal-after-refund warning (#331) is display/confirmation only and persists nothing of its own: `reversePayment` is unchanged (it still appends a negative reversal entry and marks the original `reversed`, never a physical delete), and the household's `type: 'refund'` `creditAdjustments[]` record is left in place — append-only, never auto-clawed-back by a reversal. A reversed-then-refunded household therefore round-trips with both the reversal ledger entry and the intact refund adjustment.
 - `owedAdjustments` (Usage Charges, #317 — signed owed-modifiers) is preserved verbatim and defaults to an empty array when omitted, for the same reason: a full-document save would otherwise erase it.
 - QR codes are stripped from payment methods in the payload and replaced with a `hasQrCode: true` flag; the original settings object is not mutated.
 
