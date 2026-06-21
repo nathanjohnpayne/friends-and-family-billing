@@ -196,6 +196,14 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
             totalPaid: Math.round(combinedPayment * 100) / 100,
             balanceRemaining: Math.round((combinedAnnual - combinedPayment) * 100) / 100,
         };
+        // Surface the household's active Service Credits (#337) as member-safe line
+        // items so the reduced combinedAnnualTotal is explained on the share summary
+        // (the reduction is already folded into the total above). Omitted when there
+        // are none. The total equals the serviceCreditTotal subtracted above.
+        const serviceCredits = buildServiceCreditsForShare(bills, owedAdjustments || [], memberId, linkedIds);
+        if (serviceCredits.total > 0) {
+            data.serviceCredits = serviceCredits;
+        }
     }
 
     if (scopes.includes('paymentMethods:read')) {
@@ -211,6 +219,54 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
     }
 
     return data;
+}
+
+/**
+ * Build the member-facing Service Credits line items for a share summary (#321, #337).
+ * Active `service_credit` adjustments for the household (the primary plus linked
+ * members) reduce the household's combinedAnnualTotal but were previously invisible to
+ * the member — the total was silently lower than the sum of the bills. Surface them as
+ * line items so the reduction is explained.
+ *
+ * A bill-level credit is stored as one record per affected member (a split), so the
+ * household's records are aggregated by (billId + reason) to reconstruct each credit as
+ * it was issued. A per-member credit is a single record. Only member-safe fields are
+ * exposed (reason, billName, amount). Voided credits, the `+owed` Usage Charge
+ * direction, `carry_opening` seeds, and other members' credits are excluded. The
+ * returned `total` equals the `service_credit` reduction applied to combinedAnnualTotal.
+ *
+ * @param {Array} bills
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @param {Array} linkedIds  the primary member's linked household member ids
+ * @returns {{ items: Array<{ reason: string, billName: string, amount: number }>, total: number }}
+ */
+export function buildServiceCreditsForShare(bills, owedAdjustments, memberId, linkedIds) {
+    const householdIds = [memberId, ...(linkedIds || [])];
+    const billName = id => {
+        const b = (bills || []).find(x => x.id === id);
+        return (b && b.name) || '';
+    };
+    // Aggregate the household's active service-credit records by bill + reason so a
+    // bill-level split shows as one line. Insertion order is preserved for stable output.
+    const groups = new Map();
+    (owedAdjustments || []).forEach(a => {
+        if (!a || a.kind !== 'service_credit' || a.status !== 'active') return;
+        if (!householdIds.includes(a.memberId)) return;
+        const amt = Number.parseFloat(a.amount);
+        if (!Number.isFinite(amt) || amt <= 0) return;
+        const reason = a.reason || '';
+        const key = String(a.billId) + '|' + reason;
+        const existing = groups.get(key);
+        if (existing) {
+            existing.amount = Math.round((existing.amount + amt) * 100) / 100;
+        } else {
+            groups.set(key, { reason, billName: billName(a.billId), amount: Math.round(amt * 100) / 100 });
+        }
+    });
+    const items = Array.from(groups.values());
+    const total = Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+    return { items, total };
 }
 
 /**

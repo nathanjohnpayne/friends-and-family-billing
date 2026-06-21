@@ -161,6 +161,51 @@ function getServiceCreditTotalForMember(owedAdjustments, memberId) {
 }
 
 /**
+ * Build the member-facing Service Credits line items for a share summary (#337).
+ * CommonJS mirror of src/lib/share.js `buildServiceCreditsForShare` for the Cloud
+ * Function side, so the self-healed `publicShares` doc and the live response carry the
+ * same `serviceCredits` field the React writer produces (cache-hit / cache-miss parity).
+ *
+ * Aggregates the household's (primary + linked) active `service_credit` records by
+ * (billId + reason) — a bill-level credit is stored as one record per affected member,
+ * so the split is reconstructed into one line. Only member-safe fields are exposed
+ * (reason, billName, amount); voided credits, the `+owed` Usage Charge direction,
+ * `carry_opening` seeds, and other members' credits are excluded. The returned `total`
+ * equals the `service_credit` reduction applied to combinedAnnual by resolveShareToken.
+ *
+ * @param {Array} bills
+ * @param {Array} owedAdjustments
+ * @param {*} memberId  the primary member the share token is scoped to
+ * @param {Array} linkedIds  the primary member's linked household member ids
+ * @returns {{ items: Array<{ reason: string, billName: string, amount: number }>, total: number }}
+ */
+function buildServiceCreditsForShare(bills, owedAdjustments, memberId, linkedIds) {
+  const householdIds = [memberId, ...(linkedIds || [])];
+  const billName = (id) => {
+    const b = (bills || []).find((x) => x.id === id);
+    return (b && b.name) || "";
+  };
+  const groups = new Map();
+  (owedAdjustments || []).forEach((a) => {
+    if (!a || a.kind !== "service_credit" || a.status !== "active") return;
+    if (!householdIds.includes(a.memberId)) return;
+    const amt = Number.parseFloat(a.amount);
+    if (!Number.isFinite(amt) || amt <= 0) return;
+    const reason = a.reason || "";
+    const key = String(a.billId) + "|" + reason;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.amount = Math.round((existing.amount + amt) * 100) / 100;
+    } else {
+      groups.set(key, { reason, billName: billName(a.billId), amount: Math.round(amt * 100) / 100 });
+    }
+  });
+  const items = Array.from(groups.values());
+  const total = Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+  return { items, total };
+}
+
+/**
  * Household-grain (ADR 0001) carried-forward opening balance (#322). CommonJS
  * mirror of src/lib/calculations.js `getHouseholdOpeningBalance` for the Cloud
  * Function side: the SIGNED sum of `carry_opening` seed records across a primary
@@ -186,4 +231,4 @@ function getHouseholdOpeningBalance(member, owedAdjustments) {
     }, 0);
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, getHouseholdOpeningBalance, CHARGE_NOTICE_KIND };
+module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, CHARGE_NOTICE_KIND };

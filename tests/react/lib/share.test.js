@@ -6,6 +6,7 @@ import {
     computeExpiryDate,
     isShareTokenStale,
     buildPendingChargesForShare,
+    buildServiceCreditsForShare,
     buildPublicShareData
 } from '@/lib/share.js';
 
@@ -80,6 +81,97 @@ describe('buildPublicShareData — service credits reduce owed (#321)', () => {
         // No owedAdjustments at all → unchanged.
         const baseline = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {});
         expect(baseline.paymentSummary.combinedAnnualTotal).toBeCloseTo(1200, 5);
+    });
+});
+
+describe('buildServiceCreditsForShare (#337)', () => {
+    const bills = [
+        { id: 'b1', name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1, 2] },
+        { id: 'b2', name: 'Streaming', amount: 20, billingFrequency: 'monthly', members: [1] }
+    ];
+
+    it('aggregates a bill-level split (one record per member) into a single line', () => {
+        // A $90 whole-bill credit on b1 split between Alice (1) and Bob (2) → two records.
+        const owedAdjustments = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active' },
+            { id: 'c2', memberId: 2, billId: 'b1', kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, owedAdjustments, 1, [2]);
+        expect(res.items).toHaveLength(1);
+        expect(res.items[0]).toEqual({ reason: 'Outage', billName: 'Internet', amount: 90 });
+        expect(res.total).toBe(90);
+    });
+
+    it('keeps distinct reasons / bills as separate lines and totals them', () => {
+        const owedAdjustments = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 30, reason: 'Outage', status: 'active' },
+            { id: 'c2', memberId: 1, billId: 'b2', kind: 'service_credit', amount: 5, reason: 'Price drop', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, owedAdjustments, 1, []);
+        expect(res.items).toHaveLength(2);
+        expect(res.total).toBe(35);
+    });
+
+    it('includes a linked member credit (household scope) and excludes other households', () => {
+        const owedAdjustments = [
+            { id: 'c1', memberId: 2, billId: 'b1', kind: 'service_credit', amount: 10, reason: 'Linked', status: 'active' },
+            { id: 'c2', memberId: 9, billId: 'b1', kind: 'service_credit', amount: 99, reason: 'Other household', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, owedAdjustments, 1, [2]);
+        expect(res.total).toBe(10);
+        expect(res.items.map(i => i.reason)).toEqual(['Linked']);
+    });
+
+    it('excludes voided credits, usage charges, carry_opening seeds, and non-positive amounts', () => {
+        const owedAdjustments = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 50, reason: 'Voided', status: 'voided' },
+            { id: 'c2', memberId: 1, billId: 'b1', kind: 'usage_charge', amount: 50, reason: 'Charge', status: 'active' },
+            { id: 'c3', memberId: 1, kind: 'carry_opening', amount: -50, status: 'active' },
+            { id: 'c4', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0, reason: 'Zero', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, owedAdjustments, 1, []);
+        expect(res.items).toHaveLength(0);
+        expect(res.total).toBe(0);
+    });
+
+    it('exposes only member-safe fields (reason, billName, amount)', () => {
+        const owedAdjustments = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 25, reason: 'Outage', status: 'active', incurredDate: '2026-02-01' }
+        ];
+        const [item] = buildServiceCreditsForShare(bills, owedAdjustments, 1, []).items;
+        expect(Object.keys(item).sort()).toEqual(['amount', 'billName', 'reason']);
+    });
+});
+
+describe('buildPublicShareData — service credit line items (#337)', () => {
+    const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
+    const bills = [{ id: 'b1', name: 'Internet', amount: 100, billingFrequency: 'monthly', members: [1] }];
+    const activeYear = { id: '2026', label: '2026' };
+    const scopes = ['summary:read'];
+
+    it('exposes serviceCredits whose total equals the combinedAnnualTotal reduction', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 200, reason: 'Outage', status: 'active' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, owedAdjustments);
+        expect(data.serviceCredits).toBeDefined();
+        expect(data.serviceCredits.total).toBe(200);
+        expect(data.serviceCredits.items).toEqual([{ reason: 'Outage', billName: 'Internet', amount: 200 }]);
+        // 1200 gross − 200 credit = 1000 net: the line item total reconciles the reduction.
+        expect(data.paymentSummary.combinedAnnualTotal).toBeCloseTo(1000, 5);
+    });
+
+    it('omits serviceCredits when there are no active credits', () => {
+        const data = buildPublicShareData(familyMembers, bills, [], 1, scopes, 'uid', activeYear, {}, []);
+        expect(data.serviceCredits).toBeUndefined();
+    });
+
+    it('omits serviceCredits when summary:read is absent', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 50, reason: 'Outage', status: 'active' }
+        ];
+        const data = buildPublicShareData(familyMembers, bills, [], 1, ['paymentMethods:read'], 'uid', activeYear, {}, owedAdjustments);
+        expect(data.serviceCredits).toBeUndefined();
     });
 });
 

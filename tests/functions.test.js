@@ -16,6 +16,7 @@ const {
     buildPendingChargesForShare,
     projectMemberDisputes,
     getServiceCreditTotalForMember,
+    buildServiceCreditsForShare,
     getHouseholdOpeningBalance,
 } = require(path.join(__dirname, '..', 'functions', 'billing'));
 
@@ -283,6 +284,67 @@ describe('getServiceCreditTotalForMember (#321)', () => {
     it('tolerates empty or missing input', () => {
         assert.equal(getServiceCreditTotalForMember([], 1), 0);
         assert.equal(getServiceCreditTotalForMember(undefined, 1), 0);
+    });
+});
+
+// ──────── buildServiceCreditsForShare (#337) ────────
+//
+// resolveShareToken surfaces the household's active Service Credits as member-safe line
+// items (reason, billName, amount) so the self-healed publicShares doc and the live
+// response explain the reduced combinedAnnualTotal exactly as the React writer does.
+// CommonJS mirror of src/lib/share.js buildServiceCreditsForShare.
+
+describe('buildServiceCreditsForShare (#337)', () => {
+    const bills = [
+        { id: 'b1', name: 'Internet', members: [1, 2] },
+        { id: 'b2', name: 'Streaming', members: [1] }
+    ];
+
+    it('aggregates a bill-level split into one line and totals the household credits', () => {
+        const adj = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active' },
+            { id: 'c2', memberId: 2, billId: 'b1', kind: 'service_credit', amount: 45, reason: 'Outage', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, adj, 1, [2]);
+        assert.equal(res.items.length, 1);
+        assert.deepEqual(res.items[0], { reason: 'Outage', billName: 'Internet', amount: 90 });
+        assert.equal(res.total, 90);
+    });
+
+    it('scopes to the household (primary + linked) and excludes other households', () => {
+        const adj = [
+            { id: 'c1', memberId: 2, billId: 'b1', kind: 'service_credit', amount: 10, reason: 'Linked', status: 'active' },
+            { id: 'c2', memberId: 9, billId: 'b1', kind: 'service_credit', amount: 99, reason: 'Other', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, adj, 1, [2]);
+        assert.equal(res.total, 10);
+        assert.deepEqual(res.items.map((i) => i.reason), ['Linked']);
+    });
+
+    it('excludes voided credits, usage charges, carry seeds, and non-positive amounts', () => {
+        const adj = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 50, reason: 'V', status: 'voided' },
+            { id: 'c2', memberId: 1, billId: 'b1', kind: 'usage_charge', amount: 50, reason: 'U', status: 'active' },
+            { id: 'c3', memberId: 1, kind: 'carry_opening', amount: -50, status: 'active' },
+            { id: 'c4', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 0, reason: 'Z', status: 'active' }
+        ];
+        const res = buildServiceCreditsForShare(bills, adj, 1, []);
+        assert.equal(res.items.length, 0);
+        assert.equal(res.total, 0);
+    });
+
+    it('total matches getServiceCreditTotalForMember summed across the household (parity)', () => {
+        const adj = [
+            { id: 'c1', memberId: 1, billId: 'b1', kind: 'service_credit', amount: 30, reason: 'Outage', status: 'active' },
+            { id: 'c2', memberId: 2, billId: 'b2', kind: 'service_credit', amount: 12.5, reason: 'Drop', status: 'active' }
+        ];
+        const viaTotal = getServiceCreditTotalForMember(adj, 1) + getServiceCreditTotalForMember(adj, 2);
+        assert.equal(buildServiceCreditsForShare(bills, adj, 1, [2]).total, viaTotal);
+    });
+
+    it('tolerates empty / missing input', () => {
+        assert.deepEqual(buildServiceCreditsForShare(bills, [], 1, []), { items: [], total: 0 });
+        assert.deepEqual(buildServiceCreditsForShare(undefined, undefined, 1, undefined), { items: [], total: 0 });
     });
 });
 

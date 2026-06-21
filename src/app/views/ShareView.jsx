@@ -262,18 +262,65 @@ function MemberRow({ member, canDispute, onRequestReview, defaultExpanded }) {
     );
 }
 
+/**
+ * Household total reconciliation shown when the household carries active Service
+ * Credits (#337). combinedAnnualTotal is already net of the credits, so without this
+ * the member saw a total lower than the sum of the bills with nothing explaining the
+ * gap. Lists the bills subtotal, each credit as a line item, any other adjustment
+ * (a carried-forward opening balance #322, or the owed floored at 0 when credits
+ * exceed the bills), and the resulting household total. Reuses the share-table styles.
+ */
+function HouseholdTotalWithCredits({ allMembers, ps, serviceCredits }) {
+    const grossAnnual = allMembers.reduce((s, m) => s + (m.annualTotal || 0), 0);
+    const netAnnual = ps ? ps.combinedAnnualTotal : grossAnnual;
+    const residual = Math.round((netAnnual - (grossAnnual - serviceCredits.total)) * 100) / 100;
+    return (
+        <div className="share-table-wrap share-credit-recon">
+            <table className="share-table">
+                <tbody>
+                    <tr>
+                        <td>Bills subtotal</td>
+                        <td className="share-cell-number">{formatCurrency(grossAnnual)}</td>
+                    </tr>
+                    {serviceCredits.items.map((c, i) => (
+                        <tr key={i} className="share-credit-row">
+                            <td>Service credit{c.billName ? ' — ' + c.billName : ''}{c.reason ? ' (' + c.reason + ')' : ''}</td>
+                            <td className="share-cell-number">{'-' + formatCurrency(c.amount)}</td>
+                        </tr>
+                    ))}
+                    {Math.abs(residual) >= 0.005 && (
+                        <tr>
+                            <td>Other adjustments</td>
+                            <td className="share-cell-number">{(residual < 0 ? '-' : '+') + formatCurrency(Math.abs(residual))}</td>
+                        </tr>
+                    )}
+                    <tr className="share-total-row">
+                        <td>Household Total</td>
+                        <td className="share-cell-number"><strong>{formatCurrency(netAnnual)}</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 function HouseholdBillsSection({ data, canDispute, shareCtx }) {
     const [disputeForm, setDisputeForm] = useState(null);
     const allMembers = [data.summary, ...(data.linkedMembers || [])];
     const isSingleMember = allMembers.length === 1;
+    const ps = data.paymentSummary;
+    const serviceCredits = data.serviceCredits;
+    const hasCredits = serviceCredits && serviceCredits.items && serviceCredits.items.length > 0;
 
     return (
         <div className="share-section">
-            {!isSingleMember && data.paymentSummary && (
-                <div className="share-household-total">
-                    Household Total: {formatCurrency(data.paymentSummary.combinedMonthlyTotal)}/mo · {formatCurrency(data.paymentSummary.combinedAnnualTotal)}/yr
-                </div>
-            )}
+            {hasCredits
+                ? <HouseholdTotalWithCredits allMembers={allMembers} ps={ps} serviceCredits={serviceCredits} />
+                : (!isSingleMember && ps && (
+                    <div className="share-household-total">
+                        Household Total: {formatCurrency(ps.combinedMonthlyTotal)}/mo · {formatCurrency(ps.combinedAnnualTotal)}/yr
+                    </div>
+                ))}
 
             {allMembers.map(member => (
                 <MemberRow
@@ -615,8 +662,8 @@ function PendingChargesSection({ pendingCharges, year }) {
             <h2>Pending Charges</h2>
             <p className="share-pending-note">
                 These usage charges have been recorded for {year} but are <strong>not yet due</strong>.
-                They are shown for your visibility and are not part of your current balance. You will be
-                invoiced separately if they are billed.
+                They are shown for your visibility and are not part of your current balance. They will
+                either be billed separately by the admin or applied to your bill next year.
             </p>
             <div className="share-table-wrap">
                 <table className="share-table">
