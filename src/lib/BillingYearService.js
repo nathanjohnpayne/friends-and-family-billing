@@ -8,7 +8,7 @@
  * Depends on: Firestore (modular SDK), SaveQueue, extracted pure helpers.
  */
 import {
-    collection, doc, getDocs, getDoc, setDoc, serverTimestamp
+    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
@@ -402,15 +402,15 @@ export class BillingYearService {
         );
         const priorLabel = activeYear ? (activeYear.label || activeYear.id) : null;
 
-        // 1. Seed the new year with the netted opening balances.
-        const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
+        // 1. Build the new-year seed (netted opening balances) — do NOT write inline.
+        const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
         const newData = buildNewYearData(familyMembers, bills, settings || {}, yearId, carry, priorLabel);
         newData.createdAt = serverTimestamp();
         newData.updatedAt = serverTimestamp();
-        await setDoc(yearDocRef, newData);
 
-        // 2. Mark the prior year append-only and persist it (only if something carried
-        //    and we have a prior year to write back to).
+        // 2. Build the prior-year append-only marking payload (only if something carried
+        //    and we have a prior year to write back to) — again, do NOT write inline.
+        let priorWrite = null;
         if (activeYear && carry.memberCount > 0) {
             const marked = applyCarryForwardToPriorYear(
                 creditAdjustments || [], owedAdjustments || [], carry,
@@ -437,8 +437,31 @@ export class BillingYearService {
             );
             if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
             priorPayload.updatedAt = serverTimestamp();
-            await setDoc(priorRef, priorPayload);
+            priorWrite = { ref: priorRef, payload: priorPayload };
         }
+
+        // 3. Commit BOTH writes as a single Firestore writeBatch INSIDE the SaveQueue
+        //    (#330 P1). The queue SERIALIZES the rollover behind any pending full-document
+        //    save of the prior/active year (so a queued pre-carry save lands first and the
+        //    carry-marked write then supersedes it — no lost carry_forward records), and
+        //    the batch makes the new-year seed + prior-year marking ATOMIC (if the prior
+        //    write fails, the new year is never created, so retrying the same label does
+        //    not throw duplicate against a half-written rollover). The SaveQueue swallows
+        //    write errors (it only notifies listeners), so capture any commit failure and
+        //    re-throw after the enqueue settles to fail createYear loudly and skip the
+        //    switch into a non-existent year.
+        let rolloverError = null;
+        await this._saveQueue.enqueue(async () => {
+            try {
+                const batch = writeBatch(db);
+                batch.set(newYearRef, newData);
+                if (priorWrite) batch.set(priorWrite.ref, priorWrite.payload);
+                await batch.commit();
+            } catch (err) {
+                rolloverError = err;
+            }
+        });
+        if (rolloverError) throw rolloverError;
 
         await this._loadYearsList();
         await this.switchYear(yearId);

@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Tracks all setDoc calls and controls what getDoc/getDocs return.
 const mockStore = {};
 const setDocCalls = [];
+// Out-of-band switch to force the next writeBatch().commit() to reject (atomicity test).
+const mockBatchControl = { failNextCommit: false };
 
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 
@@ -39,6 +41,27 @@ vi.mock('firebase/firestore', () => ({
             ? { ...(mockStore[ref.path] || {}), ...data }
             : data;
     }),
+    // writeBatch mock: collects batched set() ops and applies them on commit() the
+    // same way setDoc does (recording into setDocCalls + mockStore), so the rollover
+    // (which routes through a batch) is observable to the same assertions. commit can
+    // be forced to reject via __failNextBatchCommit to exercise atomicity.
+    writeBatch: vi.fn(() => {
+        const ops = [];
+        return {
+            set: (ref, data) => { ops.push({ ref, data }); },
+            commit: vi.fn(async () => {
+                if (mockBatchControl.failNextCommit) {
+                    mockBatchControl.failNextCommit = false;
+                    throw new Error('simulated batch commit failure');
+                }
+                // Atomic: only apply once all ops are known and commit succeeds.
+                for (const { ref, data } of ops) {
+                    setDocCalls.push({ path: ref.path, data, batched: true });
+                    mockStore[ref.path] = data;
+                }
+            })
+        };
+    }),
     serverTimestamp: vi.fn(() => '__SERVER_TIMESTAMP__')
 }));
 
@@ -48,6 +71,7 @@ import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculatio
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
     setDocCalls.length = 0;
+    mockBatchControl.failNextCommit = false;
 }
 
 const TEST_USER = { uid: 'user-1' };
@@ -371,6 +395,60 @@ describe('BillingYearService', () => {
                 (c.data.creditAdjustments || []).some(a => a.type === 'carry_forward')
             );
             expect(priorWrite).toBeUndefined();
+        });
+
+        // ── atomic + queue-serialized rollover (#330 P1) ──────────────
+        it('commits the new-year seed and prior-year marking atomically via a writeBatch', async () => {
+            const { writeBatch } = await import('firebase/firestore');
+            writeBatch.mockClear();
+            seedPriorYear();
+            await svc.createYear('2027');
+
+            // Exactly one batch for the rollover, carrying BOTH writes.
+            expect(writeBatch).toHaveBeenCalledTimes(1);
+            const newYearWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers
+            );
+            const priorWrite = setDocCalls.find(c =>
+                c.path === 'users/user-1/billingYears/2026' && c.data.creditAdjustments
+            );
+            expect(newYearWrite).toBeDefined();
+            expect(priorWrite).toBeDefined();
+            // Both landed through the batch path, not bare setDoc.
+            expect(newYearWrite.batched).toBe(true);
+            expect(priorWrite.batched).toBe(true);
+        });
+
+        it('serializes the rollover behind pending saves (queued prior-year save runs first)', async () => {
+            seedPriorYear();
+            const order = [];
+            // A pending full-document save of the prior/active year enqueued BEFORE
+            // createYear. It must complete first; the carry-marked write then supersedes it.
+            svc._saveQueue.enqueue(async () => { order.push('pending-save'); });
+            await svc.createYear('2027');
+            order.push('rollover-committed');
+
+            // FIFO: the pre-existing save ran before the rollover batch committed.
+            expect(order).toEqual(['pending-save', 'rollover-committed']);
+            // And the carry-marked prior-year write is the LAST write to 2026 (supersedes
+            // any queued pre-carry save of the same doc).
+            const priorWrites = setDocCalls.filter(c => c.path === 'users/user-1/billingYears/2026');
+            const last = priorWrites[priorWrites.length - 1];
+            expect((last.data.creditAdjustments || []).some(a => a.type === 'carry_forward')).toBe(true);
+        });
+
+        it('is atomic: a failed prior-year commit leaves NO new-year doc and rejects', async () => {
+            seedPriorYear();
+            // Remove the pre-seeded destination so we can assert it is NOT created.
+            delete mockStore['users/user-1/billingYears/2027'];
+            mockBatchControl.failNextCommit = true;
+
+            await expect(svc.createYear('2027')).rejects.toThrow('simulated batch commit failure');
+
+            // Neither the new-year seed nor the prior-year marking persisted.
+            expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+            const committed = setDocCalls.filter(c => c.batched);
+            expect(committed).toHaveLength(0);
         });
     });
 

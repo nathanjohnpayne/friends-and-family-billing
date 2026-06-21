@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, getHouseholdOpeningBalance } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -215,14 +215,20 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
-    // Active Service Credits (#321) lower the household's owed; reduce combinedAnnual
-    // here (floored at 0) so this Cloud Function fallback — used by ShareView on cache
-    // miss / legacy-cache / stale-refresh, and self-healed back into publicShares —
-    // agrees with buildPublicShareData (React + legacy) and never persists the gross total.
+    // Compose the member-facing owed exactly as buildPublicShareData (React + legacy)
+    // and getHouseholdFinancials do: active Service Credits (#321) lower owed and the
+    // netted carried opening balance (carry_opening seeds, #322 — a carried credit is
+    // negative, a carried charge positive, summed across the primary + linked members)
+    // adjusts it, the combined result floored at 0. This Cloud Function fallback — used
+    // by ShareView on cache miss / legacy-cache / stale-refresh and self-healed back
+    // into publicShares — must agree with both writers and never persist an uncarried
+    // (or gross) total. carry_opening is a distinct kind, so the service-credit helper
+    // ignores it — no double-count.
     const owedAdjustments = yearData.owedAdjustments || [];
     const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, tokenData.memberId)
       + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
-    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+    const openingBalance = getHouseholdOpeningBalance(primaryMember, owedAdjustments);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal + openingBalance);
 
     // Skip access increment and audit log on background refreshes (refreshOnly)
     // to avoid double-counting when the client already incremented publicShares.

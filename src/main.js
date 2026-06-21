@@ -604,9 +604,18 @@ async function startNewYear() {
         yearData.createdAt = FieldValue.serverTimestamp();
         yearData.updatedAt = FieldValue.serverTimestamp();
 
-        await userDocRef.collection('billingYears').doc(yearId).set(yearData);
+        // Atomic rollover (#330 P1, dual-app parity with the React BillingYearService):
+        // commit the new-year seed and the prior-year append-only marking in ONE batch so
+        // a prior-year write failure can never leave the new year seeded while the old year
+        // still holds the undisposed credit/charge (retrying the same label would then throw
+        // duplicate). The legacy app has no save queue, so the React queue-serialization
+        // concern does not apply here; the atomicity (batch) fix does. The activeBillingYear
+        // pointer is updated after the batch commits (a pointer, not part of the carry).
+        const batch = db.batch();
+        const newYearRef = userDocRef.collection('billingYears').doc(yearId);
+        batch.set(newYearRef, yearData);
 
-        // Mark the prior year append-only and persist it (only when something carried).
+        // Mark the prior year append-only and add it to the batch (only when something carried).
         if (priorBillingYear && carry.memberCount > 0) {
             const marked = _applyCarryForwardToPriorYear(
                 priorCreditAdjustments || [], priorOwedAdjustments || [], carry,
@@ -628,8 +637,10 @@ async function startNewYear() {
             );
             if (!priorPayload.createdAt) priorPayload.createdAt = FieldValue.serverTimestamp();
             priorPayload.updatedAt = FieldValue.serverTimestamp();
-            await userDocRef.collection('billingYears').doc(priorBillingYear.id).set(priorPayload);
+            batch.set(userDocRef.collection('billingYears').doc(priorBillingYear.id), priorPayload);
         }
+
+        await batch.commit();
 
         await userDocRef.set({ activeBillingYear: yearId }, { merge: true });
 
@@ -3935,12 +3946,18 @@ function buildPublicShareData(memberId, scopes) {
             .reduce((sum, p) => sum + (p.amount || 0), 0);
     });
 
-    // Active Service Credits (#321) lower the household's owed, floored at 0, so the
-    // shared publicShares doc this app writes agrees with the React writer (both apps
-    // co-write the doc — dual-app parity) and with the settlement board.
+    // Compose the member-facing owed exactly as the React buildPublicShareData and the
+    // invoice/getHouseholdFinancials do (#321 + #322): active Service Credits subtract and
+    // the netted carried opening balance (carry_opening seeds, #322 — a carried credit is
+    // negative, a carried charge positive, summed across the primary + linked members)
+    // adjusts it, the combined result floored at 0. Both apps co-write the shared
+    // publicShares doc (dual-app parity), so this must match the React writer and the
+    // settlement board. carry_opening is a distinct kind, so getServiceCreditTotalForMember
+    // ignores it — no double-count.
     const serviceCreditTotal = getServiceCreditTotalForMember(memberId)
         + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(id), 0);
-    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal);
+    const openingBalance = _getHouseholdOpeningBalance(member, owedAdjustments);
+    combinedAnnual = Math.max(0, combinedAnnual - serviceCreditTotal + openingBalance);
 
     const enabledMethods = getEnabledPaymentMethods();
 

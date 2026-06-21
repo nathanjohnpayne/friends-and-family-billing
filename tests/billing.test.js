@@ -112,6 +112,14 @@ function createContext(overrides = {}) {
                     get: () => Promise.resolve({ docs: [] }),
                 }),
             }),
+            // Compat writeBatch: record each batched set() payload into the same `saved`
+            // array makeMockDoc.set() uses, so tests that assert ctx._saved after a batched
+            // write (e.g. startNewYear's rollover) keep working without overriding db.
+            batch: () => ({
+                set: (_ref, data) => { saved.push([data]); },
+                delete: () => {},
+                commit: () => Promise.resolve(),
+            }),
         },
         analytics: { logEvent: () => {} },
         storage: {
@@ -1055,6 +1063,57 @@ describe('startNewYear', () => {
         assert.equal(carry.memberId, 1);
         assert.ok(Math.abs(carry.amount - 80) < 1e-6, 'Carry amount should be 80');
         assert.equal(carry.toYear, '2027');
+    });
+
+    it('commits the new-year seed and prior-year marking atomically via a single batch (#330 P1)', async () => {
+        // Instrument db.batch so we can assert BOTH rollover writes ride one batch
+        // (atomic), rather than two independent .doc().set() calls.
+        const batches = [];
+        const ctx = createContext({
+            prompt: () => '2027',
+            alert: () => {},
+            db: {
+                collection: (_name) => ({
+                    doc: (_id) => ({
+                        set: () => Promise.resolve(),       // userDocRef.set({activeBillingYear}) etc.
+                        get: () => Promise.resolve({ exists: false }),
+                        collection: () => ({
+                            doc: () => ({ set: () => Promise.resolve(), get: () => Promise.resolve({ exists: false }) }),
+                            get: () => Promise.resolve({ docs: [] }),
+                        }),
+                    }),
+                    where: () => ({ where: () => ({ get: () => Promise.resolve({ docs: [] }) }), get: () => Promise.resolve({ docs: [] }) }),
+                }),
+                batch: () => {
+                    const writes = [];
+                    const b = {
+                        set: (ref, data) => { writes.push(data); },
+                        delete: () => {},
+                        commit: () => Promise.resolve(),
+                    };
+                    batches.push(b);
+                    b._writes = writes;
+                    return b;
+                },
+            },
+        });
+        ctx._set('currentBillingYear', { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null });
+        ctx._set('billingYears', [{ id: '2026', label: '2026', status: 'open' }]);
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', paymentReceived: 0, linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 100, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] }]);
+        ctx._set('payments', [{ id: 'p1', memberId: 1, amount: 680, receivedAt: new Date().toISOString(), note: '', method: 'cash' }]);
+        ctx._set('creditAdjustments', []);
+        ctx._set('owedAdjustments', []);
+
+        await ctx.startNewYear();
+
+        // Exactly one batch carries BOTH the new-year seed and the prior-year marking.
+        const rolloverBatch = batches.find(b => b._writes.length === 2);
+        assert.ok(rolloverBatch, 'rollover should commit both writes in a single batch');
+        const seedWrite = rolloverBatch._writes.find(d => Array.isArray(d.owedAdjustments) && d.owedAdjustments.some(a => a.kind === 'carry_opening'));
+        const markWrite = rolloverBatch._writes.find(d => Array.isArray(d.creditAdjustments) && d.creditAdjustments.some(a => a.type === 'carry_forward'));
+        assert.ok(seedWrite, 'one batched write is the seeded new year');
+        assert.ok(markWrite, 'the other batched write is the carry-marked prior year');
     });
 
     it('round-trips carry_opening owedAdjustments through the legacy save payload', async () => {
@@ -2014,6 +2073,53 @@ describe('getServiceCreditTotalForMember (Cloud Function, #321)', () => {
     });
 });
 
+// ──────── getHouseholdOpeningBalance (Cloud Function, #322) ────────
+//
+// resolveShareToken folds the household's netted carried opening balance into the
+// member-facing combinedAnnual (a carried credit lowers owed, a carried charge raises
+// it), so the Cloud Function fallback agrees with the React + legacy buildPublicShareData
+// writers and never self-heals an uncarried total. CommonJS mirror of the client
+// getHouseholdOpeningBalance — SIGNED sum of carry_opening seeds across the household.
+
+const { getHouseholdOpeningBalance: cfGetOpeningBalance } = require(path.join(__dirname, '..', 'functions', 'billing'));
+
+describe('getHouseholdOpeningBalance (Cloud Function, #322)', () => {
+    it('sums signed carry_opening seeds across the primary and linked members', () => {
+        const member = { id: 1, linkedMembers: [2] };
+        const adj = [
+            { id: 'c1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' }, // carried credit
+            { id: 'c2', memberId: 2, kind: 'carry_opening', amount: 30, status: 'carried_in' },  // carried charge
+            { id: 'c3', memberId: 9, kind: 'carry_opening', amount: 500, status: 'carried_in' }  // other household
+        ];
+        assert.equal(cfGetOpeningBalance(member, adj), -50); // −80 + 30
+    });
+
+    it('excludes voided seeds and other owedAdjustment kinds', () => {
+        const member = { id: 1, linkedMembers: [] };
+        const adj = [
+            { id: 'c1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'voided' },        // voided
+            { id: 'u1', memberId: 1, kind: 'usage_charge', amount: 999, status: 'deferred' },        // not a seed
+            { id: 's1', memberId: 1, kind: 'service_credit', amount: 999, status: 'active' },        // not a seed
+            { id: 'c2', memberId: 1, kind: 'carry_opening', amount: 25, status: 'carried_in' }
+        ];
+        assert.equal(cfGetOpeningBalance(member, adj), 25);
+    });
+
+    it('keeps the sign (carried credit negative, carried charge positive)', () => {
+        const credit = { id: 1, linkedMembers: [] };
+        assert.equal(cfGetOpeningBalance(credit, [{ id: 'c', memberId: 1, kind: 'carry_opening', amount: -120, status: 'carried_in' }]), -120);
+        assert.equal(cfGetOpeningBalance(credit, [{ id: 'c', memberId: 1, kind: 'carry_opening', amount: 40, status: 'carried_in' }]), 40);
+    });
+
+    it('drops non-finite amounts and tolerates empty / missing input', () => {
+        const member = { id: 1, linkedMembers: [] };
+        assert.equal(cfGetOpeningBalance(member, [{ id: 'c', memberId: 1, kind: 'carry_opening', amount: NaN, status: 'carried_in' }]), 0);
+        assert.equal(cfGetOpeningBalance(member, []), 0);
+        assert.equal(cfGetOpeningBalance(member, undefined), 0);
+        assert.equal(cfGetOpeningBalance(undefined, []), 0);
+    });
+});
+
 // ──────── legacy buildPublicShareData pendingCharges (#317 parity) ────────
 
 describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
@@ -2058,6 +2164,64 @@ describe('buildPublicShareData pendingCharges (legacy writer parity)', () => {
         // Only the deferred charge is "pending"; the billed one has moved to owed.
         assert.equal(data.pendingCharges.count, 1);
         assert.equal(data.pendingCharges.charges[0].id, 'o1');
+    });
+});
+
+// ──────── legacy buildPublicShareData owed: service credit + carried opening (#321/#322) ────────
+//
+// Dual-app parity: the legacy /site/ writer co-writes the same shared publicShares doc as
+// the React buildPublicShareData, so its member-facing combinedAnnualTotal must fold the
+// active Service Credits AND the netted carried opening balance (carry_opening seeds) in
+// the identical floored expression. A carried CREDIT lowers owed; a carried CHARGE raises it.
+
+describe('buildPublicShareData owed reductions (legacy writer, #321/#322)', () => {
+    // Alice (1) solo on one $50/mo bill → owes 600/yr.
+    function seedSolo(ctx, owedAdjustments) {
+        ctx._set('familyMembers', [{ id: 1, name: 'Alice', email: '', avatar: '', linkedMembers: [] }]);
+        ctx._set('bills', [{ id: 1, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] }]);
+        ctx._set('payments', []);
+        ctx._set('owedAdjustments', owedAdjustments);
+        ctx._set('currentBillingYear', { id: '2027', label: '2027' });
+    }
+
+    it('lowers combinedAnnualTotal by a carried credit (negative carry_opening)', () => {
+        const ctx = createContext();
+        seedSolo(ctx, [{ id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' }]);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.ok(Math.abs(data.paymentSummary.combinedAnnualTotal - 520) < 1e-6, '600 − 80 = 520');
+        assert.ok(Math.abs(data.paymentSummary.balanceRemaining - 520) < 1e-6);
+    });
+
+    it('raises combinedAnnualTotal by a carried charge (positive carry_opening)', () => {
+        const ctx = createContext();
+        seedSolo(ctx, [{ id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: 30, status: 'carried_in' }]);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.ok(Math.abs(data.paymentSummary.combinedAnnualTotal - 630) < 1e-6, '600 + 30 = 630');
+    });
+
+    it('composes a service credit and a carried credit, floored at 0', () => {
+        const ctx = createContext();
+        seedSolo(ctx, [
+            { id: 's1', memberId: 1, kind: 'service_credit', amount: 100, status: 'active' },
+            { id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -80, status: 'carried_in' }
+        ]);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.ok(Math.abs(data.paymentSummary.combinedAnnualTotal - 420) < 1e-6, '600 − 100 − 80 = 420');
+    });
+
+    it('floors at 0 for an over-large carried credit', () => {
+        const ctx = createContext();
+        seedSolo(ctx, [{ id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -5000, status: 'carried_in' }]);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.equal(data.paymentSummary.combinedAnnualTotal, 0);
+        assert.equal(data.paymentSummary.balanceRemaining, 0);
+    });
+
+    it('leaves owed unchanged when there is no carry_opening seed', () => {
+        const ctx = createContext();
+        seedSolo(ctx, []);
+        const data = ctx.buildPublicShareData(1, ['summary:read']);
+        assert.ok(Math.abs(data.paymentSummary.combinedAnnualTotal - 600) < 1e-6);
     });
 });
 
@@ -3644,7 +3808,13 @@ describe('startNewYear preserves paymentMethods', () => {
                     }),
                     where: () => ({ where: () => ({ get: () => Promise.resolve({ docs: [] }) }), get: () => Promise.resolve({ docs: [] }) }),
                 }),
-                batch: () => ({ set: () => {}, delete: () => {}, commit: () => Promise.resolve() }),
+                // The rollover now commits the new-year seed via a batch (#330 P1).
+                // Capture batched writes by their label (the new-year doc's label is the yearId).
+                batch: () => ({
+                    set: (_ref, data) => { if (data && data.label) yearData[data.label] = data; },
+                    delete: () => {},
+                    commit: () => Promise.resolve(),
+                }),
             },
         });
 
