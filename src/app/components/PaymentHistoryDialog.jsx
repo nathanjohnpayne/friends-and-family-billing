@@ -53,18 +53,18 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     const recordedRefund = getHouseholdRecordedRefund(household, creditAdjustments);
 
     /**
-     * Resulting household Outstanding if `target` (a positive original payment) is
-     * reversed: reversing appends a −amount entry, so Net Contribution drops by that
-     * amount and the collectable shortfall rises by it. Derived from the same
-     * household financials the settlement board shows, so the figure matches the card.
+     * Household owed and Net Contribution exactly as the settlement board computes
+     * them, BEFORE any reversal. Reversing a payment appends a −amount entry, which
+     * drops Net Contribution by that amount, so the resulting Outstanding works out to
+     * `Math.max(0, (owed − netContribution) + |amount|)`. Derived from the same
+     * financials the board shows, so the warning figures match the card.
      */
-    function resultingOutstandingAfterReversal(target) {
-        if (!household || !target) return 0;
+    function householdOwedAndContribution() {
+        if (!household) return { owed: 0, netContribution: 0 };
         const openingBalance = getHouseholdOpeningBalance(household, owedAdjustments);
-        const { owed, netContribution } = getHouseholdFinancials(
+        return getHouseholdFinancials(
             household, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance
         );
-        return Math.max(0, (owed - netContribution) + Math.abs(target.amount));
     }
 
     function handleReverse() {
@@ -80,12 +80,24 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
         const dateLabel = new Date(reverseTarget.receivedAt).toLocaleDateString();
         if (recordedRefund.has) {
             const refundLabel = formatAnnualSummaryCurrency(recordedRefund.total);
-            const resulting = resultingOutstandingAfterReversal(reverseTarget);
-            // Usually the reversal flips the household Outstanding; with a partial refund
-            // the household can keep residual credit, so don't claim a false "$0.00 Outstanding".
-            const impact = resulting > CREDIT_EPSILON
-                ? 'will make them Outstanding by ' + formatAnnualSummaryCurrency(resulting)
-                : 'lowers their Net Contribution but leaves the household in credit';
+            // The resulting Outstanding and the household's state BEFORE the reversal,
+            // from the same financials the settlement board shows.
+            const { owed, netContribution } = householdOwedAndContribution();
+            const beforeOutstanding = owed - netContribution;
+            const resulting = Math.max(0, beforeOutstanding + Math.abs(reverseTarget.amount));
+            const resultingLabel = formatAnnualSummaryCurrency(resulting);
+            // Three cases (#331, #333):
+            //  • still in credit after the reversal (partial refund) — don't claim a false "$0.00 Outstanding"
+            //  • already Outstanding before the reversal — the reversal *increases* the balance to the new total
+            //  • settled or in credit before — the reversal *makes* them Outstanding
+            let impact;
+            if (resulting <= CREDIT_EPSILON) {
+                impact = 'lowers their Net Contribution but leaves the household in credit';
+            } else if (beforeOutstanding > CREDIT_EPSILON) {
+                impact = 'will increase their Outstanding balance to ' + resultingLabel;
+            } else {
+                impact = 'will make them Outstanding by ' + resultingLabel;
+            }
             return 'This household received a ' + refundLabel + ' refund. Reversing the ' + amountLabel
                 + ' payment from ' + dateLabel + ' ' + impact
                 + ' — the refund is not automatically clawed back. This creates a reversal entry in the audit trail. Reverse anyway?';

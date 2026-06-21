@@ -172,4 +172,30 @@ describe('PaymentHistoryDialog — reversal-after-refund warning (#331)', () => 
         expect(message).not.toContain('Outstanding by');
         expect(message).toContain('not automatically clawed back');
     });
+
+    it('says the reversal increases the balance when the household is already Outstanding (#333)', async () => {
+        const user = userEvent.setup();
+        // owed $100, gross paid $80 ($50 + $30), $20 refund → Net Contribution $60, so the
+        // household is ALREADY Outstanding by $40 before any reversal (e.g. a bill or billed
+        // Usage Charge was added after the refund). Reversing the $30 payment raises that to
+        // $70 — it does not flip a settled household, so the copy must say *increase ... to*,
+        // not *make them Outstanding by*.
+        renderDialog({
+            payments: [
+                { id: 'pay-a', memberId: 1, amount: 50, receivedAt: '2026-01-15T00:00:00Z', method: 'venmo', note: '' },
+                { id: 'pay-b', memberId: 1, amount: 30, receivedAt: '2026-02-15T00:00:00Z', method: 'cash', note: '' }
+            ],
+            creditAdjustments: [{ id: 'r1', memberId: 1, type: 'refund', amount: 20, status: 'recorded' }]
+        });
+
+        await openReverseConfirmForLatestPayment(user);
+
+        const dialog = screen.getByRole('dialog', { name: 'Reverse Payment — Refund on Record' });
+        const message = dialog.querySelector('.confirmation-message').textContent;
+        expect(message).toContain('$20.00 refund');
+        expect(message).toContain('Reversing the $30.00 payment');
+        expect(message).toContain('will increase their Outstanding balance to $70.00');
+        expect(message).not.toContain('will make them Outstanding by'); // not a settled → Outstanding flip
+        expect(message).toContain('not automatically clawed back');
+    });
 });
