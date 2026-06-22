@@ -1346,6 +1346,20 @@ describe('ShareView', () => {
             expect(screen.getAllByText(/not yet due/i).length).toBeGreaterThanOrEqual(1);
         });
 
+        it('states both dispositions: billed by the admin or applied next year (#338)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(withPendingCharges);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+            });
+            // Both outcomes are stated; the vague "invoiced separately if they are billed" is gone.
+            expect(screen.getByText(/billed separately by the admin or applied to your bill next year/i)).toBeInTheDocument();
+            expect(screen.queryByText(/invoiced separately if they are billed/i)).toBeNull();
+        });
+
         it('does not render pending charges when the scope is absent', async () => {
             setToken('abc123');
             // sampleShareData has no usageCharges:read scope and no pendingCharges
@@ -1374,6 +1388,57 @@ describe('ShareView', () => {
                 expect(screen.getByText('Alice Smith')).toBeInTheDocument();
             });
             expect(screen.queryByText(/Pending Charges/i)).toBeNull();
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Service credits on the billing summary (#337)
+    // -----------------------------------------------------------------------
+    describe('Service credits reconciliation', () => {
+        const withServiceCredits = {
+            ...sampleShareData,
+            scopes: ['summary:read'],
+            summary: {
+                memberId: 'member456',
+                name: 'Alice Smith',
+                annualTotal: 300,
+                bills: [
+                    { billId: 'b1', name: 'Internet', monthlyAmount: 25, splitCount: 1, monthlyShare: 25, annualShare: 300 }
+                ]
+            },
+            linkedMembers: [],
+            paymentSummary: { combinedAnnualTotal: 250, combinedMonthlyTotal: 20.83, totalPaid: 0, balanceRemaining: 250 },
+            serviceCredits: { items: [{ reason: 'Outage', billName: 'Internet', amount: 50 }], total: 50 }
+        };
+
+        it('renders a service-credit line item reconciling the bills subtotal to the reduced total (#337)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(withServiceCredits);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText("Smith Household's Annual Billing Summary")).toBeInTheDocument();
+            });
+
+            // The bills subtotal, the service-credit line, and the reduced household total are all shown.
+            expect(screen.getByText('Bills subtotal')).toBeInTheDocument();
+            expect(screen.getByText(/Service credit\s*—\s*Internet\s*\(Outage\)/)).toBeInTheDocument();
+            expect(screen.getByText('-$50.00')).toBeInTheDocument(); // the reduction is visible
+            const totalRow = screen.getByText('Household Total').closest('tr');
+            expect(within(totalRow).getByText('$250.00')).toBeInTheDocument(); // reconciles 300 − 50
+        });
+
+        it('does not render the reconciliation when there are no service credits', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({ ...withServiceCredits, serviceCredits: undefined });
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText("Smith Household's Annual Billing Summary")).toBeInTheDocument();
+            });
+            expect(screen.queryByText('Bills subtotal')).toBeNull();
         });
     });
 });
