@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, getHouseholdOpeningBalance } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -268,6 +268,12 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
         totalPaid: Math.round(combinedPayment * 100) / 100,
         balanceRemaining: Math.round((combinedAnnual - combinedPayment) * 100) / 100,
       };
+      // Member-safe Service Credit line items (#337) so the cache-miss / self-healed
+      // doc explains the reduced combinedAnnualTotal exactly as the React writer does.
+      const serviceCredits = buildServiceCreditsForShare(billsData, owedAdjustments, tokenData.memberId, linkedIds);
+      if (serviceCredits.total > 0) {
+        result.serviceCredits = serviceCredits;
+      }
     }
 
     if (scopes.includes("paymentMethods:read") || scopes.includes("paymentLinks:read")) {
@@ -358,6 +364,11 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       publicShareData.summary = result.summary;
       publicShareData.linkedMembers = result.linkedMembers || [];
       publicShareData.paymentSummary = result.paymentSummary;
+      // Always reconcile serviceCredits within the summary so a refresh that drops the
+      // household's credits to zero CLEARS a stale value left behind by merge:true (the
+      // field is omitted only when there are none). FieldValue.delete() is a no-op when
+      // the field is already absent.
+      publicShareData.serviceCredits = result.serviceCredits || FieldValue.delete();
     }
     if (result.paymentMethods) {
       publicShareData.paymentMethods = result.paymentMethods;
