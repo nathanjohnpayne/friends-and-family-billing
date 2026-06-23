@@ -396,13 +396,13 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
                             <td className="share-cell-number share-cell-emphasis">{formatCurrency(b.monthlyShare)}</td>
                             <td className="share-cell-number share-cell-emphasis"><strong>{formatCurrency(b.annualShare)}</strong></td>
                             {canDispute && (
-                                <td><button className="share-review-btn" onClick={() => onRequestReview(b)}>Question This</button></td>
+                                <td><button type="button" className="share-review-btn" onClick={() => onRequestReview(b)}>Question This</button></td>
                             )}
                         </tr>
                     ))}
                     <tr className="share-total-row">
                         <td colSpan={3}>TOTAL</td>
-                        <td className="share-cell-number share-cell-muted">{formatCurrency(total / 12)}</td>
+                        <td className="share-cell-number share-cell-emphasis">{formatCurrency(total / 12)}</td>
                         <td className="share-cell-number share-cell-emphasis"><strong>{formatCurrency(total)}</strong></td>
                         {canDispute && <td></td>}
                     </tr>

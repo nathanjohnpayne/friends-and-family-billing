@@ -404,6 +404,27 @@ describe('ShareView', () => {
             expect(screen.getByRole('columnheader', { name: 'Split' })).toHaveClass('share-cell-muted');
             expect(screen.getByRole('columnheader', { name: 'Share' })).toHaveClass('share-cell-emphasis');
             expect(screen.getByRole('columnheader', { name: 'Annual' })).toHaveClass('share-cell-emphasis');
+
+            // The totals row must keep the same emphasis as the headers: both the
+            // Share total (total/12) and the Annual total are emphasized, not muted (#351).
+            const totalCells = document.querySelector('.share-total-row').querySelectorAll('.share-cell-number');
+            expect(totalCells[0]).toHaveClass('share-cell-emphasis');
+            expect(totalCells[0]).not.toHaveClass('share-cell-muted');
+            expect(totalCells[1]).toHaveClass('share-cell-emphasis');
+        });
+
+        it('gives the "Question This" control an explicit button type (#352)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
+            });
+            screen.getAllByRole('button', { name: 'Question This' }).forEach(btn => {
+                expect(btn).toHaveAttribute('type', 'button');
+            });
         });
 
         it('renders the elevated trust note with a lock icon (#353)', async () => {
