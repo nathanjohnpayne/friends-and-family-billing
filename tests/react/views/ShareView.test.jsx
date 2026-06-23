@@ -355,6 +355,120 @@ describe('ShareView', () => {
     });
 
     // -----------------------------------------------------------------------
+    // 6b. Split math, column emphasis, and trust note (#351–#353)
+    // -----------------------------------------------------------------------
+    describe('split math, column emphasis, and trust note', () => {
+        it('renders the per-bill split as inline arithmetic (#351)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+
+            expect(screen.getByText(/\$15\.99\/mo ÷ 2 members = \$8\.00\/mo · ×12 = \$96\.00\/yr/)).toBeInTheDocument();
+            expect(screen.getByText(/\$9\.99\/mo ÷ 3 members = \$3\.33\/mo · ×12 = \$39\.96\/yr/)).toBeInTheDocument();
+        });
+
+        it('uses the singular "member" for a single-member split (#351)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({
+                ...sampleShareData,
+                summary: {
+                    ...sampleShareData.summary,
+                    bills: [{ billId: 'b1', name: 'Internet', monthlyAmount: 25, splitCount: 1, monthlyShare: 25, annualShare: 300 }]
+                }
+            });
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/÷ 1 member =/)).toBeInTheDocument();
+            });
+            expect(screen.queryByText(/÷ 1 members =/)).not.toBeInTheDocument();
+        });
+
+        it('emphasizes Share/Annual and de-emphasizes Monthly/Split columns (#351)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText('Alice Smith')).toBeInTheDocument();
+            });
+
+            expect(screen.getByRole('columnheader', { name: 'Monthly' })).toHaveClass('share-cell-muted');
+            expect(screen.getByRole('columnheader', { name: 'Split' })).toHaveClass('share-cell-muted');
+            expect(screen.getByRole('columnheader', { name: 'Share' })).toHaveClass('share-cell-emphasis');
+            expect(screen.getByRole('columnheader', { name: 'Annual' })).toHaveClass('share-cell-emphasis');
+
+            // The totals row must keep the same emphasis as the headers: both the
+            // Share total (total/12) and the Annual total are emphasized, not muted (#351).
+            const totalCells = document.querySelector('.share-total-row').querySelectorAll('.share-cell-number');
+            expect(totalCells[0]).toHaveClass('share-cell-emphasis');
+            expect(totalCells[0]).not.toHaveClass('share-cell-muted');
+            expect(totalCells[1]).toHaveClass('share-cell-emphasis');
+        });
+
+        it('gives the "Question This" control an explicit button type (#352)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getAllByRole('button', { name: 'Question This' }).length).toBeGreaterThan(0);
+            });
+            screen.getAllByRole('button', { name: 'Question This' }).forEach(btn => {
+                expect(btn).toHaveAttribute('type', 'button');
+            });
+        });
+
+        it('renders the elevated trust note with a lock icon (#353)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit();
+
+            const { container } = render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/doesn't process payments/)).toBeInTheDocument();
+            });
+
+            const note = container.querySelector('.share-trust-note--secure');
+            expect(note).toBeTruthy();
+            expect(note.querySelector('svg.share-trust-lock')).toBeTruthy();
+        });
+
+        it('includes the "Question This" rationale only when disputes are enabled (#353)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(); // sampleShareData scopes include disputes:create
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/doesn't process payments/)).toBeInTheDocument();
+            });
+            expect(screen.getByText(/why "Question This" exists/)).toBeInTheDocument();
+        });
+
+        it('omits the "Question This" rationale when the link cannot dispute (#353)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({ ...sampleShareData, scopes: ['summary:read', 'paymentMethods:read'] });
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/doesn't process payments/)).toBeInTheDocument();
+            });
+            expect(screen.queryByText(/why "Question This" exists/)).not.toBeInTheDocument();
+            expect(screen.queryAllByRole('button', { name: 'Question This' })).toHaveLength(0);
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // 7. Question This button
     // -----------------------------------------------------------------------
     describe('Question This button', () => {
