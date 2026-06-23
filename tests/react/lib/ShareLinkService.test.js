@@ -38,7 +38,9 @@ vi.mock('@/lib/validation.js', () => ({
 }));
 
 vi.mock('@/lib/share.js', () => ({
-    buildShareScopes: vi.fn((_a, _b) => ['summary:read', 'paymentMethods:read']),
+    // The service derives DEFAULT_SCOPES from buildShareScopes(true, true) at load time,
+    // so the mock returns the realistic full-scope set (incl. payments:read #356).
+    buildShareScopes: vi.fn((_a, _b) => ['summary:read', 'paymentMethods:read', 'usageCharges:read', 'payments:read', 'disputes:create', 'disputes:read']),
     buildShareTokenDoc: vi.fn((_uid, _mid, _name, _byid, rawToken, _exp, _scopes) => ({
         ownerId: _uid,
         memberId: _mid,
@@ -111,10 +113,12 @@ describe('createAndPruneShareLink', () => {
 
     it('uses default scopes when none provided', async () => {
         await createAndPruneShareLink(baseOpts);
-        // buildShareTokenDoc receives the default scopes from the service
+        // buildShareTokenDoc receives the default scopes from the service, derived from
+        // buildShareScopes(true, true) so always-on scopes (usageCharges:read #317,
+        // payments:read #356) reach invoice/text links that fall back to the default.
         expect(buildShareTokenDoc).toHaveBeenCalled();
         const callArgs = buildShareTokenDoc.mock.calls[0];
-        expect(callArgs[6]).toEqual(['summary:read', 'paymentMethods:read', 'usageCharges:read', 'disputes:create', 'disputes:read']);
+        expect(callArgs[6]).toEqual(['summary:read', 'paymentMethods:read', 'usageCharges:read', 'payments:read', 'disputes:create', 'disputes:read']);
     });
 
     it('uses custom scopes when provided', async () => {

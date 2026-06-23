@@ -8,6 +8,12 @@ import { sanitizeImageSrc } from './formatting.js';
  * `usageCharges:read` is always granted (#317): a member always sees their OWN
  * pending Usage Charges on their share page (the data is their own not-yet-due
  * charges, per ADR 0005), so the feature must be reachable on every normal link.
+ *
+ * `payments:read` is likewise always granted (#356): a member's payment history
+ * is their own data, the same posture as `usageCharges:read`. It gates a
+ * member-safe projection (date/amount/method only) of the household's settled
+ * payments. Links minted before this scope existed simply won't carry it, so the
+ * share page degrades gracefully (omits the history) — see buildPaymentHistoryForShare.
  * @param {boolean} allowDisputeCreate
  * @param {boolean} allowDisputeRead
  * @param {boolean} [allowRefundsRead] — grants refunds:read so the member can see
@@ -15,7 +21,7 @@ import { sanitizeImageSrc } from './formatting.js';
  * @returns {string[]}
  */
 export function buildShareScopes(allowDisputeCreate, allowDisputeRead, allowRefundsRead) {
-    const scopes = ['summary:read', 'paymentMethods:read', 'usageCharges:read'];
+    const scopes = ['summary:read', 'paymentMethods:read', 'usageCharges:read', 'payments:read'];
     if (allowDisputeCreate) scopes.push('disputes:create');
     if (allowDisputeRead) scopes.push('disputes:read');
     if (allowRefundsRead) scopes.push('refunds:read');
@@ -218,6 +224,12 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         data.pendingCharges = buildPendingChargesForShare(familyMembers, owedAdjustments || [], memberId);
     }
 
+    // Member-safe payment history (#356) for the household (primary + linked), gated
+    // behind payments:read. Mirrored by the resolveShareToken CF for cache/fallback parity.
+    if (scopes.includes('payments:read')) {
+        data.paymentHistory = buildPaymentHistoryForShare(payments, [memberId, ...linkedIds]);
+    }
+
     return data;
 }
 
@@ -318,4 +330,50 @@ export function buildPendingChargesForShare(familyMembers, owedAdjustments, memb
     });
 
     return { charges, total: running, count: charges.length };
+}
+
+/**
+ * Build the member-facing payment history for a share view (#356).
+ *
+ * Returns the household's settled payments — the token member plus their linked
+ * members, the same grain as the `totalPaid` shown on the share summary — as
+ * member-safe line items, newest first. This adds line items ALONGSIDE the
+ * existing `totalPaid` / `balanceRemaining`; it does not recompute them.
+ *
+ * Only "live" ledger entries are projected: reversal entries (`type: 'reversal'`)
+ * and reversed originals (`reversed === true`) are excluded, so the line items sum
+ * to the same combined `totalPaid` that `getPaymentTotalForMember` produces (an
+ * original and its reversal net to zero). Only member-safe fields are exposed —
+ * `id` (opaque), `date` (the `receivedAt` ISO string), `amount`, and `method` —
+ * never the free-text `note`.
+ *
+ * Amounts are exposed at full stored precision and rounded only on display (via
+ * `formatCurrency`), matching `buildPendingChargesForShare` and the project-wide
+ * "store full precision, round on display" convention. This projection does NOT
+ * aggregate (one line per payment), so there is no per-item rounding to do — and
+ * leaving the raw amounts means the line items sum to exactly the same combined
+ * `totalPaid` (the raw payment sum) that the summary shows.
+ *
+ * Privacy: this rides the UNAUTHENTICATED share payload, so it must stay in sync
+ * with the `resolveShareToken` CF mirror (cache vs. fallback parity), following the
+ * member-safe-projection pattern of buildServiceCreditsForShare / buildPendingChargesForShare.
+ *
+ * @param {Array} payments  the billing year's payments ledger (append-only, with reversals)
+ * @param {Array} householdIds  [primaryMemberId, ...linkedMemberIds] the history is scoped to
+ * @returns {{ payments: Array<{ id: *, date: string, amount: number, method: string }>, count: number }}
+ */
+export function buildPaymentHistoryForShare(payments, householdIds) {
+    const ids = householdIds || [];
+    const live = (payments || []).filter(p =>
+        p && ids.includes(p.memberId) && p.type !== 'reversal' && !p.reversed
+    );
+    // Newest first — receivedAt is an ISO timestamp string, so lexical sort is chronological.
+    live.sort((a, b) => String(b.receivedAt || '').localeCompare(String(a.receivedAt || '')));
+    const items = live.map(p => ({
+        id: p.id,
+        date: p.receivedAt || '',
+        amount: p.amount || 0,
+        method: p.method || 'other',
+    }));
+    return { payments: items, count: items.length };
 }

@@ -14,6 +14,7 @@ const path = require('node:path');
 const {
     computeMemberSummary,
     buildPendingChargesForShare,
+    buildPaymentHistoryForShare,
     projectMemberDisputes,
     getServiceCreditTotalForMember,
     buildServiceCreditsForShare,
@@ -198,6 +199,55 @@ describe('buildPendingChargesForShare', () => {
         const result = buildPendingChargesForShare(familyMembers, undefined, 1);
         assert.deepEqual(result.charges, []);
         assert.equal(result.count, 0);
+    });
+});
+
+// ──────────────── buildPaymentHistoryForShare (#356) ─────────
+//
+// CommonJS mirror of src/lib/share.js buildPaymentHistoryForShare. resolveShareToken
+// uses it for the payments:read projection so the self-healed publicShares doc carries
+// the same member-safe history the React writer produces (cache ↔ CF parity).
+
+describe('buildPaymentHistoryForShare (#356)', () => {
+    const payments = [
+        { id: 'p1', memberId: 1, amount: 100, receivedAt: '2026-01-10T00:00:00.000Z', method: 'zelle', note: 'Jan' },
+        { id: 'p2', memberId: 1, amount: 50, receivedAt: '2026-03-05T00:00:00.000Z', method: 'venmo', note: 'secret' },
+        { id: 'p3', memberId: 2, amount: 25, receivedAt: '2026-02-01T00:00:00.000Z', method: 'check' },
+        { id: 'pX', memberId: 9, amount: 999, receivedAt: '2026-04-01T00:00:00.000Z', method: 'zelle' },
+    ];
+
+    it('projects the household (primary + linked) newest-first with only safe fields', () => {
+        const res = buildPaymentHistoryForShare(payments, [1, 2]);
+        assert.equal(res.count, 3);
+        assert.deepEqual(res.payments.map((p) => p.id), ['p2', 'p3', 'p1']);
+        // member-safe fields only — the free-text note is never exposed
+        assert.deepEqual(Object.keys(res.payments[0]).sort(), ['amount', 'date', 'id', 'method']);
+    });
+
+    it('excludes other households and reversed/reversal entries (items sum to totalPaid)', () => {
+        const ledger = [
+            { id: 'a', memberId: 1, amount: 100, receivedAt: '2026-01-01T00:00:00.000Z', method: 'zelle' },
+            { id: 'b', memberId: 1, amount: 40, receivedAt: '2026-02-01T00:00:00.000Z', method: 'venmo', reversed: true },
+            { id: 'b-rev', memberId: 1, amount: -40, receivedAt: '2026-02-02T00:00:00.000Z', method: 'venmo', type: 'reversal' },
+            { id: 'pX', memberId: 9, amount: 999, receivedAt: '2026-03-01T00:00:00.000Z', method: 'zelle' },
+        ];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        assert.deepEqual(res.payments.map((p) => p.id), ['a']);
+        assert.equal(res.payments.reduce((s, p) => s + p.amount, 0), 100);
+    });
+
+    it('returns empty for no payments or an unknown household', () => {
+        assert.deepEqual(buildPaymentHistoryForShare([], [1]), { payments: [], count: 0 });
+        assert.deepEqual(buildPaymentHistoryForShare(payments, [99]), { payments: [], count: 0 });
+        assert.deepEqual(buildPaymentHistoryForShare(undefined, [1]), { payments: [], count: 0 });
+    });
+
+    it('preserves full amount precision (no float-fragile per-item rounding)', () => {
+        // 1.005 must not be lossily rounded here; amounts round only on display, so the
+        // line items keep summing to the raw totalPaid the summary shows.
+        const ledger = [{ id: 'h1', memberId: 1, amount: 1.005, receivedAt: '2026-01-01T00:00:00.000Z', method: 'zelle' }];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        assert.equal(res.payments[0].amount, 1.005);
     });
 });
 
