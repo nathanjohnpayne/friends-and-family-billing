@@ -3383,6 +3383,46 @@ img, svg { display: block; max-width: 100%; }
 }
 .share-lead--owed .share-lead-title { color: var(--color-danger-fg, #9b2c2c); }
 
+/* Pending Charges notice (mockup redesign): a compact amber callout sitting right
+   after the bill/summary, instead of a full table at the bottom of the page. */
+.share-pending-notice {
+    background: var(--color-warning-surface, #fefce8);
+    border: 1px solid var(--color-warning-border, #facc15);
+    border-radius: var(--radius-sm, 6px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+}
+
+.share-pending-notice-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-warning-fg, #975a16);
+}
+
+.share-pending-icon {
+    flex: 0 0 auto;
+    color: var(--color-warning-fg, #975a16);
+}
+
+.share-pending-list {
+    list-style: none;
+    margin: var(--space-2, 8px) 0 0;
+    padding: 0;
+    font-size: 0.9rem;
+    color: var(--color-text, #1F2430);
+}
+
+.share-pending-list li { margin-top: 4px; }
+.share-pending-list li strong { font-variant-numeric: tabular-nums; }
+
+.share-pending-foot {
+    margin: var(--space-2, 8px) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary, #5B6475);
+}
+
 /* Payment Methods */
 .share-pm-grid {
     display: grid;

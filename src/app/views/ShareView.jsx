@@ -344,7 +344,7 @@ export default function ShareView() {
             {/* Pending Charges sit right after the bill/summary they relate to (mockup
                 placement), not at the bottom of the page. */}
             {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
-                <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
+                <PendingChargesSection pendingCharges={data.pendingCharges} />
             )}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} paymentSummary={data.paymentSummary} />}
             {data.paymentHistory && data.paymentHistory.payments && data.paymentHistory.payments.length > 0 && (
@@ -871,42 +871,28 @@ function formatChargeDate(dateStr) {
  * list shown only when the share token carries the usageCharges:read scope and
  * the household has deferred charges. These do not affect the payment summary.
  */
-function PendingChargesSection({ pendingCharges, year }) {
+function PendingChargesSection({ pendingCharges }) {
     const charges = pendingCharges.charges || [];
+    const count = charges.length;
     return (
-        <div className="share-section share-pending-charges">
-            <h2>Pending Charges</h2>
-            <p className="share-pending-note">
-                These usage charges have been recorded for {year} but are <strong>not yet due</strong>.
-                They are shown for your visibility and are not part of your current balance. They will
-                either be billed separately by the admin or applied to your bill next year.
-            </p>
-            <div className="share-table-wrap">
-                <table className="share-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Description</th>
-                            <th className="share-cell-number">Amount</th>
-                            <th className="share-cell-number">Running Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {charges.map((c, i) => (
-                            <tr key={c.id || i}>
-                                <td>{formatChargeDate(c.incurredDate)}</td>
-                                <td>{c.description || 'Usage charge'}</td>
-                                <td className="share-cell-number">{formatCurrency(c.amount)}</td>
-                                <td className="share-cell-number">{formatCurrency(c.runningTotal)}</td>
-                            </tr>
-                        ))}
-                        <tr className="share-total-row">
-                            <td colSpan={2}>TOTAL (not yet due)</td>
-                            <td className="share-cell-number"></td>
-                            <td className="share-cell-number"><strong>{formatCurrency(pendingCharges.total)}</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
+        <div className="share-section">
+            <div className="share-pending-notice">
+                <div className="share-pending-notice-head">
+                    <svg className="share-pending-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+                    </svg>
+                    <span>{count} upcoming charge{count === 1 ? '' : 's'} — not yet due</span>
+                </div>
+                <ul className="share-pending-list">
+                    {charges.map((c, i) => (
+                        <li key={c.id || i}>
+                            <strong>{formatCurrency(c.amount)}</strong> · {c.description || 'Usage charge'}{c.incurredDate ? ', ' + formatChargeDate(c.incurredDate) : ''}
+                        </li>
+                    ))}
+                </ul>
+                <p className="share-pending-foot">
+                    {formatCurrency(pendingCharges.total)} total · not part of your current balance. {count === 1 ? 'It' : 'They'} will either be billed separately by the admin or applied to your bill next year.
+                </p>
             </div>
         </div>
     );

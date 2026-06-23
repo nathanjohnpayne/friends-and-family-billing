@@ -1583,29 +1583,32 @@ describe('ShareView', () => {
             }
         };
 
-        it('renders the pending charges list when scope usageCharges:read is present', async () => {
+        it('renders the pending charges as a compact notice when usageCharges:read is present', async () => {
             setToken('abc123');
             mockPublicSharesHit(withPendingCharges);
 
             render(<ShareView />);
 
+            // Compact amber notice: count header + a per-charge line (amount + description), and a total.
             await waitFor(() => {
-                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+                expect(screen.getByText('2 upcoming charges — not yet due')).toBeInTheDocument();
             });
-            expect(screen.getByText('Device add-on')).toBeInTheDocument();
-            // running total of last row (also echoed in the TOTAL row)
-            expect(screen.getAllByText('$27.50').length).toBeGreaterThanOrEqual(1);
+            expect(screen.getByText(/Roaming overage/)).toBeInTheDocument();
+            expect(screen.getByText(/Device add-on/)).toBeInTheDocument();
+            expect(screen.getByText('$12.50')).toBeInTheDocument();
+            expect(screen.getByText('$15.00')).toBeInTheDocument();
+            expect(screen.getByText(/\$27\.50 total/)).toBeInTheDocument();
         });
 
-        it('renders Pending Charges above Payment Methods (mockup placement)', async () => {
+        it('renders the pending-charges notice above Payment Methods (mockup placement)', async () => {
             setToken('abc123');
             mockPublicSharesHit(withPendingCharges);
 
             render(<ShareView />);
 
-            await waitFor(() => expect(screen.getByText('Pending Charges')).toBeInTheDocument());
+            await waitFor(() => expect(screen.getByText(/upcoming charge/)).toBeInTheDocument());
             // The upcoming charges sit next to the bill/summary, not at the bottom of the page.
-            const pending = screen.getByText('Pending Charges');
+            const pending = screen.getByText(/upcoming charge/);
             const methods = screen.getByText('Payment Methods');
             expect(pending.compareDocumentPosition(methods) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         });
@@ -1617,7 +1620,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+                expect(screen.getByText(/Roaming overage/)).toBeInTheDocument();
             });
             // A clear "not yet due" cue must be present so the member is not alarmed.
             expect(screen.getAllByText(/not yet due/i).length).toBeGreaterThanOrEqual(1);
@@ -1630,7 +1633,7 @@ describe('ShareView', () => {
             render(<ShareView />);
 
             await waitFor(() => {
-                expect(screen.getByText('Roaming overage')).toBeInTheDocument();
+                expect(screen.getByText(/Roaming overage/)).toBeInTheDocument();
             });
             // Both outcomes are stated; the vague "invoiced separately if they are billed" is gone.
             expect(screen.getByText(/billed separately by the admin or applied to your bill next year/i)).toBeInTheDocument();
