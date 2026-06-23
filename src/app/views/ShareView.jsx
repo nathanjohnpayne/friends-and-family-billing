@@ -53,6 +53,100 @@ function derivePaymentState(ps) {
     return { isOwed, isSettled, balanceRemaining };
 }
 
+/** Inline check / alert icons for the lead callout (no icon-font dependency). */
+function LeadCheckIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12l5 5L20 7" />
+        </svg>
+    );
+}
+function LeadAlertIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9v4" /><path d="M12 17h.01" />
+            <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z" />
+        </svg>
+    );
+}
+
+/**
+ * State-driven lead callout (#354/#355) — the first thing the member sees, above
+ * the bills. Settled: a green confirmation with the amount paid in full. Owed: a
+ * red amount-due banner with how much remains and how much is paid. Neither state
+ * (nothing paid, nothing owed) renders nothing.
+ */
+function ShareLeadCallout({ ps, year }) {
+    const { isOwed, isSettled } = derivePaymentState(ps);
+    if (isSettled) {
+        return (
+            <div className="share-lead share-lead--settled">
+                <span className="share-lead-icon"><LeadCheckIcon /></span>
+                <div className="share-lead-text">
+                    <div className="share-lead-title">You&apos;re all settled for {year}</div>
+                    <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} paid in full — nothing due</div>
+                </div>
+            </div>
+        );
+    }
+    if (isOwed) {
+        return (
+            <div className="share-lead share-lead--owed">
+                <span className="share-lead-icon"><LeadAlertIcon /></span>
+                <div className="share-lead-text">
+                    <div className="share-lead-title">{formatCurrency(ps.balanceRemaining)} due for {year}</div>
+                    <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} of {formatCurrency(ps.combinedAnnualTotal)} paid</div>
+                </div>
+            </div>
+        );
+    }
+    return null;
+}
+
+/**
+ * The per-bill split as styled inline arithmetic (#351): the source figure and
+ * operators muted, the member's resulting /mo and /yr shares emphasized. Used in
+ * the settled bill cards; the owed table renders the same figures via formatSplitMath.
+ */
+function BillMath({ b }) {
+    const memberWord = b.splitCount === 1 ? 'member' : 'members';
+    return (
+        <span className="share-bill-math-expr">
+            <span className="share-math-src">{formatCurrency(b.monthlyAmount)}/mo</span>
+            <span className="share-math-op">÷ {b.splitCount} {memberWord}</span>
+            <span className="share-math-eq">= {formatCurrency(b.monthlyShare)}/mo</span>
+            <span className="share-math-op">× 12</span>
+            <span className="share-math-eq">= {formatCurrency(b.annualShare)}/yr</span>
+        </span>
+    );
+}
+
+/**
+ * Settled bill cards (mockup redesign) — each bill as a card with a "Paid" pill and
+ * the inline split math, replacing the dense table when the household is settled.
+ * The owed/unpaid view keeps the full itemized table (BillsTable).
+ */
+function BillsCards({ bills, canDispute, onRequestReview }) {
+    if (!bills || bills.length === 0) return <p className="share-hint">No bills assigned.</p>;
+    return (
+        <div className="share-bill-cards">
+            {bills.map((b, i) => (
+                <div key={b.billId || i} className="share-bill-card">
+                    <div className="share-bill-card-head">
+                        <CompanyLogo logo={b.logo} website={b.website} name={b.name || 'Bill'} size={28} />
+                        <strong className="share-bill-card-name">{b.name || 'Unnamed Bill'}</strong>
+                        <span className="share-bill-paid-pill">Paid</span>
+                    </div>
+                    <div className="share-bill-card-math"><BillMath b={b} /></div>
+                    {canDispute && (
+                        <button type="button" className="share-review-btn" onClick={() => onRequestReview(b)}>Question this charge</button>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function ShareView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -239,11 +333,14 @@ export default function ShareView() {
 
     if (!data) return null;
 
+    const { isSettled } = derivePaymentState(data.paymentSummary);
+
     return (
         <div className="share-page">
             <ShareHeader data={data} />
-            {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
-            {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
+            {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} />}
+            {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} isSettled={isSettled} />}
+            {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} />}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} paymentSummary={data.paymentSummary} />}
             {data.paymentHistory && data.paymentHistory.payments && data.paymentHistory.payments.length > 0 && (
                 <PaymentHistorySection history={data.paymentHistory} />
@@ -273,16 +370,19 @@ function ShareHeader({ data }) {
     );
 }
 
-function MemberRow({ member, canDispute, onRequestReview, defaultExpanded }) {
+function MemberRow({ member, canDispute, onRequestReview, defaultExpanded, isSettled }) {
     const [expanded, setExpanded] = useState(defaultExpanded);
     const billCount = member.bills ? member.bills.length : 0;
     const monthlyTotal = member.bills ? member.bills.reduce((s, b) => s + (b.monthlyShare || 0), 0) : 0;
+    // Settled households get the calmer card layout; owed/unpaid keep the full
+    // itemized table so the member sees the entire breakdown of what's owed.
+    const BillsView = isSettled ? BillsCards : BillsTable;
 
     if (defaultExpanded) {
         return (
             <div className="share-member-row">
                 <h3 className="share-member-name">{member.name}</h3>
-                <BillsTable bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
+                <BillsView bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
             </div>
         );
     }
@@ -294,7 +394,7 @@ function MemberRow({ member, canDispute, onRequestReview, defaultExpanded }) {
                 <span>{member.name}—{billCount} {billCount === 1 ? 'bill' : 'bills'} ({formatCurrency(monthlyTotal)}/mo)</span>
             </button>
             {expanded && (
-                <BillsTable bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
+                <BillsView bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
             )}
         </div>
     );
@@ -342,7 +442,7 @@ function HouseholdTotalWithCredits({ allMembers, ps, serviceCredits }) {
     );
 }
 
-function HouseholdBillsSection({ data, canDispute, shareCtx }) {
+function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled }) {
     const [disputeForm, setDisputeForm] = useState(null);
     const allMembers = [data.summary, ...(data.linkedMembers || [])];
     const isSingleMember = allMembers.length === 1;
@@ -367,6 +467,7 @@ function HouseholdBillsSection({ data, canDispute, shareCtx }) {
                     canDispute={canDispute}
                     onRequestReview={bill => setDisputeForm(bill)}
                     defaultExpanded={isSingleMember}
+                    isSettled={isSettled}
                 />
             ))}
 
@@ -431,41 +532,31 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
     );
 }
 
-function PaymentSummarySection({ ps, year }) {
+function PaymentSummarySection({ ps }) {
     const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
     const { isOwed, isSettled } = derivePaymentState(ps);
-    const balClass = isOwed ? 'owed' : (isSettled ? 'settled-zero' : '');
-    const balLabel = isSettled ? 'Paid' : formatCurrency(ps.balanceRemaining);
 
+    // The lead callout (rendered above the bills) carries the settled/owed
+    // headline; these cards carry the supporting figures. Settled collapses to the
+    // two that still matter (share, annual); owed/unpaid keeps annual, paid, and
+    // the outstanding balance plus the progress bar.
     return (
-        <div className="share-section">
-            <h2>Payment Summary</h2>
-
-            {/* State-driven lead (#354/#355): when settled, lead with the
-                confirmation and demote the transactional detail; when owed, lead
-                with the amount due so there's no ambiguity about what to send. */}
-            {isSettled && (
-                <div className="share-callout settled">
-                    <strong>You&apos;re all settled for {year}. Thank you!</strong>
-                </div>
-            )}
-            {isOwed && (
-                <div className="share-callout outstanding">
-                    <strong>You still have an outstanding balance for {year}.</strong>
-                    <p className="share-amount-due">Amount Remaining: {formatCurrency(ps.balanceRemaining)}</p>
-                </div>
-            )}
-
+        <div className="share-section share-summary-stats">
             <div className="share-stat-grid">
-                <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
-                <div className="share-stat-card"><div className="share-stat-label">Monthly</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}</div></div>
-                {/* Paid-to-date and Balance carry no new information once settled (paid == total,
-                    balance == 0), so collapse the grid to the two figures that still do (#354). */}
-                {!isSettled && <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>}
-                {!isSettled && <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{balLabel}</div></div>}
+                {isSettled ? (
+                    <>
+                        <div className="share-stat-card"><div className="share-stat-label">Your share</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}<span className="share-stat-unit">/mo</span></div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Annual total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                    </>
+                ) : (
+                    <>
+                        <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">{isOwed ? 'Balance Due' : 'Balance Remaining'}</div><div className={'share-stat-value ' + (isOwed ? 'owed' : 'settled-zero')}>{formatCurrency(ps.balanceRemaining)}</div></div>
+                    </>
+                )}
             </div>
 
-            {/* The bar is always 100% when settled, so hide it (#354). */}
             {!isSettled && (
                 <>
                     <div className="share-progress">
@@ -479,9 +570,9 @@ function PaymentSummarySection({ ps, year }) {
 }
 
 function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary }) {
-    const { isOwed, isSettled, balanceRemaining } = derivePaymentState(paymentSummary);
-    // Collapse the methods once settled (#354); the member can still expand them on demand.
-    const [expanded, setExpanded] = useState(!isSettled);
+    // Methods always render in full (both states); the echo surfaces the amount due
+    // on the preferred method when owed.
+    const { isOwed, balanceRemaining } = derivePaymentState(paymentSummary);
     const [qrModal, setQrModal] = useState(null);
     const [loadingQr, setLoadingQr] = useState(null);
 
@@ -592,36 +683,21 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
     return (
         <div className="share-section">
             <h2>Payment Methods</h2>
-            {isSettled && !expanded ? (
-                /* Settled: collapse to a one-line "Paid via {preferred}" summary with an
-                   expand affordance, so the methods don't dominate an already-paid view (#354). */
-                <div className="share-pm-collapsed">
-                    <span className="share-pm-collapsed-note">
-                        {preferredMethod ? 'Paid via ' + preferredMethod.label + '.' : 'This balance is settled.'}
-                    </span>
-                    <button type="button" className="share-pm-expand" onClick={() => setExpanded(true)}>
-                        Show payment methods
-                    </button>
+            <p className="share-trust-note share-trust-note--secure">
+                <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>
+                    Payments go directly to the organizer—Friends &amp; Family Billing never processes or holds your money.
+                    {canDispute && ' That’s also why "Question this charge" exists: flag anything that looks off and the account owner is notified.'}
+                </span>
+            </p>
+            {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
+            {otherMethods.length > 0 && (
+                <div className="share-pm-grid">
+                    {otherMethods.map(pm => renderCard(pm, 'share-pm-card'))}
                 </div>
-            ) : (
-                <>
-                    <p className="share-trust-note share-trust-note--secure">
-                        <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        <span>
-                            Pay directly through the apps below—Friends &amp; Family Billing doesn&apos;t process payments.
-                            {canDispute && ' That’s also why "Question This" exists: flag anything that looks off and the account owner is notified.'}
-                        </span>
-                    </p>
-                    {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
-                    {otherMethods.length > 0 && (
-                        <div className="share-pm-grid">
-                            {otherMethods.map(pm => renderCard(pm, 'share-pm-card'))}
-                        </div>
-                    )}
-                </>
             )}
 
             {qrModal && (
