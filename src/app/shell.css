@@ -3285,6 +3285,13 @@ img, svg { display: block; max-width: 100%; }
 .share-stat-value.owed { color: var(--color-danger, #C65A5A); }
 .share-stat-value.settled-zero { color: var(--color-text-secondary, #5B6475); }
 
+.share-stat-unit {
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--color-text-secondary, #5B6475);
+    margin-left: 1px;
+}
+
 .share-progress {
     height: 8px;
     background: var(--color-surface-alt, #F7F8FB);
@@ -3332,6 +3339,50 @@ img, svg { display: block; max-width: 100%; }
     margin-top: var(--space-1, 4px);
 }
 
+/* State-driven lead callout (mockup redesign): the page leads with settled/owed
+   status above the bills — a tinted banner with an icon, a headline, and a subline. */
+.share-lead {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 12px);
+    border-radius: var(--radius-sm, 6px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+    margin-bottom: var(--space-4, 16px);
+}
+
+.share-lead-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+
+.share-lead-title { font-size: 1.05rem; font-weight: 600; }
+.share-lead-sub { font-size: 0.9rem; color: var(--color-text-secondary, #5B6475); }
+
+.share-lead--settled {
+    background: var(--color-success-light, rgba(63, 163, 124, 0.10));
+    border-left: 3px solid var(--color-success, #3FA37C);
+}
+.share-lead--settled .share-lead-icon {
+    background: var(--color-success-bg, #c6f6d5);
+    color: var(--color-success-fg, #22543d);
+}
+.share-lead--settled .share-lead-title { color: var(--color-success-fg, #22543d); }
+
+.share-lead--owed {
+    background: var(--color-danger-light, rgba(198, 90, 90, 0.10));
+    border-left: 3px solid var(--color-danger, #C65A5A);
+}
+.share-lead--owed .share-lead-icon {
+    background: var(--color-danger-bg, #fed7d7);
+    color: var(--color-danger-fg, #9b2c2c);
+}
+.share-lead--owed .share-lead-title { color: var(--color-danger-fg, #9b2c2c); }
+
 /* Payment Methods */
 .share-pm-grid {
     display: grid;
@@ -3361,18 +3412,64 @@ img, svg { display: block; max-width: 100%; }
     margin: 0 0 var(--space-2, 8px);
 }
 
-/* Collapsed payment-methods summary shown when settled (#354); the member can
-   expand the full methods on demand. */
-.share-pm-collapsed {
+/* Settled bill cards (mockup redesign): each bill is a card with a "Paid" pill and
+   the split shown as inline arithmetic. The owed/unpaid view keeps the full table. */
+.share-bill-cards {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--space-3, 12px);
-    flex-wrap: wrap;
 }
 
-.share-pm-collapsed-note {
-    color: var(--color-text-secondary, #5B6475);
-    font-size: 0.9rem;
+.share-bill-card {
+    background: var(--color-surface, #ffffff);
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-md, 8px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
+}
+
+.share-bill-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.share-bill-card-name {
+    font-size: 1rem;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+}
+
+.share-bill-paid-pill {
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill, 9999px);
+    background: var(--color-success-bg, #c6f6d5);
+    color: var(--color-success-fg, #22543d);
+}
+
+.share-bill-card-math {
+    margin-top: var(--space-3, 12px);
+    padding-top: var(--space-3, 12px);
+    border-top: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.share-bill-math-expr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.share-math-src { font-size: 0.85rem; color: var(--color-text-secondary, #5B6475); }
+.share-math-op { font-size: 0.85rem; color: var(--color-text-faint, #999999); }
+.share-math-eq { font-size: 0.95rem; font-weight: 600; color: var(--color-text, #1F2430); }
+
+.share-bill-card .share-review-btn {
+    margin-top: var(--space-2, 8px);
+    padding-left: 0;
 }
 
 .share-pm-expand {
