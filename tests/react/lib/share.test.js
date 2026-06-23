@@ -7,8 +7,12 @@ import {
     isShareTokenStale,
     buildPendingChargesForShare,
     buildServiceCreditsForShare,
+    buildPaymentHistoryForShare,
     buildPublicShareData
 } from '@/lib/share.js';
+// CommonJS mirror used by the resolveShareToken Cloud Function — imported here so the
+// cache (React) and CF (fallback) builders can be asserted byte-for-byte identical (#356).
+import { buildPaymentHistoryForShare as cfBuildPaymentHistoryForShare } from '../../../functions/billing.js';
 
 describe('buildPublicShareData — pendingCharges (#317 reachability)', () => {
     const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
@@ -263,12 +267,13 @@ describe('buildPublicShareData — carried opening balance folds into owed (#322
 });
 
 describe('buildShareScopes', () => {
-    it('always includes summary:read, paymentMethods:read, and usageCharges:read', () => {
+    it('always includes summary:read, paymentMethods:read, usageCharges:read, and payments:read', () => {
         const scopes = buildShareScopes(false, false);
         expect(scopes).toContain('summary:read');
         expect(scopes).toContain('paymentMethods:read');
         expect(scopes).toContain('usageCharges:read');
-        expect(scopes).toHaveLength(3);
+        expect(scopes).toContain('payments:read');
+        expect(scopes).toHaveLength(4);
     });
 
     it('adds disputes:create when allowed', () => {
@@ -284,7 +289,7 @@ describe('buildShareScopes', () => {
 
     it('adds both dispute scopes', () => {
         const scopes = buildShareScopes(true, true);
-        expect(scopes).toHaveLength(5);
+        expect(scopes).toHaveLength(6);
     });
 
     it('always grants usageCharges:read so the member can reach their own pending charges (#317)', () => {
@@ -292,6 +297,98 @@ describe('buildShareScopes', () => {
         // the scope must be on every normal link for the feature to be reachable.
         expect(buildShareScopes(false, false)).toContain('usageCharges:read');
         expect(buildShareScopes(true, true)).toContain('usageCharges:read');
+    });
+
+    it('always grants payments:read so the member can reach their own payment history (#356)', () => {
+        // A member's payment history is their own data — same posture as usageCharges:read.
+        expect(buildShareScopes(false, false)).toContain('payments:read');
+        expect(buildShareScopes(true, true)).toContain('payments:read');
+    });
+});
+
+describe('buildPaymentHistoryForShare (#356)', () => {
+    const payments = [
+        { id: 'p1', memberId: 1, amount: 100, receivedAt: '2026-01-10T00:00:00.000Z', method: 'zelle', note: 'Jan' },
+        { id: 'p2', memberId: 1, amount: 50, receivedAt: '2026-03-05T00:00:00.000Z', method: 'venmo', note: 'secret note' },
+        { id: 'p3', memberId: 2, amount: 25, receivedAt: '2026-02-01T00:00:00.000Z', method: 'check' }, // linked member
+        { id: 'pX', memberId: 9, amount: 999, receivedAt: '2026-04-01T00:00:00.000Z', method: 'zelle' }, // other household
+    ];
+
+    it('projects the household (primary + linked) payments newest-first with only safe fields', () => {
+        const res = buildPaymentHistoryForShare(payments, [1, 2]);
+        expect(res.count).toBe(3);
+        // newest first: p2 (Mar) > p3 (Feb) > p1 (Jan)
+        expect(res.payments.map(p => p.id)).toEqual(['p2', 'p3', 'p1']);
+        // only member-safe fields exposed — the free-text note is never included
+        expect(Object.keys(res.payments[0]).sort()).toEqual(['amount', 'date', 'id', 'method']);
+        expect(res.payments.find(p => p.id === 'p2')).toMatchObject({ amount: 50, method: 'venmo', date: '2026-03-05T00:00:00.000Z' });
+    });
+
+    it('excludes other households (no member-id expansion)', () => {
+        const res = buildPaymentHistoryForShare(payments, [1, 2]);
+        expect(res.payments.find(p => p.id === 'pX')).toBeUndefined();
+    });
+
+    it('excludes reversal entries and reversed originals so items sum to totalPaid', () => {
+        const ledger = [
+            { id: 'a', memberId: 1, amount: 100, receivedAt: '2026-01-01T00:00:00.000Z', method: 'zelle' },
+            { id: 'b', memberId: 1, amount: 40, receivedAt: '2026-02-01T00:00:00.000Z', method: 'venmo', reversed: true },
+            { id: 'b-rev', memberId: 1, amount: -40, receivedAt: '2026-02-02T00:00:00.000Z', method: 'venmo', type: 'reversal', reversesPaymentId: 'b' },
+        ];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        expect(res.payments.map(p => p.id)).toEqual(['a']); // only the live, non-reversed payment
+        // totalPaid = 100 + 40 + (-40) = 100; the live items sum to the same figure.
+        expect(res.payments.reduce((s, p) => s + p.amount, 0)).toBe(100);
+    });
+
+    it('returns an empty result for no payments or an unknown household', () => {
+        expect(buildPaymentHistoryForShare([], [1])).toEqual({ payments: [], count: 0 });
+        expect(buildPaymentHistoryForShare(payments, [99])).toEqual({ payments: [], count: 0 });
+        expect(buildPaymentHistoryForShare(null, [1])).toEqual({ payments: [], count: 0 });
+    });
+
+    it('defaults a missing method to "other"', () => {
+        const ledger = [{ id: 'z', memberId: 1, amount: 12.34, receivedAt: '2026-01-01T00:00:00.000Z' }];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        expect(res.payments[0].method).toBe('other');
+        expect(res.payments[0].amount).toBe(12.34);
+    });
+
+    it('cache (React) and CF mirror produce byte-for-byte identical output (#356 parity)', () => {
+        // The unauthenticated payload must agree whether it comes from the publicShares
+        // cache (buildPublicShareData) or the resolveShareToken self-heal (the CF mirror).
+        const ledger = [
+            { id: 'p1', memberId: 1, amount: 100, receivedAt: '2026-01-10T00:00:00.000Z', method: 'zelle', note: 'a' },
+            { id: 'p2', memberId: 2, amount: 50, receivedAt: '2026-03-05T00:00:00.000Z', method: 'venmo' },
+            { id: 'b', memberId: 1, amount: 40, receivedAt: '2026-02-01T00:00:00.000Z', method: 'check', reversed: true },
+            { id: 'b-rev', memberId: 1, amount: -40, receivedAt: '2026-02-02T00:00:00.000Z', method: 'check', type: 'reversal' },
+            { id: 'pX', memberId: 9, amount: 999, receivedAt: '2026-04-01T00:00:00.000Z', method: 'zelle' },
+        ];
+        const ids = [1, 2];
+        expect(buildPaymentHistoryForShare(ledger, ids)).toEqual(cfBuildPaymentHistoryForShare(ledger, ids));
+    });
+});
+
+describe('buildPublicShareData — payment history (#356)', () => {
+    const familyMembers = [{ id: 1, name: 'A', linkedMembers: [2] }, { id: 2, name: 'B', linkedMembers: [] }];
+    const bills = [{ id: 10, name: 'Net', amount: 100, members: [1], billingFrequency: 'monthly' }];
+    const activeYear = { id: 'y', label: '2026' };
+    const payments = [
+        { id: 'p1', memberId: 1, amount: 30, receivedAt: '2026-01-01T00:00:00.000Z', method: 'zelle', note: 'x' },
+        { id: 'p2', memberId: 2, amount: 20, receivedAt: '2026-02-01T00:00:00.000Z', method: 'venmo' },
+    ];
+
+    it('includes household paymentHistory when payments:read is granted', () => {
+        const scopes = buildShareScopes(false, false); // includes payments:read
+        const data = buildPublicShareData(familyMembers, bills, payments, 1, scopes, 'uid', activeYear, {}, []);
+        expect(data.paymentHistory.count).toBe(2);
+        // newest first; includes the linked member's payment (p2)
+        expect(data.paymentHistory.payments.map(p => p.id)).toEqual(['p2', 'p1']);
+    });
+
+    it('omits paymentHistory when the scope is absent (older links)', () => {
+        const data = buildPublicShareData(familyMembers, bills, payments, 1, ['summary:read'], 'uid', activeYear, {}, []);
+        expect(data.paymentHistory).toBeUndefined();
     });
 });
 

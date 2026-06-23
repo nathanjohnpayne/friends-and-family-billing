@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -331,6 +331,16 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       );
     }
 
+    // Member-safe payment history (#356) for the household (primary + linked),
+    // gated behind payments:read. Mirrors buildPublicShareData (the React writer)
+    // so the cache-hit, cache-miss, and self-healed publicShares doc all agree.
+    if (scopes.includes("payments:read")) {
+      result.paymentHistory = buildPaymentHistoryForShare(
+        payments,
+        [tokenData.memberId, ...linkedIds]
+      );
+    }
+
     // Self-heal: recreate publicShares doc for future direct Firestore reads.
     // publicShares is the single source of truth for view counts.
     //
@@ -375,6 +385,9 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     }
     if (result.pendingCharges) {
       publicShareData.pendingCharges = result.pendingCharges;
+    }
+    if (result.paymentHistory) {
+      publicShareData.paymentHistory = result.paymentHistory;
     }
     // merge:true ensures refreshOnly writes don't clobber accessCount/lastAccessedAt
     db.collection("publicShares").doc(hash).set(publicShareData, { merge: true }).catch((err) => {

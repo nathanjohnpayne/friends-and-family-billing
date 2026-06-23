@@ -90,6 +90,37 @@ function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
   return { charges, total: running, count: charges.length };
 }
 
+/**
+ * Build the member-facing payment history for a share view (#356).
+ * CommonJS mirror of src/lib/share.js `buildPaymentHistoryForShare` for the Cloud
+ * Function (cache-miss / stale-refresh fallback), so the self-healed `publicShares`
+ * doc and the live response carry the same `paymentHistory` the React writer produces.
+ *
+ * Projects the household's (primary + linked) settled payments — the same grain as
+ * the `totalPaid` figure — as member-safe line items, newest first. Reversal entries
+ * (`type: 'reversal'`) and reversed originals (`reversed === true`) are excluded so the
+ * items sum to the same combined `totalPaid`. Only member-safe fields are exposed
+ * (`id`, `date`, `amount`, `method`); the free-text `note` is never included.
+ *
+ * @param {Array} payments  the billing year's payments ledger
+ * @param {Array} householdIds  [primaryMemberId, ...linkedMemberIds]
+ * @returns {{ payments: Array<{ id: *, date: string, amount: number, method: string }>, count: number }}
+ */
+function buildPaymentHistoryForShare(payments, householdIds) {
+  const ids = householdIds || [];
+  const live = (payments || []).filter(
+    (p) => p && ids.includes(p.memberId) && p.type !== "reversal" && !p.reversed
+  );
+  live.sort((a, b) => String(b.receivedAt || "").localeCompare(String(a.receivedAt || "")));
+  const items = live.map((p) => ({
+    id: p.id,
+    date: p.receivedAt || "",
+    amount: Math.round((p.amount || 0) * 100) / 100,
+    method: p.method || "other",
+  }));
+  return { payments: items, count: items.length };
+}
+
 /** Discriminator for an outbound Charge Notice in the shared `disputes` subcollection (#320). */
 const CHARGE_NOTICE_KIND = "charge_notice";
 
@@ -237,4 +268,4 @@ function getHouseholdOpeningBalance(member, owedAdjustments) {
     }, 0);
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, CHARGE_NOTICE_KIND };
+module.exports = { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, CHARGE_NOTICE_KIND };
