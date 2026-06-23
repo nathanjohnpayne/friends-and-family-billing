@@ -18,6 +18,25 @@ function formatCurrency(amount) {
     return '$' + Number(amount || 0).toFixed(2);
 }
 
+/**
+ * Render the per-bill split as inline arithmetic (#351), e.g.
+ * `$300.00/mo ÷ 8 members = $37.50/mo · ×12 = $450.00/yr`.
+ *
+ * Every figure is read straight from the canonical, annual-first fields the
+ * builder already wrote (`calculateAnnualSummary`: annualShare = annualTotal /
+ * members, then monthlyShare = annualShare / 12) — nothing is recomputed here,
+ * so the line can never imply a monthly-first rounding the canonical path didn't
+ * take. The `÷ members` and `×12` are read as bridges between figures that are
+ * each already rounded to cents; on an uneven split the rounded monthly × 12 can
+ * sit a cent off the canonical annual, which is expected and why the annual is
+ * shown as its own canonical value rather than as the product.
+ */
+function formatSplitMath(b) {
+    const memberWord = b.splitCount === 1 ? 'member' : 'members';
+    return formatCurrency(b.monthlyAmount) + '/mo ÷ ' + b.splitCount + ' ' + memberWord
+        + ' = ' + formatCurrency(b.monthlyShare) + '/mo · ×12 = ' + formatCurrency(b.annualShare) + '/yr';
+}
+
 export default function ShareView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -209,7 +228,7 @@ export default function ShareView() {
             <ShareHeader data={data} />
             {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
-            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} />}
+            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} />}
             {data.refundNotices && data.refundNotices.length > 0 && <RefundNoticesSection notices={data.refundNotices} shareCtx={shareCtx} />}
             {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
                 <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
@@ -353,24 +372,29 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
                 <thead>
                     <tr>
                         <th>Bill</th>
-                        <th className="share-cell-number">Monthly</th>
-                        <th className="share-cell-number">Split</th>
-                        <th className="share-cell-number">Share</th>
-                        <th className="share-cell-number">Annual</th>
+                        <th className="share-cell-number share-cell-muted">Monthly</th>
+                        <th className="share-cell-number share-cell-muted">Split</th>
+                        <th className="share-cell-number share-cell-emphasis">Share</th>
+                        <th className="share-cell-number share-cell-emphasis">Annual</th>
                         {canDispute && <th></th>}
                     </tr>
                 </thead>
                 <tbody>
                     {bills.map((b, i) => (
                         <tr key={b.billId || i}>
-                            <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <CompanyLogo logo={b.logo} website={b.website} name={b.name || 'Bill'} size={28} />
-                                <strong>{b.name || 'Unnamed Bill'}</strong>
+                            <td>
+                                <div className="share-bill-cell">
+                                    <CompanyLogo logo={b.logo} website={b.website} name={b.name || 'Bill'} size={28} />
+                                    <div className="share-bill-meta">
+                                        <strong>{b.name || 'Unnamed Bill'}</strong>
+                                        <span className="share-bill-math">{formatSplitMath(b)}</span>
+                                    </div>
+                                </div>
                             </td>
-                            <td className="share-cell-number">{formatCurrency(b.monthlyAmount)}</td>
-                            <td className="share-cell-number">{b.splitCount} {b.splitCount === 1 ? 'member' : 'members'}</td>
-                            <td className="share-cell-number">{formatCurrency(b.monthlyShare)}</td>
-                            <td className="share-cell-number">{formatCurrency(b.annualShare)}</td>
+                            <td className="share-cell-number share-cell-muted">{formatCurrency(b.monthlyAmount)}</td>
+                            <td className="share-cell-number share-cell-muted">{b.splitCount} {b.splitCount === 1 ? 'member' : 'members'}</td>
+                            <td className="share-cell-number share-cell-emphasis">{formatCurrency(b.monthlyShare)}</td>
+                            <td className="share-cell-number share-cell-emphasis"><strong>{formatCurrency(b.annualShare)}</strong></td>
                             {canDispute && (
                                 <td><button className="share-review-btn" onClick={() => onRequestReview(b)}>Question This</button></td>
                             )}
@@ -378,8 +402,8 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
                     ))}
                     <tr className="share-total-row">
                         <td colSpan={3}>TOTAL</td>
-                        <td className="share-cell-number">{formatCurrency(total / 12)}</td>
-                        <td className="share-cell-number"><strong>{formatCurrency(total)}</strong></td>
+                        <td className="share-cell-number share-cell-muted">{formatCurrency(total / 12)}</td>
+                        <td className="share-cell-number share-cell-emphasis"><strong>{formatCurrency(total)}</strong></td>
                         {canDispute && <td></td>}
                     </tr>
                 </tbody>
@@ -424,7 +448,7 @@ function PaymentSummarySection({ ps, year }) {
     );
 }
 
-function PaymentMethodsSection({ methods, ownerId }) {
+function PaymentMethodsSection({ methods, ownerId, canDispute }) {
     const [qrModal, setQrModal] = useState(null);
     const [loadingQr, setLoadingQr] = useState(null);
 
@@ -532,7 +556,16 @@ function PaymentMethodsSection({ methods, ownerId }) {
     return (
         <div className="share-section">
             <h2>Payment Methods</h2>
-            <p className="share-trust-note">Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.</p>
+            <p className="share-trust-note share-trust-note--secure">
+                <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>
+                    Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.
+                    {canDispute && ' That’s also why "Question This" exists: flag anything that looks off and the account owner is notified.'}
+                </span>
+            </p>
             {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
             {otherMethods.length > 0 && (
                 <div className="share-pm-grid">

@@ -3089,6 +3089,27 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 12px);
 }
 
+/* Elevated trust banner sitting directly above the payment methods (#353):
+   a lock icon and a bordered, tinted surface give the "we don't process
+   payments" assurance more weight where it does the most work. */
+.share-trust-note--secure {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2, 8px);
+    font-size: 0.9rem;
+    color: var(--color-text, #1F2430);
+    background: var(--color-surface-alt, #F7F8FB);
+    border: 1px solid var(--color-border-light, #f0f0f0);
+    border-radius: var(--radius-sm, 6px);
+    padding: var(--space-3, 12px);
+}
+
+.share-trust-lock {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: var(--color-primary, #4A6FA5);
+}
+
 .share-section {
     margin-bottom: 32px;
 }
@@ -3176,19 +3197,60 @@ img, svg { display: block; max-width: 100%; }
     text-align: right;
 }
 
+/* Bill name + inline split arithmetic (#351) */
+.share-bill-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
+}
+
+.share-bill-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.share-bill-math {
+    font-size: 0.72rem;
+    color: var(--color-text-secondary, #5B6475);
+    font-variant-numeric: tabular-nums;
+}
+
+/* De-emphasize the source figures (Monthly/Split), emphasize the member's
+   own Share and Annual columns (#351) so the eye lands on what they owe. */
+.share-cell-muted {
+    color: var(--color-text-secondary, #5B6475);
+    font-weight: 400;
+}
+
+.share-cell-emphasis {
+    color: var(--color-text, #1F2430);
+    font-weight: 600;
+}
+
 .share-total-row td {
     font-weight: 600;
     border-top: 2px solid var(--color-border, #e0e0e0);
 }
 
+/* Demoted to a quiet ghost/text link (#352) so it no longer competes with the
+   settled reassurance. Behaviour is unchanged — still scope-gated on
+   disputes:create — this is styling only. */
 .share-review-btn {
     font-size: 0.78rem;
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.4rem;
     border-radius: var(--radius-sm, 6px);
-    background: var(--color-primary, #4A6FA5);
-    color: white;
+    background: transparent;
+    color: var(--color-text-secondary, #5B6475);
     border: none;
     cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.share-review-btn:hover {
+    color: var(--color-primary, #4A6FA5);
 }
 
 /* Payment Summary */
