@@ -347,6 +347,13 @@ export function buildPendingChargesForShare(familyMembers, owedAdjustments, memb
  * `id` (opaque), `date` (the `receivedAt` ISO string), `amount`, and `method` —
  * never the free-text `note`.
  *
+ * Amounts are exposed at full stored precision and rounded only on display (via
+ * `formatCurrency`), matching `buildPendingChargesForShare` and the project-wide
+ * "store full precision, round on display" convention. This projection does NOT
+ * aggregate (one line per payment), so there is no per-item rounding to do — and
+ * leaving the raw amounts means the line items sum to exactly the same combined
+ * `totalPaid` (the raw payment sum) that the summary shows.
+ *
  * Privacy: this rides the UNAUTHENTICATED share payload, so it must stay in sync
  * with the `resolveShareToken` CF mirror (cache vs. fallback parity), following the
  * member-safe-projection pattern of buildServiceCreditsForShare / buildPendingChargesForShare.
@@ -365,7 +372,7 @@ export function buildPaymentHistoryForShare(payments, householdIds) {
     const items = live.map(p => ({
         id: p.id,
         date: p.receivedAt || '',
-        amount: Math.round((p.amount || 0) * 100) / 100,
+        amount: p.amount || 0,
         method: p.method || 'other',
     }));
     return { payments: items, count: items.length };

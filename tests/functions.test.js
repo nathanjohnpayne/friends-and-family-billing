@@ -241,6 +241,14 @@ describe('buildPaymentHistoryForShare (#356)', () => {
         assert.deepEqual(buildPaymentHistoryForShare(payments, [99]), { payments: [], count: 0 });
         assert.deepEqual(buildPaymentHistoryForShare(undefined, [1]), { payments: [], count: 0 });
     });
+
+    it('preserves full amount precision (no float-fragile per-item rounding)', () => {
+        // 1.005 must not be lossily rounded here; amounts round only on display, so the
+        // line items keep summing to the raw totalPaid the summary shows.
+        const ledger = [{ id: 'h1', memberId: 1, amount: 1.005, receivedAt: '2026-01-01T00:00:00.000Z', method: 'zelle' }];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        assert.equal(res.payments[0].amount, 1.005);
+    });
 });
 
 // ──────── projectMemberDisputes (#320) ────────

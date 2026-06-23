@@ -102,6 +102,11 @@ function buildPendingChargesForShare(familyMembers, owedAdjustments, memberId) {
  * items sum to the same combined `totalPaid`. Only member-safe fields are exposed
  * (`id`, `date`, `amount`, `method`); the free-text `note` is never included.
  *
+ * Amounts are exposed at full stored precision and rounded only on display (this
+ * projection does not aggregate, so there is no per-item rounding to do), matching
+ * buildPendingChargesForShare and keeping the line items summing to the raw totalPaid.
+ * Must stay byte-for-byte identical to the src/lib/share.js writer (cache↔CF parity).
+ *
  * @param {Array} payments  the billing year's payments ledger
  * @param {Array} householdIds  [primaryMemberId, ...linkedMemberIds]
  * @returns {{ payments: Array<{ id: *, date: string, amount: number, method: string }>, count: number }}
@@ -115,7 +120,7 @@ function buildPaymentHistoryForShare(payments, householdIds) {
   const items = live.map((p) => ({
     id: p.id,
     date: p.receivedAt || "",
-    amount: Math.round((p.amount || 0) * 100) / 100,
+    amount: p.amount || 0,
     method: p.method || "other",
   }));
   return { payments: items, count: items.length };

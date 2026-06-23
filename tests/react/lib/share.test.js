@@ -354,6 +354,19 @@ describe('buildPaymentHistoryForShare (#356)', () => {
         expect(res.payments[0].amount).toBe(12.34);
     });
 
+    it('preserves full amount precision (no lossy per-item rounding) so items sum to totalPaid (#356)', () => {
+        // Per-item Math.round(x*100)/100 is float-fragile (1.005 -> 1.00) and would drift the
+        // items from the raw payment sum totalPaid uses; the projection exposes raw amounts and
+        // rounds only on display, so the line items reconcile exactly with the summary.
+        const ledger = [
+            { id: 'h1', memberId: 1, amount: 1.005, receivedAt: '2026-01-02T00:00:00.000Z', method: 'zelle' },
+            { id: 'h2', memberId: 1, amount: 2.005, receivedAt: '2026-01-01T00:00:00.000Z', method: 'venmo' },
+        ];
+        const res = buildPaymentHistoryForShare(ledger, [1]);
+        expect(res.payments.map(p => p.amount)).toEqual([1.005, 2.005]);
+        expect(res.payments.reduce((s, p) => s + p.amount, 0)).toBe(1.005 + 2.005);
+    });
+
     it('cache (React) and CF mirror produce byte-for-byte identical output (#356 parity)', () => {
         // The unauthenticated payload must agree whether it comes from the publicShares
         // cache (buildPublicShareData) or the resolveShareToken self-heal (the CF mirror).
