@@ -1597,6 +1597,19 @@ describe('ShareView', () => {
             expect(screen.getAllByText('$27.50').length).toBeGreaterThanOrEqual(1);
         });
 
+        it('renders Pending Charges above Payment Methods (mockup placement)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(withPendingCharges);
+
+            render(<ShareView />);
+
+            await waitFor(() => expect(screen.getByText('Pending Charges')).toBeInTheDocument());
+            // The upcoming charges sit next to the bill/summary, not at the bottom of the page.
+            const pending = screen.getByText('Pending Charges');
+            const methods = screen.getByText('Payment Methods');
+            expect(pending.compareDocumentPosition(methods) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+
         it('labels the pending charges as not yet due', async () => {
             setToken('abc123');
             mockPublicSharesHit(withPendingCharges);

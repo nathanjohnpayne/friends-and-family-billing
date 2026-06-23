@@ -341,14 +341,16 @@ export default function ShareView() {
             {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} />}
             {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} isSettled={isSettled} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} />}
+            {/* Pending Charges sit right after the bill/summary they relate to (mockup
+                placement), not at the bottom of the page. */}
+            {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
+                <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
+            )}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} paymentSummary={data.paymentSummary} />}
             {data.paymentHistory && data.paymentHistory.payments && data.paymentHistory.payments.length > 0 && (
                 <PaymentHistorySection history={data.paymentHistory} />
             )}
             {data.refundNotices && data.refundNotices.length > 0 && <RefundNoticesSection notices={data.refundNotices} shareCtx={shareCtx} />}
-            {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
-                <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
-            )}
             {data.disputes && data.disputes.length > 0 && <DisputesSection disputes={data.disputes} shareCtx={shareCtx} />}
         </div>
     );
