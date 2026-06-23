@@ -264,7 +264,7 @@ function ShareHeader({ data }) {
     const lastName = deriveLastName(data.memberName);
     return (
         <header className="share-header">
-            <h1>{lastName} Household's Annual Billing Summary</h1>
+            <h1>{lastName} Household&apos;s Annual Billing Summary</h1>
             <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
     );
@@ -443,7 +443,7 @@ function PaymentSummarySection({ ps, year }) {
                 with the amount due so there's no ambiguity about what to send. */}
             {isSettled && (
                 <div className="share-callout settled">
-                    <strong>You're all settled for {year}. Thank you!</strong>
+                    <strong>You&apos;re all settled for {year}. Thank you!</strong>
                 </div>
             )}
             {isOwed && (
@@ -608,7 +608,7 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
                             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                         </svg>
                         <span>
-                            Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.
+                            Pay directly through the apps below—Friends &amp; Family Billing doesn&apos;t process payments.
                             {canDispute && ' That’s also why "Question This" exists: flag anything that looks off and the account owner is notified.'}
                         </span>
                     </p>
