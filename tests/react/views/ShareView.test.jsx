@@ -35,6 +35,7 @@ vi.mock('@/lib/validation.js', () => ({
 
 vi.mock('@/lib/formatting.js', () => ({
     getPaymentMethodIcon: vi.fn(() => '&#x1F4B3;'),
+    getPaymentMethodLabel: vi.fn((m) => (m || 'other').charAt(0).toUpperCase() + (m || 'other').slice(1).replace(/_/g, ' ')),
     getInitials: vi.fn((name) => (name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')
 }));
 
@@ -793,6 +794,65 @@ describe('ShareView', () => {
                 expect(screen.getByText(/Amount Remaining: \$85.96/)).toBeInTheDocument();
             });
             expect(screen.getByText(/Amount Remaining: \$85.96/)).toHaveClass('share-amount-due');
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // 10c. Payment history (#357)
+    // -----------------------------------------------------------------------
+    describe('payment history', () => {
+        const withHistory = {
+            ...sampleShareData,
+            paymentHistory: {
+                payments: [
+                    { id: 'pay1', date: '2026-03-05T12:00:00.000Z', amount: 50, method: 'venmo' },
+                    { id: 'pay2', date: '2026-01-10T12:00:00.000Z', amount: 100, method: 'zelle' },
+                ],
+                count: 2
+            }
+        };
+
+        it('renders a "Show payment history" entry point and expands the list on demand (#357)', async () => {
+            const user = userEvent.setup();
+            setToken('abc123');
+            mockPublicSharesHit(withHistory);
+
+            render(<ShareView />);
+
+            const heading = await screen.findByText('Payment History');
+            const section = heading.closest('.share-section');
+
+            // Collapsed: entry point present, rows not yet rendered.
+            const btn = within(section).getByRole('button', { name: 'Show payment history (2)' });
+            expect(within(section).queryByText('$100.00')).not.toBeInTheDocument();
+
+            await user.click(btn);
+
+            // Expanded: member-safe rows (amount + method label) rendered.
+            expect(within(section).getByText('$50.00')).toBeInTheDocument();
+            expect(within(section).getByText('$100.00')).toBeInTheDocument();
+            expect(within(section).getByText('Venmo')).toBeInTheDocument();
+            expect(within(section).getByText('Zelle')).toBeInTheDocument();
+        });
+
+        it('omits the section when paymentHistory is absent (older links predate payments:read) (#357)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(); // sampleShareData has no paymentHistory
+
+            render(<ShareView />);
+
+            await screen.findByText('Payment Summary');
+            expect(screen.queryByText('Payment History')).not.toBeInTheDocument();
+        });
+
+        it('omits the section when paymentHistory is empty (#357)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({ ...sampleShareData, paymentHistory: { payments: [], count: 0 } });
+
+            render(<ShareView />);
+
+            await screen.findByText('Payment Summary');
+            expect(screen.queryByText('Payment History')).not.toBeInTheDocument();
         });
     });
 

@@ -9,7 +9,7 @@ import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { isShareTokenStale } from '../../lib/share.js';
-import { getPaymentMethodIcon } from '../../lib/formatting.js';
+import { getPaymentMethodIcon, getPaymentMethodLabel } from '../../lib/formatting.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 
 const STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
@@ -245,6 +245,9 @@ export default function ShareView() {
             {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
             {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} paymentSummary={data.paymentSummary} />}
+            {data.paymentHistory && data.paymentHistory.payments && data.paymentHistory.payments.length > 0 && (
+                <PaymentHistorySection history={data.paymentHistory} />
+            )}
             {data.refundNotices && data.refundNotices.length > 0 && <RefundNoticesSection notices={data.refundNotices} shareCtx={shareCtx} />}
             {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
                 <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
@@ -638,6 +641,60 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
                             <button className="btn btn-sm btn-header-secondary" onClick={() => setQrModal(null)}>Close</button>
                         </div>
                     </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** Format a payment's `receivedAt` ISO timestamp for display (date only). */
+function formatPaymentDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString();
+}
+
+/**
+ * Member-facing payment history (#357). Renders the household's settled payments
+ * from the `payments:read` payload (`data.paymentHistory`, built by
+ * buildPaymentHistoryForShare). Collapsed behind a "Show payment history" entry
+ * point so it doesn't dominate an already-settled view; only safe fields
+ * (date, method, amount) are present in the payload. Degrades gracefully: the
+ * top-level render omits this section entirely when the scope/payload is absent
+ * (older links that predate payments:read) or empty.
+ */
+function PaymentHistorySection({ history }) {
+    const [open, setOpen] = useState(false);
+    const payments = (history && history.payments) || [];
+    if (payments.length === 0) return null;
+
+    return (
+        <div className="share-section">
+            <h2>Payment History</h2>
+            {!open ? (
+                <button type="button" className="share-pm-expand" onClick={() => setOpen(true)}>
+                    Show payment history ({payments.length})
+                </button>
+            ) : (
+                <div className="share-table-wrap">
+                    <table className="share-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Method</th>
+                                <th className="share-cell-number">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {payments.map((p, i) => (
+                                <tr key={p.id || i}>
+                                    <td>{formatPaymentDate(p.date)}</td>
+                                    <td>{getPaymentMethodLabel(p.method)}</td>
+                                    <td className="share-cell-number">{formatCurrency(p.amount)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
         </div>
