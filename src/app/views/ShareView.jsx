@@ -541,7 +541,7 @@ function PaymentSummarySection({ ps }) {
     // two that still matter (share, annual); owed/unpaid keeps annual, paid, and
     // the outstanding balance plus the progress bar.
     return (
-        <div className="share-section share-summary-stats">
+        <div className="share-section share-summary-stats" role="region" aria-label="Payment summary">
             <div className="share-stat-grid">
                 {isSettled ? (
                     <>
