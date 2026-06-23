@@ -37,6 +37,22 @@ function formatSplitMath(b) {
         + ' = ' + formatCurrency(b.monthlyShare) + '/mo · ×12 = ' + formatCurrency(b.annualShare) + '/yr';
 }
 
+/**
+ * Derive the member's payment state from the share `paymentSummary` (#354/#355).
+ * Shared by PaymentSummarySection and PaymentMethodsSection so the settled/owed
+ * layout decisions stay in lockstep. Mirrors the original inline logic:
+ * owed when a positive balance remains; settled when nothing remains and
+ * something has been paid (an overpaid/zero balance with payments still reads
+ * as settled).
+ */
+function derivePaymentState(ps) {
+    const balanceRemaining = (ps && ps.balanceRemaining) || 0;
+    const totalPaid = (ps && ps.totalPaid) || 0;
+    const isOwed = balanceRemaining > 0;
+    const isSettled = !isOwed && totalPaid > 0;
+    return { isOwed, isSettled, balanceRemaining };
+}
+
 export default function ShareView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -228,7 +244,7 @@ export default function ShareView() {
             <ShareHeader data={data} />
             {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} year={data.year} />}
-            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} />}
+            {data.paymentMethods && data.paymentMethods.length > 0 && <PaymentMethodsSection methods={data.paymentMethods} ownerId={shareCtx.ownerId} canDispute={shareCtx.canDispute} paymentSummary={data.paymentSummary} />}
             {data.refundNotices && data.refundNotices.length > 0 && <RefundNoticesSection notices={data.refundNotices} shareCtx={shareCtx} />}
             {data.pendingCharges && data.pendingCharges.charges && data.pendingCharges.charges.length > 0 && (
                 <PendingChargesSection pendingCharges={data.pendingCharges} year={data.year} />
@@ -414,41 +430,55 @@ function BillsTable({ bills, canDispute, onRequestReview }) {
 
 function PaymentSummarySection({ ps, year }) {
     const pctPaid = ps.combinedAnnualTotal > 0 ? Math.min(100, Math.round((ps.totalPaid / ps.combinedAnnualTotal) * 100)) : 0;
-    const isOwed = ps.balanceRemaining > 0;
-    const isSettled = !isOwed && ps.totalPaid > 0;
+    const { isOwed, isSettled } = derivePaymentState(ps);
     const balClass = isOwed ? 'owed' : (isSettled ? 'settled-zero' : '');
     const balLabel = isSettled ? 'Paid' : formatCurrency(ps.balanceRemaining);
 
     return (
         <div className="share-section">
             <h2>Payment Summary</h2>
-            <div className="share-stat-grid">
-                <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
-                <div className="share-stat-card"><div className="share-stat-label">Monthly</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}</div></div>
-                <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>
-                <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{balLabel}</div></div>
-            </div>
-            <div className="share-progress">
-                <div className="share-progress-bar" style={{ width: pctPaid + '%' }} />
-            </div>
-            <div className="share-progress-label">{pctPaid}% paid</div>
 
-            {ps.balanceRemaining > 0 && (
-                <div className="share-callout outstanding">
-                    <strong>You still have an outstanding balance for {year}.</strong>
-                    <p>Amount Remaining: {formatCurrency(ps.balanceRemaining)}</p>
-                </div>
-            )}
-            {ps.balanceRemaining <= 0 && ps.totalPaid > 0 && (
+            {/* State-driven lead (#354/#355): when settled, lead with the
+                confirmation and demote the transactional detail; when owed, lead
+                with the amount due so there's no ambiguity about what to send. */}
+            {isSettled && (
                 <div className="share-callout settled">
                     <strong>You're all settled for {year}. Thank you!</strong>
                 </div>
+            )}
+            {isOwed && (
+                <div className="share-callout outstanding">
+                    <strong>You still have an outstanding balance for {year}.</strong>
+                    <p className="share-amount-due">Amount Remaining: {formatCurrency(ps.balanceRemaining)}</p>
+                </div>
+            )}
+
+            <div className="share-stat-grid">
+                <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                <div className="share-stat-card"><div className="share-stat-label">Monthly</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}</div></div>
+                {/* Paid-to-date and Balance carry no new information once settled (paid == total,
+                    balance == 0), so collapse the grid to the two figures that still do (#354). */}
+                {!isSettled && <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>}
+                {!isSettled && <div className="share-stat-card"><div className="share-stat-label">Balance Remaining</div><div className={'share-stat-value ' + balClass}>{balLabel}</div></div>}
+            </div>
+
+            {/* The bar is always 100% when settled, so hide it (#354). */}
+            {!isSettled && (
+                <>
+                    <div className="share-progress">
+                        <div className="share-progress-bar" style={{ width: pctPaid + '%' }} />
+                    </div>
+                    <div className="share-progress-label">{pctPaid}% paid</div>
+                </>
             )}
         </div>
     );
 }
 
-function PaymentMethodsSection({ methods, ownerId, canDispute }) {
+function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary }) {
+    const { isOwed, isSettled, balanceRemaining } = derivePaymentState(paymentSummary);
+    // Collapse the methods once settled (#354); the member can still expand them on demand.
+    const [expanded, setExpanded] = useState(!isSettled);
     const [qrModal, setQrModal] = useState(null);
     const [loadingQr, setLoadingQr] = useState(null);
 
@@ -491,6 +521,9 @@ function PaymentMethodsSection({ methods, ownerId, canDispute }) {
                     <strong>{pm.label}</strong>
                     {pm.preferred && <span className="share-pm-preferred-badge">&#9733; Preferred</span>}
                 </div>
+                {pm.preferred && isOwed && (
+                    <p className="share-pm-amount-due">Send {formatCurrency(balanceRemaining)} via {pm.label}</p>
+                )}
                 <div className="share-pm-body">
                     {pm.type === 'zelle' && [pm.email, pm.phone].filter(Boolean).map(c => (
                         <div key={c} className="share-pm-detail">
@@ -556,21 +589,36 @@ function PaymentMethodsSection({ methods, ownerId, canDispute }) {
     return (
         <div className="share-section">
             <h2>Payment Methods</h2>
-            <p className="share-trust-note share-trust-note--secure">
-                <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                <span>
-                    Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.
-                    {canDispute && ' That’s also why "Question This" exists: flag anything that looks off and the account owner is notified.'}
-                </span>
-            </p>
-            {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
-            {otherMethods.length > 0 && (
-                <div className="share-pm-grid">
-                    {otherMethods.map(pm => renderCard(pm, 'share-pm-card'))}
+            {isSettled && !expanded ? (
+                /* Settled: collapse to a one-line "Paid via {preferred}" summary with an
+                   expand affordance, so the methods don't dominate an already-paid view (#354). */
+                <div className="share-pm-collapsed">
+                    <span className="share-pm-collapsed-note">
+                        {preferredMethod ? 'Paid via ' + preferredMethod.label + '.' : 'This balance is settled.'}
+                    </span>
+                    <button type="button" className="share-pm-expand" onClick={() => setExpanded(true)}>
+                        Show payment methods
+                    </button>
                 </div>
+            ) : (
+                <>
+                    <p className="share-trust-note share-trust-note--secure">
+                        <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        <span>
+                            Pay directly through the apps below—Friends &amp; Family Billing doesn't process payments.
+                            {canDispute && ' That’s also why "Question This" exists: flag anything that looks off and the account owner is notified.'}
+                        </span>
+                    </p>
+                    {preferredMethod && renderCard(preferredMethod, 'share-pm-card share-pm-card--preferred')}
+                    {otherMethods.length > 0 && (
+                        <div className="share-pm-grid">
+                            {otherMethods.map(pm => renderCard(pm, 'share-pm-card'))}
+                        </div>
+                    )}
+                </>
             )}
 
             {qrModal && (

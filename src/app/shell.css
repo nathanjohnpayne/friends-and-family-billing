@@ -3323,6 +3323,15 @@ img, svg { display: block; max-width: 100%; }
     border-left: 3px solid var(--color-success, #3FA37C);
 }
 
+/* Owed lead: make the amount due the prominent figure in the outstanding
+   callout (#355) so it reads as the headline, not a footnote. */
+.share-amount-due {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-danger, #C65A5A);
+    margin-top: var(--space-1, 4px);
+}
+
 /* Payment Methods */
 .share-pm-grid {
     display: grid;
@@ -3342,6 +3351,42 @@ img, svg { display: block; max-width: 100%; }
 .share-pm-card--preferred {
     border-color: var(--color-primary, #4A6FA5);
     margin-bottom: var(--space-3, 12px);
+}
+
+/* Owed-amount echo on the preferred method (#355): repeats the figure right
+   where the member acts on it. */
+.share-pm-amount-due {
+    font-weight: 600;
+    color: var(--color-danger, #C65A5A);
+    margin: 0 0 var(--space-2, 8px);
+}
+
+/* Collapsed payment-methods summary shown when settled (#354); the member can
+   expand the full methods on demand. */
+.share-pm-collapsed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 12px);
+    flex-wrap: wrap;
+}
+
+.share-pm-collapsed-note {
+    color: var(--color-text-secondary, #5B6475);
+    font-size: 0.9rem;
+}
+
+.share-pm-expand {
+    background: transparent;
+    border: 1px solid var(--color-border, #e0e0e0);
+    border-radius: var(--radius-sm, 6px);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+    color: var(--color-primary, #4A6FA5);
+    cursor: pointer;
+}
+
+.share-pm-expand:hover {
+    border-color: var(--color-primary, #4A6FA5);
 }
 
 .share-pm-preferred-badge {
