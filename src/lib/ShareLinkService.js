@@ -8,10 +8,13 @@
 import { doc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { generateRawToken, hashToken } from './validation.js';
-import { buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate } from './share.js';
+import { buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate, buildShareScopes } from './share.js';
 
 const DEFAULT_EXPIRY_DAYS = 365;
-const DEFAULT_SCOPES = ['summary:read', 'paymentMethods:read', 'usageCharges:read', 'disputes:create', 'disputes:read'];
+// Derive the default full-scope set from buildShareScopes (the single source of truth)
+// rather than duplicating the list — otherwise a new always-on scope (payments:read #356,
+// usageCharges:read #317) silently misses invoice/text links that fall back to this default.
+const DEFAULT_SCOPES = buildShareScopes(true, true);
 const MAX_ACTIVE_LINKS = 5;
 
 /**
