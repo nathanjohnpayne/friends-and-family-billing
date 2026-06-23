@@ -705,6 +705,98 @@ describe('ShareView', () => {
     });
 
     // -----------------------------------------------------------------------
+    // 10b. State-driven settled / owed layout (#354/#355)
+    // -----------------------------------------------------------------------
+    describe('state-driven settled / owed layout', () => {
+        const settledData = {
+            ...sampleShareData,
+            paymentSummary: { combinedAnnualTotal: 100, combinedMonthlyTotal: 8.33, totalPaid: 100, balanceRemaining: 0 },
+            paymentMethods: [{ id: 'pm1', type: 'venmo', label: 'Venmo', handle: '@john', preferred: true }]
+        };
+        const owedPreferred = {
+            ...sampleShareData, // balanceRemaining 85.96 (owed)
+            paymentMethods: [{ id: 'pm1', type: 'venmo', label: 'Venmo', handle: '@john', preferred: true }]
+        };
+
+        it('leads with the settled callout and drops the transactional cards/progress (#354)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(settledData);
+
+            render(<ShareView />);
+
+            const heading = await screen.findByText('Payment Summary');
+            const section = heading.closest('.share-section');
+
+            expect(within(section).getByText(/all settled for 2024/)).toBeInTheDocument();
+            expect(within(section).queryByText('Paid to Date')).not.toBeInTheDocument();
+            expect(within(section).queryByText('Balance Remaining')).not.toBeInTheDocument();
+            expect(within(section).queryByText(/% paid/)).not.toBeInTheDocument();
+            expect(within(section).getByText('Annual Total')).toBeInTheDocument();
+            expect(within(section).getByText('Monthly')).toBeInTheDocument();
+
+            // Settled callout renders before the stat grid.
+            const callout = within(section).getByText(/all settled/).closest('.share-callout');
+            const grid = section.querySelector('.share-stat-grid');
+            expect(callout.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+
+        it('collapses payment methods when settled and expands on demand (#354)', async () => {
+            const user = userEvent.setup();
+            setToken('abc123');
+            mockPublicSharesHit(settledData);
+
+            render(<ShareView />);
+
+            const heading = await screen.findByText('Payment Methods');
+            const section = heading.closest('.share-section');
+
+            expect(within(section).getByText('Paid via Venmo.')).toBeInTheDocument();
+            expect(within(section).queryByText('@john')).not.toBeInTheDocument();
+
+            await user.click(within(section).getByRole('button', { name: 'Show payment methods' }));
+
+            expect(within(section).getByText('@john')).toBeInTheDocument();
+            expect(within(section).queryByRole('button', { name: 'Show payment methods' })).not.toBeInTheDocument();
+        });
+
+        it('does not echo an amount on the preferred method when settled (#355)', async () => {
+            const user = userEvent.setup();
+            setToken('abc123');
+            mockPublicSharesHit(settledData);
+
+            render(<ShareView />);
+
+            await screen.findByText('Payment Methods');
+            await user.click(screen.getByRole('button', { name: 'Show payment methods' }));
+            expect(screen.queryByText(/Send \$/)).not.toBeInTheDocument();
+        });
+
+        it('echoes the balance on the preferred method when owed (#355)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(owedPreferred);
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Send \$85\.96 via Venmo/)).toBeInTheDocument();
+            });
+            expect(screen.queryByRole('button', { name: 'Show payment methods' })).not.toBeInTheDocument();
+        });
+
+        it('surfaces the amount due prominently in the owed lead (#355)', async () => {
+            setToken('abc123');
+            mockPublicSharesHit(); // sampleShareData: owed 85.96
+
+            render(<ShareView />);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Amount Remaining: \$85.96/)).toBeInTheDocument();
+            });
+            expect(screen.getByText(/Amount Remaining: \$85.96/)).toHaveClass('share-amount-due');
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // 11. Evidence viewing
     // -----------------------------------------------------------------------
     describe('Evidence viewing', () => {
