@@ -358,6 +358,7 @@ Data is organized per billing year under `/users/{userId}/billingYears/{yearId}`
 - ✅ Persistence fix folded in: the billing-year `closedAt` field is now preserved by the full-document save (see ADR 0008)
 
 ### TipTap Editor, Check Payment Method, QR Codes (2026-04)
+
 - ✅ TipTap WYSIWYG rich-text editor for invoice templates (TemplateEditor, SubjectEditor)
 - ✅ Custom TipTap nodes: inline %token% pills and block /slash_command tokens
 - ✅ Check payment method type with name, address, phone fields
