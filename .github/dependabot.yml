@@ -15,6 +15,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Hold eslint major bumps: eslint 10 violates the eslint-plugin-react@7.37.x
+    # peer range (eslint <= 9.7), so a major bump makes `npm ci` fail with ERESOLVE
+    # on main. Dependabot PR #345 auto-merged exactly such a bump and had to be
+    # reverted in #347 (post-incident #348). Resume eslint majors once
+    # eslint-plugin-react ships eslint-10 support, then bump the pair together.
+    ignore:
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: "development"
@@ -29,6 +37,13 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Hold firebase-admin major bumps: firebase-admin 14 violates the
+    # firebase-functions@7.2.5 peer range (firebase-admin <= 13), so a major bump
+    # makes `npm ci` fail in functions/ the same way (open PR #344). Resume once
+    # firebase-functions supports firebase-admin 14, then bump the pair together.
+    ignore:
+      - dependency-name: "firebase-admin"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: "development"
