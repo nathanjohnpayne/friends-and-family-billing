@@ -150,6 +150,66 @@ describe('computeMemberSummary with billing frequency', () => {
     });
 });
 
+// ──────────── sum-of-shares invariant (#366, PR #339 r3448998865) ────────────
+//
+// computeMemberSummary rounds each member's per-bill annualShare independently
+// (Math.round(annualShare * 100) / 100). The reviewer-pinned invariant: summing
+// those rounded shares across a bill's members reconstructs the bill total to
+// within the rounding it introduces — at most half a cent per member — and the
+// UNrounded shares sum to the total exactly. The bounded drift is deliberate
+// (each share is a real per-member figure shown to that member), so the test pins
+// both the exactness of the raw split and the half-cent-per-member ceiling on the
+// rounded sum, so a future change that lets the rounded shares drift unbounded
+// (or that silently re-rounds the household total away from the parts) fails here.
+
+describe('computeMemberSummary — sum-of-shares invariant (#366)', () => {
+    const cents = (x) => Math.round(x * 100) / 100;
+
+    // Bill amounts chosen so annualTotal / splitCount does NOT divide evenly:
+    // $10/yr ÷ 3 = $3.333… → $3.33 each, summing to $9.99 (a deliberate 1¢ drift);
+    // $20/yr (annual) ÷ 7 → $2.86 each, summing to $20.02.
+    const driftCases = [
+        { amount: 10, billingFrequency: 'annual', n: 3 },   // 10 / 3
+        { amount: 20, billingFrequency: 'annual', n: 7 },   // 20 / 7
+        { amount: 100, billingFrequency: 'monthly', n: 3 }, // 1200 / 3 (even) — control
+        { amount: 5, billingFrequency: 'monthly', n: 6 },   // 60 / 6 (even) — control
+    ];
+
+    for (const { amount, billingFrequency, n } of driftCases) {
+        it(`${n}-way split of ${amount}/${billingFrequency} keeps rounded shares within n·½¢ of the total`, () => {
+            const members = Array.from({ length: n }, (_, i) => ({
+                id: i + 1, name: 'M' + (i + 1), email: '', linkedMembers: []
+            }));
+            const memberIds = members.map((m) => m.id);
+            const bills = [{ id: 'b1', name: 'Split bill', amount, billingFrequency, members: memberIds }];
+
+            const annualTotal = billingFrequency === 'annual' ? amount : amount * 12;
+            const rawShare = annualTotal / n;
+
+            // Each member's rounded annualShare comes straight from computeMemberSummary.
+            const roundedShares = memberIds.map((id) => {
+                const summary = computeMemberSummary(members, bills, id);
+                assert.equal(summary.bills.length, 1);
+                assert.equal(summary.bills[0].splitCount, n);
+                return summary.bills[0].annualShare;
+            });
+
+            // (1) The UNrounded split is exact: n · (annualTotal / n) === annualTotal.
+            assert.ok(Math.abs(rawShare * n - annualTotal) < 1e-9);
+
+            // (2) The rounded shares reconstruct the total to within half a cent per member.
+            const summedRounded = cents(roundedShares.reduce((s, v) => s + v, 0));
+            assert.ok(
+                Math.abs(summedRounded - annualTotal) <= n * 0.005 + 1e-9,
+                `summed rounded shares ${summedRounded} drifted from ${annualTotal} by more than ${n}·½¢`
+            );
+
+            // (3) Every member carries the same rounded share for an even split.
+            assert.ok(roundedShares.every((v) => v === roundedShares[0]));
+        });
+    }
+});
+
 // ──────────────── buildPendingChargesForShare (#317) ─────────
 
 describe('buildPendingChargesForShare', () => {
