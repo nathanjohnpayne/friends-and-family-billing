@@ -1024,6 +1024,19 @@ describe('getServiceCreditTotalForMember', () => {
         // Only the 10 counts; the string/NaN/negative/missing are dropped, not coerced.
         expect(getServiceCreditTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
     });
+
+    // Boundary lock for the amount parser (#366). The guard is Number.parseFloat-based,
+    // so a *leading-numeric* string is parsed to its leading number — '10abc' → 10,
+    // '12.50 USD' → 12.5 — NOT dropped. This pins that exact behavior: a future swap to
+    // a stricter parser (Number()/validated parse that rejects trailing garbage) or a
+    // looser one would flip these numbers and trip the suite, forcing a conscious choice.
+    it('parses leading-numeric strings via parseFloat (10 + 12.5 from "10abc"/"12.50 USD")', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'service_credit', amount: '10abc', status: 'active' },
+            { id: 'o2', memberId: 1, kind: 'service_credit', amount: '12.50 USD', status: 'active' }
+        ];
+        expect(getServiceCreditTotalForMember(owedAdjustments, 1)).toBeCloseTo(22.5, 5);
+    });
 });
 
 describe('calculateSettlementMetrics — service credits (#321)', () => {
@@ -1124,6 +1137,18 @@ describe('getBilledUsageChargeTotalForMember', () => {
             { id: 'o5', memberId: 1, kind: 'usage_charge', status: 'billed' }
         ];
         expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
+    });
+
+    // Boundary lock for the amount parser (#366) — same parseFloat semantics as the
+    // service-credit total. A leading-numeric string is parsed to its leading number
+    // ('10abc' → 10, '12.50 USD' → 12.5), not dropped; pinning it makes any future
+    // change to the parser's strictness fail the suite rather than silently shift money.
+    it('parses leading-numeric strings via parseFloat (10 + 12.5 from "10abc"/"12.50 USD")', () => {
+        const owedAdjustments = [
+            { id: 'o1', memberId: 1, kind: 'usage_charge', amount: '10abc', status: 'billed' },
+            { id: 'o2', memberId: 1, kind: 'usage_charge', amount: '12.50 USD', status: 'billed' }
+        ];
+        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(22.5, 5);
     });
 });
 
