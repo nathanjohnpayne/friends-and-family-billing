@@ -81,6 +81,16 @@ describe('ChargeNoticeDialog', () => {
         expect(onClose).toHaveBeenCalled();
     });
 
+    it('closes on the document-level Escape key handler (#366)', () => {
+        // The dialog binds a keydown listener on `document` while open; pressing Escape
+        // anywhere must close it. fireEvent is the sanctioned tool for Escape handling
+        // (testing-requirements.md § Interaction testing).
+        const onClose = vi.fn();
+        renderDialog({ onClose });
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalled();
+    });
+
     it('shows an empty state and disables Bill & Notify when there are no charges', () => {
         render(
             <ChargeNoticeDialog open memberName="Alice" charges={[]} now={JUNE} onConfirm={vi.fn()} onClose={vi.fn()} />
