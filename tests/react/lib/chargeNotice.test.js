@@ -101,6 +101,21 @@ describe('summarizeChargePreview', () => {
         expect(summarizeChargePreview([])).toEqual({ charges: [], total: 0, count: 0 });
         expect(summarizeChargePreview(undefined)).toEqual({ charges: [], total: 0, count: 0 });
     });
+
+    it('preview total equals the persisted doc amount for fractional-cent charges (PR #328 r3447513513)', () => {
+        // Three fractional-cent amounts whose per-step rounding diverges from a
+        // round-once-at-end total. The admin preview total must match the amount the
+        // dispute doc persists, or the admin sees a figure the member is never billed.
+        const charges = [
+            { id: 'o1', description: 'A', amount: 0.334, incurredDate: '2026-06-01' },
+            { id: 'o2', description: 'B', amount: 0.333, incurredDate: '2026-06-02' },
+            { id: 'o3', description: 'C', amount: 0.333, incurredDate: '2026-06-03' }
+        ];
+        const preview = summarizeChargePreview(charges);
+        const doc = buildChargeNoticeDoc({ memberId: 1, memberName: 'Alice', chargeNoticeId: 'cn_1', charges });
+        expect(preview.total).toBe(doc.amount);
+        expect(preview.total).toBe(1); // 0.334 + 0.333 + 0.333 = 1.00 rounded once
+    });
 });
 
 describe('buildChargeNoticeDoc', () => {
