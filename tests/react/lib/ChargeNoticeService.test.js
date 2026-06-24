@@ -73,6 +73,21 @@ describe('issueChargeNotice', () => {
         expect(mockSetDoc.mock.calls[1][0].id).toBe('cn_1');
     });
 
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+        ['empty string', ''],
+        ['whitespace', '   '],
+        ['the literal "undefined"', 'undefined']
+    ])('rejects a %s chargeNoticeId instead of writing to a collapsed doc id (CodeRabbit #369)', async (_label, badId) => {
+        // A blank/absent chargeNoticeId would stringify to a shared key like "undefined"
+        // and silently overwrite an unrelated dispute doc. The guard must throw and write
+        // nothing rather than corrupt the disputes subcollection.
+        const opts = { ...baseOpts(), chargeNoticeId: badId };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/valid chargeNoticeId/);
+        expect(mockSetDoc).not.toHaveBeenCalled();
+    });
+
     it('mints a share link with the usageCharges:read scope and stamps its tokenHash on the doc', async () => {
         await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
 

@@ -92,8 +92,15 @@ export async function issueChargeNotice(opts, deps = {}) {
     // dispute doc instead of appending a duplicate (and re-triggering the member
     // notification) — PR #328 review r3447513514. billDeferredCharges() stamps a
     // unique chargeNoticeId per Charge Notice, so one notice maps to exactly one doc.
+    // Guard the id first: an absent/blank chargeNoticeId would otherwise stringify to
+    // a shared key like "undefined" and silently overwrite an unrelated dispute doc
+    // (CodeRabbit #369). Fail loudly instead of corrupting the subcollection.
+    const noticeId = String(chargeNoticeId ?? '').trim();
+    if (!noticeId || noticeId === 'undefined' || noticeId === 'null') {
+        throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
+    }
     const col = collection(db, 'users', userId, 'billingYears', billingYearId, 'disputes');
-    await setDoc(doc(col, String(chargeNoticeId)), { ...noticeDoc, createdAt: serverTimestamp() });
+    await setDoc(doc(col, noticeId), { ...noticeDoc, createdAt: serverTimestamp() });
 
     // 3. Email the member (fire-and-forget — never block the primary action).
     if (memberEmail) {
