@@ -320,7 +320,7 @@ npm run dev            # Vite dev server with HMR
 ```
 
 **How it works:**
-1. `build:react` — Vite builds the root `index.html` React entry → `app/` (code-split chunks; ~238 KB index + ~400 KB jsx-runtime + ~401 KB InvoicingTab/TipTap lazy chunk)
+1. `build:react` — Vite builds the root `index.html` React entry → `app/` (code-split: a main `index` chunk, the React `jsx-runtime`, and a lazy `InvoicingTab`/TipTap chunk). Chunk sizes drift with every dependency bump, so they are not pinned here — `npm run build` prints the current per-chunk sizes, and `vite.config.js` tracks the main-bundle reduction target.
 2. `build:assemble` — generates the runtime `firebase-config.local.js` bridge and copies shared assets (design tokens, logos, favicon, OG image, QR code) into `app/` (Vite already emits the root `index.html` to `app/index.html`)
 - `index.html` (project root) is the HTML entry; `src/app/main.jsx` is the JS entry point (React `createRoot`)
 - `src/app/App.jsx` is the root component with React Router and lazy-loaded views
