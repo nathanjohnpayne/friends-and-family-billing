@@ -12,7 +12,7 @@
  * Collaborators (share-link creation, email queue) are injectable so the
  * orchestration is testable without Firestore; they default to the real impls.
  */
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { createAndPruneShareLink } from './ShareLinkService.js';
 import { queueEmail } from './mail.js';
@@ -88,8 +88,12 @@ export async function issueChargeNotice(opts, deps = {}) {
         charges,
         ...(tokenHash ? { tokenHash } : {}),
     });
+    // Deterministic id keyed to the chargeNoticeId so a retry overwrites the same
+    // dispute doc instead of appending a duplicate (and re-triggering the member
+    // notification) — PR #328 review r3447513514. billDeferredCharges() stamps a
+    // unique chargeNoticeId per Charge Notice, so one notice maps to exactly one doc.
     const col = collection(db, 'users', userId, 'billingYears', billingYearId, 'disputes');
-    await addDoc(col, { ...noticeDoc, createdAt: serverTimestamp() });
+    await setDoc(doc(col, String(chargeNoticeId)), { ...noticeDoc, createdAt: serverTimestamp() });
 
     // 3. Email the member (fire-and-forget — never block the primary action).
     if (memberEmail) {

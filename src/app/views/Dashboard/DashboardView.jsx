@@ -383,14 +383,16 @@ export default function DashboardView() {
                         charges={candidates}
                         onConfirm={chargeIds => {
                             // Bill the selected charges (deferred → billed; raises owed), then
-                            // issue the outbound Charge Notice (email + share link), fire-and-forget.
+                            // issue the outbound Charge Notice (email + share link).
                             const result = service.billDeferredCharges({ memberId: dialog.memberId, chargeIds });
-                            showToast('Charges billed—Charge Notice sent.');
                             // Read the POST-mutation state: billDeferredCharges just flipped the
                             // selected charges deferred→billed, so the stale `owedAdjustments` prop
                             // would still mark them deferred and the minted share link would show
                             // the just-billed charges as pending/not-yet-due.
                             const freshState = service.getState();
+                            // Defer the success toast until the notice actually issues, and surface
+                            // a failure to the admin rather than only console.error-ing it
+                            // (PR #328 review r3447513511).
                             Promise.resolve(
                                 issueChargeNotice({
                                     userId: user ? user.uid : '',
@@ -408,7 +410,12 @@ export default function DashboardView() {
                                     activeYear,
                                     settings: freshState.settings || {},
                                 })
-                            ).catch(err => console.error('issueChargeNotice failed:', err));
+                            )
+                                .then(() => showToast('Charges billed—Charge Notice sent.'))
+                                .catch(err => {
+                                    console.error('issueChargeNotice failed:', err);
+                                    showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message);
+                                });
                         }}
                         onClose={() => setDialog({ type: null, memberId: null })}
                     />

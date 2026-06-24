@@ -70,12 +70,19 @@ export function selectBillableCharges(owedAdjustments, memberId, range = {}) {
  * Only member-safe display fields are surfaced. Mirrors the shape of the share-page
  * pending-charges payload so the preview and the member's view read the same.
  *
+ * The grand `total` is rounded ONCE over the raw amounts — the exact formula
+ * buildChargeNoticeDoc uses for the persisted `amount` — so the admin preview
+ * total can never diverge from the dispute document for fractional-cent charges
+ * (PR #328 review r3447513513). The per-row `runningTotal` stays a rounded
+ * cumulative display figure.
+ *
  * @param {Array} charges  the output of selectBillableCharges
  * @returns {{ charges: Array<{ id: *, description: string, amount: number, incurredDate: string, runningTotal: number }>, total: number, count: number }}
  */
 export function summarizeChargePreview(charges) {
+    const list = charges || [];
     let running = 0;
-    const rows = (charges || []).map(a => {
+    const rows = list.map(a => {
         running = Math.round((running + (a.amount || 0)) * 100) / 100;
         return {
             id: a.id,
@@ -85,7 +92,8 @@ export function summarizeChargePreview(charges) {
             runningTotal: running
         };
     });
-    return { charges: rows, total: running, count: rows.length };
+    const total = Math.round(list.reduce((sum, a) => sum + (a.amount || 0), 0) * 100) / 100;
+    return { charges: rows, total, count: rows.length };
 }
 
 /**

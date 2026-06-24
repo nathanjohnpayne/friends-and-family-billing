@@ -4,11 +4,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // still mock the module so importing the service (which imports firebase) is safe.
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 
-const mockAddDoc = vi.fn(async () => ({ id: 'cn-doc-1' }));
+// Idempotent persistence (PR #328 r3447513514): the notice is written with a
+// deterministic id keyed to chargeNoticeId via setDoc(doc(col, id)), so a retry
+// overwrites the same doc instead of appending a duplicate. The mock records the
+// doc ref id and the written payload.
+const mockSetDoc = vi.fn(async () => undefined);
+const mockDoc = vi.fn((colRef, id) => ({ parent: colRef, id }));
 const mockCollection = vi.fn((_db, ...segs) => ({ path: segs.join('/') }));
 vi.mock('firebase/firestore', () => ({
     collection: (...args) => mockCollection(...args),
-    addDoc: (...args) => mockAddDoc(...args),
+    doc: (...args) => mockDoc(...args),
+    setDoc: (...args) => mockSetDoc(...args),
     serverTimestamp: vi.fn(() => 'SERVER_TS')
 }));
 
@@ -46,14 +52,25 @@ describe('issueChargeNotice', () => {
     it('writes a charge_notice doc to the disputes subcollection with the billed total', async () => {
         await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
 
-        expect(mockAddDoc).toHaveBeenCalledTimes(1);
-        const [colRef, doc] = mockAddDoc.mock.calls[0];
-        expect(colRef.path).toBe('users/user-1/billingYears/2026/disputes');
+        expect(mockSetDoc).toHaveBeenCalledTimes(1);
+        const [docRef, doc] = mockSetDoc.mock.calls[0];
+        expect(docRef.parent.path).toBe('users/user-1/billingYears/2026/disputes');
         expect(doc.kind).toBe('charge_notice');
         expect(doc.memberId).toBe(1);
         expect(doc.amount).toBeCloseTo(15, 5);
         expect(doc.chargeNoticeId).toBe('cn_1');
         expect(doc.createdAt).toBe('SERVER_TS');
+    });
+
+    it('keys the doc to the chargeNoticeId so a retry overwrites rather than duplicates (idempotent)', async () => {
+        // Two issuances for the same chargeNoticeId must target the SAME doc id, so a
+        // retried Charge Notice cannot create a duplicate dispute doc.
+        await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
+        await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
+
+        expect(mockSetDoc).toHaveBeenCalledTimes(2);
+        expect(mockSetDoc.mock.calls[0][0].id).toBe('cn_1');
+        expect(mockSetDoc.mock.calls[1][0].id).toBe('cn_1');
     });
 
     it('mints a share link with the usageCharges:read scope and stamps its tokenHash on the doc', async () => {
@@ -64,7 +81,7 @@ describe('issueChargeNotice', () => {
         expect(linkArgs.scopes).toContain('usageCharges:read');
         expect(linkArgs.memberId).toBe(1);
 
-        const doc = mockAddDoc.mock.calls[0][1];
+        const doc = mockSetDoc.mock.calls[0][1];
         expect(doc.tokenHash).toBe('hash-xyz');
     });
 
@@ -85,8 +102,8 @@ describe('issueChargeNotice', () => {
         await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
 
         // Notice doc is still written (without a tokenHash) and the email still goes out.
-        expect(mockAddDoc).toHaveBeenCalledTimes(1);
-        const doc = mockAddDoc.mock.calls[0][1];
+        expect(mockSetDoc).toHaveBeenCalledTimes(1);
+        const doc = mockSetDoc.mock.calls[0][1];
         expect('tokenHash' in doc).toBe(false);
         expect(queueEmailFn).toHaveBeenCalledTimes(1);
     });
@@ -94,13 +111,13 @@ describe('issueChargeNotice', () => {
     it('does not throw when the member has no email (skips the email, still records)', async () => {
         const opts = { ...baseOpts(), memberEmail: '' };
         await issueChargeNotice(opts, { createShareLink, queueEmailFn });
-        expect(mockAddDoc).toHaveBeenCalledTimes(1);
+        expect(mockSetDoc).toHaveBeenCalledTimes(1);
         expect(queueEmailFn).not.toHaveBeenCalled();
     });
 
     it('never throws when the email send fails (fire-and-forget)', async () => {
         queueEmailFn.mockRejectedValueOnce(new Error('mail boom'));
         await expect(issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn })).resolves.toBeTruthy();
-        expect(mockAddDoc).toHaveBeenCalledTimes(1);
+        expect(mockSetDoc).toHaveBeenCalledTimes(1);
     });
 });
