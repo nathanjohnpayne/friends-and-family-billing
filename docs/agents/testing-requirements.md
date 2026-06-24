@@ -22,7 +22,7 @@ Coverage output lands in `coverage/react/` (text summary printed to terminal, pl
 
 ## Test count
 
-**~1029 React tests across 46 files** covering services, hooks, components, and views, plus **58 Cloud Functions tests** in `tests/functions.test.js` via Node's native test runner. **Playwright E2E tests** in `tests/e2e/`.
+A comprehensive **React (Vitest + React Testing Library)** suite covers services, hooks, components, and views, alongside a **Cloud Functions** suite in `tests/functions.test.js` (Node's native test runner) and **Playwright E2E tests** in `tests/e2e/`. Exact counts drift with every change, so they are intentionally not pinned here — run `npm test` for the current totals (each runner prints its file/test counts as it finishes).
 
 ```bash
 npm run test:e2e       # Playwright end-to-end tests (builds first, serves at :4174)
