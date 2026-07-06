@@ -86,6 +86,10 @@ describe('issueChargeNotice', () => {
         const opts = { ...baseOpts(), chargeNoticeId: badId };
         await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/valid chargeNoticeId/);
         expect(mockSetDoc).not.toHaveBeenCalled();
+        // The guard must fire BEFORE any side effect (#386): an invalid id must not mint
+        // (and prune) the member's share links, nor queue an email, before it throws.
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
     });
 
     it('mints a share link with the usageCharges:read scope and stamps its tokenHash on the doc', async () => {
