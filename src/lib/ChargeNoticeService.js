@@ -52,6 +52,16 @@ export async function issueChargeNotice(opts, deps = {}) {
         activeYear, settings,
     } = opts;
 
+    // Guard the id first, before any side effect: an absent/blank chargeNoticeId would
+    // otherwise stringify to a shared key like "undefined" and silently overwrite an
+    // unrelated dispute doc (CodeRabbit #369). Validate up front so invalid input fails
+    // fast — before we mint (and prune) the member's share links or build the doc — and
+    // reuse the validated noticeId at the setDoc call site below.
+    const noticeId = String(chargeNoticeId ?? '').trim();
+    if (!noticeId || noticeId === 'undefined' || noticeId === 'null') {
+        throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
+    }
+
     // 1. Best-effort: mint a member share link carrying usageCharges:read so the
     //    member can review the charge on their share page. If it fails, the notice
     //    is still recorded and emailed (the member can use an existing link).
@@ -88,17 +98,11 @@ export async function issueChargeNotice(opts, deps = {}) {
         charges,
         ...(tokenHash ? { tokenHash } : {}),
     });
-    // Deterministic id keyed to the chargeNoticeId so a retry overwrites the same
-    // dispute doc instead of appending a duplicate (and re-triggering the member
-    // notification) — PR #328 review r3447513514. billDeferredCharges() stamps a
-    // unique chargeNoticeId per Charge Notice, so one notice maps to exactly one doc.
-    // Guard the id first: an absent/blank chargeNoticeId would otherwise stringify to
-    // a shared key like "undefined" and silently overwrite an unrelated dispute doc
-    // (CodeRabbit #369). Fail loudly instead of corrupting the subcollection.
-    const noticeId = String(chargeNoticeId ?? '').trim();
-    if (!noticeId || noticeId === 'undefined' || noticeId === 'null') {
-        throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
-    }
+    // Deterministic id keyed to the chargeNoticeId (validated above) so a retry
+    // overwrites the same dispute doc instead of appending a duplicate (and
+    // re-triggering the member notification) — PR #328 review r3447513514.
+    // billDeferredCharges() stamps a unique chargeNoticeId per Charge Notice, so one
+    // notice maps to exactly one doc.
     const col = collection(db, 'users', userId, 'billingYears', billingYearId, 'disputes');
     await setDoc(doc(col, noticeId), { ...noticeDoc, createdAt: serverTimestamp() });
 
