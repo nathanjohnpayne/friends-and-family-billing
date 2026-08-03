@@ -49,5 +49,9 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"
+  },
+  "overrides": {
+    "brace-expansion": "^1.1.16",
+    "protobufjs": "^7.6.5"
   }
 }
