@@ -472,3 +472,5 @@ Currently implemented Firebase Analytics events:
 - **Share links not loading:** Regenerate the share link --- older links created before the `publicShares` migration won't have data in Firestore
 - **Cloud Functions 403:** Expected due to GCP org policy; share page reads from Firestore directly, not Cloud Functions
 
+
+The repository enables current-head external-review enforcement through `codex.external_review_gate.enabled`; see [the local review policy](../../REVIEW_POLICY.md#external-clearance-enforcement-in-this-repository) for activation and approval-count rollout requirements.
