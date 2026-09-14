@@ -30,9 +30,21 @@ describe('plainTextToDoc link parsing', () => {
             .toEqual({ text: 'ref', href: 'https://example.com/p_(v)' });
     });
 
-    it('accepts an empty target', () => {
-        expect(firstLinkMark(plainTextToDoc('[nowhere]()')))
-            .toEqual({ text: 'nowhere', href: '' });
+    /**
+     * `[x]()` parses to a link mark with an empty href, and does NOT survive a
+     * round trip: `textFromInline` only re-emits the `[text](href)` wrapper when
+     * `href` is truthy (src/lib/template-doc.js:57-58), so the next save writes
+     * plain `nowhere` and the link is gone. That asymmetry predates this file and
+     * is untouched by the ReDoS fix — both the old and new patterns parse
+     * `[nowhere]()` identically — but the parity case would otherwise read as an
+     * endorsement of a syntax the module silently drops. Pinned in both
+     * directions so the lossy half is a stated fact rather than a surprise; see
+     * Codex P2 on PR #449.
+     */
+    it('parses an empty target but does not round-trip it', () => {
+        const doc = plainTextToDoc('[nowhere]()');
+        expect(firstLinkMark(doc)).toEqual({ text: 'nowhere', href: '' });
+        expect(docToPlainTextWithTokens(doc)).toBe('nowhere');
     });
 
     it('leaves an unclosed target as plain text', () => {
