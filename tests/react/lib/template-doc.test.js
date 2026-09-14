@@ -31,15 +31,35 @@ describe('plainTextToDoc link parsing', () => {
     });
 
     /**
-     * `[x]()` parses to a link mark with an empty href, and does NOT survive a
-     * round trip: `textFromInline` only re-emits the `[text](href)` wrapper when
+     * `[x]()` parses to a link mark with an empty href and does NOT survive a
+     * round trip: `textFromInline` re-emits the `[text](href)` wrapper only when
      * `href` is truthy (src/lib/template-doc.js:57-58), so the next save writes
-     * plain `nowhere` and the link is gone. That asymmetry predates this file and
-     * is untouched by the ReDoS fix — both the old and new patterns parse
-     * `[nowhere]()` identically — but the parity case would otherwise read as an
-     * endorsement of a syntax the module silently drops. Pinned in both
-     * directions so the lossy half is a stated fact rather than a surprise; see
-     * Codex P2 on PR #449.
+     * plain `nowhere`.
+     *
+     * Justification under docs/agents/operating-rules.md § Serialization layer
+     * review requirement, which requires a lossy round trip to be justified or
+     * eliminated:
+     *
+     * 1. Losslessness — what is discarded is a link mark carrying NO
+     *    destination. It renders as `<a href="">`, which resolves to the
+     *    current page, so it is not a link to anywhere. The semantically
+     *    meaningful content, the anchor text, is preserved verbatim. Dropping
+     *    an anchor that points nowhere loses no meaning a reader or renderer
+     *    can act on.
+     * 2. Consumer parity — there is exactly one parser (`plainTextToDoc`) and
+     *    one serializer (`docToPlainTextWithTokens`) for this format, so there
+     *    is no second implementation to diverge from.
+     * 3. Necessity — the intermediate plain-text format is required, not
+     *    incidental: templates are stored and hand-edited as text carrying
+     *    `%token%` placeholders, so the conversion cannot simply be removed.
+     *
+     * The cleaner end state is for the parser to stop minting a
+     * destination-less mark at all, which makes the round trip lossless rather
+     * than justified — filed separately rather than folded into a security fix
+     * to keep this PR's scope to the two CodeQL alerts.
+     *
+     * Pinned in both directions so the behaviour is asserted rather than
+     * assumed. Codex P2 on PR #449, rounds 1 and 2.
      */
     it('parses an empty target but does not round-trip it', () => {
         const doc = plainTextToDoc('[nowhere]()');
