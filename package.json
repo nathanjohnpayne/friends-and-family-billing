@@ -39,15 +39,15 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
-    "@tiptap/extension-link": "^3.31.2",
-    "@tiptap/extension-placeholder": "^3.31.2",
-    "@tiptap/pm": "^3.31.2",
-    "@tiptap/react": "^3.31.2",
-    "@tiptap/starter-kit": "^3.31.2",
-    "@tiptap/suggestion": "^3.31.2",
-    "firebase": "^12.18.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "@tiptap/extension-link": "^3.31.3",
+    "@tiptap/extension-placeholder": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/suggestion": "^3.31.3",
+    "firebase": "^12.19.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.3"
   },
   "overrides": {
