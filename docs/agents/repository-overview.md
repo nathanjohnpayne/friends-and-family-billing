@@ -474,3 +474,5 @@ Currently implemented Firebase Analytics events:
 
 
 The repository enables current-head external-review enforcement through `codex.external_review_gate.enabled`; see [the local review policy](../../REVIEW_POLICY.md#external-clearance-enforcement-in-this-repository) for activation and approval-count rollout requirements.
+
+Blocked Codex external-clearance diagnostics bind request age and acknowledgement to an exact `@codex review` command comment; later prose mentions do not replace it. The filter preserves requester deduplication, clearance decisions, and blocked exits ([mergepath#1276](https://github.com/nathanjohnpayne/mergepath/issues/1276)).
