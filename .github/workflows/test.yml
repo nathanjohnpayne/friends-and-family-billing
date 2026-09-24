@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege for the default GITHUB_TOKEN (CodeQL
+# actions/missing-workflow-permissions, alert #2). This workflow only checks
+# out the repo and runs tests -- it writes nothing back to GitHub -- so read
+# access to contents is the whole requirement. Declared at workflow level so
+# any job added later inherits the restriction instead of silently taking the
+# repository-default token scope.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

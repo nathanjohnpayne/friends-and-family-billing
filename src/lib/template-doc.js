@@ -291,7 +291,14 @@ function applyItalic(nodes) {
 }
 
 function applyLinks(nodes) {
-    const linkPattern = /\[([^\]]+)\]\(((?:[^()]*|\([^()]*\))*)\)/g;
+    // Each alternative consumes at least one character, and the two branches are
+    // disjoint on their first character ([^()] vs `(`), so the outer `*` has
+    // exactly one way to divide any input. The previous `[^()]*` inside that
+    // alternation could match empty, giving the engine exponentially many ways
+    // to split the same text and turning an unclosed target like `[x](%%%%%…`
+    // into exponential backtracking -- CodeQL js/redos, alert #1. Behaviour is
+    // unchanged: one level of balanced parens in the target is still accepted.
+    const linkPattern = /\[([^\]]+)\]\(((?:[^()]|\([^()]*\))*)\)/g;
     return splitByPattern(nodes, linkPattern, (linkText, match) => {
         return [{
             type: 'text',
