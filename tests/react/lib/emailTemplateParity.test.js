@@ -107,7 +107,7 @@ describe('test email server rendering matches the client preview', () => {
 describe('simpleMarkdownToHtml escaping', () => {
     it('escapes HTML inside italic, list, ordered-list and blockquote content', () => {
         const html = simpleMarkdownToHtml('*<img src=x onerror=1>*\n- <script>x</script>\n1. <b>y</b>\n> <iframe>');
-        expect(html).not.toMatch(/<(img|script|b|iframe)[\s>]/);
+        expect(html).not.toMatch(/<(img|script|b|iframe)[\s>]/i);
         expect(html).toContain('<em>&lt;img src=x onerror=1&gt;</em>');
         expect(html).toContain('<ol><li>&lt;b&gt;y&lt;/b&gt;</li></ol>');
         expect(html).toContain('<blockquote><p>&lt;iframe&gt;</p></blockquote>');
