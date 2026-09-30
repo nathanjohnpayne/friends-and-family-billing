@@ -381,13 +381,14 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                 onUpdate={methods => {
                                     service.updateSettings({ paymentMethods: methods });
                                     // Sync to publicShares so share pages reflect changes immediately
-                                    if (user && user.uid) {
+                                    // userId comes from the parent's useAuth(); `user` is not in scope here.
+                                    if (userId) {
                                         const enabled = methods.filter(m => m.enabled).map(m => {
                                             const copy = { ...m };
                                             if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
                                             return copy;
                                         });
-                                        getDocs(query(collection(db, 'shareTokens'), where('ownerId', '==', user.uid)))
+                                        getDocs(query(collection(db, 'shareTokens'), where('ownerId', '==', userId)))
                                             .then(snap => {
                                                 const hashes = snap.docs.filter(d => !d.data().revoked).map(d => d.id);
                                                 return Promise.all(hashes.map(h =>
