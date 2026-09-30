@@ -106,6 +106,8 @@ export async function issueRefundNotice({
     );
 
     // 3. Email the member the reason, amount, method, and confirm link (advisory).
+    // Non-fatal, but a delivery failure is returned so the caller can report it.
+    let emailError = null;
     if (memberEmail) {
         try {
             const { subject, body } = buildRefundNoticeEmail(
@@ -117,8 +119,9 @@ export async function issueRefundNotice({
             await queueEmail({ to: memberEmail, subject, body, uid: userId });
         } catch (err) {
             console.error('issueRefundNotice: member email failed:', err);
+            emailError = (err && err.message) || 'Email delivery failed.';
         }
     }
 
-    return { noticeId: ref.id, shareUrl };
+    return { noticeId: ref.id, shareUrl, emailError };
 }

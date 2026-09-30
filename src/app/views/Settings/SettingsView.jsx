@@ -6,7 +6,6 @@ import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
 import BillingYearSelector from '../../components/BillingYearSelector.jsx';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
-import EmailVerificationNotice from '../../components/EmailVerificationNotice.jsx';
 
 /**
  * Sync QR codes to the publicQrCodes collection (mirrors InvoicingTab).
@@ -82,7 +81,6 @@ export default function SettingsView() {
 
     return (
         <div>
-            <EmailVerificationNotice user={user} />
             <BillingYearSelector />
 
             {!loading && (<div className="settings-section-divider" />)}

@@ -251,7 +251,13 @@ export default function DashboardView() {
                         payments,
                         activeYear,
                         settings: service.getState().settings || {},
-                    }).catch(err => console.error('Refund notice send failed:', err));
+                    })
+                        .then(notice => {
+                            if (notice && notice.emailError) {
+                                showToast('Refund recorded, but the Refund Notice email could not be sent: ' + notice.emailError);
+                            }
+                        })
+                        .catch(err => console.error('Refund notice send failed:', err));
                 }}
                 onEmailInvoice={(memberId, isSettled) => {
                     if (isSettled) {
@@ -411,7 +417,9 @@ export default function DashboardView() {
                                     settings: freshState.settings || {},
                                 })
                             )
-                                .then(() => showToast('Charges billed—Charge Notice sent.'))
+                                .then(notice => showToast(notice && notice.emailError
+                                    ? 'Charges billed and Charge Notice recorded, but the email to the member could not be sent: ' + notice.emailError
+                                    : 'Charges billed—Charge Notice sent.'))
                                 .catch(err => {
                                     console.error('issueChargeNotice failed:', err);
                                     showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message);

@@ -1221,11 +1221,22 @@ function sanitizeHref(url) {
  *   **bold**, *italic* (and ***both***), [text](url) links, bare/www URLs,
  *   "## " headings, "- " bullet lists, "1. " ordered lists, "> " blockquotes,
  *   "---" / "===" rules, and newlines (<br>).
+ * Backslash escapes (\\ \* \[ \] \- \. \> \# \=) — emitted by the template
+ * serializer's markdown mode for literal text — render as the literal
+ * character and never as syntax.
  * All input is HTML-escaped first; hrefs go through sanitizeHref().
  */
+const MD_ESCAPE_OPEN = "\uE000";
+const MD_ESCAPE_CLOSE = "\uE001";
+
 function simpleMarkdownToHtml(text) {
   if (!text) return "";
   let html = text
+    // Private-use placeholder delimiters are reserved for escapes below.
+    .replace(/[\uE000\uE001]/g, "")
+    // Backslash escapes → opaque placeholders (hex char code) that no markdown
+    // rule matches; restored as literal (HTML-escaped) characters at the end.
+    .replace(/\\([\\*[\]\-.>#=])/g, (_, ch) => MD_ESCAPE_OPEN + ch.charCodeAt(0).toString(16) + MD_ESCAPE_CLOSE)
     // Escape HTML entities
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -1285,7 +1296,12 @@ function simpleMarkdownToHtml(text) {
     .replace(/\n(?!<[hulob/])/g, "<br>\n")
     // Strip <br> between block elements (prevents extra spacing around hr, h2, lists, quotes)
     .replace(/(<\/(?:h[1-6]|ul|ol|li|p|blockquote)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
-    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr|blockquote)[\s>])/g, "$1");
+    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr|blockquote)[\s>])/g, "$1")
+    // Restore escaped literals (HTML-escaped: only ">" needs it in this set).
+    .replace(/\uE000([0-9a-f]+)\uE001/g, (_, hex) => {
+      const ch = String.fromCharCode(parseInt(hex, 16));
+      return ch === ">" ? "&gt;" : ch;
+    });
   return html;
 }
 
@@ -1349,7 +1365,7 @@ async function authorizeClientMail(uid, to) {
     return { ok: false, error: "Sender account not found." };
   }
   if (!sender.emailVerified) {
-    return { ok: false, error: "Verify your account email address before sending email from the app (Settings \u2192 Resend verification email)." };
+    return { ok: false, error: "Verify your account email address before sending email from the app (use \u201cResend verification email\u201d in the banner at the top of the app)." };
   }
 
   const yearsSnap = await db.collection("users").doc(uid).collection("billingYears").get();

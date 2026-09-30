@@ -57,7 +57,8 @@ describe('LoginView sign-up email verification', () => {
         const notice = await screen.findByRole('status');
         expect(notice).toHaveTextContent(/account created/i);
         expect(notice).toHaveTextContent(/couldn.t send the verification email/i);
-        expect(notice).toHaveTextContent(/resend it from Settings/i);
+        expect(notice).toHaveTextContent(/resend it from the banner/i);
+        expect(window.sessionStorage.getItem('ffb.verificationSendFailed')).toBe('1');
         expect(notice).not.toHaveTextContent(/check your inbox/i);
         expect(screen.queryByRole('alert')).toBeNull();
     });

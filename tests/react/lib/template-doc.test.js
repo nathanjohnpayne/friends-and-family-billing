@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plainTextToDoc, docToPlainTextWithTokens } from '../../../src/lib/template-doc.js';
+import { plainTextToDoc, docToPlainTextWithTokens, escapeMarkdownInline, escapeMarkdownLineStart } from '../../../src/lib/template-doc.js';
 
 /**
  * Link-target parsing. The regression these cover is CodeQL js/redos alert #1
@@ -91,5 +91,37 @@ describe('plainTextToDoc link parsing', () => {
         const doc = plainTextToDoc(pathological);
         expect(Date.now() - started).toBeLessThan(1000);
         expect(firstLinkMark(doc)).toBeNull();
+    });
+});
+
+describe('docToPlainTextWithTokens escapeMarkdown mode', () => {
+    const t = (text, marks) => (marks ? { type: 'text', text, marks } : { type: 'text', text });
+    const doc = {
+        type: 'doc',
+        content: [
+            { type: 'paragraph', content: [t('2*3 [x] a\\b '), t('bold', [{ type: 'bold' }]), t(' '), t('site', [{ type: 'link', attrs: { href: 'https://example.com' } }])] },
+            { type: 'paragraph', content: [t('- no list')] },
+            { type: 'paragraph', content: [t('---')] },
+            { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [t('item *1*')] }] }] },
+        ],
+    };
+
+    it('escapes literal text but keeps the serializer\'s own syntax', () => {
+        expect(docToPlainTextWithTokens(doc, { escapeMarkdown: true })).toBe(
+            '2\\*3 \\[x\\] a\\\\b **bold** [site](https://example.com)\n\\- no list\n\\---\n- item \\*1\\*'
+        );
+    });
+
+    it('is unchanged when escapeMarkdown is off (saved templates, plain-text bodies)', () => {
+        expect(docToPlainTextWithTokens(doc)).toBe('2*3 [x] a\\b **bold** [site](https://example.com)\n- no list\n---\n- item *1*');
+    });
+
+    it('escapes inline specials and block-starting line prefixes', () => {
+        expect(escapeMarkdownInline('a*b[c]\\d')).toBe('a\\*b\\[c\\]\\\\d');
+        expect(escapeMarkdownLineStart('> q')).toBe('\\> q');
+        expect(escapeMarkdownLineStart('12. x')).toBe('12\\. x');
+        expect(escapeMarkdownLineStart('## h')).toBe('\\## h');
+        expect(escapeMarkdownLineStart('===')).toBe('\\===');
+        expect(escapeMarkdownLineStart('plain text')).toBe('plain text');
     });
 });

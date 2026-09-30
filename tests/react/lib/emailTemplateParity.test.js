@@ -37,6 +37,13 @@ const templateDoc = {
         para(text('Summary: '), { type: 'templateToken', attrs: { id: 'share_link' } }),
         { type: 'blockToken', attrs: { id: 'payment_methods' } },
         para(text('Total <due>: '), { type: 'templateToken', attrs: { id: 'household_total' } }),
+        // Literal text that looks like markdown must stay literal (no em/list/quote/rule).
+        para(text('Split 2*3*4 ways, see [note] and C:\\path')),
+        para(text('- not a list')),
+        para(text('> not a quote')),
+        para(text('1. not an ordered item')),
+        para(text('---')),
+        para(text('# not a heading')),
     ],
 };
 
@@ -45,7 +52,7 @@ const bills = [{ id: 10, name: 'Internet', amount: 100, billingFrequency: 'month
 const settings = {
     emailMessageDocument: templateDoc,
     paymentMethods: [
-        { id: 'pm1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@alice-pay', url: 'https://venmo.com/u/alice-pay', instructions: 'Add a note' },
+        { id: 'pm1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@alice-pay', url: 'https://venmo.com/u/alice-pay', instructions: 'Add a *memo* [ref]' },
         { id: 'pm2', type: 'zelle', label: 'Zelle', enabled: true, email: 'pay@example.com' },
     ],
 };
@@ -101,6 +108,37 @@ describe('test email server rendering matches the client preview', () => {
         expect(server.scripts).toBe(0);
         expect(server.fullText).toContain('Total <due>: $1200.00');
         expect(client.fullText).toContain('Total <due>: $1200.00');
+    });
+});
+
+describe('literal template text stays literal in the server rendering', () => {
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, [], 1, { id: '2026', label: '2026' }, settings);
+    const payload = buildInvoiceTemplateEmailPayload(ctx, shareUrl);
+    const serverHtml = simpleMarkdownToHtml(payload.markdown);
+    const client = semantics(payload.html);
+    const server = semantics(serverHtml);
+
+    it('shows markdown-looking characters verbatim, matching the preview text', () => {
+        for (const literal of [
+            'Split 2*3*4 ways, see [note] and C:\\path',
+            '- not a list',
+            '> not a quote',
+            '1. not an ordered item',
+            '# not a heading',
+            'Add a *memo* [ref]',
+        ]) {
+            expect(client.fullText).toContain(literal);
+            expect(server.fullText).toContain(literal);
+        }
+        expect(serverHtml).toMatch(/(^|>|\n)---(<br>|\n|$)/);
+    });
+
+    it('adds no structure the preview does not have', () => {
+        expect(server.em).toEqual(client.em);
+        expect(server.ol).toEqual(client.ol);
+        expect(server.ul).toEqual(client.ul);
+        expect(server.blockquote).toEqual(client.blockquote);
+        expect(server.hr).toBe(client.hr);
     });
 });
 
