@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-// The Invoicing template editor renders the %payment_methods% block as a card
-// with a "Configure" button that opens the payment-methods manager in a
-// dialog. Saving there must run the same share sync as the Settings page:
-// publicShares.paymentMethods for the owner's active links AND publicQrCodes.
-// Real TemplateEditor + PaymentMethodsManager; Firestore is mocked at the
-// module boundary.
+// Settings → Payment Methods: editing methods persists settings and syncs the
+// owner's share pages (publicShares.paymentMethods + publicQrCodes) through the
+// shared src/lib/paymentMethodsSync.js helper.
 
 const fs = vi.hoisted(() => ({
     getDocs: vi.fn(),
@@ -29,20 +26,19 @@ vi.mock('firebase/firestore', () => ({
     updateDoc: (...a) => fs.updateDoc(...a),
     serverTimestamp: vi.fn(() => 'SERVER_TS'),
 }));
-vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn() }));
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'owner-uid', email: 'owner@example.com' } }))
 }));
+vi.mock('@/app/components/BillingYearSelector.jsx', () => ({ default: () => null }));
 
 const QR = 'data:image/png;base64,AAAA';
 const mockService = {
     updateSettings: vi.fn(),
     getState: vi.fn(() => ({
         settings: {
-            emailMessage: 'Hi %first_name%\n%payment_methods%',
             paymentMethods: [
                 { id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@owner', qrCode: QR },
-                { id: 'pm_2', type: 'zelle', label: 'Zelle', enabled: false, email: 'pay@example.com' },
+                { id: 'pm_2', type: 'zelle', label: 'Zelle', enabled: true, email: 'pay@example.com', hasQrCode: false },
             ],
         },
     })),
@@ -50,27 +46,23 @@ const mockService = {
 
 vi.mock('@/app/hooks/useBillingData.js', () => ({
     useBillingData: vi.fn(() => ({
-        familyMembers: [{ id: 1, name: 'Alice', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }],
-        bills: [],
-        payments: [],
         activeYear: { id: '2026', label: '2026', status: 'open' },
         loading: false,
         service: mockService,
-        saveQueue: { subscribe: vi.fn(() => () => {}) },
     })),
 }));
 
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
-import InvoicingTab from '@/app/views/Manage/InvoicingTab.jsx';
+import SettingsView from '@/app/views/Settings/SettingsView.jsx';
 
-describe('InvoicingTab payment-methods "Configure" dialog → share sync', () => {
+describe('SettingsView payment methods → share sync', () => {
     beforeEach(() => {
         Object.values(fs).forEach(fn => fn.mockClear());
         fs.getDocs.mockReset();
         mockService.updateSettings.mockClear();
     });
 
-    it('syncs publicShares and publicQrCodes for the signed-in owner, like Settings', async () => {
+    it('persists the update and syncs publicShares and publicQrCodes for the owner', async () => {
         fs.getDocs.mockResolvedValue({
             docs: [
                 { id: 'hash_active', data: () => ({ revoked: false }) },
@@ -78,28 +70,26 @@ describe('InvoicingTab payment-methods "Configure" dialog → share sync', () =>
             ],
         });
         const user = userEvent.setup();
-        render(<ToastProvider><InvoicingTab /></ToastProvider>);
+        render(<ToastProvider><SettingsView /></ToastProvider>);
 
-        await user.click(await screen.findByRole('button', { name: 'Configure' }));
-        const dialog = screen.getByText('Payment Methods', { selector: '.dialog-title' }).closest('.dialog');
-        await user.click(within(dialog).getAllByRole('button', { name: 'Set as preferred' })[0]);
+        await user.click(screen.getAllByRole('button', { name: 'Set as preferred' })[1]);
 
         expect(mockService.updateSettings).toHaveBeenCalledWith({ paymentMethods: expect.any(Array) });
+        expect(await screen.findByText('Payment methods updated')).toBeInTheDocument();
 
-        // publicShares: owner-filtered token query, only active links, enabled methods, QR stripped.
         expect(fs.where).toHaveBeenCalledWith('ownerId', '==', 'owner-uid');
         await waitFor(() => expect(fs.updateDoc).toHaveBeenCalledTimes(1));
         const [shareRef, sharePatch] = fs.updateDoc.mock.calls[0];
         expect(shareRef).toEqual({ path: 'publicShares/hash_active' });
-        expect(sharePatch.paymentMethods).toEqual([
-            expect.objectContaining({ id: 'pm_1', hasQrCode: true, preferred: true }),
-        ]);
+        expect(sharePatch.paymentMethods.map(m => m.id)).toEqual(['pm_1', 'pm_2']);
+        expect(sharePatch.paymentMethods[0]).toEqual(expect.objectContaining({ hasQrCode: true }));
         expect(sharePatch.paymentMethods[0]).not.toHaveProperty('qrCode');
 
-        // publicQrCodes: the QR image is written under the owner's namespace.
-        await waitFor(() => expect(fs.setDoc).toHaveBeenCalledWith(
+        expect(fs.setDoc).toHaveBeenCalledWith(
             { path: 'publicQrCodes/owner-uid_pm_1' },
             expect.objectContaining({ ownerId: 'owner-uid', methodId: 'pm_1', qrCode: QR }),
-        ));
+        );
+        // A method explicitly without a QR code has its public QR doc removed.
+        await waitFor(() => expect(fs.deleteDoc).toHaveBeenCalledWith({ path: 'publicQrCodes/owner-uid_pm_2' }));
     });
 });

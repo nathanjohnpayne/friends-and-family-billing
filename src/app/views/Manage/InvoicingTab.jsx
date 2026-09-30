@@ -3,7 +3,7 @@
  * Edit/Preview layout, token pills, and payment methods manager.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { doc, setDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { queueEmail } from '../../../lib/mail.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -23,6 +23,7 @@ import SubjectEditor from '../../components/SubjectEditor.jsx';
 import { INLINE_TOKENS } from '../../components/TokenNode.js';
 import { BLOCK_TOKENS } from '../../components/BlockTokenNode.js';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
+import { syncPaymentMethodsToShares } from '../../../lib/paymentMethodsSync.js';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 
 /** All tokens for the unified chip bar. */
@@ -380,23 +381,9 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                 readOnly={readOnly}
                                 onUpdate={methods => {
                                     service.updateSettings({ paymentMethods: methods });
-                                    // Sync to publicShares so share pages reflect changes immediately
-                                    // userId comes from the parent's useAuth(); `user` is not in scope here.
-                                    if (userId) {
-                                        const enabled = methods.filter(m => m.enabled).map(m => {
-                                            const copy = { ...m };
-                                            if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
-                                            return copy;
-                                        });
-                                        getDocs(query(collection(db, 'shareTokens'), where('ownerId', '==', userId)))
-                                            .then(snap => {
-                                                const hashes = snap.docs.filter(d => !d.data().revoked).map(d => d.id);
-                                                return Promise.all(hashes.map(h =>
-                                                    updateDoc(doc(db, 'publicShares', h), { paymentMethods: enabled, updatedAt: serverTimestamp() }).catch(() => {})
-                                                ));
-                                            })
-                                            .catch(() => {});
-                                    }
+                                    // Same share sync as the Settings page: publicShares
+                                    // paymentMethods + publicQrCodes for the signed-in owner.
+                                    syncPaymentMethodsToShares(userId || null, methods);
                                 }}
                             />
                         </div>
