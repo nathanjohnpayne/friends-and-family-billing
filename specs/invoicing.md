@@ -37,7 +37,7 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Shows "Save Template" button.
 - Hides "Save Template" button when the year is read-only.
 - Shows a duplicate payment text warning when the template contains both the `%payment_methods%` token and hardcoded provider names.
-- Payment methods management has moved to the Settings page (see `PaymentMethodsManager` component).
+- Payment methods are managed on the Settings page (see `PaymentMethodsManager` component). The `%payment_methods%` block-token card in the template editor also has a **Configure** button that opens the same `PaymentMethodsManager` in a dialog on this tab. Both entry points persist via `service.updateSettings` and sync the owner's share pages through `src/lib/paymentMethodsSync.js`: enabled methods (QR image stripped to `hasQrCode: true`) onto every non-revoked `publicShares` doc, and QR images to `publicQrCodes/{uid}_{methodId}` (`tests/react/views/InvoicingTab.paymentMethodsSync.test.jsx`, `tests/react/views/SettingsView.test.jsx`).
 
 ### EmailInvoiceDialog
 
