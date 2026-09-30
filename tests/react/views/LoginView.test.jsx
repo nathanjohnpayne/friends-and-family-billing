@@ -46,7 +46,7 @@ describe('LoginView sign-up email verification', () => {
         expect(await screen.findByRole('status')).toHaveTextContent(/verify your email/i);
     });
 
-    it('still completes sign-up when sending the verification email fails', async () => {
+    it('keeps sign-up non-fatal and shows a delivery warning (not the inbox instruction) when sending fails', async () => {
         mockCreateUser.mockResolvedValue({ user: { uid: 'u1' } });
         mockSendEmailVerification.mockRejectedValue(new Error('quota'));
         const user = userEvent.setup();
@@ -54,7 +54,11 @@ describe('LoginView sign-up email verification', () => {
 
         await submitSignup(user);
 
-        expect(await screen.findByRole('status')).toHaveTextContent(/account created/i);
+        const notice = await screen.findByRole('status');
+        expect(notice).toHaveTextContent(/account created/i);
+        expect(notice).toHaveTextContent(/couldn.t send the verification email/i);
+        expect(notice).toHaveTextContent(/resend it from Settings/i);
+        expect(notice).not.toHaveTextContent(/check your inbox/i);
         expect(screen.queryByRole('alert')).toBeNull();
     });
 });

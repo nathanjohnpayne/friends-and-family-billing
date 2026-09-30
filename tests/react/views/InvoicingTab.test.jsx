@@ -142,7 +142,7 @@ describe('InvoicingTab', () => {
         expect(screen.getByText('Send test email')).toBeInTheDocument();
     });
 
-    it('queues only the text body for a test email (HTML is rendered server-side)', async () => {
+    it('queues only the markdown body for a test email (HTML is rendered server-side)', async () => {
         renderTab();
         fireEvent.click(screen.getByText('Preview'));
 
@@ -157,7 +157,8 @@ describe('InvoicingTab', () => {
             uid: 'test-user',
             body: expect.any(String),
         }));
-        expect(args.body.length).toBeGreaterThan(0);
+        expect(args.body).toMatch(/\S/);
+        expect(args.body).not.toMatch(/<[a-z]/i);
         expect(args).not.toHaveProperty('html');
         expect(args).not.toHaveProperty('replyTo');
     });

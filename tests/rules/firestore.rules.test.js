@@ -318,6 +318,11 @@ describe('mailQueue', () => {
         await assertSucceeds(addDoc(collection(asUser(ALICE), 'mailQueue'), mail()));
     });
 
+    it('allows queueing mail without a createdAt field (createdAt is optional)', async () => {
+        const { createdAt: _createdAt, ...noCreatedAt } = mail();
+        await assertSucceeds(addDoc(collection(asUser(ALICE), 'mailQueue'), noCreatedAt));
+    });
+
     it('denies client-supplied html, replyTo, origin or other extra fields', async () => {
         const col = collection(asUser(ALICE), 'mailQueue');
         await assertFails(addDoc(col, mail({ html: '<a href="https://example.com">x</a>' })));

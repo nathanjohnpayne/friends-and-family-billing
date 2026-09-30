@@ -463,14 +463,22 @@ export function renderInvoiceTemplate(ctx, shareUrl) {
 
 /**
  * Shared preview/email payload builder for template-authored invoice messages.
+ * - html: the client preview rendering (renderInvoiceTemplate).
+ * - text: plain-text rendering (payment options as plain lines).
+ * - markdown: the same template serialized as markdown (payment options as a
+ *   list, share link as a named link). This is what the "Send test email"
+ *   action queues; the processMailQueue Cloud Function renders it to HTML
+ *   server-side with simpleMarkdownToHtml, which supports every construct
+ *   the template serializer emits.
  * @param {Object} ctx
  * @param {string} shareUrl
- * @returns {{ html: string, text: string }}
+ * @returns {{ html: string, text: string, markdown: string }}
  */
 export function buildInvoiceTemplateEmailPayload(ctx, shareUrl) {
     return {
         html: renderInvoiceTemplate(ctx, shareUrl),
         text: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email'),
+        markdown: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email', { markdown: true }),
     };
 }
 

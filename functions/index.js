@@ -1191,11 +1191,6 @@ function wrapEmailHtml(bodyHtml) {
 }
 
 /**
- * Minimal markdown-to-HTML for email bodies (handles the subset produced by invoice.js).
- * Converts: **bold**, headings (## / ===), links [text](url), lists (- item),
- * and wraps paragraphs in <p> tags. Newlines become <br>.
- */
-/**
  * Sanitize a URL for use in an href attribute.
  * Blocks non-http(s) protocols (javascript:, data:, vbscript:, etc.)
  * and escapes quotes to prevent attribute breakout.
@@ -1219,6 +1214,15 @@ function sanitizeHref(url) {
     .replace(/>/g, "&gt;");
 }
 
+/**
+ * Minimal markdown-to-HTML for email bodies. Handles every construct the
+ * invoice template serializer (src/lib/template-doc.js docToPlainTextWithTokens)
+ * and the markdown invoice builders (src/lib/invoice.js) emit:
+ *   **bold**, *italic* (and ***both***), [text](url) links, bare/www URLs,
+ *   "## " headings, "- " bullet lists, "1. " ordered lists, "> " blockquotes,
+ *   "---" / "===" rules, and newlines (<br>).
+ * All input is HTML-escaped first; hrefs go through sanitizeHref().
+ */
 function simpleMarkdownToHtml(text) {
   if (!text) return "";
   let html = text
@@ -1228,6 +1232,9 @@ function simpleMarkdownToHtml(text) {
     .replace(/>/g, "&gt;")
     // Bold
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    // Italic (single asterisks left after bold). The content must start and
+    // end with a non-space so arithmetic like "2 * 3 * 4" is left alone.
+    .replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, "<em>$1</em>")
     // Headings (## Heading)
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
     // Links [text](url) — sanitize href to prevent XSS
@@ -1253,18 +1260,32 @@ function simpleMarkdownToHtml(text) {
       if (!safe) return url;
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
     })
+    // An indented line right after a list item continues that item (e.g. the
+    // "  Note: …" line formatPaymentOptionsMarkdown emits under a method).
+    .replace(/^((?:- |\d+\. ).+)\n {2,}(\S.*)$/gm, "$1<br>$2")
     // List items (- item)
     .replace(/^- (.+)$/gm, "<li>$1</li>")
-    // Wrap consecutive <li> in <ul>
-    .replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>")
+    // Wrap consecutive <li> in <ul> (the newline after the last item is left
+    // in place so the following line still starts at a line boundary)
+    .replace(/(<li>.*<\/li>(?:\n<li>.*<\/li>)*)/g, "<ul>$1</ul>")
+    // Ordered list items (1. item) — placeholder tags so the <ul> wrap above
+    // never captures them; renamed to <li> once wrapped in <ol>.
+    .replace(/^\d+\. (.+)$/gm, "<oli>$1</oli>")
+    .replace(/(<oli>.*<\/oli>(?:\n<oli>.*<\/oli>)*)/g, "<ol>$1</ol>")
+    .replace(/<(\/?)oli>/g, "<$1li>")
+    // Blockquote lines ("> text"; ">" was escaped to &gt; above). Consecutive
+    // quote lines form one <blockquote>, one <p> per line.
+    .replace(/^&gt; ?(.*)$/gm, "<bqp>$1</bqp>")
+    .replace(/(<bqp>.*<\/bqp>(?:\n<bqp>.*<\/bqp>)*)/g, "<blockquote>$1</blockquote>")
+    .replace(/<(\/?)bqp>/g, "<$1p>")
     // === separator lines
     .replace(/^={3,}$/gm, "<hr>")
     .replace(/^-{3,}$/gm, "<hr>")
     // Newlines to <br> (but not adjacent to block elements)
-    .replace(/\n(?!<[hul/])/g, "<br>\n")
-    // Strip <br> between block elements (prevents extra spacing around hr, h2, ul)
-    .replace(/(<\/(?:h[1-6]|ul|ol|li|p)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
-    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr)[\s>])/g, "$1");
+    .replace(/\n(?!<[hulob/])/g, "<br>\n")
+    // Strip <br> between block elements (prevents extra spacing around hr, h2, lists, quotes)
+    .replace(/(<\/(?:h[1-6]|ul|ol|li|p|blockquote)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
+    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr|blockquote)[\s>])/g, "$1");
   return html;
 }
 
@@ -1328,7 +1349,7 @@ async function authorizeClientMail(uid, to) {
     return { ok: false, error: "Sender account not found." };
   }
   if (!sender.emailVerified) {
-    return { ok: false, error: "Verify your account email address before sending email from the app." };
+    return { ok: false, error: "Verify your account email address before sending email from the app (Settings \u2192 Resend verification email)." };
   }
 
   const yearsSnap = await db.collection("users").doc(uid).collection("billingYears").get();
@@ -1453,6 +1474,7 @@ exports.processMailQueue = onDocumentCreated(
   }
 );
 
+exports._testHelpers.simpleMarkdownToHtml = simpleMarkdownToHtml;
 exports._testHelpers.normalizeEmail = normalizeEmail;
 exports._testHelpers.collectAllowedRecipients = collectAllowedRecipients;
 exports._testHelpers.nextMailRateState = nextMailRateState;
