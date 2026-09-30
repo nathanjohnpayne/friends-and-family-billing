@@ -142,24 +142,24 @@ describe('InvoicingTab', () => {
         expect(screen.getByText('Send test email')).toBeInTheDocument();
     });
 
-    it('sends the same HTML shown in preview when sending a test email', async () => {
+    it('queues only the text body for a test email (HTML is rendered server-side)', async () => {
         renderTab();
         fireEvent.click(screen.getByText('Preview'));
-
-        const previewBody = document.querySelector('.template-preview-body');
-        expect(previewBody).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('Send test email'));
         fireEvent.change(screen.getByLabelText('Send to'), { target: { value: 'qa@example.com' } });
         fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
         await waitFor(() => expect(queueEmail).toHaveBeenCalledTimes(1));
-        expect(queueEmail).toHaveBeenCalledWith(expect.objectContaining({
+        const args = queueEmail.mock.calls[0][0];
+        expect(args).toEqual(expect.objectContaining({
             to: 'qa@example.com',
             uid: 'test-user',
-            html: previewBody.innerHTML,
             body: expect.any(String),
         }));
+        expect(args.body.length).toBeGreaterThan(0);
+        expect(args).not.toHaveProperty('html');
+        expect(args).not.toHaveProperty('replyTo');
     });
 
     it('does not show dirty indicator initially', () => {

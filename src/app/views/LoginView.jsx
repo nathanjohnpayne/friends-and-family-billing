@@ -4,6 +4,7 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     sendPasswordResetEmail,
+    sendEmailVerification,
     signInWithPopup,
     GoogleAuthProvider
 } from 'firebase/auth';
@@ -75,9 +76,15 @@ export default function LoginView() {
         }
         setLoading(true);
         try {
-            await createUserWithEmailAndPassword(auth, email, password);
+            const credential = await createUserWithEmailAndPassword(auth, email, password);
             if (analytics) logEvent(analytics, 'sign_up', { method: 'email' });
-            setSuccess('Account created! Redirecting…');
+            // Sending email from the app requires a verified account email
+            // (enforced server-side by processMailQueue), so send the
+            // verification link right away. Best-effort: sign-up still succeeds.
+            try {
+                if (credential && credential.user) await sendEmailVerification(credential.user);
+            } catch (_) { /* non-fatal */ }
+            setSuccess('Account created! Check your inbox to verify your email. Redirecting…');
             setTimeout(() => navigate('/'), 1000);
         } catch (err) {
             setError(getErrorMessage(err.code));

@@ -10,19 +10,20 @@ import { db } from './firebase.js';
  * Queue an email for delivery via the Firestore mail queue.
  * Returns a promise that resolves when the email is sent (or rejects on error).
  *
- * @param {{ to: string, subject: string, body: string, html?: string, replyTo?: string, uid: string }} params
- *   - html: Optional pre-rendered HTML that bypasses simpleMarkdownToHtml() in
- *     the Cloud Function. Must only contain trusted, app-generated content
- *     (e.g., from buildInvoiceTemplateEmailPayload in src/lib/invoice.js).
+ * The queue document carries plain fields only: the processMailQueue Cloud
+ * Function renders HTML server-side from `body` (markdown subset), and only
+ * delivers to the sender's own account email or a household member's email
+ * recorded in the sender's billing years. Firestore rules reject any other
+ * fields (e.g. `html`, `replyTo`).
+ *
+ * @param {{ to: string, subject: string, body: string, uid: string }} params
  * @returns {Promise<{ id: string }>} — resolves with the Resend email ID
  */
-export async function queueEmail({ to, subject, body, html, replyTo, uid }) {
+export async function queueEmail({ to, subject, body, uid }) {
     const docRef = await addDoc(collection(db, 'mailQueue'), {
         to,
         subject,
         body,
-        ...(html ? { html } : {}),
-        ...(replyTo ? { replyTo } : {}),
         uid,
         status: 'pending',
         createdAt: serverTimestamp()

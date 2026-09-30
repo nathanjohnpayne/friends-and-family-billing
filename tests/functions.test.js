@@ -31,6 +31,13 @@ const {
     DISPUTE_RATE_LIMIT,
     EVIDENCE_URL_EXPIRY_MS,
     LINK_REQUEST_RATE_WINDOW_MS,
+    findDisputableBill,
+    isEvidencePathForDispute,
+    normalizeEmail,
+    collectAllowedRecipients,
+    nextMailRateState,
+    MAIL_RATE_LIMIT,
+    MAIL_RATE_WINDOW_MS,
 } = _testHelpers;
 
 // ──────────────── computeMemberSummary ───────────────────────
@@ -714,5 +721,102 @@ describe('filterMemberRefundNotices', () => {
         assert.equal(out[0].amount, 100);
         assert.equal(out[0].reason, 'Overpaid');
         assert.equal(out[0].confirmation, null);
+    });
+});
+
+// ──────────────── submitDispute bill lookup ───────────────────
+
+describe('findDisputableBill', () => {
+    const year = { bills: [
+        { id: 1, name: 'Internet', members: [10, 11] },
+        { id: 2, name: 'Phone', members: [11] },
+    ] };
+
+    it('returns the server-side bill when the member is assigned', () => {
+        const bill = findDisputableBill(year, 1, 10);
+        assert.equal(bill.name, 'Internet');
+    });
+
+    it('returns null when the member is not on the bill', () => {
+        assert.equal(findDisputableBill(year, 2, 10), null);
+    });
+
+    it('returns null for an unknown bill id', () => {
+        assert.equal(findDisputableBill(year, 99, 10), null);
+    });
+
+    it('returns null for missing year data or malformed bills', () => {
+        assert.equal(findDisputableBill(undefined, 1, 10), null);
+        assert.equal(findDisputableBill({ bills: [{ id: 1, name: 'X' }] }, 1, 10), null);
+    });
+});
+
+// ──────────────── getEvidenceUrl path scoping ─────────────────
+
+describe('isEvidencePathForDispute', () => {
+    it('accepts an object inside the owner/dispute evidence folder', () => {
+        assert.equal(isEvidencePathForDispute('users/owner1/disputes/d1/123_receipt.pdf', 'owner1', 'd1'), true);
+    });
+
+    it('rejects another owner\'s folder', () => {
+        assert.equal(isEvidencePathForDispute('users/owner2/disputes/d1/123_receipt.pdf', 'owner1', 'd1'), false);
+    });
+
+    it('rejects another dispute of the same owner', () => {
+        assert.equal(isEvidencePathForDispute('users/owner1/disputes/d2/123_receipt.pdf', 'owner1', 'd1'), false);
+        assert.equal(isEvidencePathForDispute('users/owner1/disputes/d10/x.pdf', 'owner1', 'd1'), false);
+    });
+
+    it('rejects arbitrary bucket objects, the bare folder, and non-strings', () => {
+        assert.equal(isEvidencePathForDispute('other/file.pdf', 'owner1', 'd1'), false);
+        assert.equal(isEvidencePathForDispute('users/owner1/disputes/d1/', 'owner1', 'd1'), false);
+        assert.equal(isEvidencePathForDispute(undefined, 'owner1', 'd1'), false);
+        assert.equal(isEvidencePathForDispute('users/owner1/disputes/d1/x.pdf', '', 'd1'), false);
+    });
+});
+
+// ──────────────── processMailQueue sender policy ──────────────
+
+describe('collectAllowedRecipients', () => {
+    it('includes the sender and every household member email across years, normalized', () => {
+        const allowed = collectAllowedRecipients(' Owner@Example.com ', [
+            { familyMembers: [{ email: 'Alice@Example.com' }, { email: '' }, { name: 'NoEmail' }] },
+            { familyMembers: [{ email: 'bob@example.com ' }] },
+            {},
+        ]);
+        assert.deepEqual([...allowed].sort(), ['alice@example.com', 'bob@example.com', 'owner@example.com']);
+    });
+
+    it('does not include addresses outside the sender\'s data', () => {
+        const allowed = collectAllowedRecipients('owner@example.com', [{ familyMembers: [{ email: 'alice@example.com' }] }]);
+        assert.equal(allowed.has(normalizeEmail('stranger@example.com')), false);
+        assert.equal(allowed.has(normalizeEmail('ALICE@example.com')), true);
+    });
+
+    it('tolerates a missing sender email and missing years', () => {
+        assert.equal(collectAllowedRecipients(null, undefined).size, 0);
+    });
+});
+
+describe('nextMailRateState', () => {
+    const now = 1_700_000_000_000;
+
+    it('starts a fresh window when there is no state', () => {
+        assert.deepEqual(nextMailRateState(null, now), { allowed: true, next: { windowStartMs: now, count: 1 } });
+    });
+
+    it('increments within the window', () => {
+        const r = nextMailRateState({ windowStartMs: now - 1000, count: 5 }, now);
+        assert.deepEqual(r, { allowed: true, next: { windowStartMs: now - 1000, count: 6 } });
+    });
+
+    it('denies once the limit is reached within the window', () => {
+        const r = nextMailRateState({ windowStartMs: now - 1000, count: MAIL_RATE_LIMIT }, now);
+        assert.equal(r.allowed, false);
+    });
+
+    it('resets after the window elapses', () => {
+        const r = nextMailRateState({ windowStartMs: now - MAIL_RATE_WINDOW_MS, count: MAIL_RATE_LIMIT }, now);
+        assert.deepEqual(r, { allowed: true, next: { windowStartMs: now, count: 1 } });
     });
 });

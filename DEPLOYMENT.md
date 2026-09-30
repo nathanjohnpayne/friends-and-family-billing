@@ -594,35 +594,39 @@ Invoice and dispute resolution emails are sent server-side via [Resend](https://
 ### Architecture
 
 ```
-Client (EmailInvoiceDialog / DisputeDetailDialog / InvoicingTab)
+Client (EmailInvoiceDialog / DisputeDetailDialog / InvoicingTab / Charge + Refund notices)
   → queueEmail() writes to Firestore: mailQueue/{docId}
-    → { to, subject, body, html?, uid, status: 'pending' }
+    → { to, subject, body, uid, status: 'pending', createdAt }  (rules reject any other field)
   → Client listens to the document for status changes
 
+Cloud Functions (share-page notifications)
+  → queueEmailFromFunction() writes mailQueue/{docId} via the Admin SDK
+    → same fields plus origin: 'server' (a field clients can never set)
+
 processMailQueue Cloud Function (Firestore trigger)
-  → Fires on mailQueue/{docId} creation
+  → Fires on mailQueue/{docId} creation, claims it (pending → processing)
   → Validates fields and uid
-  → If html field present: uses it directly (trusted path)
-  → Otherwise: simpleMarkdownToHtml() converts body to HTML
+  → Client-enqueued mail only (no origin: 'server'):
+      → sender's Firebase Auth email must be verified
+      → recipient must be the sender's own email or a household member email
+        in the sender's users/{uid}/billingYears/* data
+      → per-uid rate limit (transactional counter in mailRateLimits/{uid})
+  → simpleMarkdownToHtml() converts body to HTML (always server-side)
   → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
   → wrapEmailHtml() wraps in responsive email template
   → Resend API sends HTML + plain-text fallback
   → Updates document: { status: 'sent' } or { status: 'error' }
 ```
 
-**Trusted HTML path:** The `html` field in mailQueue documents bypasses
-`simpleMarkdownToHtml()` and is used as-is. This field must only contain
-app-generated HTML from `buildInvoiceTemplateEmailPayload()` (in
-`src/lib/invoice.js`). Do not add new producers without reviewing the trust
-boundary—pre-rendered HTML is not re-sanitized in the Cloud Function.
+Queue documents cannot carry pre-rendered HTML or a reply-to address; the HTML body is always rendered server-side from the markdown `body`.
 
 ### Cloud Function: `processMailQueue`
 
 - **Type:** Firestore-triggered function (`onDocumentCreated`) — no HTTP endpoint, no Cloud Run invoker policy needed
 - **Trigger:** New document in `mailQueue/{docId}`
-- **Auth:** Firestore security rules enforce that only authenticated users can create queue documents, and only for their own `uid`. The function validates `uid` matches the document.
+- **Auth:** Firestore security rules enforce that only authenticated users can create queue documents, only for their own `uid`, and only with the plain-field allowlist below. For client-enqueued mail the function additionally requires a verified sender email, restricts the recipient to the sender or their household members, and rate-limits per uid (`mailRateLimits/{uid}`, server-only).
 - **Secret:** `RESEND_API_KEY` (Firebase Functions secret via `defineSecret`)
-- **Document schema (input):** `{ to: string, subject: string, body: string, replyTo?: string, uid: string, status: 'pending', createdAt: Timestamp }`
+- **Document schema (input):** `{ to: string, subject: string, body: string, uid: string, status: 'pending', createdAt: Timestamp }` (Admin SDK writers also set `origin: 'server'`)
 - **Document schema (output):** Updated with `{ status: 'sent', resendId: string, processedAt: Timestamp }` or `{ status: 'error', error: string, processedAt: Timestamp }`
 - **Client helper:** `queueEmail()` in `src/lib/mail.js` — writes the document and listens for status changes via `onSnapshot`. Times out after 30 seconds.
 

@@ -56,7 +56,9 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Sends HTML emails via Resend from `Friends & Family Billing <billing@mail.nathanpayne.com>`.
 - Implemented as a Firestore-triggered function (`onDocumentCreated` on `mailQueue/{docId}`). No HTTP endpoint or Cloud Run invoker policy needed.
 - Client writes to `mailQueue` collection via `queueEmail()` helper (`src/lib/mail.js`), which listens for status changes via `onSnapshot` and resolves/rejects the returned promise.
-- Firestore security rules enforce that only authenticated users can create queue documents with their own `uid` and `status: 'pending'`.
+- Firestore security rules enforce that only authenticated users can create queue documents with their own `uid`, `status: 'pending'`, and only the plain fields `to`, `subject`, `body`, `uid`, `status`, `createdAt` (no client-supplied HTML or reply-to).
+- For client-enqueued mail the function requires a verified sender email, only delivers to the sender's own email or a household member email recorded in the sender's billing years, and rate-limits per uid. Mail enqueued by Cloud Functions (Admin SDK, `origin: 'server'`) skips these sender checks.
+- The "Send test email" action queues the template's text body; the HTML is rendered server-side like every other email, and the recipient must be the sender or a household member.
 - The function validates fields, converts markdown to HTML, sends via Resend, and updates the document with `status: 'sent'` or `status: 'error'`.
 - Converts the body from markdown to HTML via `simpleMarkdownToHtml()`:
   - Supports: bold (`**text**`), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, lists (`- item`), horizontal rules (`===`/`---`).
