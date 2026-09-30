@@ -63,6 +63,11 @@ describe('EmailVerificationNotice', () => {
         expect(await screen.findByRole('status')).toHaveTextContent(/verification email sent/i);
         expect(screen.queryByText(/when you signed up/i)).toBeNull();
         expect(window.sessionStorage.getItem(VERIFICATION_SEND_FAILED_KEY)).toBeNull();
+
+        // A later resend attempt must not bring the stale sign-up failure back.
+        mockSendEmailVerification.mockReturnValueOnce(new Promise(() => {}));
+        await userEvent.setup().click(screen.getByRole('button', { name: 'Resend verification email' }));
+        expect(screen.queryByText(/when you signed up/i)).toBeNull();
     });
 
     it('surfaces a failed sign-up send reported after it mounted', () => {

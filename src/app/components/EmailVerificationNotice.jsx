@@ -54,6 +54,7 @@ export default function EmailVerificationNotice({ user }) {
         try {
             await sendEmailVerification((auth && auth.currentUser) || user);
             clearSendFailed();
+            setSignupSendFailed(false);
             setStatus('sent');
         } catch (_) {
             setStatus('error');
