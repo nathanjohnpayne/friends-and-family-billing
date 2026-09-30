@@ -90,6 +90,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── ShareLinkService.js    # Share link CRUD, token lifecycle, public share sync
 │       ├── sms.js                 # SMS deep link generation
 │       ├── mail.js                # Email queueing via Firestore mailQueue
+│       ├── paymentMethodsSync.js  # Payment-method → publicShares/publicQrCodes sync (Settings + Invoicing)
 │       ├── template-doc.js        # TipTap document ↔ token processing
 │       └── validation.js          # Input validation (E.164, URLs, amounts)
 ├── app/                           # BUILD OUTPUT (gitignored) — Vite builds here
