@@ -34,6 +34,19 @@ jobs:
       - name: Run tests (React + secrets scan)
         run: npm test
 
+      # Firestore security-rules suite (tests/rules/) against the emulator.
+      # The emulator is a JVM process (firebase-tools requires Java 21+);
+      # scripts/test-rules.sh runs a pinned firebase-tools via npx when the
+      # CLI is not already on PATH. No secrets: it uses a demo- project id.
+      - name: Set up Java (Firestore emulator runtime)
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Firestore rules tests (emulator)
+        run: npm run test:rules
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
