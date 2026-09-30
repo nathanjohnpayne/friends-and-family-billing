@@ -294,17 +294,23 @@ match /users/{userId} {
   match /auditLog/{logId} { allow read: if owner; allow write: if false; }
 }
 
-// Share tokens — owner CRUD, Cloud Functions use Admin SDK for resolution
+// Share tokens — owner get/list/delete; update may only revoke (revoked → true, revokedAt = server time)
 match /shareTokens/{tokenId} {
-  allow read, update, delete: if auth && resource.data.ownerId == auth.uid;
-  allow create: if auth && request.resource.data.ownerId == auth.uid;
+  allow get, list, delete: if auth && resource.data.ownerId == auth.uid;
+  allow create: if auth && request.resource.data.ownerId == auth.uid && revoked == false;
+  allow update: if owner && affectedKeys().hasOnly(['revoked', 'revokedAt']) && revoked == true;
 }
 
-// Public shares — anyone can read (security via SHA-256 token hash), owner-only write
+// Public shares — get by token hash for anyone; list is owner-filtered; ownerId immutable
 match /publicShares/{tokenHash} {
-  allow read: if true;
-  allow create, update, delete: if auth && resource.data.ownerId == auth.uid;
+  allow get: if true;
+  allow list: if auth && resource.data.ownerId == auth.uid;
+  allow create, update, delete: owner only (update pins ownerId); guests may bump accessCount/lastAccessedAt
 }
+
+// Public QR codes — doc id `${ownerId}_${methodId}`; get for anyone; owner-only writes in own id namespace
+// Mail queue — owner-uid plain-field create only; see DEPLOYMENT.md § processMailQueue
+// Rules are covered by tests/rules/ (npm run test:rules, Firestore emulator)
 ```
 
 #### Firebase Configuration

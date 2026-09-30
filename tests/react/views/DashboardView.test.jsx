@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Stub the Charge Notice issuance service so the wiring test does not touch
 // Firestore/email — we only assert the dashboard calls the service + issuance.
@@ -283,6 +284,27 @@ describe('DashboardView', () => {
             expect(noticeArg.owedAdjustments).toEqual([
                 expect.objectContaining({ id: 'o1', status: 'billed' })
             ]);
+        });
+
+        async function billAndNotify() {
+            const user = userEvent.setup();
+            renderWithDeferred();
+            await user.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            await user.click(screen.getByText('Bill Charges'));
+            await user.click(screen.getByText('Bill & Notify'));
+        }
+
+        it('confirms the Charge Notice was sent when the member email went out', async () => {
+            mockIssueChargeNotice.mockResolvedValueOnce({ tokenHash: 'h', shareUrl: 'u', emailError: null });
+            await billAndNotify();
+            expect(await screen.findByText('Charges billed—Charge Notice sent.')).toBeInTheDocument();
+        });
+
+        it('reports a failed Charge Notice email instead of claiming it was sent', async () => {
+            mockIssueChargeNotice.mockResolvedValueOnce({ tokenHash: 'h', shareUrl: 'u', emailError: 'Verify your account email address' });
+            await billAndNotify();
+            expect(await screen.findByText(/Charge Notice recorded, but the email to the member could not be sent: Verify your account email address/)).toBeInTheDocument();
+            expect(screen.queryByText('Charges billed—Charge Notice sent.')).toBeNull();
         });
 
         it('an unpaid BILLED charge raises the dashboard Outstanding KPI (ADR 0006)', () => {

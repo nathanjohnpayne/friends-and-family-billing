@@ -405,11 +405,12 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                             try {
                                 const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
                                 const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
+                                // Only the markdown body is queued; the mail function renders
+                                // HTML server-side (queue docs cannot carry raw HTML).
                                 await queueEmail({
                                     to: testEmailTo.trim(),
                                     subject,
-                                    body: payload.text,
-                                    html: payload.html,
+                                    body: payload.markdown,
                                     uid: userId
                                 });
                                 setTestEmailOpen(false);

@@ -4,11 +4,13 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     sendPasswordResetEmail,
+    sendEmailVerification,
     signInWithPopup,
     GoogleAuthProvider
 } from 'firebase/auth';
 import { auth, analytics } from '@/lib/firebase.js';
 import { logEvent } from 'firebase/analytics';
+import { reportVerificationSend } from '../components/EmailVerificationNotice.jsx';
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -47,9 +49,10 @@ export default function LoginView() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [warning, setWarning] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const clearMessages = () => { setError(''); setSuccess(''); };
+    const clearMessages = () => { setError(''); setSuccess(''); setWarning(''); };
 
     async function handleLogin(e) {
         e.preventDefault();
@@ -75,10 +78,30 @@ export default function LoginView() {
         }
         setLoading(true);
         try {
-            await createUserWithEmailAndPassword(auth, email, password);
+            const credential = await createUserWithEmailAndPassword(auth, email, password);
             if (analytics) logEvent(analytics, 'sign_up', { method: 'email' });
-            setSuccess('Account created! Redirecting…');
-            setTimeout(() => navigate('/'), 1000);
+            // Sending email from the app requires a verified account email
+            // (enforced server-side by processMailQueue), so send the
+            // verification link right away. Non-fatal: sign-up still succeeds,
+            // and the AppShell notice offers "Resend verification email".
+            let verificationSent = false;
+            try {
+                if (credential && credential.user) {
+                    await sendEmailVerification(credential.user);
+                    verificationSent = true;
+                }
+            } catch (_) { /* surfaced below */ }
+            // Signing up signs the user in, and GuestRoute redirects right away,
+            // so this view may unmount before its message shows. Record the
+            // failure for the AppShell verification notice to surface.
+            reportVerificationSend(verificationSent);
+            if (verificationSent) {
+                setSuccess('Account created! Check your inbox to verify your email. Redirecting…');
+                setTimeout(() => navigate('/'), 1000);
+            } else {
+                setWarning('Account created, but we couldn\u2019t send the verification email. You can resend it from the banner at the top of the app. Redirecting…');
+                setTimeout(() => navigate('/'), 4000);
+            }
         } catch (err) {
             setError(getErrorMessage(err.code));
         } finally {
@@ -131,6 +154,11 @@ export default function LoginView() {
             {error && (
                 <div role="alert" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#FEE', border: '1px solid #C65A5A', borderRadius: 6, color: '#C65A5A' }}>
                     {error}
+                </div>
+            )}
+            {warning && (
+                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#FEFCE8', border: '1px solid #FACC15', borderRadius: 6, color: '#975A16' }}>
+                    {warning}
                 </div>
             )}
             {success && (

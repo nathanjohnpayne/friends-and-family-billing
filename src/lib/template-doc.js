@@ -15,6 +15,31 @@ const LEGACY_TOKEN_IDS = {
 };
 
 /**
+ * Backslash-escape characters in literal template text that the email
+ * markdown renderer (functions/index.js simpleMarkdownToHtml) would otherwise
+ * read as syntax: `\`, `*`, `[`, `]`. Used only in markdown mode.
+ */
+export function escapeMarkdownInline(text) {
+    return String(text == null ? '' : text).replace(/[\\*[\]]/g, '\\$&');
+}
+
+/**
+ * Backslash-escape a line of literal text that would otherwise start a
+ * markdown block: "- " bullet, "1. " ordered item, ">" quote, "#" heading,
+ * or a "---" / "===" rule line. Used only in markdown mode.
+ */
+export function escapeMarkdownLineStart(line) {
+    return String(line)
+        .replace(/^(\s*)(-{3,}|={3,})(\s*)$/, '$1\\$2$3')
+        .replace(/^(\s*)([-#>])/, '$1\\$2')
+        .replace(/^(\s*)(\d+)\.(\s)/, '$1$2\\.$3');
+}
+
+function escapeMarkdownLines(text) {
+    return text.split('\n').map(escapeMarkdownLineStart).join('\n');
+}
+
+/**
  * Serialize a mark set to a string key for grouping adjacent nodes.
  * Marks are sorted by type so {bold, italic} === {italic, bold}.
  */
@@ -45,7 +70,7 @@ function wrapWithMarkdown(text, marks) {
  * **text1****text2** (which CommonMark renders as one bold span) when
  * TipTap splits text at internal boundaries.
  */
-function textFromInline(nodes) {
+function textFromInline(nodes, escapeMarkdown = false) {
     if (!nodes) return '';
 
     // Phase 1: serialize each node to its text representation (without mark wrappers).
@@ -53,7 +78,7 @@ function textFromInline(nodes) {
     const segments = [];
     for (const n of nodes) {
         if (n.type === 'text') {
-            let text = n.text || '';
+            let text = escapeMarkdown ? escapeMarkdownInline(n.text || '') : (n.text || '');
             const linkMark = n.marks?.find(m => m.type === 'link');
             if (linkMark && linkMark.attrs?.href) {
                 text = '[' + text + '](' + linkMark.attrs.href + ')';
@@ -89,17 +114,24 @@ function textFromInline(nodes) {
 /**
  * Convert a ProseMirror JSON document to plain text with %token% markers.
  * @param {Object} doc — ProseMirror JSON document
+ * @param {{ escapeMarkdown?: boolean }} [options] — when true, literal text is
+ *   backslash-escaped so the email markdown renderer shows it verbatim (only
+ *   the serializer's own marks, lists, quotes and rules are markdown syntax).
  * @returns {string}
  */
-export function docToPlainTextWithTokens(doc) {
+export function docToPlainTextWithTokens(doc, options = {}) {
     if (!doc || !doc.content) return '';
+    const esc = !!options.escapeMarkdown;
+    const inline = content => textFromInline(content, esc);
+    // A paragraph's own lines (including hard breaks) must not start a block.
+    const paragraphText = content => (esc ? escapeMarkdownLines(inline(content)) : inline(content));
     const blocks = [];
 
     function walkBlock(node) {
         if (!node) return;
         switch (node.type) {
             case 'paragraph':
-                blocks.push(textFromInline(node.content));
+                blocks.push(paragraphText(node.content));
                 break;
             case 'blockToken':
                 blocks.push('%' + (node.attrs?.id || '') + '%');
@@ -109,7 +141,7 @@ export function docToPlainTextWithTokens(doc) {
                 const items = node.content || [];
                 items.forEach((item, i) => {
                     const prefix = node.type === 'orderedList' ? (i + 1) + '. ' : '- ';
-                    const itemText = (item.content || []).map(p => textFromInline(p.content)).join('\n');
+                    const itemText = (item.content || []).map(p => inline(p.content)).join('\n');
                     blocks.push(prefix + itemText);
                 });
                 break;
@@ -119,7 +151,7 @@ export function docToPlainTextWithTokens(doc) {
                 break;
             case 'blockquote':
                 (node.content || []).forEach(child => {
-                    blocks.push('> ' + textFromInline(child.content));
+                    blocks.push('> ' + inline(child.content));
                 });
                 break;
             default:

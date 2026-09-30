@@ -108,7 +108,8 @@ describe('issueRefundNotice', () => {
 
     it('does not throw if the email send fails (notice persistence is primary)', async () => {
         mockQueueEmail.mockRejectedValueOnce(new Error('resend down'));
-        await expect(issueRefundNotice(baseArgs)).resolves.toBeTruthy();
+        const result = await issueRefundNotice(baseArgs);
+        expect(result.emailError).toBe('resend down');
         expect(mockAddDoc).toHaveBeenCalledTimes(1);
     });
 

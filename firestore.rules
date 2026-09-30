@@ -10,37 +10,13 @@ service cloud.firestore {
       match /billingYears/{yearId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
 
-        // Disputes — owner can read/write; unauthenticated users can create/update
-        // via share token (validated against publicShares collection)
+        // Disputes — owner only. Share-page member actions (submit a review
+        // request, approve/reject a resolution, confirm a refund, fetch evidence)
+        // go exclusively through Cloud Functions (Admin SDK), which validate the
+        // share token server-side. There is deliberately no unauthenticated
+        // client write path here.
         match /disputes/{disputeId} {
           allow read, write: if request.auth != null && request.auth.uid == userId;
-
-          // Allow dispute creation from share page (no auth) if token is valid
-          allow create: if request.auth == null
-            && request.resource.data.keys().hasAll(['tokenHash', 'memberId', 'memberName', 'billId', 'billName', 'message', 'status', 'createdAt'])
-            && request.resource.data.status == 'open'
-            && request.resource.data.message is string
-            && request.resource.data.message.size() > 0
-            && request.resource.data.message.size() <= 2000
-            && exists(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash))
-            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.ownerId == userId
-            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.billingYearId == yearId
-            && get(/databases/$(database)/documents/publicShares/$(request.resource.data.tokenHash)).data.scopes.hasAny(['disputes:create']);
-
-          // Allow dispute decision updates from share page (no auth).
-          // NOTE (#319): Refund Notices (kind == 'refund_notice') ride this same
-          // subcollection but members NEVER write them directly. Their confirm /
-          // not_received response goes through the submitRefundConfirmation Cloud
-          // Function (Admin SDK), which is the only writer of `confirmation` /
-          // `confirmedAt`. Those keys are deliberately absent from the hasOnly()
-          // allowlist below, so this unauthenticated path cannot forge a refund
-          // confirmation even with a disputes:read token (defense in depth).
-          allow update: if request.auth == null
-            && resource.data.tokenHash is string
-            && exists(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash))
-            && get(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash)).data.ownerId == userId
-            && get(/databases/$(database)/documents/publicShares/$(resource.data.tokenHash)).data.scopes.hasAny(['disputes:read'])
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'userReview', 'resolvedAt']);
         }
       }
 
@@ -51,33 +27,50 @@ service cloud.firestore {
       }
     }
 
-    // Share tokens: admin CRUD scoped to own tokens.
+    // Share tokens: owner-scoped.
     // The Cloud Function uses the Admin SDK (bypasses these rules)
     // to resolve tokens on behalf of unauthenticated share-link visitors.
     match /shareTokens/{tokenId} {
-      allow read, update, delete: if request.auth != null
-        && resource.data.ownerId == request.auth.uid;
+      function isTokenOwner() {
+        return request.auth != null && resource.data.ownerId == request.auth.uid;
+      }
+
+      allow get, list, delete: if isTokenOwner();
 
       allow create: if request.auth != null
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.keys().hasAll(['ownerId', 'memberId', 'billingYearId', 'scopes', 'revoked'])
         && request.resource.data.revoked == false;
 
-      allow list: if request.auth != null
-        && resource.data.ownerId == request.auth.uid;
+      // The only client-side mutation of an existing token is revocation:
+      // set revoked = true (optionally stamping revokedAt with the server
+      // time). Every other field — ownerId, memberId, billingYearId, scopes,
+      // expiresAt, … — is immutable after creation.
+      allow update: if isTokenOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked', 'revokedAt'])
+        && request.resource.data.revoked == true
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['revokedAt'])
+            || request.resource.data.revokedAt == request.time);
     }
 
-    // Public share data — anyone with the token hash can read.
-    // Only the owner can write (via the main app after generating a share link).
+    // Public share data — anyone who knows the token hash can fetch that one
+    // document (get). Enumerating the collection (list) is owner-scoped, so a
+    // query must filter on ownerId == the caller's uid (#424).
+    // Only the owner can write (via the main app after generating a share link),
+    // and ownerId can never change after creation.
     // Unauthenticated visitors may increment accessCount/lastAccessedAt only.
     match /publicShares/{tokenHash} {
-      allow read: if true;
+      allow get: if true;
+
+      allow list: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
 
       allow create: if request.auth != null
         && request.resource.data.ownerId == request.auth.uid;
 
       allow update: if request.auth != null
-        && resource.data.ownerId == request.auth.uid;
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
 
       allow update: if request.auth == null
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -87,25 +80,56 @@ service cloud.firestore {
         && resource.data.ownerId == request.auth.uid;
     }
 
-    // Public QR codes — anyone can read (separated from publicShares to avoid
-    // document size limits). Owner can write via the main app.
+    // Public QR codes — anyone who knows the doc id can fetch it (separated
+    // from publicShares to avoid document size limits); listing is
+    // owner-scoped (#424). Doc ids are `${ownerId}_${methodId}`, so an owner
+    // may only write ids in their own namespace, and ownerId is immutable.
     match /publicQrCodes/{docId} {
-      allow read: if true;
+      function isOwnQrDocId() {
+        return docId.size() > request.auth.uid.size() + 1
+          && docId[0:request.auth.uid.size() + 1] == request.auth.uid + '_';
+      }
 
-      allow create, update: if request.auth != null
-        && request.resource.data.ownerId == request.auth.uid;
+      allow get: if true;
+
+      allow list: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && isOwnQrDocId();
+
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid
+        && isOwnQrDocId();
 
       allow delete: if request.auth != null
         && resource.data.ownerId == request.auth.uid;
     }
 
-    // Mail queue — authenticated users can create pending emails and read their own.
-    // Only the Cloud Function (Admin SDK) can update status.
+    // Mail queue — authenticated users can create pending emails for their own
+    // uid and read their own queue docs. Only the Cloud Function (Admin SDK)
+    // can update status. The client may only supply plain fields; the trigger
+    // renders HTML server-side from `body`, restricts recipients to the
+    // sender's own address or their household members' addresses, requires a
+    // verified sender email, and rate-limits per uid. Server-enqueued mail
+    // (share-page notifications) is written via the Admin SDK and carries
+    // fields a client can never set here.
     match /mailQueue/{docId} {
       allow create: if request.auth != null
+        && request.resource.data.keys().hasAll(['to', 'subject', 'body', 'uid', 'status'])
+        && request.resource.data.keys().hasOnly(['to', 'subject', 'body', 'uid', 'status', 'createdAt'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.status == 'pending'
-        && request.resource.data.keys().hasAll(['to', 'subject', 'body', 'uid', 'status']);
+        && request.resource.data.to is string
+        && request.resource.data.to.size() <= 320
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() <= 500
+        && request.resource.data.body is string
+        && request.resource.data.body.size() <= 100000
+        && (!('createdAt' in request.resource.data)
+            || request.resource.data.createdAt == request.time);
 
       allow read: if request.auth != null
         && resource.data.uid == request.auth.uid;
