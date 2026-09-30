@@ -67,7 +67,7 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
   - `sanitizeHref()` blocks non-http(s) protocols (`javascript:`, `data:`) and escapes quotes in href attributes to prevent attribute breakout.
   - Unescapes entity-encoded ampersands before re-escaping for attribute context to avoid double-escaping query-string parameters.
 - Wraps HTML in a responsive email template with branded gradient header and plain footer.
-- Sends both HTML and plain-text fallback to Resend for maximum email client compatibility.
+- Sends both HTML and plain-text fallback to Resend for maximum email client compatibility. The plain-text part is `markdownToPlainText(body)`: bold/italic markers, `## ` heading markers and backslash escapes are removed and links become `label (url)`, so text-only clients never see markdown syntax.
 - Payment method URLs in `formatPaymentOptionsMarkdown()` are rendered as markdown links (`[url](url)`) so they appear as clickable `<a>` tags in both the sent email and the Manage-page live preview.
 
 ### TextInvoiceDialog

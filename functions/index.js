@@ -1305,6 +1305,26 @@ function simpleMarkdownToHtml(text) {
   return html;
 }
 
+/**
+ * Plain-text alternative for an email body written in the simpleMarkdownToHtml
+ * subset: strips inline markdown syntax so text-only mail clients show clean
+ * text. **bold** / *italic* → text, [label](url) → "label (url)" (or just the
+ * URL when label === url), "## " heading markers removed, and backslash
+ * escapes → the literal character. List ("- ", "1. "), quote ("> ") and rule
+ * lines are left as-is: they read naturally as plain text.
+ */
+function markdownToPlainText(text) {
+  if (!text) return "";
+  return text
+    .replace(/[\uE000\uE001]/g, "")
+    .replace(/\\([\\*[\]\-.>#=])/g, (_, ch) => MD_ESCAPE_OPEN + ch.charCodeAt(0).toString(16) + MD_ESCAPE_CLOSE)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => (label.trim() === url.trim() ? url : label + " (" + url + ")"))
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, "$1")
+    .replace(/^## /gm, "")
+    .replace(/\uE000([0-9a-f]+)\uE001/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 // ── Mail sender policy (client-enqueued mail) ──────────────────────────────
 
 /** Client-enqueued emails allowed per sender uid per rolling window. */
@@ -1473,7 +1493,7 @@ exports.processMailQueue = onDocumentCreated(
         to: [to],
         subject: subject,
         html: htmlBody,
-        text: body,
+        text: markdownToPlainText(body),
       });
 
       if (result.error) {
@@ -1491,6 +1511,7 @@ exports.processMailQueue = onDocumentCreated(
 );
 
 exports._testHelpers.simpleMarkdownToHtml = simpleMarkdownToHtml;
+exports._testHelpers.markdownToPlainText = markdownToPlainText;
 exports._testHelpers.normalizeEmail = normalizeEmail;
 exports._testHelpers.collectAllowedRecipients = collectAllowedRecipients;
 exports._testHelpers.nextMailRateState = nextMailRateState;

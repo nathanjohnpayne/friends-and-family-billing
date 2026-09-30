@@ -38,6 +38,7 @@ const {
     nextMailRateState,
     MAIL_RATE_LIMIT,
     MAIL_RATE_WINDOW_MS,
+    markdownToPlainText,
 } = _testHelpers;
 
 // ──────────────── computeMemberSummary ───────────────────────
@@ -818,5 +819,24 @@ describe('nextMailRateState', () => {
     it('resets after the window elapses', () => {
         const r = nextMailRateState({ windowStartMs: now - MAIL_RATE_WINDOW_MS, count: MAIL_RATE_LIMIT }, now);
         assert.deepEqual(r, { allowed: true, next: { windowStartMs: now, count: 1 } });
+    });
+});
+
+describe('markdownToPlainText (processMailQueue text alternative)', () => {
+    it('strips bold/italic markers and heading markers', () => {
+        assert.equal(markdownToPlainText('**Message:** hi *there*\n## Payment Options'), 'Message: hi there\nPayment Options');
+    });
+
+    it('renders links as "label (url)", or the bare URL when label === url', () => {
+        assert.equal(markdownToPlainText('[View](https://a.example/x)'), 'View (https://a.example/x)');
+        assert.equal(markdownToPlainText('[https://v.example](https://v.example)'), 'https://v.example');
+    });
+
+    it('turns backslash escapes into the literal character', () => {
+        assert.equal(markdownToPlainText('\\- a 2\\*3 \\[b\\] c\\\\d 1\\. e \\> f \\# g \\=== h'), '- a 2*3 [b] c\\d 1. e > f # g === h');
+    });
+
+    it('leaves list, quote and plain lines as they are', () => {
+        assert.equal(markdownToPlainText('- a\n1. b\n> c\nplain 2 * 3'), '- a\n1. b\n> c\nplain 2 * 3');
     });
 });

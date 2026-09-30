@@ -14,7 +14,7 @@ import { JSDOM } from 'jsdom';
 import { getInvoiceSummaryContext, buildInvoiceTemplateEmailPayload } from '@/lib/invoice.js';
 
 const require = createRequire(import.meta.url);
-const { simpleMarkdownToHtml } = require('../../../functions/index.js')._testHelpers;
+const { simpleMarkdownToHtml, markdownToPlainText } = require('../../../functions/index.js')._testHelpers;
 
 const text = (t, marks) => (marks ? { type: 'text', text: t, marks } : { type: 'text', text: t });
 const para = (...content) => ({ type: 'paragraph', content });
@@ -139,6 +139,27 @@ describe('literal template text stays literal in the server rendering', () => {
         expect(server.ul).toEqual(client.ul);
         expect(server.blockquote).toEqual(client.blockquote);
         expect(server.hr).toBe(client.hr);
+    });
+});
+
+describe('plain-text alternative of the test email', () => {
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, [], 1, { id: '2026', label: '2026' }, settings);
+    const payload = buildInvoiceTemplateEmailPayload(ctx, shareUrl);
+    const plain = markdownToPlainText(payload.markdown);
+
+    it('contains no markdown syntax or escape backslashes', () => {
+        expect(plain).not.toContain('**');
+        expect(plain).not.toMatch(/\]\(/);
+        expect(plain).not.toMatch(/\\[*[\]\-.>#=]/);
+        expect(plain).not.toMatch(/^## /m);
+    });
+
+    it('keeps the words, literal text and link targets', () => {
+        for (const literal of ['important', 'gentle', 'both', 'Split 2*3*4 ways, see [note] and C:\\path', '- not a list', 'Add a *memo* [ref]']) {
+            expect(plain).toContain(literal);
+        }
+        expect(plain).toContain('our site (https://example.com/?a=1&b=2)');
+        expect(plain).toContain('Alice Smith\u2019s 2026 Annual Billing Summary (' + shareUrl + ')');
     });
 });
 

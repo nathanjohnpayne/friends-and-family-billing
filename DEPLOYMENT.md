@@ -614,7 +614,7 @@ processMailQueue Cloud Function (Firestore trigger)
   → simpleMarkdownToHtml() converts body to HTML (always server-side)
   → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
   → wrapEmailHtml() wraps in responsive email template
-  → Resend API sends HTML + plain-text fallback
+  → Resend API sends HTML + plain-text fallback (markdownToPlainText(body): markdown syntax and escapes stripped)
   → Updates document: { status: 'sent' } or { status: 'error' }
 ```
 
