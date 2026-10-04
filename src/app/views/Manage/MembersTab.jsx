@@ -214,7 +214,7 @@ export default function MembersTab() {
                     <div className="dialog" onClick={e => e.stopPropagation()}>
                         <div className="dialog-title">Manage Household for {linkTarget.name}</div>
                         <p className="link-manager-hint">
-                            Select members to link as part of {linkTarget.name}'s household.
+                            Select members to link as part of {linkTarget.name}&apos;s household.
                             Members can only belong to one household.
                         </p>
                         <div className="link-manager-list">
