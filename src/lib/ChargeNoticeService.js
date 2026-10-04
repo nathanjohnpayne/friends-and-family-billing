@@ -40,7 +40,9 @@ import { buildChargeNoticeDoc, buildChargeNoticeEmail } from './chargeNotice.js'
  * @param {Object}   [deps]  injectable collaborators (tests)
  * @param {Function} [deps.createShareLink]
  * @param {Function} [deps.queueEmailFn]
- * @returns {Promise<{ tokenHash: string|null, shareUrl: string|null }>}
+ * @returns {Promise<{ tokenHash: string|null, shareUrl: string|null, emailError: string|null }>}
+ *   emailError is set when the member email could not be queued/sent (the notice
+ *   is still recorded); callers surface it instead of claiming the notice was sent.
  */
 export async function issueChargeNotice(opts, deps = {}) {
     const createShareLink = deps.createShareLink || createAndPruneShareLink;
@@ -106,7 +108,9 @@ export async function issueChargeNotice(opts, deps = {}) {
     const col = collection(db, 'users', userId, 'billingYears', billingYearId, 'disputes');
     await setDoc(doc(col, noticeId), { ...noticeDoc, createdAt: serverTimestamp() });
 
-    // 3. Email the member (fire-and-forget — never block the primary action).
+    // 3. Email the member. Non-fatal — never block the primary action — but a
+    //    delivery failure is returned so the caller can report it truthfully.
+    let emailError = null;
     if (memberEmail) {
         try {
             const { subject, body } = buildChargeNoticeEmail({
@@ -119,8 +123,9 @@ export async function issueChargeNotice(opts, deps = {}) {
             await queueEmailFn({ to: memberEmail, subject, body, uid: userId });
         } catch (err) {
             console.error('issueChargeNotice: member email failed:', err);
+            emailError = (err && err.message) || 'Email delivery failed.';
         }
     }
 
-    return { tokenHash, shareUrl };
+    return { tokenHash, shareUrl, emailError };
 }

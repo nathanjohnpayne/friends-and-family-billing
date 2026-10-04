@@ -150,3 +150,53 @@ describe('Routes — authenticated user', () => {
         expect(await screen.findByText('Settings')).toBeInTheDocument();
     });
 });
+
+// ── Email/password sign-up → verification notice after redirect ────
+
+describe('Routes — sign-up verification notice survives the auth redirect', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        try { window.sessionStorage.clear(); } catch (_) { /* ignore */ }
+    });
+
+    it('shows the failed verification send, with a resend control, on the dashboard after sign-up', async () => {
+        const { default: userEvent } = await import('@testing-library/user-event');
+        let authCallback = null;
+        const newUser = { uid: 'u9', email: 'new@example.com', emailVerified: false };
+        vi.doMock('firebase/auth', () => ({
+            onAuthStateChanged: vi.fn((_auth, cb) => { authCallback = cb; cb(null); return () => {}; }),
+            signOut: vi.fn(), signInWithEmailAndPassword: vi.fn(),
+            // Firebase signs the new account in as part of creating it.
+            createUserWithEmailAndPassword: vi.fn(async () => { authCallback(newUser); return { user: newUser }; }),
+            sendEmailVerification: vi.fn(() => Promise.reject(new Error('auth/network-request-failed'))),
+            sendPasswordResetEmail: vi.fn(), signInWithPopup: vi.fn(), GoogleAuthProvider: vi.fn()
+        }));
+
+        const { AppRoutes } = await import('@/app/App.jsx');
+        const { AuthProvider } = await import('@/app/contexts/AuthContext.jsx');
+        const { ToastProvider } = await import('@/app/contexts/ToastContext.jsx');
+        const user = userEvent.setup();
+        render(
+            <AuthProvider>
+                <ToastProvider>
+                    <MemoryRouter initialEntries={['/login']}>
+                        <AppRoutes />
+                    </MemoryRouter>
+                </ToastProvider>
+            </AuthProvider>
+        );
+
+        await user.click(screen.getByRole('button', { name: 'Create account' }));
+        await user.type(screen.getByLabelText('Email'), 'new@example.com');
+        await user.type(screen.getByLabelText('Password'), 'secret123');
+        await user.type(screen.getByLabelText('Confirm Password'), 'secret123');
+        await user.click(screen.getByRole('button', { name: 'Create Account' }));
+
+        // GuestRoute redirected to the dashboard (LoginView is gone)...
+        expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+        expect(screen.queryByText('Create your account')).toBeNull();
+        // ...and the AppShell notice carries the failed-send message and a resend control.
+        expect(await screen.findByText(/couldn.t send your verification email when you signed up/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument();
+    });
+});

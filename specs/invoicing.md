@@ -37,7 +37,7 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Shows "Save Template" button.
 - Hides "Save Template" button when the year is read-only.
 - Shows a duplicate payment text warning when the template contains both the `%payment_methods%` token and hardcoded provider names.
-- Payment methods management has moved to the Settings page (see `PaymentMethodsManager` component).
+- Payment methods are managed on the Settings page (see `PaymentMethodsManager` component). The `%payment_methods%` block-token card in the template editor also has a **Configure** button that opens the same `PaymentMethodsManager` in a dialog on this tab. Both entry points persist via `service.updateSettings` and sync the owner's share pages through `src/lib/paymentMethodsSync.js`: enabled methods (QR image stripped to `hasQrCode: true`) onto every non-revoked `publicShares` doc, and QR images to `publicQrCodes/{uid}_{methodId}` (`tests/react/views/InvoicingTab.paymentMethodsSync.test.jsx`, `tests/react/views/SettingsView.test.jsx`).
 
 ### EmailInvoiceDialog
 
@@ -56,15 +56,18 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Sends HTML emails via Resend from `Friends & Family Billing <billing@mail.nathanpayne.com>`.
 - Implemented as a Firestore-triggered function (`onDocumentCreated` on `mailQueue/{docId}`). No HTTP endpoint or Cloud Run invoker policy needed.
 - Client writes to `mailQueue` collection via `queueEmail()` helper (`src/lib/mail.js`), which listens for status changes via `onSnapshot` and resolves/rejects the returned promise.
-- Firestore security rules enforce that only authenticated users can create queue documents with their own `uid` and `status: 'pending'`.
+- Firestore security rules enforce that only authenticated users can create queue documents with their own `uid`, `status: 'pending'`, and only the plain fields `to`, `subject`, `body`, `uid`, `status`, `createdAt` (no client-supplied HTML or reply-to).
+- For client-enqueued mail the function requires a verified sender email, only delivers to the sender's own email or a household member email recorded in the sender's billing years, and rate-limits per uid. Mail enqueued by Cloud Functions (Admin SDK, `origin: 'server'`) skips these sender checks.
+- The "Send test email" action queues the template's markdown serialization (`buildInvoiceTemplateEmailPayload(...).markdown`: payment options as a list, the share link as a named link); the HTML is rendered server-side like every other email and carries the same bold/italic/list/blockquote/link/rule semantics as the Invoicing preview (`tests/react/lib/emailTemplateParity.test.js`). Markdown mode serializes the same document the preview renders (legacy plain-text templates go through `plainTextToDoc`) and backslash-escapes literal text (`docToPlainTextWithTokens(doc, { escapeMarkdown: true })`, plus token values and payment-method fields), so user-typed `*`, `[`, `]`, `\`, or a line starting `- `, `1. `, `>`, `#`, `---` renders verbatim; `simpleMarkdownToHtml` honours those escapes. The recipient must be the sender or a household member.
+- An unverified email/password account sees a notice at the top of every signed-in page (`AppShell` → `EmailVerificationNotice`) with a **Resend verification email** control. Sign-up sends the verification email; because sign-up signs the user in and `GuestRoute` redirects immediately, a failed send is recorded (`reportVerificationSend`: sessionStorage + a window event) and the notice shows it after the redirect (`tests/react/routes.test.jsx`). LoginView also shows a delivery warning instead of the inbox instruction when it is still mounted.
 - The function validates fields, converts markdown to HTML, sends via Resend, and updates the document with `status: 'sent'` or `status: 'error'`.
 - Converts the body from markdown to HTML via `simpleMarkdownToHtml()`:
-  - Supports: bold (`**text**`), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, lists (`- item`), horizontal rules (`===`/`---`).
+  - Supports every construct the invoice template serializer emits: bold (`**text**`), italic (`*text*`, and `***text***` for both), headings (`## Heading`), markdown links (`[text](url)`), bare URL auto-linkification, bullet lists (`- item`, with an indented continuation line kept inside the item), ordered lists (`1. item`), blockquotes (`> line`, consecutive lines form one quote), horizontal rules (`===`/`---`).
   - Escapes HTML entities before markdown conversion to prevent XSS.
   - `sanitizeHref()` blocks non-http(s) protocols (`javascript:`, `data:`) and escapes quotes in href attributes to prevent attribute breakout.
   - Unescapes entity-encoded ampersands before re-escaping for attribute context to avoid double-escaping query-string parameters.
 - Wraps HTML in a responsive email template with branded gradient header and plain footer.
-- Sends both HTML and plain-text fallback to Resend for maximum email client compatibility.
+- Sends both HTML and plain-text fallback to Resend for maximum email client compatibility. The plain-text part is `markdownToPlainText(body)`: bold/italic markers, `## ` heading markers and backslash escapes are removed and links become `label (url)`, so text-only clients never see markdown syntax.
 - Payment method URLs in `formatPaymentOptionsMarkdown()` are rendered as markdown links (`[url](url)`) so they appear as clickable `<a>` tags in both the sent email and the Manage-page live preview.
 
 ### TextInvoiceDialog

@@ -3,7 +3,7 @@
  * Edit/Preview layout, token pills, and payment methods manager.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { doc, setDoc, collection, query, where, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase.js';
 import { queueEmail } from '../../../lib/mail.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -23,6 +23,7 @@ import SubjectEditor from '../../components/SubjectEditor.jsx';
 import { INLINE_TOKENS } from '../../components/TokenNode.js';
 import { BLOCK_TOKENS } from '../../components/BlockTokenNode.js';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
+import { syncPaymentMethodsToShares } from '../../../lib/paymentMethodsSync.js';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
 
 /** All tokens for the unified chip bar. */
@@ -380,22 +381,9 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                 readOnly={readOnly}
                                 onUpdate={methods => {
                                     service.updateSettings({ paymentMethods: methods });
-                                    // Sync to publicShares so share pages reflect changes immediately
-                                    if (user && user.uid) {
-                                        const enabled = methods.filter(m => m.enabled).map(m => {
-                                            const copy = { ...m };
-                                            if (copy.qrCode) { copy.hasQrCode = true; delete copy.qrCode; }
-                                            return copy;
-                                        });
-                                        getDocs(query(collection(db, 'shareTokens'), where('ownerId', '==', user.uid)))
-                                            .then(snap => {
-                                                const hashes = snap.docs.filter(d => !d.data().revoked).map(d => d.id);
-                                                return Promise.all(hashes.map(h =>
-                                                    updateDoc(doc(db, 'publicShares', h), { paymentMethods: enabled, updatedAt: serverTimestamp() }).catch(() => {})
-                                                ));
-                                            })
-                                            .catch(() => {});
-                                    }
+                                    // Same share sync as the Settings page: publicShares
+                                    // paymentMethods + publicQrCodes for the signed-in owner.
+                                    syncPaymentMethodsToShares(userId || null, methods);
                                 }}
                             />
                         </div>
@@ -417,11 +405,12 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                             try {
                                 const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
                                 const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
+                                // Only the markdown body is queued; the mail function renders
+                                // HTML server-side (queue docs cannot carry raw HTML).
                                 await queueEmail({
                                     to: testEmailTo.trim(),
                                     subject,
-                                    body: payload.text,
-                                    html: payload.html,
+                                    body: payload.markdown,
                                     uid: userId
                                 });
                                 setTestEmailOpen(false);

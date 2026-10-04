@@ -134,9 +134,15 @@ describe('issueChargeNotice', () => {
         expect(queueEmailFn).not.toHaveBeenCalled();
     });
 
-    it('never throws when the email send fails (fire-and-forget)', async () => {
+    it('never throws when the email send fails, and reports the failure', async () => {
         queueEmailFn.mockRejectedValueOnce(new Error('mail boom'));
-        await expect(issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn })).resolves.toBeTruthy();
+        const result = await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
+        expect(result.emailError).toBe('mail boom');
         expect(mockSetDoc).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports no email error when the email is sent', async () => {
+        const result = await issueChargeNotice(baseOpts(), { createShareLink, queueEmailFn });
+        expect(result.emailError).toBeNull();
     });
 });

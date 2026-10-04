@@ -28,6 +28,16 @@ A comprehensive **React (Vitest + React Testing Library)** suite covers services
 npm run test:e2e       # Playwright end-to-end tests (builds first, serves at :4174)
 ```
 
+## Firestore security rules
+
+`firestore.rules` is covered by an emulator-backed suite in `tests/rules/` (`@firebase/rules-unit-testing`, config `vitest.rules.config.mjs`):
+
+```bash
+npm run test:rules     # boots the Firestore emulator via firebase emulators:exec and runs tests/rules/
+```
+
+It needs a Java 21+ runtime (`scripts/test-rules.sh` probes Homebrew's keg-only `openjdk@21` on macOS) and the Firebase CLI (uses `firebase` on PATH, otherwise a pinned `firebase-tools` via npx). CI runs it in `.github/workflows/test.yml`. Every rules change needs a deny case for the forbidden access and an allow case for the legitimate client flow.
+
 ## Mocking policy
 
 - **Firebase SDK modules** (`firebase/firestore`, `firebase/storage`, `firebase/auth`) are mocked at the module boundary via `vi.mock()` in test setup. This is the correct layer for unit tests.

@@ -181,24 +181,24 @@ function formatPaymentOptionsMarkdown(settings) {
         let detail = '';
         if (method.type === 'check') {
             const parts = [];
-            if (method.name) parts.push('Payee: ' + method.name);
-            if (method.address) parts.push('Mail to: ' + method.address.replace(/\n/g, ', '));
-            if (method.phone) parts.push('Phone: ' + method.phone);
+            if (method.name) parts.push('Payee: ' + escapeMarkdownInline(method.name));
+            if (method.address) parts.push('Mail to: ' + escapeMarkdownInline(method.address.replace(/\n/g, ', ')));
+            if (method.phone) parts.push('Phone: ' + escapeMarkdownInline(method.phone));
             detail = parts.join(' · ');
         } else if (method.type === 'zelle') {
-            const contacts = [method.email, method.phone].filter(Boolean);
+            const contacts = [method.email, method.phone].filter(Boolean).map(escapeMarkdownInline);
             if (contacts.length > 0) detail = 'Send via Zelle to: ' + contacts.join(' or ');
         } else if (method.type === 'apple_cash') {
-            const contacts = [method.phone, method.email].filter(Boolean);
+            const contacts = [method.phone, method.email].filter(Boolean).map(escapeMarkdownInline);
             if (contacts.length > 0) detail = 'Send via Messages or Wallet to: ' + contacts.join(' or ');
         } else {
             const parts = [];
-            if (method.handle) parts.push(method.handle);
+            if (method.handle) parts.push(escapeMarkdownInline(method.handle));
             if (method.url) parts.push('[' + method.url + '](' + method.url + ')');
             detail = parts.join(' ');
         }
-        text += '- **' + method.label + ':** ' + detail + '\n';
-        if (method.instructions) text += '  Note: ' + method.instructions + '\n';
+        text += '- **' + escapeMarkdownInline(method.label) + ':** ' + detail + '\n';
+        if (method.instructions) text += '  Note: ' + escapeMarkdownInline(method.instructions) + '\n';
     });
     return text.trimEnd();
 }
@@ -206,7 +206,7 @@ function formatPaymentOptionsMarkdown(settings) {
 // Re-export template document utilities from the lightweight module.
 // Defined in template-doc.js to keep BillingYearService's import chain light.
 export { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
-import { docToPlainTextWithTokens, plainTextToDoc } from './template-doc.js';
+import { docToPlainTextWithTokens, plainTextToDoc, escapeMarkdownInline } from './template-doc.js';
 
 const TEMPLATE_TOKEN_ALIASES = {
     member_first: 'first_name',
@@ -463,14 +463,22 @@ export function renderInvoiceTemplate(ctx, shareUrl) {
 
 /**
  * Shared preview/email payload builder for template-authored invoice messages.
+ * - html: the client preview rendering (renderInvoiceTemplate).
+ * - text: plain-text rendering (payment options as plain lines).
+ * - markdown: the same template serialized as markdown (payment options as a
+ *   list, share link as a named link). This is what the "Send test email"
+ *   action queues; the processMailQueue Cloud Function renders it to HTML
+ *   server-side with simpleMarkdownToHtml, which supports every construct
+ *   the template serializer emits.
  * @param {Object} ctx
  * @param {string} shareUrl
- * @returns {{ html: string, text: string }}
+ * @returns {{ html: string, text: string, markdown: string }}
  */
 export function buildInvoiceTemplateEmailPayload(ctx, shareUrl) {
     return {
         html: renderInvoiceTemplate(ctx, shareUrl),
         text: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email'),
+        markdown: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email', { markdown: true }),
     };
 }
 
@@ -482,18 +490,26 @@ export function buildInvoiceTemplateEmailPayload(ctx, shareUrl) {
  * @param {{ markdown?: boolean }} options — when true, use markdown-formatted payment methods
  */
 function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
+    const markdown = !!(options && options.markdown);
     let template;
-    if (ctx.settings && ctx.settings.emailMessageDocument) {
+    if (markdown) {
+        // Markdown mode (the server-rendered test email) serializes the SAME
+        // document the preview renders (getInvoiceTemplateDocument), escaping
+        // literal text so only the template's own formatting is markdown.
+        const doc = getInvoiceTemplateDocument(ctx.settings);
+        template = doc ? docToPlainTextWithTokens(doc, { escapeMarkdown: true }) : '';
+    } else if (ctx.settings && ctx.settings.emailMessageDocument) {
         template = docToPlainTextWithTokens(ctx.settings.emailMessageDocument);
     } else {
         template = (ctx.settings && ctx.settings.emailMessage) || '';
     }
-    const formatter = (options && options.markdown) ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
+    const formatter = markdown ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
+    const lit = markdown ? escapeMarkdownInline : (v => v);
     const nameParts = (ctx.member.name || '').split(' ');
     let result = buildInvoiceTemplatePreviewText(template, {
-        memberFirst: nameParts[0] || '',
-        memberLast: nameParts.slice(1).join(' ') || '',
-        memberName: ctx.member.name || '',
+        memberFirst: lit(nameParts[0] || ''),
+        memberLast: lit(nameParts.slice(1).join(' ') || ''),
+        memberName: lit(ctx.member.name || ''),
         billingYear: ctx.currentYear,
         annualTotal: '$' + ctx.combinedTotal.toFixed(2),
         shareLink: shareUrl || ''
@@ -503,7 +519,7 @@ function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     // into named hyperlinks: "Name's Year Annual Billing Summary"
     // Skip URLs already inside [...] (link text) or (...) (link destination)
     if (options && options.markdown && shareUrl) {
-        const linkText = ctx.member.name + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
+        const linkText = escapeMarkdownInline(ctx.member.name) + '\u2019s ' + ctx.currentYear + ' Annual Billing Summary';
         const escaped = shareUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         result = result.replace(new RegExp('(?<![\\[\\(])' + escaped + '(?![\\]\\)])', 'g'),
             '[' + linkText + '](' + shareUrl + ')');

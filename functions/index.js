@@ -54,6 +54,14 @@ function appendAuditLog(ownerId, entry) {
 
 const APP_ORIGIN = "https://friends-and-family-billing.web.app";
 
+/**
+ * Marker on mailQueue docs written by these Cloud Functions (Admin SDK). The
+ * Firestore rules only let clients create docs with a fixed plain-field
+ * allowlist, so a client can never set `origin` — processMailQueue uses it to
+ * skip the client-sender checks for server-originated notifications.
+ */
+const MAIL_ORIGIN_SERVER = "server";
+
 /** Enqueue an email via Firestore mailQueue. Logs errors, never throws. Must be awaited in HTTP functions. */
 async function queueEmailFromFunction(to, subject, body, uid) {
   try {
@@ -64,6 +72,7 @@ async function queueEmailFromFunction(to, subject, body, uid) {
         subject,
         body,
         uid,
+        origin: MAIL_ORIGIN_SERVER,
         status: "pending",
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -424,6 +433,28 @@ function validateDisputeInput({ billId, billName, message, proposedCorrection })
   return { valid: true };
 }
 
+/**
+ * Find the bill a share-page member may dispute: it must exist in the billing
+ * year and list the token's member. Returns the bill or null.
+ */
+function findDisputableBill(yearData, billId, memberId) {
+  const bills = (yearData && Array.isArray(yearData.bills)) ? yearData.bills : [];
+  const bill = bills.find((b) => b && b.id === billId);
+  if (!bill || !Array.isArray(bill.members) || !bill.members.includes(memberId)) return null;
+  return bill;
+}
+
+/**
+ * Evidence files live under users/{ownerId}/disputes/{disputeId}/ (see
+ * useDisputes.js and storage.rules). Only sign a URL for an object inside the
+ * token owner's folder for this exact dispute.
+ */
+function isEvidencePathForDispute(storagePath, ownerId, disputeId) {
+  if (typeof storagePath !== "string" || !ownerId || !disputeId) return false;
+  const prefix = "users/" + ownerId + "/disputes/" + disputeId + "/";
+  return storagePath.startsWith(prefix) && storagePath.length > prefix.length;
+}
+
 const LINK_REQUEST_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // ── Refund Notice (#319) ────────────────────────────────────────────────────
@@ -487,6 +518,8 @@ function filterMemberRefundNotices(docs, memberId) {
 exports._testHelpers = {
   validateToken,
   validateDisputeInput,
+  findDisputableBill,
+  isEvidencePathForDispute,
   validateRefundConfirmationInput,
   filterMemberRefundNotices,
   refundConfirmationOutcome,
@@ -521,29 +554,35 @@ exports.requestShareLink = onRequest({ region: "us-central1" }, async (req, res)
   }
 
   try {
-    const tokenDoc = await db.collection("shareTokens").doc(tokenHash).get();
-    if (!tokenDoc.exists) {
-      res.status(404).json({ error: "Link not found." });
+    const tokenRef = db.collection("shareTokens").doc(tokenHash);
+
+    // Rate limit: 1 request per tokenHash per 24 hours. The check and the
+    // lastLinkRequestedAt stamp run in one transaction so concurrent requests
+    // cannot both pass the check.
+    const outcome = await db.runTransaction(async (tx) => {
+      const tokenDoc = await tx.get(tokenRef);
+      if (!tokenDoc.exists) return { status: 404, error: "Link not found." };
+
+      const data = tokenDoc.data();
+      if (data.lastLinkRequestedAt) {
+        const lastRequested = data.lastLinkRequestedAt.toDate
+          ? data.lastLinkRequestedAt.toDate()
+          : new Date(data.lastLinkRequestedAt);
+        if (Date.now() - lastRequested.getTime() < LINK_REQUEST_RATE_WINDOW_MS) {
+          return { status: 429, error: "A request was already sent recently. Please wait before trying again." };
+        }
+      }
+
+      tx.update(tokenRef, { lastLinkRequestedAt: FieldValue.serverTimestamp() });
+      return { ok: true, tokenData: data };
+    });
+
+    if (!outcome.ok) {
+      res.status(outcome.status).json({ error: outcome.error });
       return;
     }
 
-    const tokenData = tokenDoc.data();
-
-    // Rate limit: 1 request per tokenHash per 24 hours
-    if (tokenData.lastLinkRequestedAt) {
-      const lastRequested = tokenData.lastLinkRequestedAt.toDate
-        ? tokenData.lastLinkRequestedAt.toDate()
-        : new Date(tokenData.lastLinkRequestedAt);
-      if (Date.now() - lastRequested.getTime() < LINK_REQUEST_RATE_WINDOW_MS) {
-        res.status(429).json({ error: "A request was already sent recently. Please wait before trying again." });
-        return;
-      }
-    }
-
-    // Mark request time on the token doc
-    await tokenDoc.ref.update({
-      lastLinkRequestedAt: FieldValue.serverTimestamp(),
-    });
+    const { tokenData } = outcome;
 
     // Send email to admin
     const adminUser = await getAuth().getUser(tokenData.ownerId);
@@ -636,15 +675,22 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
       .doc(tokenData.billingYearId)
       .get();
 
-    if (yearDoc.exists) {
-      const yearData = yearDoc.data();
-      const billsData = yearData.bills || [];
-      const targetBill = billsData.find((b) => b.id === billId);
-      if (!targetBill || !targetBill.members || !targetBill.members.includes(tokenData.memberId)) {
-        res.status(403).json({ error: "You are not assigned to this bill." });
-        return;
-      }
+    // The bill must exist in the token's billing year and include the token's
+    // member. A missing year is a not-found, never a skipped membership check.
+    if (!yearDoc.exists) {
+      res.status(404).json({ error: "Billing year not found." });
+      return;
     }
+
+    const targetBill = findDisputableBill(yearDoc.data(), billId, tokenData.memberId);
+    if (!targetBill) {
+      res.status(403).json({ error: "You are not assigned to this bill." });
+      return;
+    }
+
+    // Store and email the server-side bill name; the client-supplied billName
+    // is only validated for shape and never persisted.
+    const serverBillName = typeof targetBill.name === "string" ? targetBill.name.trim() : "";
 
     const disputesRef = db
       .collection("users")
@@ -653,22 +699,11 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
       .doc(tokenData.billingYearId)
       .collection("disputes");
 
-    const cutoff = Timestamp.fromDate(new Date(Date.now() - DISPUTE_RATE_WINDOW_MS));
-    const recentSnap = await disputesRef
-      .where("tokenHash", "==", tokenHash)
-      .where("createdAt", ">", cutoff)
-      .get();
-
-    if (recentSnap.size >= DISPUTE_RATE_LIMIT) {
-      res.status(429).json({ error: "Too many review requests. Please try again later." });
-      return;
-    }
-
     const dispute = {
       memberId: tokenData.memberId,
       memberName: tokenData.memberName || "",
       billId: billId,
-      billName: billName.trim(),
+      billName: serverBillName,
       message: message.trim(),
       proposedCorrection: proposedCorrection ? proposedCorrection.trim() : null,
       status: "open",
@@ -676,7 +711,25 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
       tokenHash: tokenHash,
     };
 
-    const docRef = await disputesRef.add(dispute);
+    // Rate-limit check and create run in one transaction so concurrent
+    // submissions cannot all pass the count check.
+    const cutoff = Timestamp.fromDate(new Date(Date.now() - DISPUTE_RATE_WINDOW_MS));
+    const docRef = disputesRef.doc();
+    const created = await db.runTransaction(async (tx) => {
+      const recentSnap = await tx.get(
+        disputesRef
+          .where("tokenHash", "==", tokenHash)
+          .where("createdAt", ">", cutoff)
+      );
+      if (recentSnap.size >= DISPUTE_RATE_LIMIT) return false;
+      tx.create(docRef, dispute);
+      return true;
+    });
+
+    if (!created) {
+      res.status(429).json({ error: "Too many review requests. Please try again later." });
+      return;
+    }
 
     appendAuditLog(tokenData.ownerId, {
       action: "dispute_submitted",
@@ -691,8 +744,8 @@ exports.submitDispute = onRequest({ region: "us-central1" }, async (req, res) =>
     try {
       const adminUser = await getAuth().getUser(tokenData.ownerId);
       if (adminUser.email) {
-        const nSubject = "Review Request\u2014" + billName.trim() + " from " + (tokenData.memberName || "a member");
-        let nBody = "**" + (tokenData.memberName || "A member") + "** submitted a review request for **" + billName.trim() + "**.\n\n";
+        const nSubject = "Review Request\u2014" + serverBillName + " from " + (tokenData.memberName || "a member");
+        let nBody = "**" + (tokenData.memberName || "A member") + "** submitted a review request for **" + serverBillName + "**.\n\n";
         nBody += "**Message:** " + message.trim() + "\n";
         if (proposedCorrection) nBody += "**Proposed correction:** " + proposedCorrection.trim() + "\n";
         nBody += "\n[View Review Requests](" + APP_ORIGIN + "/app/manage/reviews)";
@@ -777,6 +830,10 @@ exports.getEvidenceUrl = onRequest({ region: "us-central1" }, async (req, res) =
     }
 
     const ev = evidence[evidenceIndex];
+    if (!ev || !isEvidencePathForDispute(ev.storagePath, tokenData.ownerId, disputeId)) {
+      res.status(404).json({ error: "Evidence not found." });
+      return;
+    }
     const file = getBucket().file(ev.storagePath);
 
     const [url] = await file.getSignedUrl({
@@ -858,48 +915,50 @@ exports.submitDisputeDecision = onRequest({ region: "us-central1" }, async (req,
       .collection("disputes")
       .doc(disputeId);
 
-    const disputeDoc = await disputeRef.get();
+    // Read-check-write in one transaction so two concurrent decisions cannot
+    // both observe `requested` and both write.
+    const outcome = await db.runTransaction(async (tx) => {
+      const disputeDoc = await tx.get(disputeRef);
+      if (!disputeDoc.exists) return { status: 404, body: { error: "Dispute not found." } };
 
-    if (!disputeDoc.exists) {
-      res.status(404).json({ error: "Dispute not found." });
+      const data = disputeDoc.data();
+      if (data.memberId !== tokenData.memberId) {
+        return { status: 403, body: { error: "Access denied." } };
+      }
+
+      const currentState = data.userReview ? data.userReview.state : null;
+      if (currentState === "approved_by_user" || currentState === "rejected_by_user") {
+        return { status: 200, body: { message: "Decision already recorded.", alreadyDecided: true } };
+      }
+      if (currentState !== "requested") {
+        return { status: 400, body: { error: "This dispute is not awaiting your decision." } };
+      }
+
+      if (decision === "approve") {
+        tx.update(disputeRef, {
+          status: "resolved",
+          "userReview.state": "approved_by_user",
+          "userReview.decidedAt": FieldValue.serverTimestamp(),
+          resolvedAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        tx.update(disputeRef, {
+          status: "open",
+          "userReview.state": "rejected_by_user",
+          "userReview.rejectionNote": note.trim(),
+          "userReview.decidedAt": FieldValue.serverTimestamp(),
+          resolutionNotificationSentAt: FieldValue.delete(),
+        });
+      }
+      return { ok: true, disputeData: data };
+    });
+
+    if (!outcome.ok) {
+      res.status(outcome.status).json(outcome.body);
       return;
     }
 
-    const disputeData = disputeDoc.data();
-
-    if (disputeData.memberId !== tokenData.memberId) {
-      res.status(403).json({ error: "Access denied." });
-      return;
-    }
-
-    const currentState = disputeData.userReview ? disputeData.userReview.state : null;
-
-    if (currentState === "approved_by_user" || currentState === "rejected_by_user") {
-      res.status(200).json({ message: "Decision already recorded.", alreadyDecided: true });
-      return;
-    }
-
-    if (currentState !== "requested") {
-      res.status(400).json({ error: "This dispute is not awaiting your decision." });
-      return;
-    }
-
-    if (decision === "approve") {
-      await disputeRef.update({
-        status: "resolved",
-        "userReview.state": "approved_by_user",
-        "userReview.decidedAt": FieldValue.serverTimestamp(),
-        resolvedAt: FieldValue.serverTimestamp(),
-      });
-    } else {
-      await disputeRef.update({
-        status: "open",
-        "userReview.state": "rejected_by_user",
-        "userReview.rejectionNote": note.trim(),
-        "userReview.decidedAt": FieldValue.serverTimestamp(),
-        resolutionNotificationSentAt: FieldValue.delete(),
-      });
-    }
+    const { disputeData } = outcome;
 
     appendAuditLog(tokenData.ownerId, {
       action: "dispute_decision",
@@ -1015,41 +1074,44 @@ exports.submitRefundConfirmation = onRequest({ region: "us-central1" }, async (r
       .collection("disputes")
       .doc(noticeId);
 
-    const noticeDoc = await noticeRef.get();
-
-    if (!noticeDoc.exists) {
-      res.status(404).json({ error: "Refund notice not found." });
-      return;
-    }
-
-    const noticeData = noticeDoc.data();
-
-    // Must be a Refund Notice (never let this CF mutate a Review Request).
-    if (noticeData.kind !== REFUND_NOTICE_KIND) {
-      res.status(400).json({ error: "This is not a refund notice." });
-      return;
-    }
-
-    // Per-member scope (ADR 0005): only the member the notice belongs to may respond.
-    if (noticeData.memberId !== tokenData.memberId) {
-      res.status(403).json({ error: "Access denied." });
-      return;
-    }
-
     const newConfirmation = refundConfirmationOutcome(outcome);
 
-    // Idempotent: a confirmation is terminal. A member who already responded
-    // cannot flip the outcome (re-opening a not_received is the admin's job).
-    if (noticeData.confirmation) {
-      res.status(200).json({ message: "Response already recorded.", alreadyRecorded: true });
+    // Read-check-write in one transaction so two concurrent submissions cannot
+    // both see "no confirmation yet" and both write (the confirmation is terminal).
+    const txResult = await db.runTransaction(async (tx) => {
+      const noticeDoc = await tx.get(noticeRef);
+      if (!noticeDoc.exists) return { status: 404, body: { error: "Refund notice not found." } };
+
+      const noticeData = noticeDoc.data();
+
+      // Must be a Refund Notice (never let this CF mutate a Review Request).
+      if (noticeData.kind !== REFUND_NOTICE_KIND) {
+        return { status: 400, body: { error: "This is not a refund notice." } };
+      }
+
+      // Per-member scope (ADR 0005): only the member the notice belongs to may respond.
+      if (noticeData.memberId !== tokenData.memberId) {
+        return { status: 403, body: { error: "Access denied." } };
+      }
+
+      // Idempotent: a confirmation is terminal. A member who already responded
+      // cannot flip the outcome (re-opening a not_received is the admin's job).
+      if (noticeData.confirmation) {
+        return { status: 200, body: { message: "Response already recorded.", alreadyRecorded: true } };
+      }
+
+      // Only ever write the confirmation fields — never anything else.
+      tx.update(noticeRef, {
+        confirmation: newConfirmation,
+        confirmedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true };
+    });
+
+    if (!txResult.ok) {
+      res.status(txResult.status).json(txResult.body);
       return;
     }
-
-    // Only ever write the confirmation fields — never anything else.
-    await noticeRef.update({
-      confirmation: newConfirmation,
-      confirmedAt: FieldValue.serverTimestamp(),
-    });
 
     appendAuditLog(tokenData.ownerId, {
       action: "refund_confirmation",
@@ -1129,11 +1191,6 @@ function wrapEmailHtml(bodyHtml) {
 }
 
 /**
- * Minimal markdown-to-HTML for email bodies (handles the subset produced by invoice.js).
- * Converts: **bold**, headings (## / ===), links [text](url), lists (- item),
- * and wraps paragraphs in <p> tags. Newlines become <br>.
- */
-/**
  * Sanitize a URL for use in an href attribute.
  * Blocks non-http(s) protocols (javascript:, data:, vbscript:, etc.)
  * and escapes quotes to prevent attribute breakout.
@@ -1157,15 +1214,38 @@ function sanitizeHref(url) {
     .replace(/>/g, "&gt;");
 }
 
+/**
+ * Minimal markdown-to-HTML for email bodies. Handles every construct the
+ * invoice template serializer (src/lib/template-doc.js docToPlainTextWithTokens)
+ * and the markdown invoice builders (src/lib/invoice.js) emit:
+ *   **bold**, *italic* (and ***both***), [text](url) links, bare/www URLs,
+ *   "## " headings, "- " bullet lists, "1. " ordered lists, "> " blockquotes,
+ *   "---" / "===" rules, and newlines (<br>).
+ * Backslash escapes (\\ \* \[ \] \- \. \> \# \=) — emitted by the template
+ * serializer's markdown mode for literal text — render as the literal
+ * character and never as syntax.
+ * All input is HTML-escaped first; hrefs go through sanitizeHref().
+ */
+const MD_ESCAPE_OPEN = "\uE000";
+const MD_ESCAPE_CLOSE = "\uE001";
+
 function simpleMarkdownToHtml(text) {
   if (!text) return "";
   let html = text
+    // Private-use placeholder delimiters are reserved for escapes below.
+    .replace(/[\uE000\uE001]/g, "")
+    // Backslash escapes → opaque placeholders (hex char code) that no markdown
+    // rule matches; restored as literal (HTML-escaped) characters at the end.
+    .replace(/\\([\\*[\]\-.>#=])/g, (_, ch) => MD_ESCAPE_OPEN + ch.charCodeAt(0).toString(16) + MD_ESCAPE_CLOSE)
     // Escape HTML entities
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     // Bold
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    // Italic (single asterisks left after bold). The content must start and
+    // end with a non-space so arithmetic like "2 * 3 * 4" is left alone.
+    .replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, "<em>$1</em>")
     // Headings (## Heading)
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
     // Links [text](url) — sanitize href to prevent XSS
@@ -1191,19 +1271,141 @@ function simpleMarkdownToHtml(text) {
       if (!safe) return url;
       return '<a href="' + safe + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
     })
+    // An indented line right after a list item continues that item (e.g. the
+    // "  Note: …" line formatPaymentOptionsMarkdown emits under a method).
+    .replace(/^((?:- |\d+\. ).+)\n {2,}(\S.*)$/gm, "$1<br>$2")
     // List items (- item)
     .replace(/^- (.+)$/gm, "<li>$1</li>")
-    // Wrap consecutive <li> in <ul>
-    .replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>")
+    // Wrap consecutive <li> in <ul> (the newline after the last item is left
+    // in place so the following line still starts at a line boundary)
+    .replace(/(<li>.*<\/li>(?:\n<li>.*<\/li>)*)/g, "<ul>$1</ul>")
+    // Ordered list items (1. item) — placeholder tags so the <ul> wrap above
+    // never captures them; renamed to <li> once wrapped in <ol>.
+    .replace(/^\d+\. (.+)$/gm, "<oli>$1</oli>")
+    .replace(/(<oli>.*<\/oli>(?:\n<oli>.*<\/oli>)*)/g, "<ol>$1</ol>")
+    .replace(/<(\/?)oli>/g, "<$1li>")
+    // Blockquote lines ("> text"; ">" was escaped to &gt; above). Consecutive
+    // quote lines form one <blockquote>, one <p> per line.
+    .replace(/^&gt; ?(.*)$/gm, "<bqp>$1</bqp>")
+    .replace(/(<bqp>.*<\/bqp>(?:\n<bqp>.*<\/bqp>)*)/g, "<blockquote>$1</blockquote>")
+    .replace(/<(\/?)bqp>/g, "<$1p>")
     // === separator lines
     .replace(/^={3,}$/gm, "<hr>")
     .replace(/^-{3,}$/gm, "<hr>")
     // Newlines to <br> (but not adjacent to block elements)
-    .replace(/\n(?!<[hul/])/g, "<br>\n")
-    // Strip <br> between block elements (prevents extra spacing around hr, h2, ul)
-    .replace(/(<\/(?:h[1-6]|ul|ol|li|p)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
-    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr)[\s>])/g, "$1");
+    .replace(/\n(?!<[hulob/])/g, "<br>\n")
+    // Strip <br> between block elements (prevents extra spacing around hr, h2, lists, quotes)
+    .replace(/(<\/(?:h[1-6]|ul|ol|li|p|blockquote)>|<hr>)\s*(?:<br>\n?)+/g, "$1\n")
+    .replace(/(?:<br>\n?)+\s*(<(?:h[1-6]|ul|ol|hr|blockquote)[\s>])/g, "$1")
+    // Restore escaped literals (HTML-escaped: only ">" needs it in this set).
+    .replace(/\uE000([0-9a-f]+)\uE001/g, (_, hex) => {
+      const ch = String.fromCharCode(parseInt(hex, 16));
+      return ch === ">" ? "&gt;" : ch;
+    });
   return html;
+}
+
+/**
+ * Plain-text alternative for an email body written in the simpleMarkdownToHtml
+ * subset: strips inline markdown syntax so text-only mail clients show clean
+ * text. **bold** / *italic* → text, [label](url) → "label (url)" (or just the
+ * URL when label === url), "## " heading markers removed, and backslash
+ * escapes → the literal character. List ("- ", "1. "), quote ("> ") and rule
+ * lines are left as-is: they read naturally as plain text.
+ */
+function markdownToPlainText(text) {
+  if (!text) return "";
+  return text
+    .replace(/[\uE000\uE001]/g, "")
+    .replace(/\\([\\*[\]\-.>#=])/g, (_, ch) => MD_ESCAPE_OPEN + ch.charCodeAt(0).toString(16) + MD_ESCAPE_CLOSE)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => (label.trim() === url.trim() ? url : label + " (" + url + ")"))
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*(?=\S)([^*\n]+?)(?<=\S)\*/g, "$1")
+    .replace(/^## /gm, "")
+    .replace(/\uE000([0-9a-f]+)\uE001/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+// ── Mail sender policy (client-enqueued mail) ──────────────────────────────
+
+/** Client-enqueued emails allowed per sender uid per rolling window. */
+const MAIL_RATE_LIMIT = 100;
+const MAIL_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
+/**
+ * The set of addresses a signed-in user may email through the app: their own
+ * account email plus every household member email recorded in their own
+ * billing years. Returns a Set of normalized addresses.
+ */
+function collectAllowedRecipients(ownEmail, billingYears) {
+  const allowed = new Set();
+  const own = normalizeEmail(ownEmail);
+  if (own) allowed.add(own);
+  for (const year of billingYears || []) {
+    const members = year && Array.isArray(year.familyMembers) ? year.familyMembers : [];
+    for (const m of members) {
+      const e = normalizeEmail(m && m.email);
+      if (e) allowed.add(e);
+    }
+  }
+  return allowed;
+}
+
+/**
+ * Fixed-window rate limit step. `state` is the stored counter doc data (or
+ * null). Returns { allowed, next } where `next` is the state to persist when
+ * allowed.
+ */
+function nextMailRateState(state, nowMs, limit = MAIL_RATE_LIMIT, windowMs = MAIL_RATE_WINDOW_MS) {
+  const windowStart = state && typeof state.windowStartMs === "number" ? state.windowStartMs : 0;
+  const count = state && typeof state.count === "number" ? state.count : 0;
+  if (!windowStart || nowMs - windowStart >= windowMs) {
+    return { allowed: true, next: { windowStartMs: nowMs, count: 1 } };
+  }
+  if (count >= limit) return { allowed: false, next: null };
+  return { allowed: true, next: { windowStartMs: windowStart, count: count + 1 } };
+}
+
+/**
+ * Authorize a client-enqueued email: the sender must have a verified account
+ * email, the recipient must be the sender or one of their household members,
+ * and the sender must be under the per-uid rate limit (transactional counter
+ * in mailRateLimits/{uid}, a server-only collection).
+ * Returns { ok: true } or { ok: false, error }.
+ */
+async function authorizeClientMail(uid, to) {
+  let sender;
+  try {
+    sender = await getAuth().getUser(uid);
+  } catch (err) {
+    console.error("authorizeClientMail: sender lookup failed:", err);
+    return { ok: false, error: "Sender account not found." };
+  }
+  if (!sender.emailVerified) {
+    return { ok: false, error: "Verify your account email address before sending email from the app (use \u201cResend verification email\u201d in the banner at the top of the app)." };
+  }
+
+  const yearsSnap = await db.collection("users").doc(uid).collection("billingYears").get();
+  const allowed = collectAllowedRecipients(sender.email, yearsSnap.docs.map((d) => d.data()));
+  if (!allowed.has(normalizeEmail(to))) {
+    return { ok: false, error: "Recipient must be your own email address or a household member's email address." };
+  }
+
+  const limitRef = db.collection("mailRateLimits").doc(uid);
+  const underLimit = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(limitRef);
+    const step = nextMailRateState(snap.exists ? snap.data() : null, Date.now());
+    if (!step.allowed) return false;
+    tx.set(limitRef, step.next);
+    return true;
+  });
+  if (!underLimit) {
+    return { ok: false, error: "Daily email limit reached. Please try again later." };
+  }
+  return { ok: true };
 }
 
 /**
@@ -1215,14 +1417,12 @@ function simpleMarkdownToHtml(text) {
  * Uses a transactional claim step (pending → processing) to prevent
  * duplicate sends on at-least-once Firestore trigger redelivery.
  *
- * Trusted HTML path:
- *   When `html` is provided in the queue document, it is used as-is
- *   (bypassing simpleMarkdownToHtml). This field MUST only contain
- *   app-generated, sanitized HTML from the canonical invoice template
- *   renderer (src/lib/invoice.js → renderInvoiceTemplate). Allowed
- *   producers: buildInvoiceTemplateEmailPayload() via queueEmail() in
- *   src/lib/mail.js. Do not add new producers without reviewing the
- *   trust boundary—pre-rendered HTML is not re-sanitized here.
+ * HTML is always rendered server-side from `body` via simpleMarkdownToHtml();
+ * queue documents cannot supply their own HTML or reply-to address.
+ *
+ * Client-enqueued mail (no server `origin` marker, which clients cannot set)
+ * must pass authorizeClientMail(): verified sender email, recipient restricted
+ * to the sender or their household members, per-uid rate limit.
  *
  * No Cloud Run invoker policy needed — Firestore triggers are event-driven.
  */
@@ -1253,7 +1453,8 @@ exports.processMailQueue = onDocumentCreated(
 
     if (!data) return; // Already claimed by another invocation
 
-    const { to, subject, body, html, replyTo, uid } = data;
+    const { to, subject, body, uid } = data;
+    const isServerOrigin = data.origin === MAIL_ORIGIN_SERVER;
 
     // Validate required fields
     if (!uid || typeof uid !== "string") {
@@ -1274,20 +1475,25 @@ exports.processMailQueue = onDocumentCreated(
     }
 
     try {
+      if (!isServerOrigin) {
+        const auth = await authorizeClientMail(uid, to);
+        if (!auth.ok) {
+          await docRef.update({ status: "error", error: auth.error, processedAt: FieldValue.serverTimestamp() });
+          return;
+        }
+      }
+
       const { Resend } = require("resend");
       const resend = new Resend(resendApiKey.value());
 
-      const htmlBody = wrapEmailHtml(typeof html === "string" && html.trim()
-        ? html
-        : simpleMarkdownToHtml(body));
+      const htmlBody = wrapEmailHtml(simpleMarkdownToHtml(body));
 
       const result = await resend.emails.send({
         from: EMAIL_FROM,
         to: [to],
         subject: subject,
         html: htmlBody,
-        text: body,
-        ...(replyTo ? { replyTo: replyTo } : {}),
+        text: markdownToPlainText(body),
       });
 
       if (result.error) {
@@ -1303,3 +1509,12 @@ exports.processMailQueue = onDocumentCreated(
     }
   }
 );
+
+exports._testHelpers.simpleMarkdownToHtml = simpleMarkdownToHtml;
+exports._testHelpers.markdownToPlainText = markdownToPlainText;
+exports._testHelpers.normalizeEmail = normalizeEmail;
+exports._testHelpers.collectAllowedRecipients = collectAllowedRecipients;
+exports._testHelpers.nextMailRateState = nextMailRateState;
+exports._testHelpers.MAIL_RATE_LIMIT = MAIL_RATE_LIMIT;
+exports._testHelpers.MAIL_RATE_WINDOW_MS = MAIL_RATE_WINDOW_MS;
+exports._testHelpers.MAIL_ORIGIN_SERVER = MAIL_ORIGIN_SERVER;
