@@ -20,8 +20,14 @@ updates:
     # on main. Dependabot PR #345 auto-merged exactly such a bump and had to be
     # reverted in #347 (post-incident #348). Resume eslint majors once
     # eslint-plugin-react ships eslint-10 support, then bump the pair together.
+    # @eslint/js is held with it: @eslint/js 10 peers on eslint ^10, and its
+    # recommended set adds rules (no-useless-assignment) that fail `eslint .`
+    # on main while eslint itself stays on 9 (Dependabot PR #475). Matches the
+    # matchline / tadlockpsychiatry / overridebroadway pins.
     ignore:
       - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
         update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
