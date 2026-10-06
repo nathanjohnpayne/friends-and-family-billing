@@ -24,12 +24,16 @@ coverage/
 
 # Logs
 *.log
+logs/
 firebase-debug.log
 
 # Public repo hygiene
 .env
 .env.*
 !*.tpl
+!.env.example
+!.env.e2e
+*.pem
 *.key
 service-account.json
 firebase-adminsdk*.json
@@ -56,3 +60,8 @@ build/
 # Misc
 tmp/
 .cache/
+
+# Mergepath runtime state (Phase 4b loop logs, Codex verdict ledger, merge
+# clearance markers) written by the synced scripts/. Local operational
+# state, never repository content.
+.mergepath/
