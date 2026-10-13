@@ -19,21 +19,23 @@ This repository uses a multi-identity AI agent code review system. The full poli
 
 ### Identity Rules
 
-- All agents author and commit code as nathanjohnpayne.
+- All agents author code as nathanjohnpayne. Local sessions also use the human committer; Claude cloud sessions retain the approved signed committer described in [Cloud Agent Environments](docs/agents/cloud-environments.md).
 - Each agent reviews code under its own reviewer identity (e.g., nathanpayne-claude, nathanpayne-cursor, nathanpayne-codex).
 - An agent never reviews code under the same identity that authored it.
 - Only nathanjohnpayne merges to the target branch.
 
 ### Workflow Summary
 
-0. Run credential preflight at the start of every PR session:
+0. In local sessions, run credential preflight at the start of every PR session:
    `eval "$(scripts/op-preflight.sh --agent {your-agent} --mode all)"`
    This triggers biometric prompts once and caches all credentials for the session.
-   Use `GH_TOKEN="$OP_PREFLIGHT_REVIEWER_PAT"` for reviewer commands and
-   `GH_TOKEN="$OP_PREFLIGHT_AUTHOR_PAT"` for author commands.
+   In cloud sessions, use the provisioned credentials and capability probe in [Cloud Agent Environments](docs/agents/cloud-environments.md); do not invoke local 1Password preflight.
+   Use cached PATs only for read-only API calls. Route reviewer writes through
+   `GH_AS_REVIEWER_IDENTITY=nathanpayne-{your-agent} scripts/gh-as-reviewer.sh -- gh ...`
+   and author writes through `scripts/gh-as-author.sh -- gh ...`.
 1. Author code as nathanjohnpayne. File a PR.
-2. Switch to your reviewer identity (e.g., nathanpayne-claude). Review the PR. Post comments.
-3. Switch back to nathanjohnpayne. Address each comment. Push fix commits.
+2. Select your registered reviewer credentials through `scripts/gh-as-reviewer.sh`. Review the PR and post comments; commit author identity remains nathanjohnpayne, with the approved Claude cloud committer preserved.
+3. Address each comment and push fix commits with the human author identity. Author-attributed GitHub writes use `scripts/gh-as-author.sh`.
 4. Repeat steps 2–3 until the reviewer identity approves with no outstanding issues.
 5. If this repo has `coderabbit.enabled: true` in `.github/review-policy.yml`:
    a. **Wait** for CodeRabbit to post its review (up to 3 minutes; ask the human if it hasn't appeared).
