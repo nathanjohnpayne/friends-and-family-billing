@@ -1,12 +1,19 @@
 # Agent Operating Rules
 
+## PR-body requirements
+
+Before opening a PR, include `Authoring-Agent: <your-agent>` and a `## Self-Review` section covering correctness, regression risk, style, test coverage, and security/dependency hygiene. Use the identity-checked author path governed by [REVIEW_POLICY.md](../../REVIEW_POLICY.md#phase-1-authoring), with the session-supported transports and capable-session handback described in [Cloud Agent Environments](cloud-environments.md). Do not use bare GitHub writes. Delegating CLAUDE.md to the AGENTS.md reading order preserves these requirements.
+
 Read in this order before taking any action:
 
 1. `README.md` — understand the project
 2. `AGENTS.md` — load behavioral instructions (index pointing to this directory)
 3. `rules/repo_rules.md` — load binding constraints
 4. Relevant `specs/` files — understand intended behavior
-5. `.ai_context.md` — load supplemental context
+5. `DEPLOYMENT.md` — deploy process and credential setup
+6. `.ai_context.md` — load supplemental context
+
+If any required file is missing, flag the gap before proceeding.
 
 Conflict resolution:
 
