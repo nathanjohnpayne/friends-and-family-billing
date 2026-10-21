@@ -74,7 +74,7 @@ The terms below follow the domain glossary in [CONTEXT.md](CONTEXT.md).
 ### 🔗 Share Links
 
 - ✅ Token-based billing summaries for a member's Household (no login required)
-- ✅ Every link shows the summary, payment methods, the member's pending Usage Charges and the Household's payment history; options add Review Request submission and viewing
+- ✅ Newly generated links show the summary, payment methods, the member's pending Usage Charges and the Household's payment history (links created before Usage Charges or payment history existed omit those sections until regenerated); options add Review Request submission and viewing
 - ✅ Configurable expiry, revocation and a Manage Links view; up to five active links per member per year, with older links revoked automatically
 - ✅ Personal settlement callout (outstanding balance or settled confirmation) and payment progress
 - ✅ Service Credits shown as line items under the Household total
