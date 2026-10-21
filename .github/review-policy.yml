@@ -240,11 +240,13 @@ phase_4b_automation:
   # non-conformant verdict, adapter timeout, head drift, same-head required-
   # finding gate—still falls back to the manual handoff.
   #
-  # This switch does NOT replace or clear the explicit human review that
-  # rules/repo_rules.md (High-Risk Zones) and #538 require before merging
-  # any change to recordPayment(), reversePayment() or other payment
-  # mutation/calculation code. An automated Phase 4b APPROVED is agent
-  # clearance only; the owner still reviews those diffs before merge.
+  # An automated Phase 4b APPROVED NEVER clears the owner's explicit human
+  # review that rules/repo_rules.md (High-Risk Zones) and #538 require before
+  # merging any change to recordPayment(), reversePayment() or other payment
+  # mutation/calculation code. That review stays a process requirement: this
+  # file does not encode it and cannot satisfy it, and branch protection does
+  # not enforce it. Owner decision on enabling here (mergepath#2665,
+  # 2026-10-21): "Enable, keep human review".
   enabled: true
 
   # Execution model. 'local' = the authoring agent's session shells out to the
