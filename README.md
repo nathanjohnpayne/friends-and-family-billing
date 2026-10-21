@@ -315,7 +315,7 @@ Shares are computed from each bill's annual total divided by the number of membe
 
 - **Firestore Rules:** Owner-only access to `/users/{userId}` and its subcollections; everything not explicitly allowed is denied
 - **Share Links:** Each link carries a random 256-bit token; the `shareTokens` and `publicShares` documents are keyed by its SHA-256 hash. Anyone can fetch a `publicShares` document by that hash, but only the owner can list them, and guests may update only the access counters
-- **Scopes:** Every link grants `summary:read`, `paymentMethods:read`, `usageCharges:read` and `payments:read`; `disputes:create` and `disputes:read` are optional, and `refunds:read` is granted only on Refund Notice confirmation links. The Cloud Functions reject revoked, expired or out-of-scope requests
+- **Scopes:** Newly generated links grant `summary:read`, `paymentMethods:read`, `usageCharges:read` and `payments:read`. Links minted before `usageCharges:read` or `payments:read` existed keep their original scopes and omit those sections until they are regenerated; `disputes:create` and `disputes:read` are optional, and `refunds:read` is granted only on Refund Notice confirmation links. The Cloud Functions reject revoked, expired or out-of-scope requests
 - **Rate limits:** 10 Review Requests per link per 24 hours, one new-link request per link per 24 hours, and 100 client-sent emails per account per 24 hours
 - **Evidence:** Stored in Firebase Storage under the owner's path; owner-only writes, PDF/PNG/JPEG under 20 MB; members view evidence through a short-lived signed URL
 - **HTTPS:** All data transmitted securely via Firebase Hosting
@@ -340,7 +340,7 @@ Shares are computed from each bill's annual total divided by the number of membe
 
 ## Redesign Wireframes
 
-[`plans/ffb-wireframes.html`](plans/ffb-wireframes.html) is a self-contained wireframe document proposing a full visual and interaction redesign of the app. It draws every screen and dialog at three widths—desktop 1280, tablet 834 and phone 390—and includes a token legend with computed WCAG contrast, plus numbered Redesign changes, each with a rationale, and a summary table. It adds no app code.
+[`plans/ffb-wireframes.html`](plans/ffb-wireframes.html) is a self-contained wireframe document proposing a full visual and interaction redesign of the app. It draws every screen and its main dialogs at three widths—desktop 1280, tablet 834 and phone 390—lists the remaining dialogs that reuse the same components with different copy, and includes a token legend with computed WCAG contrast, plus numbered Redesign changes, each with a rationale, and a summary table. It adds no app code.
 
 To view it, open the file directly in a browser (there is no build step), or use the rendered copy at [raw.githack.com](https://raw.githack.com/nathanjohnpayne/friends-and-family-billing/main/plans/ffb-wireframes.html). Implementation is tracked in epic [#524](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/524).
 
@@ -396,7 +396,7 @@ The app runs on Firebase Hosting, Cloud Firestore, Firebase Storage (Review Requ
 
 ### Redesign Wireframes (2026-10)—#524
 
-- ✅ Added `plans/ffb-wireframes.html`, self-contained wireframes proposing a full visual and interaction redesign: every screen and dialog at desktop 1280, tablet 834 and phone 390, a token legend with computed WCAG contrast, and numbered Redesign changes with rationales and a summary table
+- ✅ Added `plans/ffb-wireframes.html`, self-contained wireframes proposing a full visual and interaction redesign: every screen and its main dialogs at desktop 1280, tablet 834 and phone 390, a token legend with computed WCAG contrast, and numbered Redesign changes with rationales and a summary table
 - 📋 Implementation tracked in epic [#524](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/524); no app code changes in this entry
 
 ### Legacy App Retirement (2026-06) --- #326
