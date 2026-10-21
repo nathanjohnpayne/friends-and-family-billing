@@ -239,7 +239,7 @@
   .tabbar span{display:flex;flex-direction:column;align-items:center;gap:3px;padding:2px 10px}
   .tabbar .on{color:#22201d}
   .tabbar > span.rd{flex-direction:row;padding:2px 7px 2px 6px;gap:4px;transform:translateX(-50%)}
-  .tabbar .on svg{color:#ff692d;stroke-width:2.4}
+  .tabbar .on svg{color:#ad3c0b;stroke-width:2.4}
   .pagehead{display:flex;gap:14px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;margin:0 0 16px}
   .pagehead > :first-child{flex:1 1 320px;min-width:0}
   .pagehead .hint{margin-top:4px}
@@ -258,7 +258,7 @@
   .btn.ghost{border-color:transparent;background:transparent;color:#66645f}
   .btn.danger{color:#9b2335;border-color:#ebc3ca;background:#fff}
   .btn.danger.fill{background:#9b2335;color:#fff;border-color:#9b2335}
-  .btn.off{opacity:.45}
+  .btn.off{background:#e6e2de;color:#66645f;border-color:#e6e2de}
   .btn.sm{padding:5px 11px;font-size:11.5px}
   .btn.block{display:flex;width:100%}
   .btn .caret{margin-left:-2px;opacity:.7}
@@ -267,6 +267,7 @@
   .btnrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;background:#efecea;color:#66645f;font-size:11px;font-weight:600;line-height:1.6;white-space:nowrap;max-width:100%}
   .chip.line{background:transparent;border:1px solid #dcd9d6}
+  .chip.tag{margin-left:6px;font-size:10px;padding:0 7px;vertical-align:1px}
   .chip.ink{background:#22201d;color:#fff}
   .chip.emb{background:#ffe0d3;color:#ad3c0b}
   .st{display:inline-flex;align-items:center;gap:5px;padding:2px 9px 2px 7px;border-radius:999px;font-size:11px;font-weight:600;line-height:1.6;white-space:nowrap}
@@ -279,7 +280,7 @@
   .st-warn{background:#fbf1dc;color:#8a5a00}
   .st-neutral{background:#efecea;color:#66645f}
   .in{border:1px solid #dcd9d6;border-radius:8px;padding:8px 10px;background:#fff;font-size:12.5px;color:#22201d;min-height:34px;display:flex;align-items:center;gap:6px}
-  .in.ph{color:#9a9794}
+  .in.ph{color:#6f6d69}
   .in.focus{border-color:#22201d;box-shadow:0 0 0 3px rgba(255,105,45,.28)}
   .in.err{border-color:#9b2335}
   .in .caret{margin-left:auto;color:#777573}
@@ -359,7 +360,8 @@
   .filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
   .fchp{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;border:1px solid #dcd9d6;background:#fff;font-size:12px;font-weight:500;color:#66645f;white-space:nowrap}
   .fchp.on{background:#22201d;color:#fff;border-color:#22201d}
-  .fchp .n{font-variant-numeric:tabular-nums;opacity:.75}
+  .fchp .n{font-variant-numeric:tabular-nums;color:#66645f}
+  .fchp.on .n{color:#dcd9d6}
   .fchp svg{width:11px;height:11px}
 
   /* household card */
@@ -449,9 +451,9 @@
   .pm .ic.z{background:#6b3fa0}.pm .ic.c{background:#1e6b3f}.pm .ic.k{background:#2f5b9c}
   .pm .grow{flex:1;min-width:0}
   .pm .pref{width:92px;text-align:right;flex:0 0 auto;white-space:nowrap}
-  .pm.off .grow,.pm.off .ic{opacity:.5}
+  .pm.off .grow b,.pm.off .grow .dim{color:#66645f}.pm.off .ic{background:#66645f}
   .qr{width:120px;height:120px;border:1px solid #dcd9d6;border-radius:10px;background:
-    repeating-linear-gradient(90deg,#22201d 0 6px,transparent 6px 12px),repeating-linear-gradient(0deg,#22201d 0 6px,#fff 6px 12px);background-blend-mode:difference;flex:0 0 auto}
+    repeating-linear-gradient(90deg,#22201d 0 5px,transparent 5px 11px),repeating-linear-gradient(0deg,#22201d 0 5px,#fff 5px 11px);flex:0 0 auto}
   .qr.sm{width:64px;height:64px}
 
   /* dialogs */
@@ -742,8 +744,9 @@ function shell(active, body, o = {}) {
   ${o.after || ''}
   <nav class="tabbar">${o.rdnav ? rd(16, 'left:151px;top:7px', 'phonly') : ''}${tabs}</nav>${HOME()}</div>`;
 }
-const MANAGE_TABS = [['members', 'Members', 9], ['bills', 'Bills', 5], ['invoicing', 'Invoicing'], ['reviews', 'Review Requests', 2], ['refunds', 'Refund Notices', 1]];
-const subtabs = on => `<div class="subtabs" data-scroll>${MANAGE_TABS.map(([id, l, n]) => `<span class="${id === on ? 'on' : ''}">${l}${n ? `<span class="cnt">${n}</span>` : ''}</span>`).join('')}</div>`;
+const MANAGE_TABS = [['members', 'Members', 'members'], ['bills', 'Bills', 'bills'], ['invoicing', 'Invoicing'], ['reviews', 'Review Requests', 'reviews'], ['refunds', 'Refund Notices', 'refunds']];
+const COUNTS = { members: 9, bills: 5, reviews: 2, refunds: 1 }; // the sample year; a frame passes overrides (an empty tab shows no count)
+const subtabs = (on, c = {}) => { const n = { ...COUNTS, ...c }; return `<div class="subtabs" data-scroll>${MANAGE_TABS.map(([id, l, key]) => `<span class="${id === on ? 'on' : ''}">${l}${key && n[key] ? `<span class="cnt">${n[key]}</span>` : ''}</span>`).join('')}</div>`; };
 </script>
 <script>
 // ---------------------------------------------------------------------------
@@ -772,14 +775,14 @@ const B = {
 const formula = b => b.f === 'yr' ? `${money(b.amt)} / year ÷ ${b.n_m} members = ${money(b.share)}` : `${money(b.amt)} / month × 12 ÷ ${b.n_m} members = ${money(b.share)}`;
 // Households: the settlement unit (ADR 0001). Status from Net Contribution (gross paid − recorded refunds).
 const HH = [
-  { id: 'okafor', name: 'Okafor household', m: ['ada', 'tobi', 'zara'], owed: 978, paid: 1000, status: 'credit', credit: 22,
+  { id: 'okafor', name: 'Okafor household', m: ['ada', 'tobi', 'zara'], contact: 'ada', owed: 978, paid: 1000, status: 'credit', credit: 22,
     paidBy: { ada: 337.42, tobi: 368.10, zara: 294.48 } },
-  { id: 'lindqvist', name: 'Lindqvist household', m: ['erik', 'maja'], owed: 618, paid: 300, status: 'partial', balance: 318, review: 'inrev',
+  { id: 'lindqvist', name: 'Lindqvist household', m: ['erik', 'maja'], contact: 'erik', owed: 618, paid: 300, status: 'partial', balance: 318, review: 'inrev',
     paidBy: { erik: 300, maja: 0 } },
-  { id: 'nakamura', name: 'Nakamura–Osei household', m: ['kenji', 'dede'], owed: 606, paid: 0, status: 'out', balance: 606, pending: { total: 50.5, count: 2 },
+  { id: 'nakamura', name: 'Nakamura–Osei household', m: ['kenji', 'dede'], contact: 'kenji', owed: 606, paid: 0, status: 'out', balance: 606, pending: { total: 50.5, count: 2 },
     paidBy: { kenji: 0, dede: 0 } },
-  { id: 'rosa', name: 'Rosa Delgado', m: ['rosa'], owed: 372, paid: 412, status: 'settled', review: 'open', refunded: 40, paidBy: { rosa: 412 } },
-  { id: 'sam', name: 'Sam Whitfield', m: ['sam'], owed: 270, paid: 285, status: 'credit', credit: 15, reopened: true, paidBy: { sam: 285 } },
+  { id: 'rosa', name: 'Rosa Delgado', m: ['rosa'], contact: 'rosa', owed: 372, paid: 412, status: 'settled', review: 'open', refunded: 40, paidBy: { rosa: 412 } },
+  { id: 'sam', name: 'Sam Whitfield', m: ['sam'], contact: 'sam', owed: 270, paid: 285, status: 'credit', credit: 15, reopened: true, paidBy: { sam: 285 } },
 ];
 const av = (k, cls = '') => `<span class="av ${M[k].c} ${cls}">${M[k].i}</span>`;
 const avs = (keys, cls = '') => `<span class="avs">${keys.map(k => av(k, cls)).join('')}</span>`;
@@ -817,7 +820,7 @@ function login(state) {
     <div style="text-align:center;margin-bottom:18px"><span class="brand" style="font-size:22px">${LOGO}Friends &amp; Family Billing</span>
       <div class="dim sm" style="margin-top:6px">${signup ? 'Create your account' : 'Sign in to continue'}${signup ? '' : rdi(17)}</div></div>
     <div class="card" style="position:relative">${form}</div>
-    <div class="xs gr" style="margin-top:16px;text-align:center">${ic('lock')} One administrator account per billing year. Members never sign in—they use share links.</div>
+    <div class="xs dim" style="margin-top:16px;text-align:center">${ic('lock')} One administrator account per billing year. Members never sign in—they use share links.</div>
   </div>${HOME('linen')}</div>`;
 }
 
@@ -837,7 +840,7 @@ function hhCard(h, o = {}) {
     const paid = h.paidBy[k], owed = M[k].t, bal = owed - paid;
     const mst = paid <= 0 ? 'out' : paid >= owed ? 'settled' : 'partial';
     const brk = o.brk === k ? `<div class="brk">${M[k].bills.map(b => `<div class="row"><span>${logo(b, 'sm')} ${B[b].n}</span><span class="f">${formula(B[b])}</span></div>`).join('')}<div class="row tot"><span>Total (${first(k)})</span><span class="f">${money(owed)}</span></div></div>${o.an4 && k === o.brk ? an(4) : ''}` : '';
-    return `<div class="mrow"><div class="who">${av(k)}<div style="min-width:0"><div><b>${M[k].n}</b></div><div class="xs dim">${M[k].bills.length} bills · ${o.brk === k ? 'hide breakdown ▴' : 'show breakdown ▾'}</div></div></div>
+    return `<div class="mrow"><div class="who">${av(k)}<div style="min-width:0"><div><b>${M[k].n}</b>${h.contact === k && h.m.length > 1 ? '<span class="chip line tag">Contact</span>' : ''}</div><div class="xs dim">${M[k].bills.length} bills · ${o.brk === k ? 'hide breakdown ▴' : 'show breakdown ▾'}</div></div></div>
       <div class="figs">${fig('Owed', money(owed))}${fig('Paid', money(paid))}${fig('Balance', bal > 0.005 ? money(bal) : 'Paid', bal > 0.005 ? 'out' : 'ok')}</div>${st(mst)}${brk}</div>`;
   }).join('');
   const tot = many ? `<div class="hh-tot"><span>Household total · ${h.m.length} members${o.an2 ? an(2) : ''}</span><span>${money(h.owed)} owed · ${money(h.paid)} paid · ${h.status === 'credit' ? money(h.credit) + ' credit' : h.status === 'settled' ? 'settled' : money(h.balance) + ' balance'}</span></div>` : '';
@@ -898,34 +901,37 @@ function dashboard(state, x = {}) {
 </script>
 <script>
 // ---- Manage → Members ------------------------------------------------------
-const memberRow = (k, o = {}) => `<div class="prow">${av(k)}<div class="grow"><div><b>${M[k].n}</b>${o.an ? an(o.an) : ''}</div><div class="c ellip">${M[k].e || '<span class="gr">Email not provided</span>'} · ${M[k].p || '<span class="gr">Phone not provided</span>'}</div></div>
+const memberRow = (k, o = {}) => `<div class="prow">${av(k)}<div class="grow"><div><b>${M[k].n}</b>${o.contact ? '<span class="chip line tag">Contact</span>' : ''}${o.an ? an(o.an) : ''}</div><div class="c ellip">${M[k].e || '<span class="gr">Email not provided</span>'} · ${M[k].p || '<span class="gr">Phone not provided</span>'}</div></div>
   ${o.ro ? '' : `<span class="acts"><span class="ico-btn ghost" title="Edit details">${ic('pencil')}</span><span class="ico-btn ghost">${ic('ellipsis')}</span></span>`}
   ${o.menu ? `<div class="menu-pop" style="right:14px;top:40px"><div>${ic('pencil')} Edit details</div><div>${ic('users')} Move to another household…</div><div class="sep"></div><div class="dng">${ic('trash-2')} Remove member…</div></div>` : ''}</div>`;
 function hhGroup(h, o = {}) {
   const many = h.m.length > 1;
   return `<div class="hcard" style="position:relative"><div class="hcard-head">${avs(h.m, 'sm')}<div class="grow"><b>${h.name}</b><div class="xs dim">${many ? h.m.length + ' members · settle together as one household' : 'Individual · settles alone'}</div></div>
     ${o.ro ? '' : btn(many ? ic('pencil') + ' Edit household' : ic('plus') + ' Add to a household', 'sm')}${o.rd ? rdi(6) : ''}${o.an ? an(o.an) : ''}</div>
-    ${h.m.map((k, i) => memberRow(k, { ro: o.ro, menu: o.menu === k, an: o.an7 && i === 0 ? 2 : 0 })).join('')}</div>`;
+    ${h.m.map((k, i) => memberRow(k, { ro: o.ro, menu: o.menu === k, contact: many && h.contact === k, an: o.an7 && i === 0 ? 2 : 0 })).join('')}</div>`;
 }
 function members(state, x = {}) {
-  const head = `<div class="pagehead"><div><h1 class="ttl">Members</h1><div class="hint">${state === 'empty' ? 'No members yet' : '9 members in 5 households · 2026'}</div></div><div class="btnrow">${btn((state === 'empty' ? '− Cancel' : ic('plus') + ' Add member'), state === 'empty' ? '' : 'ink')}</div></div>`;
-  const composer = `<div class="composer"><div class="row"><div class="in focus">Priya Natarajan<span class="caret-i"></span></div><div class="in ph">Email</div><div class="in ph">Phone (E.164, e.g. +14155551212)</div></div>
+  const composing = state === 'empty' || state === 'duplicate';
+  const head = `<div class="pagehead"><div><h1 class="ttl">Members</h1><div class="hint">${state === 'empty' ? 'No members yet' : '9 members in 5 households · 2026'}</div></div><div class="btnrow">${btn((composing ? '− Cancel' : ic('plus') + ' Add member'), composing ? '' : 'ink')}</div></div>`;
+  const composer = (name, err) => `<div class="composer"><div class="row"><div class="in ${err ? 'err' : 'focus'}">${name}<span class="caret-i"></span></div><div class="in ph">Email</div><div class="in ph">Phone (E.164, e.g. +14155551212)</div></div>
+    ${err ? `<div class="alert" style="margin:10px 0 0">${err}${an(5)}</div>` : ''}
     <div class="btnrow" style="margin-top:10px;justify-content:space-between"><span class="hint">Name is required. Email and phone unlock invoices and share links.</span>${btn('Add member', 'ink sm')}</div></div>`;
-  if (state === 'empty') return shell('manage', subtabs('members') + head + composer + `<div class="empty"><div class="ttl">No members yet</div><div>Add members to start splitting bills.${an(1)}</div></div>`);
-  const body = subtabs('members') + head + `<div class="hint" style="margin:-6px 0 12px">${ic('users')} A household is a group of members who settle together. Every member keeps their own share and payment record.${an(1)}</div>`
-    + HH.map((h, i) => hhGroup(h, { rd: i === 0 && !x.noRd, an: i === 0 ? 3 : 0, an7: i === 0, menu: x.menu })).join('')
-    + (x.noRd ? '' : `''`);
+  if (state === 'empty') return shell('manage', subtabs('members', { members: 0, reviews: 0, refunds: 0 }) + head + composer('Priya Natarajan') + `<div class="empty"><div class="ttl">No members yet</div><div>Add members to start splitting bills.${an(1)}</div></div>`);
+  const cards = HH.map((h, i) => hhGroup(h, { rd: i === 0 && !x.noRd, an: i === 0 ? 3 : 0, an7: i === 0, menu: x.menu })).join('');
+  if (state === 'duplicate') return shell('manage', subtabs('members') + head + composer('Ada Okafor', 'A member named "Ada Okafor" already exists.') + cards);
+  const body = subtabs('members') + head + `<div class="hint" style="margin:-6px 0 12px">${ic('users')} A household is a group of members who settle together. Every member keeps their own share and payment record.${an(1)}</div>` + cards;
   if (state === 'household') {
     const dlg = `<div class="modal"><div class="dlg"><div class="grab"></div><div class="dlg-h"><h2 class="ttl">Edit household</h2>${rdi(6)}</div>
       <div class="hint" style="margin-bottom:12px">Members in a household settle together as one unit. A member belongs to one household.${an(4)}</div>
       <div class="field"><span class="lbl">Household name</span><div class="in">Lindqvist household</div><div class="xs dim" style="margin-top:4px">New stored field—defaults to the members’ shared surname.</div></div>
-      <span class="lbl">Members</span>
-      <div class="optrow"><span class="cb on"></span>${av('erik', 'sm')} Erik Lindqvist</div>
-      <div class="optrow"><span class="cb on"></span>${av('maja', 'sm')} Maja Lindqvist</div>
+      <span class="lbl">Members · pick the household contact${an(5)}</span>
+      <div class="xs dim" style="margin:-2px 0 8px">The contact receives invoices, share links and Refund Notices. To remove the contact, pick another contact first.</div>
+      <div class="optrow"><span class="cb on" style="opacity:.45" title="The contact cannot be unchecked"></span>${av('erik', 'sm')} Erik Lindqvist<span class="sp"></span><span class="rb on"></span><span class="sm dim">Contact</span></div>
+      <div class="optrow"><span class="cb on"></span>${av('maja', 'sm')} Maja Lindqvist<span class="sp"></span><span class="rb"></span><span class="sm dim">Contact</span></div>
       <div class="hr"></div><span class="lbl">Available to add</span>
-      <div class="optrow"><span class="cb"></span>${av('rosa', 'sm')} Rosa Delgado <span class="xs gr">individual</span></div>
-      <div class="optrow"><span class="cb"></span>${av('sam', 'sm')} Sam Whitfield <span class="xs gr">individual</span></div>
-      <div class="xs dim">Members of another household are not listed—move them from that household first.</div>
+      <div class="optrow"><span class="cb"></span>${av('rosa', 'sm')} Rosa Delgado <span class="xs dim">individual</span></div>
+      <div class="optrow"><span class="cb"></span>${av('sam', 'sm')} Sam Whitfield <span class="xs dim">individual</span></div>
+      <div class="xs dim">Members of another household are not listed—move them from that household first. Changing the contact moves the household to them; every member’s recorded payments stay where they are.</div>
       <div class="dlg-f">${btn('Cancel', 'ghost')}${btn('Save household', 'ink')}</div></div></div>`;
     return shell('manage', body, { after: dlg });
   }
@@ -951,7 +957,7 @@ function bills(state, x = {}) {
   const composer = `<div class="composer"><div class="row"><div class="in focus">Bill name<span class="caret-i"></span></div><div class="in ph">Amount</div><span class="seg"><span class="on">Monthly</span><span>Annual</span></span></div>
     <div class="row" style="margin-top:10px;grid-template-columns:1fr"><div class="in ph">Website (optional)—https://…</div></div>
     <div class="btnrow" style="margin-top:10px;justify-content:space-between"><span class="hint">Name and amount are required. Assign members after adding.${an(1)}</span>${btn('Add bill', 'ink sm')}</div></div>`;
-  if (state === 'empty') return shell('manage', subtabs('bills') + head + composer + `<div class="empty"><div class="ttl">No bills yet</div><div>Add bills and assign members to split costs.</div></div>`);
+  if (state === 'empty') return shell('manage', subtabs('bills', { bills: 0, reviews: 0 }) + head + composer + `<div class="empty"><div class="ttl">No bills yet</div><div>Add bills and assign members to split costs.</div></div>`);
   const ids = Object.keys(B);
   const body = subtabs('bills') + head + ids.map((id, i) => billCard(id, { rd7: i === 0 && !x.noRd, split: id === 'hc' && !x.noSplit, menu: x.menu === id, an: i === 0 ? 2 : (id === 'hc' ? 3 : 0) })).join('');
   return shell('manage', body, { after: x.after || '' });
@@ -978,7 +984,7 @@ function invoicing(state) {
   const metabar = `<div class="metabar"><span class="l">To</span><div class="ellip">rosa.delgado@example.com <span class="in" style="display:inline-flex;min-height:26px;padding:2px 8px;margin-left:6px">Rosa Delgado ${ic('chevron-down', 'caret')}</span>${an(6)}</div>
     <span class="l">Link</span><div style="display:flex;gap:8px;align-items:center;min-width:0"><span class="ellip" style="flex:1 1 auto">https://ffb.example/share?token=7f3a91c2…</span>${btn('Copy', 'sm')}${btn('Manage', 'sm ghost')}</div></div>`;
   const prevBody = `<div class="prev"><p style="margin:0 0 10px">Hi Rosa,</p><p style="margin:0 0 10px">Here is your household’s share of our shared bills for 2026. Your household total is <b>$372.00</b>.</p>
-    <div class="pmlist"><div><b>Venmo</b>—@morgan-reyes (preferred)</div><div><b>Zelle</b>—morgan@example.com · +1 415 555 0142</div><div><b>Check</b>—payable to Morgan Reyes, 418 Alder Street, Portland, OR 97214</div></div>
+    <div class="pmlist"><div><b>Venmo</b>—@Morgan-Reyes-Example (preferred)</div><div><b>Zelle</b>—morgan@example.com · +1 415 555 0142</div><div><b>Check</b>—payable to Morgan Reyes, 9 Example Court, Anytown, ST 00000</div></div>
     <p style="margin:0 0 10px">You can see the full breakdown, your payment history and request a review at <a>https://ffb.example/share?token=7f3a91c2…</a>.</p><p style="margin:0">Thanks!—Morgan</p></div>`;
   const card = `<div class="card flat" style="padding:0;overflow:visible">${preview ? metabar + subjectPrev + prevBody : subjectEdit + edbar + body}</div>
     ${preview ? '' : `<div class="hint" style="margin-top:10px">Type <span class="kbd">/</span> or <span class="kbd">%</span> to insert a field. Formatting is applied as you type. Payment methods are managed in Settings; Configure opens the same manager here.</div>`}`;
@@ -997,8 +1003,9 @@ const reqCard = (r, o = {}) => `<div class="req ${r.s === 'inrev' ? 'inrev' : r.
   <div class="xs dim" style="margin-top:4px">From ${M[r.who].n} · ${r.d}</div>
   <p class="msg">${r.msg}</p>${r.corr ? `<p class="corr">Proposed correction: ${r.corr}</p>` : ''}</div>`;
 function reviews(state, x = {}) {
-  const head = `<div class="pagehead"><div><h1 class="ttl">Review Requests</h1><div class="hint">${state === 'empty' ? 'None yet' : '2 need your attention · 4 this year'}</div></div></div>`;
-  if (state === 'empty') return shell('manage', subtabs('reviews') + head + `<div class="empty"><div class="ttl">No review requests</div><div>Review requests from members will appear here when submitted via share links.</div></div>`);
+  const head = `<div class="pagehead"><div><h1 class="ttl">Review Requests</h1><div class="hint">${state === 'empty' ? 'None yet' : state === 'error' ? 'Could not load this year’s requests' : '2 need your attention · 4 this year'}</div></div></div>`;
+  if (state === 'error') return shell('manage', subtabs('reviews', { reviews: 0 }) + head + `<div class="alert">${ic('triangle-alert')} Error loading review requests: Missing or insufficient permissions.${an(3)}</div><div class="hint">The request list comes from a live Firestore subscription; a failed read shows the message and nothing else—reloading retries.</div>`);
+  if (state === 'empty') return shell('manage', subtabs('reviews', { reviews: 0 }) + head + `<div class="empty"><div class="ttl">No review requests</div><div>Review requests from members will appear here when submitted via share links.</div></div>`);
   const filters = `<div class="filters" data-scroll><span class="fchp on">Needs attention <span class="n">2</span></span><span class="fchp">All <span class="n">4</span></span><span class="fchp">${ic('st-review')}Open <span class="n">1</span></span><span class="fchp">${ic('st-partial')}In review <span class="n">1</span></span><span class="fchp">${ic('st-settled')}Resolved <span class="n">1</span></span><span class="fchp">${ic('st-out')}Rejected <span class="n">1</span></span>${an(1)}</div>`;
   const list = (x.all ? REQS : REQS.slice(0, 2)).map((r, i) => reqCard(r, { rd: i === 0 && !x.noRd, an: i === 0 ? 2 : 0 })).join('');
   return shell('manage', subtabs('reviews') + head + filters + list, { after: x.after || '' });
@@ -1011,7 +1018,7 @@ const NOTICES = [
 ];
 function refunds(state, x = {}) {
   const head = `<div class="pagehead"><div><h1 class="ttl">Refund Notices</h1><div class="hint">${state === 'empty' ? 'None issued yet' : '2 issued this year · 1 needs follow-up'}</div></div></div>`;
-  if (state === 'empty') return shell('manage', subtabs('refunds') + head + `<div class="empty"><div class="ttl">No refund notices</div><div>When you issue a refund, the member is notified here and can confirm receipt.</div></div>`);
+  if (state === 'empty') return shell('manage', subtabs('refunds', { refunds: 0 }) + head + `<div class="empty"><div class="ttl">No refund notices</div><div>When you issue a refund, the member is notified here and can confirm receipt.</div></div>`);
   const banner = `<div class="banner"><span>${ic('triangle-alert')}</span><div class="grow"><b>1 refund reported as not received—needs follow-up.</b> While the year is open this re-opens the household’s credit; resolve it to clear.${an(1)}</div></div>`;
   const cards = NOTICES.map((n, i) => `<div class="req ${n.s === 'notrec' ? 'rej' : 'res'}"><div class="top"><b class="num" style="font-size:15px">${money(n.amt)}</b><span class="dim">to ${M[n.who].n}</span><span class="sp"></span>${st(n.s)}${i === 0 ? an(2) : ''}</div>
     <div class="xs dim" style="margin-top:4px">${n.method} · sent ${n.d}</div><p class="msg">Reason: ${n.reason}</p><p class="corr">${n.note}</p>
@@ -1026,10 +1033,10 @@ function refunds(state, x = {}) {
 
 // ---- Settings --------------------------------------------------------------
 const PMS = [
-  { k: 'venmo', l: 'Venmo', d: '@morgan-reyes · venmo.com/u/morgan-reyes', ic: 'V', cls: '', pref: true, qr: true, on: true },
+  { k: 'venmo', l: 'Venmo', d: '@Morgan-Reyes-Example · venmo.example/u/morgan-reyes-example', ic: 'V', cls: '', pref: true, qr: true, on: true },
   { k: 'zelle', l: 'Zelle', d: 'morgan@example.com · +1 415 555 0142', ic: 'Z', cls: 'z', on: true },
-  { k: 'check', l: 'Check', d: 'Payable to Morgan Reyes · 418 Alder Street, Portland, OR 97214', ic: '✓', cls: 'c', on: true },
-  { k: 'cashapp', l: 'Cash App', d: '$morganreyes', ic: '$', cls: 'k', on: false },
+  { k: 'check', l: 'Check', d: 'Payable to Morgan Reyes · 9 Example Court, Anytown, ST 00000', ic: '✓', cls: 'c', on: true },
+  { k: 'cashapp', l: 'Cash App', d: '$MorganReyesExample', ic: '$', cls: 'k', on: false },
 ];
 function settings(state, x = {}) {
   const pm = (p, i) => `<div class="pm ${p.on ? '' : 'off'}"><span class="ic ${p.cls}">${p.ic}</span><div class="grow"><div><b>${p.l}</b> ${p.pref ? chip(ic('star') + ' Preferred', 'emb') : ''} ${p.qr ? chip(ic('qr-code') + ' QR code', 'line') : ''}</div><div class="xs dim ellip">${p.d}</div></div>
@@ -1047,8 +1054,8 @@ function settings(state, x = {}) {
   let after = x.after || '';
   if (state === 'editing') after = `<div class="modal"><div class="dlg"><div class="grab"></div><div class="dlg-h"><h2 class="ttl">Edit Venmo</h2></div>
     <div class="field"><span class="lbl">Display label</span><div class="in">Venmo</div></div>
-    <div class="field"><span class="lbl">Handle / username</span><div class="in">@morgan-reyes</div></div>
-    <div class="field"><span class="lbl">URL / link</span><div class="in">https://venmo.com/u/morgan-reyes</div></div>
+    <div class="field"><span class="lbl">Handle / username</span><div class="in">@Morgan-Reyes-Example</div></div>
+    <div class="field"><span class="lbl">URL / link</span><div class="in">https://venmo.example/u/morgan-reyes-example</div></div>
     <div class="field"><span class="lbl">Instructions (optional)</span><div class="in ph">Additional payment instructions…</div></div>
     <div class="field"><span class="lbl">QR code (optional)</span><div style="display:flex;gap:12px;align-items:center"><span class="qr"></span><div><div class="btnrow">${btn('Replace', 'sm')}${btn('Remove', 'sm ghost')}</div><div class="xs dim" style="margin-top:6px">PNG or JPEG. Shown on the share page behind “Show QR code”.${an(4)}</div></div></div></div>
     <div class="dlg-f">${btn('Cancel', 'ghost')}${btn('Save', 'ink')}</div></div></div>`;
@@ -1057,33 +1064,33 @@ function settings(state, x = {}) {
 </script>
 <script>
 // ---- Share page (public, /share?token=…) ------------------------------------
-function shareWrap(inner) {
+function shareWrap(inner, after = '') {
   return `<div class="app canvas share">${SBAR('linen')}<div class="sh-top"><span class="brand" style="font-size:14px">${LOGO}Friends &amp; Family Billing</span><span class="sp"></span>${ic('lock')} Secure billing summary</div>
-    <main class="main" style="padding:0"><div class="sh-wrap">${inner}</div></main>${HOME('linen')}</div>`;
+    <main class="main" style="padding:0"><div class="sh-wrap">${inner}</div></main>${after}${HOME('linen')}</div>`;
 }
 const shareRow = (b, monthly, share, annual) => `<tr><td class="full"><span style="display:inline-flex;align-items:center;gap:8px">${logo(b, 'sm')}<b>${B[b].n}</b></span></td><td class="r" data-l="Monthly">${money(monthly)}</td><td class="r" data-l="Split">${B[b].n_m} members</td><td class="r" data-l="Share">${money(share)}</td><td class="r" data-l="Annual"><b>${money(annual)}</b></td><td class="r">${btn('Request a review', 'sm ghost')}</td></tr>`;
 const pmCards = (owed) => `<div class="sh-sec"><div class="h2">Payment methods</div>
   <div class="hint" style="margin-bottom:10px">${ic('lock')} Payments go directly to the organizer—Friends &amp; Family Billing never processes or holds your money. That’s also why “Request a review” exists: flag anything that looks off and the administrator is notified.</div>
   <div class="pmc pref"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic">V</span></span><b>Venmo</b>${chip(ic('star') + ' Preferred', 'emb')}</div>
     ${owed ? `<div style="margin:8px 0 2px;font-weight:600">Send ${money(owed)} via Venmo</div>` : ''}
-    <div class="row"><span>@morgan-reyes</span>${btn('Copy', 'sm')}</div><div class="row"><span class="ellip">venmo.com/u/morgan-reyes</span>${btn('Copy link', 'sm')}</div>
+    <div class="row"><span>@Morgan-Reyes-Example</span>${btn('Copy', 'sm')}</div><div class="row"><span class="ellip">venmo.example/u/morgan-reyes-example</span>${btn('Copy link', 'sm')}</div>
     <div class="btnrow" style="margin-top:8px">${btn(ic('qr-code') + ' Show QR code', 'sm')}</div></div>
   <div class="pmgrid"><div class="pmc"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic z">Z</span></span><b>Zelle</b></div><div class="row"><span class="ellip">morgan@example.com</span>${btn('Copy', 'sm')}</div><div class="row"><span>+1 415 555 0142</span>${btn('Copy', 'sm')}</div></div>
-    <div class="pmc"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic c">✓</span></span><b>Check</b></div><div class="row"><span>Payee: Morgan Reyes</span>${btn('Copy', 'sm')}</div><div class="row"><span class="ellip">418 Alder Street, Portland, OR 97214</span>${btn('Copy', 'sm')}</div></div></div></div>`;
-function share(state) {
+    <div class="pmc"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic c">✓</span></span><b>Check</b></div><div class="row"><span>Payee: Morgan Reyes</span>${btn('Copy', 'sm')}</div><div class="row"><span class="ellip">9 Example Court, Anytown, ST 00000</span>${btn('Copy', 'sm')}</div></div></div></div>`;
+function share(state, x = {}) {
   if (state === 'loading') return shareWrap(`<div class="card" style="text-align:center;margin-top:60px;padding:30px"><div class="spin"></div><div class="ttl" style="font-size:22px">Loading your annual billing summary…</div><div class="hint" style="margin-top:6px">This secure page is preparing your latest billing details.</div></div>`);
   if (state === 'error') return shareWrap(`<div class="card" style="text-align:center;margin-top:60px;padding:30px"><div class="ttl" style="font-size:22px">Unable to load summary</div><div class="hint" style="margin:6px 0 14px">This link has expired or has been removed.${an(5)}</div>${btn('Request a new link', 'ink')}<div class="xs dim" style="margin-top:10px">The administrator is notified and can send you a fresh link.</div></div>`);
   if (state === 'settled') {
-    const bc = b => `<div class="bcard">${logo(b, 'sm')}<b>${B[b].n}</b>${st('settled', 'Paid')}<div class="math">${money(B[b].f === 'yr' ? B[b].amt / 12 : B[b].amt)}/mo ÷ ${B[b].n_m} members = ${money(B[b].share / 12)}/mo · ×12 = ${money(B[b].share)}/yr</div></div>`;
+    const bc = (b, i) => `<div class="bcard">${logo(b, 'sm')}<b>${B[b].n}</b>${st('settled', 'Paid')}<div class="math">${money(B[b].f === 'yr' ? B[b].amt / 12 : B[b].amt)}/mo ÷ ${B[b].n_m} members = ${money(B[b].share / 12)}/mo · ×12 = ${money(B[b].share)}/yr</div><div style="grid-column:2 / -1">${btn('Request a review', 'sm ghost')}${i === 0 ? rdi(9) : ''}</div></div>`;
     return shareWrap(`<h1 class="ttl lg" style="margin-top:8px">Delgado Household’s Annual Billing Summary</h1><div class="hint" style="margin-top:4px">Your shared billing summary for 2026.</div>
-      <div class="lead settled"><span class="ic">${ic('check')}</span><div><div class="t">You’re all settled for 2026</div><div class="s">$372.00 paid in full—nothing due</div></div></div>
-      <div class="sh-sec"><div class="h2">Rosa Delgado</div>${M.rosa.bills.map(bc).join('')}<div class="btnrow" style="margin-top:4px">${btn('Request a review', 'sm ghost')}${rdi(9)}</div></div>
+      <div class="lead settled"><span class="ic">${ic('check')}</span><div><div class="t">You’re all settled for 2026</div><div class="s">$412.00 paid, $40.00 returned to you—nothing due${an(6)}</div></div></div>
+      <div class="sh-sec"><div class="h2">Rosa Delgado</div>${M.rosa.bills.map(bc).join('')}</div>
       <div class="sh-sec"><div class="stat3" style="grid-template-columns:1fr 1fr"><div class="kpi"><div class="eyebrow">Your share</div><div class="v">$31.00<span class="dim" style="font-size:13px;font-family:Inter,system-ui,sans-serif">/mo</span></div></div><div class="kpi"><div class="eyebrow">Annual total</div><div class="v">$372.00</div></div></div></div>
       ${pmCards(0)}
       <div class="sh-sec"><div class="h2">Payment history</div>${btn('Show payment history (2)', 'sm')}</div>
       <div class="sh-sec"><div class="h2">Your refunds</div><div class="hint" style="margin-bottom:8px">A refund was sent to your household. Please confirm when it arrives, or let us know if it has not.</div>
         <div class="req res"><div class="top"><b class="num">$40.00</b><span class="dim">via Venmo</span><span class="sp"></span>${st('confirmed')}</div><div class="xs dim" style="margin-top:4px">Sent Mar 9, 2026</div><p class="msg">Reason: Returned the overpayment after a duplicate January payment</p><p class="corr" style="color:#1e6b3f">You confirmed you received this refund.${an(4)}</p></div></div>
-      <div class="sh-sec"><div class="h2">Your review requests</div><div class="req open"><div class="top"><b>Meridian Music</b><span class="sp"></span>${st('open')}</div><div class="xs dim" style="margin-top:4px">Jul 19, 2026</div><p class="msg">I cancelled Meridian Music in June—should I still be charged for the full year?</p><p class="corr">Suggested: Charge Jan–Jun only ($36.00)</p><div class="evi" style="margin-top:8px">${ic('paperclip')} meridian-cancellation.pdf <span class="sp"></span>${btn('View', 'sm ghost')}</div></div></div>`);
+      <div class="sh-sec"><div class="h2">Your review requests</div><div class="req open"><div class="top"><b>Meridian Music</b><span class="sp"></span>${st('open')}</div><div class="xs dim" style="margin-top:4px">Jul 19, 2026</div><p class="msg">I cancelled Meridian Music in June—should I still be charged for the full year?</p><p class="corr">Suggested: Charge Jan–Jun only ($36.00)</p><div class="evi" style="margin-top:8px">${ic('paperclip')} meridian-cancellation.pdf <span class="sp"></span>${btn('View', 'sm ghost')}</div></div></div>`, x.after);
   }
   // populated—the Lindqvist household, owed
   const table = `<div class="card flat" style="padding:4px 12px 8px;position:relative"><table class="tbl stack"><thead><tr><th>Bill</th><th class="r">Monthly</th><th class="r">Split</th><th class="r">Share</th><th class="r">Annual</th><th></th></tr></thead><tbody>
@@ -1098,7 +1105,9 @@ function share(state) {
       <div class="prog" style="margin:10px 0 0"><div class="bar"><i style="width:49%"></i></div><div class="xs dim">49% paid</div></div></div>
     ${pmCards(318)}
     <div class="sh-sec"><div class="h2">Payment history</div>${btn('Show payment history (1)', 'sm')}${an(3)}</div>
-    <div class="sh-sec"><div class="h2">Your review requests</div><div class="req inrev"><div class="top"><b>Northline Mobile</b><span class="sp"></span>${st('inrev')}</div><div class="xs dim" style="margin-top:4px">Jun 2, 2026</div><p class="msg">Our line count went from 2 to 1 in March, but the split still shows two lines for us.</p></div></div>`);
+    <div class="sh-sec"><div class="h2">Your review requests</div>${x.decision
+      ? `<div class="req res"><div class="top"><b>Northline Mobile</b><span class="sp"></span>${st('warn', 'Awaiting your decision')}${st('resolved')}</div><div class="xs dim" style="margin-top:4px">Jun 2, 2026 · resolved Oct 18, 2026</div><p class="msg">Our line count went from 2 to 1 in March, but the split still shows two lines for us.</p><p class="corr">Resolution: Northline confirmed the drop to one line from March; your share for Mar–Dec is recomputed and a $60.00 service credit is applied.</p><div class="btnrow" style="margin-top:8px">${btn('Approve', 'ink sm')}${btn('Reject…', 'sm')}</div></div>`
+      : `<div class="req inrev"><div class="top"><b>Northline Mobile</b><span class="sp"></span>${st('inrev')}</div><div class="xs dim" style="margin-top:4px">Jun 2, 2026</div><p class="msg">Our line count went from 2 to 1 in March, but the split still shows two lines for us.</p></div>`}</div>`, x.after);
 }
 
 // ---- Dialogs (each drawn over its parent screen) ------------------------------
@@ -1107,7 +1116,7 @@ const F = (l, v, cls = '') => `<div class="field"><span class="lbl">${l}</span><
 const SEL = v => `${v} ${ic('chevron-down', 'caret')}`;
 
 function dlgEmailInvoice(state) {
-  const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> · erik.lindqvist@example.com · household total $618.00 · balance $318.00${an(1)}</div>
+  const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> (household contact) · erik.lindqvist@example.com · household total $618.00 · balance $318.00${an(1)}</div>
     <span class="lbl">What to send</span><span class="seg" style="margin-bottom:12px"><span>Text only</span><span class="on">Text + link</span><span>Full invoice</span></span>${an(2)}
     ${F('Subject', 'Annual Billing Summary 2026—Erik Lindqvist')}
     <div class="field"><span class="lbl">Message</span><div class="in ta" style="min-height:150px">Hello Erik,
@@ -1120,7 +1129,7 @@ View your billing summary: [share link is generated when you send]</div></div>
   return dashboard('populated', { noRd: true, expanded: 'lindqvist', brk: null, after: dlg('Email invoice', inner, foot, { wide: true }) });
 }
 function dlgTextInvoice(state) {
-  const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> · +1 503 555 0144 · household total $618.00 · balance $318.00</div>
+  const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> (household contact) · +1 503 555 0144 · household total $618.00 · balance $318.00</div>
     <span class="lbl">What to send</span><span class="seg" style="margin-bottom:12px"><span>Text only</span><span class="on">Text + link</span></span>${an(1)}
     <div class="field"><span class="lbl">Message</span><div class="in ta" style="min-height:110px">Hey Erik, here’s your 2026 billing summary: your household total is $618.00 and $318.00 is still due. Details: [share link added when you send]</div></div>
     <div class="xs dim">Opens your Messages app with the text filled in; the message is also copied in case the app does not open.${an(2)}</div>`;
@@ -1163,7 +1172,7 @@ function dlgDisputeDetail(state) {
   const foot = resolved ? btn('Close', 'ghost') : `<span class="left">${btn('Mark in review', 'ghost sm')}</span>${btn('Reject', 'danger')}${btn('Resolve', 'ink')}`;
   return reviews('populated', { noRd: true, all: true, after: dlg(B[r.bill].n, inner, foot, { wide: true, hdr }) });
 }
-function dlgPaymentHistory(state) {
+function dlgPaymentHistory(state, x = {}) {
   const row = (d, amt, meth, note, extra = '') => `<div class="pay"><span class="dim num" style="width:92px;flex:0 0 auto">${d}</span><span class="amt num">${money(amt)}</span><span class="dim">${meth}</span>${note ? `<span class="xs dim note">${note}</span>` : '<span class="sp"></span>'}${btn(ic('pencil') + ' Edit', 'sm ghost')}${btn('Reverse', 'sm danger')}${extra}</div>`;
   const inner = `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px"><div class="kpi"><div class="eyebrow">Total paid</div><div class="v" style="font-size:20px">$412.00</div></div><div class="kpi"><div class="eyebrow">Refunds recorded</div><div class="v" style="font-size:20px">$40.00</div></div><div class="kpi"><div class="eyebrow">Balance</div><div class="v ok" style="font-size:20px">Paid</div></div></div>
     <div>${row('Feb 2, 2026', 206, 'Venmo', 'second payment—\$40.00 refunded Mar 9', rdi(15))}${row('Jan 15, 2026', 206, 'Venmo', '')}${an(1)}</div>
@@ -1172,19 +1181,22 @@ function dlgPaymentHistory(state) {
   if (state === 'reverse') after += `<div class="modal" style="background:rgba(34,32,29,.25)"><div class="dlg"><div class="grab"></div><div class="dlg-h"><h2 class="ttl" style="font-size:20px">Reverse payment—refund on record</h2></div>
     <div class="hint" style="margin-bottom:4px">This household received a <b>$40.00</b> refund. Reversing the <b>$206.00</b> payment from Feb 2, 2026 will make them Outstanding by <b>$206.00</b>—the refund is not automatically clawed back. This creates a reversal entry in the audit trail. Reverse anyway?${an(3)}</div>
     <div class="dlg-f">${btn('Cancel', 'ghost')}${btn('Reverse', 'danger fill')}</div></div></div>`;
+  if (x.extra) after += x.extra;
   return dashboard('populated', { noRd: true, expanded: 'rosa', brk: null, after });
 }
 function dlgRecordPayment(state) {
+  const err = state === 'error';
   const inner = `<div class="hint" style="margin-bottom:12px">For the <b>Lindqvist household</b> · balance <b>$318.00</b>${an(1)}</div>
-    ${F('Amount ($)', '318.00<span class="caret-i"></span>', 'focus')}<div class="pair">${F('Method', SEL('Check'))}${F('Received on', '2026-10-21')}</div>${F('Note (optional)', '<span class="dim">e.g. Q4 payment</span>')}
-    <div class="optrow" style="align-items:flex-start"><span class="cb on" style="margin-top:2px"></span><div>Distribute across the household proportionally<div class="xs dim">Erik $169.81 · Maja $148.19—each member’s share of what they owe${an(2)}</div></div></div>`;
+    ${F('Amount ($)', err ? '318.00' : '318.00<span class="caret-i"></span>', err ? '' : 'focus')}<div class="pair">${F('Method', SEL('Check'))}${F('Received on', '2026-10-21')}</div>${F('Note (optional)', '<span class="dim">e.g. Q4 payment</span>')}
+    <div class="optrow" style="align-items:flex-start"><span class="cb on" style="margin-top:2px"></span><div>Distribute across the household proportionally<div class="xs dim">Erik $169.81 · Maja $148.19—each member’s share of what they owe${an(2)}</div></div></div>
+    ${err ? `<div class="alert" style="margin:12px 0 0">${ic('triangle-alert')} This billing year is closed and read-only.${an(3)}</div><div class="hint">Nothing was saved—the year was closed from another window while this dialog was open. Close it and reload to see the year as it is now.</div>` : ''}`;
   return dashboard('populated', { noRd: true, expanded: 'lindqvist', brk: null, after: dlg('Record payment', inner, `${btn('Cancel', 'ghost')}${btn('Save payment', 'ink')}`) });
 }
 function dlgIssueRefund(state) {
   const inner = `<div class="hint" style="margin-bottom:12px">For the <b>Okafor household</b> · credit <b>$22.00</b>${an(1)}</div>
     ${F('Refund amount ($)', '22.00<span class="caret-i"></span>', 'focus')}<div class="xs dim" style="margin:-8px 0 12px">Up to the household credit of $22.00.</div>
     ${F('Method', SEL('Venmo'))}${F('Reason', 'Returned 2026 overpayment')}
-    <div class="info" style="margin:0">Recording the refund clears the credit now. A Refund Notice goes to Ada Okafor by email so the household can confirm receipt—or report that it has not arrived.${an(2)}</div>`;
+    <div class="info" style="margin:0">Recording the refund clears the credit now. A Refund Notice goes to Ada Okafor, the household contact, by email so the household can confirm receipt—or report that it has not arrived.${an(2)}</div>`;
   return dashboard('populated', { noRd: true, expanded: 'okafor', brk: null, after: dlg('Issue refund', inner, `${btn('Cancel', 'ghost')}${btn('Save refund', 'ink')}`) });
 }
 function dlgServiceCredit(state) {
@@ -1222,8 +1234,39 @@ function dlgConfirm(state) {
   return members('populated', { noRd: true, after: dlg('Remove member', inner, `${btn('Cancel', 'ghost')}${btn('Remove', 'danger fill')}`) });
 }
 
+function dlgPaymentEdit(state) {
+  const inner = `<div class="hint" style="margin-bottom:12px">Only the method and the note can change—the amount and date are part of the ledger. To change the amount, reverse the payment and record it again.${an(1)}</div>
+    <div class="field"><span class="lbl">Amount</span><div class="in" style="background:#faf9f8;color:#66645f">$206.00 · received Feb 2, 2026</div></div>
+    ${F('Method', SEL('Venmo'))}${F('Note', 'second payment—$40.00 refunded Mar 9<span class="caret-i"></span>', 'focus')}`;
+  const extra = dlg('Edit payment', inner, `${btn('Cancel', 'ghost')}${btn('Save', 'ink')}`).replace('<div class="modal">', '<div class="modal" style="background:rgba(34,32,29,.25)">');
+  return dlgPaymentHistory('default', { extra });
+}
+function dlgShareQr(state) {
+  const missing = state === 'missing';
+  const inner = missing
+    ? `<div class="hint" style="margin:4px 0 2px">No QR code available for this payment method.${an(2)}</div><div class="xs dim">Use the handle or link on the Venmo card instead.</div>`
+    : `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:4px 0"><span class="qr" style="width:200px;height:200px"></span><div class="hint" style="text-align:center">Scan with your phone’s camera to open @Morgan-Reyes-Example in Venmo. The amount is not pre-filled—enter $318.00.${an(1)}</div></div>`;
+  return share('populated', { after: dlg('QR code · Venmo', inner, btn('Close', 'ghost')) });
+}
+function dlgShareReview(state) {
+  const sent = state === 'sent';
+  const inner = sent
+    ? `<div class="ok" style="margin:0 0 4px">${ic('check')} Your request was sent. The administrator has been notified and will reply by email.${an(2)}</div><div class="hint">It now appears under Your review requests as Open. You can send up to ten requests a day from this link.</div>`
+    : `<div class="hint" style="margin-bottom:12px">About <b>Northline Mobile</b>—your share is $20.00/mo, $240.00 for 2026.${an(1)}</div>
+       <div class="field"><span class="lbl">What looks wrong?</span><div class="in ta focus" style="min-height:96px">We dropped to one line in March but the split still counts two lines for our household.<span class="caret-i"></span></div><div class="xs dim" style="margin-top:4px">Required · up to 2,000 characters</div></div>
+       ${F('Suggested correction (optional)', 'One line from March—about $20.00/mo less')}`;
+  const foot = sent ? btn('Close', 'ghost') : `${btn('Cancel', 'ghost')}${btn(ic('send') + ' Send request', 'ink')}`;
+  return share('populated', { after: dlg(sent ? 'Review request sent' : 'Request a review', inner, foot, { hdr: rdi(9) }) });
+}
+function dlgShareReject(state) {
+  const inner = `<div class="hint" style="margin-bottom:12px">Tell the administrator why the resolution for <b>Northline Mobile</b> does not settle it. Your reason is sent with your decision and re-opens the request.${an(1)}</div>
+    <div class="field"><span class="lbl">Why are you rejecting it?</span><div class="in ta focus" style="min-height:90px">The credit covers Mar–Dec, but we were already on one line in February—the February share should be recomputed too.<span class="caret-i"></span></div><div class="xs dim" style="margin-top:4px">Required</div></div>`;
+  return share('populated', { decision: true, after: dlg('Reject this resolution', inner, `${btn('Cancel', 'ghost')}${btn('Reject resolution', 'danger fill')}`, { hdr: rdi(10) }) });
+}
+
 // ---- System surfaces ------------------------------------------------------------
 function system(state) {
+  if (state === 'error') return dashboard('populated', { noRd: true, expanded: 'lindqvist', brk: null, after: `<div class="toast" style="background:#9b2335"><span>Send failed: the sender’s email address is not verified</span><span class="x">${ic('x')}</span>${an(3)}</div>` });
   if (state === 'update') return dashboard('populated', { noRd: true, expanded: null, after: `<div class="toast"><span>A new version of Friends &amp; Family Billing is available.</span>${btn('Refresh', 'pri')}<span class="x">${ic('x')}</span>${an(1)}</div>` });
   return dashboard('populated', { noRd: true, expanded: 'lindqvist', brk: null, after: `<div class="toast"><span>Payment recorded—Lindqvist household, $318.00</span><span class="x">${ic('x')}</span>${an(2)}</div>` });
 }
@@ -1235,12 +1278,12 @@ function system(state) {
 const RD = {
   '01': { home: 'dashboard', screens: 'dashboard, dialogs over it', title: 'Households are groups of peers', file: 'src/app/components/SettlementBoard.jsx',
     was: 'The card is headed by one “primary” member with a “+2” badge, the other members are nested under a “Linked Members” section as “children” (child-indicator, “Household includes 2 linked members”), and the primary’s own bill breakdown is titled “Primary Member Calculation”. The UI makes one person look responsible for the others, which is the data model (ADR 0001’s primary + linkedMembers), not the relationship.',
-    now: 'One card per household, named (“Okafor household”), with all members in an avatar cluster and the household figures on the header; inside, every member is a row of equal rank with their own owed / paid / balance, each expandable to their bill breakdown; the household total closes the list. Implies new stored data: an optional household name (defaults to the shared surname). The settlement unit, the close-gate and the credit still follow ADR 0001.',
+    now: 'One card per household, named (“Okafor household”), with all members in an avatar cluster and the household figures on the header; inside, every member is a row of equal rank with their own owed / paid / balance, each expandable to their bill breakdown; the household total closes the list. The one person the app still treats as the Primary Member (CONTEXT.md)—who receives invoices, share links and Refund Notices—is the <b>Household contact</b>, a small “Contact” tag on their row, never a rank (see Redesign 06 for the rule). Implies new stored data: an optional household name (defaults to the shared surname). The settlement unit, the close-gate and the credit still follow ADR 0001.',
     why: 'The administrator reasons about households (who settles together) and about people (who owes what); nobody is anybody’s dependent. The same information is shown without implying a hierarchy, and the household name gives the group a handle that today has to be inferred from the first name on the card.' },
   '02': { home: 'dashboard', screens: 'dashboard', title: 'Board actions grouped by intent', file: 'src/app/components/SettlementBoard.jsx',
-    was: 'The expanded card shows up to six same-weight buttons in a row—Record Payment, Issue Refund, Payment History, Add Charge, Bill Charges, Text Invoice—plus a “•••” menu holding Email Invoice, Generate Share Link and Manage Share Links, so emailing an invoice is hidden while texting one is not.',
-    now: 'One primary action that matches the household’s state (Record payment while a balance remains; Issue refund while a credit exists), then two intent menus—Send (email invoice, text invoice, new / manage share links) and Adjust (add usage charge, bill charges)—and Payment history as a quiet link.',
-    why: 'The next thing to do is the only filled button, the ways to reach a member are together, and the adjustments that change what is owed are together. Nothing is hidden behind an unlabeled “•••”.' },
+    was: 'The shipped card already has a state-matched filled primary: Record Payment while a balance remains and Issue Refund while a credit exists are both `btn-primary` and mutually exclusive (`showPaymentAction` / `showRefundAction`). Beside it sit four tertiary buttons—Payment History, Add Charge, Bill Charges, Text Invoice—and a “•••” menu holding Email Invoice, Generate Share Link and Manage Share Links, so Email Invoice is hidden while Text Invoice is a visible button, and the two ways to reach a member are split between a button and a menu.',
+    now: 'The state-matched primary is kept exactly as shipped. The four tertiary actions become two labelled intent menus—Send (email invoice, text invoice, new / manage share links) and Adjust (add usage charge, bill charges)—and Payment history is demoted to a quiet link.',
+    why: 'Email and text sit next to each other, the adjustments that change what is owed sit together, and nothing is hidden behind an unlabeled “•••”.' },
   '03': { home: 'dashboard', screens: 'dashboard', title: 'Filters cover every status', file: 'src/app/components/SettlementBoard.jsx',
     was: 'The filter chips are All / Outstanding / Partial / Settled, but a household can also be Overpaid (its status badge), and its count is tallied under none of the chips (the `counts` object has no overpaid key); households with an open Review Request cannot be filtered at all.',
     now: 'Chips for every status the board can show—Outstanding, Partial, Settled, Credit—plus “Open review”, each with its icon and count. The counts add up to All.',
@@ -1255,8 +1298,8 @@ const RD = {
     why: 'Affordance is visible instead of discovered by hovering, and the units of each number are stated.' },
   '06': { home: 'members', screens: 'members', title: 'Members tab organised by household', file: 'src/app/views/Manage/MembersTab.jsx',
     was: 'A flat list of member cards where linked members are indented (`member-card--child`) under a parent that shows “Household” pills, and the only way to form a household is the parent’s menu item “Link Household” / “Edit Household”—the dialog copy says “Members can only be linked to one parent”.',
-    now: 'One card per household listing its members as equal rows, with “Edit household” on the group and “Add to a household” on individuals. The dialog names the household (new stored field), lists its members and the individuals available to add, and says “A member belongs to one household”.',
-    why: 'The structure the administrator is managing—who settles together—is the card, not a side effect of one member’s menu, and the copy stops calling adults parents and children.' },
+    now: 'One card per household listing its members as equal rows, with “Edit household” on the group and “Add to a household” on individuals. The dialog names the household (new stored field), lists its members and the individuals available to add, and says “A member belongs to one household”. Each household has a <b>Household contact</b>—the member who receives invoices, share links and Refund Notices—picked with a radio among the checked members and shown as a “Contact” tag on the card and in the board rows. This is CONTEXT.md’s Primary Member with no hierarchy wording: the contact is the stored primary and `linkedMembers` hang off them, so the contact’s checkbox is locked; to remove that person, pick another contact first. Changing the contact makes the new contact the stored primary and moves `linkedMembers` to them, while every member’s ledger stays untouched because money is recorded per member—new service work, since `updateMember` in `src/lib/BillingYearService.js` today only guards the link graph (a member cannot be linked to themselves, is linked once, and a linked member cannot have links of their own) and `issueRefund` insists on the primary. Combining two individuals into a household: the one picked as contact becomes the primary.',
+    why: 'The structure the administrator is managing—who settles together—is the card, not a side effect of one member’s menu; the role the app really depends on (who gets the mail) is named for what it does; and the copy stops calling adults parents and children.' },
   '07': { home: 'bills', screens: 'bills, members', title: 'Explicit edit affordances', file: 'src/app/views/Manage/BillsTab.jsx',
     was: 'Names, amounts, emails and phones are editable by clicking the text itself (`.editable`, a `title` tooltip “Click to edit name”); nothing marks them as controls, and a missed click on a bill’s amount opens an inline input. Website, frequency and logo edits live in the “•••” menu.',
     now: 'A pencil button on every card opens inline editing of its fields; the “•••” menu keeps the rarer actions (history, service credit, convert, website, logo, remove) with icons and a destructive item last.',
@@ -1271,7 +1314,7 @@ const RD = {
     why: 'CONTEXT.md lists these as terms to avoid; using one vocabulary across the admin app, the share page and email keeps the member and the administrator talking about the same thing.' },
   '10': { home: 'refunds', screens: 'refunds, share', title: 'Reasons are typed in the app, not in window.prompt', file: 'src/app/views/Manage/RefundNoticesTab.jsx',
     was: '“Dismiss Report” asks for its logged reason with a native `window.prompt` (`onDismiss`), and the member’s “Reject” on the share page does the same (`src/app/views/ShareView.jsx`, `prompt(\'Please explain why you are rejecting:\')`); the prompt is unstyled, cannot explain the consequence, and is easy to cancel by accident.',
-    now: 'A dialog that states what dismissing does (keeps the report in the audit trail, clears the re-opened credit), a required reason field, and a destructive-styled confirm.',
+    now: 'A dialog that states what dismissing does (keeps the report in the audit trail, clears the re-opened credit), a required reason field, and a destructive-styled confirm. The member’s Reject on the share page gets the same treatment: a sheet that says the reason is sent with the decision and re-opens the request, with a required reason field.',
     why: 'The reason is the audit record ADR 0003 requires; a proper field makes it deliberate and legible.' },
   '11': { home: 'settings', screens: 'settings', title: 'Corrections separated from the forward path', file: 'src/app/components/BillingYearSelector.jsx',
     was: '“Back to Open” / “Reopen to Settling” render as small tertiary buttons on the same row as “Start New Year”, so the rare, friction-worthy correction (ADR 0007) sits next to the routine action with no explanation of when to use it.',
@@ -1330,7 +1373,7 @@ const GROUPS = [
         { id: 'error', label: 'wrong password', kind: 'state', cap: { desk: 'Fields filled, the password field outlined in the Outstanding red, “Incorrect password.” inline between the fields and Sign in. Focus stays where the submit came from.', tab: U, ph: U } },
         { id: 'loading', label: 'signing in', kind: 'state', cap: { desk: '“Signing in…” on a dimmed button; the Google button is disabled too (the shipped route disables every control while <code>loading</code>).', tab: U, ph: U } },
         { id: 'signup', label: 'create account', kind: 'state', cap: { desk: 'The sign-up form in the same card: three fields and Create account; “Back to sign in” below. No Google button here—Google creates its account from the sign-in form.', tab: U, ph: U } },
-        { id: 'verify', label: 'verification notice · after sign-up', kind: 'state', cap: { desk: 'The signed-in shell right after an email/password sign-up: an empty 2026 dashboard with the amber verification banner above it and its Resend button.', tab: 'Banner spans the content width.', ph: 'Banner wraps to three lines above the empty state; the bottom tab bar is present.' } }] }] },
+        { id: 'verify', label: 'verification notice · after sign-up', kind: 'state', route: '/dashboard', cap: { desk: 'The signed-in shell right after an email/password sign-up: an empty 2026 dashboard with the amber verification banner above it and its Resend button.', tab: 'Banner spans the content width.', ph: 'Banner wraps to three lines above the empty state; the bottom tab bar is present.' } }] }] },
   { id: 'dashboard', title: 'Dashboard—the year, its gate and the settlement board', sub: '<code>src/app/views/Dashboard/DashboardView.jsx</code> (year pill, lifecycle stepper, forward action with its gate, four KPIs, deferred-charges indicator, progress) and <code>src/app/components/SettlementBoard.jsx</code> (filters, household cards, expand to breakdown, Record Payment / Issue Refund and the other actions). The board is a dashboard component, not a separate screen. Sample year: 2026 · Open · five households · $2,844.00 owed · $924.00 outstanding · $37.00 in unresolved credits (the Okafor $22.00 credit plus Sam Whitfield’s $15.00 refund reported not received, which ADR 0003 re-opens while the year is open).', screens: [
     { id: 'dashboard', title: 'Dashboard', fn: dashboard, legend: [
       '<b>Year strip</b>: the year as the title, the stepper (Open → Settling → Closed → Archived, completed steps ticked, the next step dashed when the gate is clear) and the forward action—Start settlement here; Close year with its gate hint while settling; Archive year when closed; nothing when archived. Each confirms in a dialog. Backward moves live in Settings.',
@@ -1350,11 +1393,13 @@ const GROUPS = [
       '<b>Nine members in five households.</b> The count in the title and the hint under it; “+ Add member” opens the composer (Name required, Email, Phone in E.164) with the shipped duplicate-name error inline.',
       '<b>Member row</b>: avatar, name, email · phone (placeholders “Email not provided” / “Phone not provided” when empty), a pencil for inline edit and a “•••” menu—Edit details, Move to another household, Remove member (destructive, confirms).',
       '<b>Household card</b>: members as equal rows, “Edit household” on the group; an individual’s card offers “Add to a household”. The year’s read-only states (closed, archived) hide every mutation control, as the shipped tab does.',
-      '<b>Edit household</b> dialog: name (new stored field), current members, and the individuals available to add—the shipped invariants hold (no self-linking, a member belongs to one household, a household cannot contain another household), stated in one sentence instead of “parent” / “child”.'],
+      '<b>Edit household</b> dialog: name (new stored field), current members, and the individuals available to add—the shipped invariants hold (no self-linking, a member belongs to one household, a household cannot contain another household), stated in one sentence instead of “parent” / “child”.',
+      '<b>Household contact</b>: the member who receives invoices, share links and Refund Notices—CONTEXT.md’s Primary Member, shown as a “Contact” tag rather than a rank. One per household, chosen by radio in Edit household; the contact’s checkbox is locked until another contact is picked, and the duplicate-name error in the composer is the shipped <code>addMember</code> message.'],
       states: [
-        { id: 'populated', label: '9 members · 5 households', kind: 'redesign', cap: { desk: 'Manage strip, title with counts, the explanatory line, five household cards. Each row keeps the pencil and the menu at the right edge.', tab: 'Cards take the full width; rows unchanged.', ph: 'The Manage strip scrolls; rows wrap email and phone under the name; the pencil and menu stay on the right.' } },
-        { id: 'empty', label: 'no members · composer open', kind: 'state', cap: { desk: '“+ Add member” has become “− Cancel”, the composer is open with the name field focused, and the shipped EmptyState copy (“No members yet. Add members to start splitting bills.”) sits below it.', tab: 'Composer fields go two-up.', ph: 'Composer fields stack.' } },
-        { id: 'household', label: 'editing the Lindqvist household', kind: 'state', cap: { desk: 'The Edit household dialog over the list: name, two current members checked, two individuals available, Save household.', tab: U, ph: 'The dialog is a bottom sheet; the checklist scrolls inside it.' } }] },
+        { id: 'populated', label: '9 members · 5 households', kind: 'redesign', cap: { desk: 'Manage strip, title with counts, the explanatory line, five household cards with the Contact tag on Ada, Erik and Kenji. Each row keeps the pencil and the menu at the right edge.', tab: 'Cards take the full width; rows unchanged.', ph: 'The Manage strip scrolls; rows wrap email and phone under the name; the pencil and menu stay on the right.' } },
+        { id: 'empty', label: 'no members · composer open', kind: 'state', cap: { desk: '“+ Add member” has become “− Cancel”, the composer is open with the name field focused, and the shipped EmptyState copy (“No members yet. Add members to start splitting bills.”) sits below it. The Manage strip shows no counts for Members, Review Requests or Refund Notices—there is nobody to request or refund yet.', tab: 'Composer fields go two-up.', ph: 'Composer fields stack.' } },
+        { id: 'duplicate', label: 'composer · duplicate name', kind: 'state', cap: { desk: 'Adding “Ada Okafor” again: the name field is outlined in red and the shipped service error—“A member named "Ada Okafor" already exists.”—renders inline in the composer; the list stays.', tab: U, ph: 'The error wraps under the stacked fields.' } },
+        { id: 'household', label: 'editing the Lindqvist household', kind: 'state', cap: { desk: 'The Edit household dialog over the list: name, the two members with the contact radio (Erik is the contact, so his checkbox is locked), two individuals available, Save household.', tab: U, ph: 'The dialog is a bottom sheet; the checklist scrolls inside it.' } }] },
     { id: 'bills', title: 'Bills', fn: bills, legend: [
       '<b>Composer</b>: name and amount required, Monthly / Annual as a segmented control (the shipped frequency toggle), optional website (http(s) validated); the toast reports “Bill added: … ($180.00 / month)”.',
       '<b>Bill card</b>: logo (uploaded, Logo.dev by website, or initials—<code>CompanyLogo.jsx</code>), name, website and the cadence line (“Billed monthly · annualized ≈ $2,160.00” / “Billed annually · monthly equivalent ≈ $10.00”), the amount as entered, then the split row: an avatar stack of the assigned members, the per-person figure, Edit split.',
@@ -1379,7 +1424,8 @@ const GROUPS = [
       'Refund Notices and Charge Notices never appear here (<code>useDisputes</code> excludes both kinds)—they are not Review Requests.'],
       states: [
         { id: 'populated', label: 'needs attention · 2 of 4', kind: 'redesign', cap: { desk: 'Title and counts, six filter chips with Needs attention selected, the two actionable cards: Rosa’s open request on Meridian Music with one evidence file, the Lindqvists’ Northline request in review.', tab: U, ph: 'Chips scroll; the card’s badges wrap under the bill name.' } },
-        { id: 'empty', label: 'no review requests', kind: 'state', cap: { desk: 'The shipped EmptyState copy; no filter bar (it renders only when there are requests).', tab: U, ph: U } }] },
+        { id: 'empty', label: 'no review requests', kind: 'state', cap: { desk: 'The shipped EmptyState copy; no filter bar (it renders only when there are requests).', tab: U, ph: U } },
+        { id: 'error', label: 'load error', kind: 'state', cap: { desk: 'The shipped error line—“Error loading review requests: ” plus the Firestore message—as an alert, with nothing else on the tab; the strip shows no count for the tab.', tab: U, ph: U } }] },
     { id: 'refunds', title: 'Refund Notices', fn: refunds, legend: [
       '<b>Follow-up banner</b> counts active not-received reports; while the year is open each one re-opens its household’s credit (visible on the dashboard as Owed to members and on the household card) until it is resolved.',
       '<b>Notice card</b>: amount, member, method, sent date, the confirmation state (Sent / Confirmed / Not received—the Refund Notice vocabulary, never the Review Request one, ADR 0002), the reason, and the member’s latest response.',
@@ -1404,13 +1450,14 @@ const GROUPS = [
       '<b>Lead callout</b> states the household’s position first: amount due with paid-of-total when owed; “You’re all settled” with the amount paid when settled; nothing when nothing is paid and nothing is owed.',
       '<b>Per-member bills</b>: the owed view keeps the itemised table (bill, monthly, split, share, annual—the split math reads “$180.00/mo ÷ 9 members = $20.00/mo · ×12 = $240.00/yr”) with Request a review on each row when the link carries <code>disputes:create</code>; other household members collapse to “Name—N bills ($/mo)”. Payment history is collapsed behind “Show payment history (N)” and lists only date, method and amount—never the note.',
       '<b>Your refunds</b> appears for a <code>refunds:read</code> link (always resolved live): each notice offers Confirm receipt / I have not received it until answered; the answer is recorded through the Cloud Function and the card shows the terminal line.',
+      '<b>Gross paid vs. Net Contribution</b>: the settled lead repeats the shipped figure (gross paid, <code>ps.totalPaid</code>) and adds the refund beside it, because the member recognises the money they sent; Net Contribution (gross paid minus recorded refunds, CONTEXT.md) is what makes the household settled, and the page says both in one line rather than showing a $372.00 the member never paid.',
       '<b>Unable to load</b>: the shipped error card with the server’s message, or the generic “invalid or has been removed”; when the token is known but expired the member can Request a new link (rate-limited), after which the card says the administrator will send one.'],
       states: [
         { id: 'populated', label: 'Lindqvist household · $318.00 due', kind: 'redesign', cap: { desk: 'Header, owed callout, household total, Erik’s bills expanded as the table with Request a review per row, Maja collapsed, the three summary figures and the 49 % bar, payment methods with Venmo preferred and “Send $318.00 via Venmo”, payment history collapsed, the in-review request.', tab: 'Same single column, 720 px wide.', ph: 'The bills table stacks into one block per bill (monthly / split / share / annual as labelled lines); the three figures become two columns; payment-method cards stack.' } },
-        { id: 'settled', label: 'Delgado household · settled · refund to confirm', kind: 'state', cap: { desk: 'Settled callout, each bill as a card with a Paid pill and its split math (the shipped settled layout), the two figures that still matter, payment methods without an amount due, payment history (2), Your refunds with the confirmed $40.00, the open review request with its evidence file.', tab: U, ph: 'Bill cards stack their math under the name.' } },
+        { id: 'settled', label: 'Delgado household · settled · refund to confirm', kind: 'state', cap: { desk: 'Settled callout showing the gross $412.00 the household paid (the shipped lead uses gross `totalPaid`) with the $40.00 refund stated beside it—owed $372.00, two $206.00 payments, one refund, so Net Contribution (CONTEXT.md: gross paid minus refunds) equals what is owed; each bill as a card with a Paid pill, its split math and its own Request a review (the shipped settled layout), the two figures that still matter, payment methods without an amount due, payment history (2), Your refunds with the confirmed $40.00, the open review request with its evidence file.', tab: U, ph: 'Bill cards stack their math under the name.' } },
         { id: 'loading', label: 'loading', kind: 'state', cap: { desk: 'The shipped state card with a spinner; after 12 s it adds “This is taking longer than expected.” and a Retry button.', tab: U, ph: U } },
         { id: 'error', label: 'expired link', kind: 'state', cap: { desk: '“Unable to load summary” with the reason and Request a new link.', tab: U, ph: U } }] }] },
-  { id: 'dialogs', title: 'Dialogs—drawn over their parent screen', sub: 'Every dialog the app opens, each over the screen that opens it and dimmed. Desktop and tablet keep a centred card (wide variants at 600 px); the phone turns every one into a bottom sheet (Redesign 14). Confirmations that stack on a dialog (reverse payment, resolve / reject) are drawn stacked.', screens: [
+  { id: 'dialogs', title: 'Dialogs—drawn over their parent screen', sub: 'The dialogs the app opens, each over the screen that opens it and dimmed. Desktop and tablet keep a centred card (wide variants at 600 px); the phone turns each one into a bottom sheet (Redesign 14). Dialogs that stack on a dialog (reverse payment, edit payment) are drawn stacked. Not drawn, because they are the same primitives with other copy: the Edit website dialog and the Convert billing frequency and Remove bill confirmations on Bills, the Remove payment method confirmation on Settings, and the Send test email and Payment Methods (Configure) dialogs on Invoicing.', screens: [
     { id: 'dlg-email-invoice', title: 'Email invoice', fn: dlgEmailInvoice, legend: [
       '<b>Recipient line</b> with the figures the shipped dialog lists (recipient, email, annual total, balance when something is paid); Send email is disabled when the member has no email.',
       '<b>Variant</b>: Text only / Text + link / Full invoice (the “full” variant includes the ANNUAL BILLING SUMMARY breakdown). Changing it rebuilds the body unless the administrator has edited it, in which case the link is appended at send time.',
@@ -1446,10 +1493,14 @@ const GROUPS = [
       states: [
         { id: 'default', label: 'Rosa Delgado · 2 payments · $40.00 refunded', kind: 'redesign', cap: { desk: 'Wide dialog over the dashboard: the three figures, two Venmo payments with Edit and Reverse, the note about reversals.', tab: U, ph: 'Bottom sheet; each payment wraps its note and buttons.' } },
         { id: 'reverse', label: 'reverse · refund on record', kind: 'state', cap: { desk: 'The stacked confirmation with the shipped copy for a household that received a refund: “…will make them Outstanding by $206.00—the refund is not automatically clawed back…”.', tab: U, ph: 'Two sheets: the confirmation over the history sheet.' } }] },
+    { id: 'dlg-payment-edit', title: 'Edit payment', fn: dlgPaymentEdit, legend: [
+      '<b>Edit payment</b> (<code>PaymentEditDialog</code>, nested in <code>src/app/components/PaymentHistoryDialog.jsx</code>, opened by a row’s Edit): method and note only. The amount is shown read-only because the ledger is append-only—to change it, reverse the payment and record it again. Save calls <code>updatePayment</code> and toasts “Payment updated”.'],
+      states: [{ id: 'default', label: 'Feb 2 payment · method and note', kind: 'current', cap: { desk: 'Stacked over the payment history dialog: the read-only amount and date, Method, the note focused, Cancel and Save.', tab: U, ph: 'Two sheets: Edit payment over the history sheet.' } }] },
     { id: 'dlg-record-payment', title: 'Record payment', fn: dlgRecordPayment, legend: [
       '<b>Amount, method, date, note</b>—the shipped fields plus the received-on date the ledger already stores (<code>receivedAt</code>, today by default); “Enter a valid amount.” inline for a non-positive amount.',
       '<b>Distribute across the household</b> (checked by default for a household with more than one member) splits the payment proportionally to each member’s annual total, the last member taking the rounding remainder; the preview shows the resulting entries.'],
-      states: [{ id: 'default', label: 'Lindqvist household · $318.00', kind: 'current', cap: { desk: 'Over the dashboard with the Lindqvist card expanded: balance in the lead line, amount focused, method Check, the distribute option with its preview.', tab: U, ph: 'Bottom sheet; Method and Received on stack.' } }] },
+      states: [{ id: 'default', label: 'Lindqvist household · $318.00', kind: 'current', cap: { desk: 'Over the dashboard with the Lindqvist card expanded: balance in the lead line, amount focused, method Check, the distribute option with its preview.', tab: U, ph: 'Bottom sheet; Method and Received on stack.' } },
+        { id: 'error', label: 'save failed · year closed elsewhere', kind: 'state', cap: { desk: 'The service rejected the save (the year was closed from another window): the shipped dialog shows the thrown message—“This billing year is closed and read-only.”—inline and stays open; the fields keep their values. The hint under it is added copy.', tab: U, ph: 'Bottom sheet; the alert sits above the buttons.' } }] },
     { id: 'dlg-issue-refund', title: 'Issue refund', fn: dlgIssueRefund, legend: [
       '<b>Amount defaults to the credit and is capped at it</b>; method and a required reason. Saving records the <code>creditAdjustment</code> (which clears the credit and the gate, ADR 0003) and then fires the Refund Notice email as a non-blocking follow-up—an email failure is reported in the toast, the refund stands.',
       '<b>What the member gets</b> is said in the dialog: the notice with a confirm link, and the option to report non-receipt.'],
@@ -1475,14 +1526,30 @@ const GROUPS = [
       states: [{ id: 'default', label: '2027', kind: 'current', cap: { desk: 'Over Settings: the label field focused with the suggested “2027”, the carry-forward note, Create year.', tab: U, ph: 'Bottom sheet.' } }] },
     { id: 'dlg-confirm', title: 'Confirmation (destructive example)', fn: dlgConfirm, legend: [
       '<b>ConfirmDialog</b>: title, message, Cancel and a confirm button labelled for the action, destructive styling when the action is; closes on Escape or an overlay click; focus lands on the confirm button. The example is Remove member from the Members tab; the same component confirms Remove bill, Convert billing frequency, the lifecycle transitions, Resolve / Reject and Reverse payment.'],
-      states: [{ id: 'default', label: 'Remove member · Maja Lindqvist', kind: 'redesign', cap: { desk: 'Over the Members tab: the message in glossary terms and a red filled Remove.', tab: U, ph: 'Bottom sheet with full-width buttons.' } }] }] },
+      states: [{ id: 'default', label: 'Remove member · Maja Lindqvist', kind: 'redesign', cap: { desk: 'Over the Members tab: the message in glossary terms and a red filled Remove.', tab: U, ph: 'Bottom sheet with full-width buttons.' } }] },
+    { id: 'dlg-share-qr', title: 'Share page · QR code', fn: dlgShareQr, legend: [
+      '<b>Show QR code</b> on a payment-method card (<code>PaymentMethodsSection</code> in <code>src/app/views/ShareView.jsx</code>) opens the method’s uploaded image: it comes with the cached share, or is fetched from <code>publicQrCodes</code> on demand while the button reads “Loading…”. The amount is not encoded, so the dialog repeats what to send.',
+      '<b>No image</b>: when the method is flagged as having a QR code but the public document is missing, the shipped dialog says “No QR code available for this payment method.” instead of a broken image.'],
+      states: [
+        { id: 'default', label: 'Venmo QR code', kind: 'current', cap: { desk: 'Over the Lindqvist summary: the QR image, the handle it opens and the amount to enter, Close.', tab: U, ph: 'Bottom sheet; the image stays 200 px.' } },
+        { id: 'missing', label: 'QR code missing', kind: 'state', cap: { desk: 'The same dialog when the image cannot be loaded: the shipped sentence and a pointer back to the card’s handle.', tab: U, ph: U } }] },
+    { id: 'dlg-share-review', title: 'Share page · Request a review', fn: dlgShareReview, legend: [
+      '<b>Request a review</b> is the member’s Review Request form (the shipped <code>DisputeFormOverlay</code> in <code>src/app/views/ShareView.jsx</code>, titled “Question This Charge”), always for one concrete bill: a required message (up to 2,000 characters, red outline when empty) and an optional suggested correction (up to 500). It submits through the <code>submitDispute</code> Cloud Function—never a direct write—rate-limited to ten per day per link; the administrator is emailed.',
+      '<b>Sent</b>: the shipped confirmation (“The account owner will be notified of your request.”) in glossary words, with Close; the request then shows under Your review requests as Open.'],
+      states: [
+        { id: 'form', label: 'Northline Mobile · message and correction', kind: 'redesign', cap: { desk: 'Over the Lindqvist summary: the bill named in the lead line, the message focused, the optional correction, Cancel and Send request.', tab: U, ph: 'Bottom sheet; the message area shrinks.' } },
+        { id: 'sent', label: 'request sent', kind: 'state', cap: { desk: 'The success state with Close.', tab: U, ph: U } }] },
+    { id: 'dlg-share-reject', title: 'Share page · Reject a resolution', fn: dlgShareReject, legend: [
+      '<b>Member decision</b>: when the administrator asked the member to accept a resolution, the request card shows the resolution with Approve and Reject (<code>ShareDisputeCard</code> in <code>src/app/views/ShareView.jsx</code>). Approve records the decision at once; Reject needs a reason, sent with the decision through <code>submitDisputeDecision</code>, which re-opens the request and emails the administrator the note. The shipped page collects that reason with <code>window.prompt</code>; the sheet drawn here replaces it (Redesign 10).'],
+      states: [{ id: 'default', label: 'Northline Mobile · rejecting with a reason', kind: 'redesign', cap: { desk: 'The Lindqvist summary a few days later: the Northline request resolved and awaiting Erik’s decision, with the reject sheet open over it—what rejecting does, the reason focused, Cancel and a destructive Reject resolution.', tab: U, ph: 'Bottom sheet.' } }] }] },
   { id: 'system', title: 'System surfaces—toasts and the update prompt', sub: '<code>src/app/components/UpdateToast.jsx</code> polls <code>version.json</code> every minute and shows a refresh prompt when a new deploy is detected; <code>src/app/contexts/ToastContext.jsx</code> shows one message at a time for three seconds, replaceable and dismissible. Both are drawn in the system’s dark pill at the bottom centre; on the phone they sit above the tab bar.', screens: [
     { id: 'system', title: 'Toasts', fn: system, legend: [
       '<b>Update prompt</b>: “A new version of Friends &amp; Family Billing is available.” with Refresh (reloads) and a dismiss; the shipped short copy (“Update available”) is what the phone shows when the sentence would not fit.',
       '<b>Toast</b> after a mutation (“Payment recorded”, “Member added: …”, “Email template saved”, …), three seconds, one at a time, dismissible.'],
       states: [
         { id: 'update', label: 'update available', kind: 'current', cap: { desk: 'The update pill over the dashboard (no card expanded).', tab: U, ph: 'The pill sits above the tab bar and wraps to two lines.' } },
-        { id: 'toast', label: 'payment recorded', kind: 'current', cap: { desk: 'A toast after Save payment on the Lindqvist household.', tab: U, ph: 'Above the tab bar.' } }] }] },
+        { id: 'toast', label: 'payment recorded', kind: 'current', cap: { desk: 'A toast after Save payment on the Lindqvist household.', tab: U, ph: 'Above the tab bar.' } },
+        { id: 'error', label: 'send failed', kind: 'state', cap: { desk: 'The same pill carries failures (“Send failed: …” from the email dialog, “Error: …” from a lifecycle transition), in the Outstanding red so it reads as a failure at a glance; it is dismissible and does not block.', tab: U, ph: 'Above the tab bar, wrapping to two lines.' } }] }] },
 ];
 // attach each Redesign’s rationale to the legend of its home screen (once)
 for (const [n, r] of Object.entries(RD).sort(([a], [b]) => a.localeCompare(b))) {
@@ -1493,10 +1560,16 @@ for (const [n, r] of Object.entries(RD).sort(([a], [b]) => a.localeCompare(b))) 
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
+// Routes as registered in src/app/App.jsx; a dialog shows the route of the screen that opens it.
+const SHARE_ROUTE = '/share?token=7f3a91c2…';
+const ROUTES = { login: '/login', dashboard: '/dashboard', members: '/manage/members', bills: '/manage/bills', invoicing: '/manage/invoicing', reviews: '/manage/reviews', refunds: '/manage/refunds', settings: '/settings', share: SHARE_ROUTE, system: '/dashboard',
+  'dlg-email-invoice': '/dashboard', 'dlg-text-invoice': '/dashboard', 'dlg-share-link': '/dashboard', 'dlg-payment-history': '/dashboard', 'dlg-payment-edit': '/dashboard', 'dlg-record-payment': '/dashboard', 'dlg-issue-refund': '/dashboard', 'dlg-usage-charge': '/dashboard', 'dlg-charge-notice': '/dashboard',
+  'dlg-dispute-detail': '/manage/reviews', 'dlg-service-credit': '/manage/bills', 'dlg-bill-history': '/manage/bills', 'dlg-new-year': '/settings', 'dlg-confirm': '/manage/members', 'dlg-share-qr': SHARE_ROUTE, 'dlg-share-review': SHARE_ROUTE, 'dlg-share-reject': SHARE_ROUTE };
 function unit(screen, state, w, label) {
   const id = `fx-${screen.id}-${state.id}-${w}`;
   const kindChip = { current: 'current', redesign: 'redesign', state: 'state' }[state.kind];
-  const addr = screen.id === 'share' ? 'ffb.example/share?token=7f3a91c2…' : screen.id === 'login' ? 'ffb.example/login' : 'ffb.example/' + (screen.id.startsWith('dlg') ? 'dashboard' : screen.id);
+  if (!(state.route || ROUTES[screen.id])) throw new Error('no route for screen ' + screen.id);
+  const addr = 'ffb.example' + (state.route || ROUTES[screen.id]);
   return `<div class="unit ${w}" id="${id}">
     <div class="chips"><span class="fchip ${w}">${label}</span><span class="fchip ${state.kind}">${kindChip}</span></div>
     <div class="fw ${w}"><div class="frame">${w === 'desk' ? `<div class="macbar"><i></i><i></i><i></i><span class="addr">${addr}</span></div>` : ''}${screen.fn(state.id)}</div></div>
@@ -1536,6 +1609,7 @@ const TOKENS = [
   ['Ink', '#22201d', 'Text; filled “ink” buttons (white text on Ink); active tab', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen']]],
   ['Graphite text', '#66645f', 'Muted text: labels, hints, metadata', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen']]],
   ['Graphite', '#777573', 'Icons, placeholder glyphs, chevrons—never body text (non-text target 3:1)', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen']]],
+  ['Placeholder', '#6f6d69', 'Input placeholder text (inputs are always on Paper)', '#ffffff', [['#ffffff', 'Paper']]],
   ['Stone', '#dcd9d6', 'Hairlines, borders, dividers (decorative, no contrast target)', '#ffffff', [['#ffffff', 'Paper']]],
   ['Ember', '#ff692d', 'Accent fills: primary button (Ink text), progress fill, active step, brand mark, focus ring tint', '#22201d', [['#22201d', 'Ink text on Ember'], ['#ffffff', 'white text on Ember—not used']]],
   ['Ember text', '#ad3c0b', 'Small accent text: token pills, email links, “Unsaved changes”, Preferred chip', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen'], ['#ffe0d3', 'Ember tint']]],
@@ -1567,7 +1641,7 @@ document.getElementById('zoom').addEventListener('click', e => {
 // src/app/components/SettlementBoard.jsx or #321 is one click from its source.
 const ISSUE_URL = 'https://github.com/nathanjohnpayne/friends-and-family-billing/issues/';
 const FILE_PATH = /\b(?:src|functions|docs|specs|plans|scripts|public|tests|rules)(?:\/[A-Za-z0-9_.-]+)+(?:\.(?:jsx?|mjs|js|css|md|json|rules|html|svg)\b|\/)/g;
-const ISSUE_REF = /#\d+\b/g;
+const ISSUE_REF = /(?<!\w)#\d{1,5}(?!\w)/g; // #321, never a hex colour such as #777573
 (function linkRefs() {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode(n) { const p = n.parentElement; return p && (p.closest('a,script,style,.frame,.toc') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT); } });
