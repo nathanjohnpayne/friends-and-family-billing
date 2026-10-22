@@ -105,12 +105,14 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
-    // Sort: outstanding → partial → settled (mirrors main.js:1964)
-    const sortOrder = { outstanding: 0, partial: 1, settled: 2, overpaid: 3 };
+    // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
+    const sortOrder = { outstanding: 0, partial: 1, settled: 2, credit: 3 };
     rows.sort((a, b) => (sortOrder[a.status] || 0) - (sortOrder[b.status] || 0));
 
     // Filter counts
-    const counts = { all: rows.length, outstanding: 0, partial: 0, settled: 0 };
+    // The four status chips partition All: a household holding a Credit is counted
+    // and filterable like any other status (plans/ffb-wireframes.html, dashboard).
+    const counts = { all: rows.length, outstanding: 0, partial: 0, settled: 0, credit: 0 };
     rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
     // Count households with linked members
@@ -122,7 +124,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         { key: 'all', label: 'All' },
         { key: 'outstanding', label: 'Outstanding' },
         { key: 'partial', label: 'Partial' },
-        { key: 'settled', label: 'Settled' }
+        { key: 'settled', label: 'Settled' },
+        { key: 'credit', label: 'Credit' }
     ];
 
     return (
@@ -417,7 +420,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                             {linkedData.map(ls => {
                                 const childPayment = getPaymentTotalForMember(payments, ls.member.id);
                                 const childBalance = ls.total - childPayment;
-                                const childStatus = getPaymentStatus(ls.total, childPayment);
+                                // A Credit is owned by the household (CONTEXT.md), and internal
+                                // imbalance between members is invisible to it: a linked member who
+                                // paid past their own share reads Settled, never Credit.
+                                const rawChildStatus = getPaymentStatus(ls.total, childPayment);
+                                const childStatus = rawChildStatus === 'credit' ? 'settled' : rawChildStatus;
                                 const isLinkedExpanded = !!linkedExpanded[ls.member.id];
                                 const sameBills = hasSameBillSet(data, ls);
                                 return (

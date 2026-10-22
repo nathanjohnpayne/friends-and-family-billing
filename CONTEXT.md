@@ -58,7 +58,7 @@ _Avoid_: Roll-over, waiver, write-off
 **Net Contribution**:
 What a household has actually paid toward its bills, net of money
 returned—gross payments minus recorded refunds and carried-forward credits. A household's
-settlement status (outstanding / settled / overpaid) is computed from this, not
+settlement status (outstanding / partial / settled / credit) is computed from this, not
 from gross payments, so a refunded household reads "Settled" even though its
 gross "Paid" still exceeds what it owed.
 _Avoid_: Paid (when precision matters), gross paid

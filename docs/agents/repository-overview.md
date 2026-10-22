@@ -47,7 +47,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │   │   ├── PaymentMethodsManager.jsx   # Payment methods CRUD (on Settings page)
 │   │   │   ├── SettlementBoard.jsx         # Household settlement cards with filters
 │   │   │   ├── ShareLinkDialog.jsx         # Share link generation and management
-│   │   │   ├── StatusBadge.jsx    # Payment status pill (Outstanding/Partial/Settled)
+│   │   │   ├── StatusBadge.jsx    # Status pill with glyph + label (Outstanding/Partial/Settled/Review request/Credit)
 │   │   │   ├── TemplateEditor.jsx          # TipTap WYSIWYG editor with token pills, toolbar, slash-commands
 │   │   │   ├── SubjectEditor.jsx           # TipTap single-line editor for email subjects
 │   │   │   ├── SlashCommandMenu.jsx        # Slash-command autocomplete for TipTap
