@@ -2,13 +2,37 @@
  * ActionMenu — three-dot trigger with a dropdown of actions.
  * Port of toggleMemberActionsMenu / toggleBillActionsMenu from main.js.
  * Closes on outside click and Escape key.
+ *
+ * Styled by `.action-menu-*` in shell.css after the wireframe's `.ico-btn`
+ * trigger and `.menu-pop` popover (plans/ffb-wireframes.html § Visual
+ * system): a round Graphite ellipsis button and a 10 px Paper menu.
  */
 import { useState, useEffect, useRef } from 'react';
+
+/** Lucide "ellipsis" (ISC), inlined so the menu stays dependency-free. */
+function EllipsisIcon() {
+    return (
+        <svg
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <circle cx="12" cy="12" r="1" />
+            <circle cx="19" cy="12" r="1" />
+            <circle cx="5" cy="12" r="1" />
+        </svg>
+    );
+}
 
 /**
  * @param {{ label: string, trigger?: React.ReactNode, children: React.ReactNode }} props
  * label — accessible name for the menu
- * trigger — optional custom trigger (defaults to "•••" button)
+ * trigger — optional custom trigger (defaults to an ellipsis icon button)
  * children — menu item buttons rendered inside the dropdown
  */
 export default function ActionMenu({ label, trigger, children }) {
@@ -51,9 +75,10 @@ export default function ActionMenu({ label, trigger, children }) {
                 className="action-menu-trigger"
                 onClick={toggle}
                 aria-label={label}
+                aria-haspopup="menu"
                 aria-expanded={open}
             >
-                {trigger || '•••'}
+                {trigger || <EllipsisIcon />}
             </button>
             {open && (
                 <div className="action-menu-dropdown" role="menu" aria-label={label}>
@@ -62,6 +87,11 @@ export default function ActionMenu({ label, trigger, children }) {
             )}
         </div>
     );
+}
+
+/** Hairline between groups of items (wireframe .menu-pop .sep). */
+export function ActionMenuSeparator() {
+    return <div className="action-menu-separator" role="separator" />;
 }
 
 /**

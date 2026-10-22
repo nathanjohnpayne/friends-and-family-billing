@@ -32,7 +32,7 @@ export default function RefundNoticesTab() {
             await resolveNotice(noticeId, resolution);
             showToast(toastMsg);
         } catch (err) {
-            showToast('Error: ' + err.message);
+            showToast('Error: ' + err.message, { kind: 'failure' });
         }
     }
 

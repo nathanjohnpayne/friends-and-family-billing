@@ -60,6 +60,29 @@ describe('ToastContext', () => {
         expect(screen.getByText('Toast Beta')).toBeInTheDocument();
     });
 
+    it('announces a failure toast as an alert (RD-23)', () => {
+        function FailConsumer() {
+            const { showToast } = useToast();
+            return <button onClick={() => showToast('Send failed: no verified sender', { kind: 'failure' })}>Fail</button>;
+        }
+        render(
+            <ToastProvider><FailConsumer /></ToastProvider>
+        );
+        fireEvent.click(screen.getByText('Fail'));
+        const toast = screen.getByRole('alert');
+        expect(toast).toHaveTextContent('Send failed: no verified sender');
+        expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('announces an ordinary toast as a polite status', () => {
+        render(
+            <ToastProvider><TestConsumer /></ToastProvider>
+        );
+        fireEvent.click(screen.getByText('Trigger'));
+        expect(screen.getByRole('status')).toHaveTextContent('Saved!');
+        expect(screen.queryByRole('alert')).toBeNull();
+    });
+
     it('throws when used outside provider', () => {
         // Suppress React error boundary output
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});

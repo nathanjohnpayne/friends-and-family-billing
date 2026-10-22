@@ -123,7 +123,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
             if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Failed to generate share link: ' + err.message);
+            if (showToast) showToast('Failed to generate share link: ' + err.message, { kind: 'failure' });
         }
         setGenerating(false);
     }

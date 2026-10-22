@@ -75,7 +75,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'));
+            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
         }
     }
@@ -127,7 +127,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
 
     async function handleSendEmail() {
         if (!recipientEmail) {
-            if (showToast) showToast('No email address for this member.');
+            if (showToast) showToast('No email address for this member.', { kind: 'failure' });
             return;
         }
         setSending(true);
@@ -143,7 +143,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
             if (showToast) showToast('Invoice emailed to ' + recipientEmail);
             onClose();
         } catch (err) {
-            if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
+            if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
         } finally {
             setSending(false);
         }

@@ -39,6 +39,7 @@
     --color-stone-light:        #ebe8e5;   /* table row rules */
     --color-stone-strong:       #9a9794;   /* checkbox / radio outline, strong borders */
     --color-ember-text-hover:   #933309;   /* Ember text, hover */
+    --color-ember-hover:        #f25a1c;   /* Ember fill, hover (primary button; still carries Ink text) */
 
     /* Ember at low alpha for washes, outlines and the focus ring
        (the ring alpha is the wireframe's .in.focus value). */
@@ -98,6 +99,7 @@
     --color-primary-light: var(--color-ember-tint);
     --color-primary-bg:    var(--color-ember-wash);
     --color-accent:        var(--color-ember);
+    --color-accent-hover:  var(--color-ember-hover);
     --color-accent-text:   var(--color-ember-text);
 
     --color-secondary:       var(--color-graphite-text);
@@ -145,8 +147,17 @@
     --color-icon:          var(--color-graphite);        /* icons only, non-text 3:1 */
 
     --color-canvas:         var(--color-linen);
-    --color-gradient-start: var(--color-ember);          /* progress fill is a flat Ember */
+    --color-gradient-start: var(--color-ember);          /* brand-mark gradient stops (NavBar.jsx) */
     --color-gradient-end:   var(--color-ember);
+
+    /* Progress bars (#570). The wireframe draws the fill in Ember on a Linen
+       track, but Ember is 2.2:1 against Linen-deep and 2.87:1 against Paper,
+       below the 3:1 non-text minimum (WCAG 1.4.11), so the rendered fill is
+       Ember text on the Linen-deep track (4.75:1); a finished bar is Settled
+       (5.05:1), as in the wireframe's .prog .bar.done. */
+    --color-progress-track:     var(--color-linen-deep);
+    --color-progress-fill:      var(--color-ember-text);
+    --color-progress-fill-done: var(--color-status-settled-fg);
 
     /* ── Dispute / status-specific ────────────────────────── */
     /* Review Request lifecycle, as the wireframe draws it: open = Review
@@ -214,16 +225,35 @@
     --radius-2xl: 12px;
     --radius-pill: 9999px;
 
+    /* Semantic radii from the legend ("12 px corners" on cards, 8 px on
+       inputs, pill buttons) and the wireframe primitives that sit between
+       them (.alert / .in 8 px, .menu-pop 10 px, .dlg 14 px). */
+    --radius-card:   var(--radius-2xl);
+    --radius-input:  var(--radius-lg);
+    --radius-alert:  var(--radius-lg);
+    --radius-menu:   var(--radius-xl);
+    --radius-dialog: 14px;
+    --radius-button: var(--radius-pill);
+
     --border-width:  2px;
     --border-thin:   1px;
 
     /* ── Shadows ──────────────────────────────────────────── */
-    --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-    --shadow-md:   0 2px 8px rgba(0, 0, 0, 0.08);
-    --shadow-lg:   0 8px 30px rgba(0, 0, 0, 0.25);
-    --shadow-xl:   0 20px 60px rgba(0, 0, 0, 0.15);
-    --shadow-dialog:0 20px 60px rgba(0, 0, 0, 0.30);
-    --shadow-dropdown:0 4px 16px rgba(0, 0, 0, 0.12);
+    /* Whisper-light and Ink-tinted (rgba of #22201d), per the legend:
+       cards barely lift off the Linen; only floating surfaces (menus,
+       dialogs, toasts) cast a real shadow. Values are the wireframe's
+       .card / .menu-pop / .dlg / .toast / .subtabs rules. */
+    --shadow-card:    0 1px 2px rgba(34, 32, 29, 0.04);
+    --shadow-segment: 0 1px 2px rgba(34, 32, 29, 0.08);
+    --shadow-menu:    0 10px 28px rgba(34, 32, 29, 0.14);
+    --shadow-toast:   0 10px 30px rgba(34, 32, 29, 0.30);
+
+    --shadow-sm:   var(--shadow-card);
+    --shadow-md:   0 2px 8px rgba(34, 32, 29, 0.06);
+    --shadow-lg:   var(--shadow-menu);
+    --shadow-xl:   0 24px 60px rgba(34, 32, 29, 0.20);
+    --shadow-dialog:0 24px 60px rgba(34, 32, 29, 0.30);
+    --shadow-dropdown:var(--shadow-menu);
 
     /* ── Transitions ──────────────────────────────────────── */
     --transition-fast: 0.15s ease;
