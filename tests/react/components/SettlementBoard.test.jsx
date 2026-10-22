@@ -18,6 +18,11 @@ function expandCard(name) {
     fireEvent.click(card);
 }
 
+/** "Credit" text on the board itself, excluding the filter bar's always-present Credit chip */
+function creditOnBoard() {
+    return screen.queryAllByText('Credit').filter(n => !n.closest('.settlement-filters'));
+}
+
 /** Toggle a linked member's bill breakdown by clicking their row */
 function toggleLinkedMember(name) {
     const all = screen.getAllByText(name);
@@ -116,6 +121,16 @@ describe('SettlementBoard', () => {
         fireEvent.click(settledChip);
         expect(screen.getByText('Alice')).toBeInTheDocument();
         expect(screen.queryByText('Bob')).toBeNull();
+    });
+
+    it('counts and filters households holding a Credit', () => {
+        const payments = [{ memberId: 2, amount: 600, method: 'cash' }]; // Bob owes 480 → Credit
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        const creditChip = screen.getAllByRole('button').find(b => b.classList.contains('settlement-filter-chip') && b.textContent.startsWith('Credit'));
+        expect(within(creditChip).getByText('1')).toBeInTheDocument();
+        fireEvent.click(creditChip);
+        expect(screen.getByText('Bob')).toBeInTheDocument();
+        expect(screen.queryByText('Alice')).toBeNull();
     });
 
     it('shows "no households" message when filter has no matches', () => {
@@ -407,7 +422,7 @@ describe('SettlementBoard — household credit', () => {
     it('shows a Credit badge (never Overpaid) for a household carrying an unresolved credit', () => {
         const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
-        expect(screen.getAllByText('Credit').length).toBeGreaterThanOrEqual(1);
+        expect(creditOnBoard().length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText(/overpaid/i)).toBeNull();
     });
 
@@ -425,7 +440,7 @@ describe('SettlementBoard — household credit', () => {
             />
         );
         expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
-        expect(screen.queryByText('Credit')).toBeNull(); // credit resolved → no Credit box, no Credit badge
+        expect(creditOnBoard()).toHaveLength(0); // credit resolved → no Credit box, no Credit badge
     });
 
     it('nets internal household imbalance out — primary overpaid + linked underpaid shows no household credit', () => {
@@ -436,7 +451,7 @@ describe('SettlementBoard — household credit', () => {
             { memberId: 3, amount: 400, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
-        expect(screen.queryByText('Credit')).toBeNull();
+        expect(creditOnBoard()).toHaveLength(0);
     });
 
     it('labels a linked member who overpaid their own share Settled, never Credit', () => {
@@ -452,7 +467,7 @@ describe('SettlementBoard — household credit', () => {
             .map(n => n.closest('.settlement-linked-member'))
             .find(Boolean);
         expect(within(carolRow).getByText('Settled')).toBeInTheDocument();
-        expect(screen.queryByText('Credit')).toBeNull();
+        expect(creditOnBoard()).toHaveLength(0);
     });
 
     it('shows a collectable Balance and Record Payment when Net Contribution falls below owed', () => {
@@ -470,7 +485,7 @@ describe('SettlementBoard — household credit', () => {
                 readOnly={false}
             />
         );
-        expect(screen.queryByText('Credit')).toBeNull();         // net is below owed, not a credit
+        expect(creditOnBoard()).toHaveLength(0);         // net is below owed, not a credit
         expect(screen.getByText('$80.00')).toBeInTheDocument();   // Balance = owed 480 − net 400
         expandCard('Bob');
         expect(screen.getAllByText('Record Payment').length).toBeGreaterThanOrEqual(1);
