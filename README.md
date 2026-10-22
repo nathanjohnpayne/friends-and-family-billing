@@ -461,6 +461,7 @@ Shares are computed from each bill's annual total divided by the number of membe
 To view it, open the file directly in a browser (there is no build step), or use the rendered copy at [raw.githack.com](https://raw.githack.com/nathanjohnpayne/friends-and-family-billing/main/plans/ffb-wireframes.html). Implementation is tracked in epic [#524](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/524).
 
 ```bash
+# macOS (use xdg-open on Linux, start on Windows)
 open plans/ffb-wireframes.html
 ```
 
