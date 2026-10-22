@@ -97,6 +97,22 @@ img, svg { display: block; max-width: 100%; }
     border-radius: 6px;
 }
 
+/* The brand mark (NavBar.jsx): an Ember tile carrying an Ink receipt glyph,
+   per the wireframe legend. The detail strokes sit at 60% Ink, matching the
+   wireframe's rgba(34,32,29,.6). logo.svg and favicon.svg are the same mark
+   with the literal legend hex, since a standalone SVG cannot read tokens. */
+.nav-brand-tile {
+    fill: var(--color-ember);
+}
+
+.nav-brand-glyph {
+    fill: var(--color-ink);
+}
+
+.nav-brand-glyph-detail {
+    opacity: 0.6;
+}
+
 .nav-links {
     display: flex;
     gap: var(--space-1, 4px);
