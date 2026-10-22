@@ -71,7 +71,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'));
+            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             setGenerating(false);
             return '';
         }

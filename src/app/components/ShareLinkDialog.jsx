@@ -123,7 +123,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
             if (showToast) showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Failed to generate share link: ' + err.message);
+            if (showToast) showToast('Failed to generate share link: ' + err.message, { kind: 'failure' });
         }
         setGenerating(false);
     }
@@ -231,7 +231,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                                                     {copied === link.id ? 'Copied!' : 'Copy'}
                                                 </button>
                                                 {link.status === 'active' && (
-                                                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger, #C65A5A)' }} onClick={() => handleRevoke(link.id)}>
+                                                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRevoke(link.id)}>
                                                         Revoke
                                                     </button>
                                                 )}

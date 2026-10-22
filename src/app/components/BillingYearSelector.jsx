@@ -46,7 +46,7 @@ export default function BillingYearSelector() {
         try {
             await action();
         } catch (err) {
-            showToast('Error: ' + err.message);
+            showToast('Error: ' + err.message, { kind: 'failure' });
         } finally {
             setBusy(false);
         }
@@ -80,7 +80,7 @@ export default function BillingYearSelector() {
             const reopenedAdjustmentIds = reopenedCreditAdjustmentIds(refundNotices);
             await service.createYear(yearId, { reopenedAdjustmentIds });
         } catch (err) {
-            showToast('Error: ' + err.message);
+            showToast('Error: ' + err.message, { kind: 'failure' });
         } finally {
             setBusy(false);
         }

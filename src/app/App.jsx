@@ -37,7 +37,7 @@ export default function App() {
 /** Exported for testing without BrowserRouter (use MemoryRouter in tests). */
 export function AppRoutes() {
     return (
-        <Suspense fallback={<div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>Loading…</div>}>
+        <Suspense fallback={<div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>Loading…</div>}>
         <Routes>
             <Route path="/login" element={<GuestRoute><LoginView /></GuestRoute>} />
             <Route path="/share" element={<ShareView />} />
@@ -80,7 +80,7 @@ function ProtectedRoute({ children }) {
     if (loading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-                <p style={{ color: '#666', fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
+                <p style={{ color: 'var(--color-text-muted)', fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
             </div>
         );
     }

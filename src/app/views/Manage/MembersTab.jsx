@@ -36,7 +36,7 @@ export default function MembersTab() {
     const [linkTarget, setLinkTarget] = useState(null);
     const [linkSelections, setLinkSelections] = useState([]);
 
-    if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
+    if (loading) return <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>;
 
     function handleAdd(e) {
         e.preventDefault();
@@ -63,7 +63,7 @@ export default function MembersTab() {
             service.updateMember(editingId, { [editField]: editValue });
             showToast('Member updated');
         } catch (err) {
-            showToast(err.message);
+            showToast(err.message, { kind: 'failure' });
         }
         setEditingId(null);
         setEditField(null);
@@ -110,7 +110,7 @@ export default function MembersTab() {
             service.updateMember(linkTarget.id, { linkedMembers: linkSelections });
             showToast('Household updated for ' + linkTarget.name);
         } catch (err) {
-            showToast(err.message);
+            showToast(err.message, { kind: 'failure' });
         }
         setLinkTarget(null);
         setLinkSelections([]);

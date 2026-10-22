@@ -711,7 +711,7 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
                                 <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />
                             </div>
                         ) : (
-                            <p className="dialog-body-padded" style={{ color: 'var(--color-text-secondary, #5B6475)' }}>
+                            <p className="dialog-body-padded" style={{ color: 'var(--color-text-secondary)' }}>
                                 No QR code available for this payment method.
                             </p>
                         )}

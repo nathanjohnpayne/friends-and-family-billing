@@ -30,7 +30,7 @@ export default function ReviewsTab() {
     // Look up the live dispute from the hook state so it refreshes after mutations
     const selectedDispute = selectedDisputeId ? disputes.find(d => d.id === selectedDisputeId) || null : null;
 
-    if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
+    if (loading) return <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>;
     if (error) return <p className="composer-error">Error loading review requests: {error}</p>;
 
     // Compute counts
