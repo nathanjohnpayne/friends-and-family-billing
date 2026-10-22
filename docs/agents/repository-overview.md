@@ -431,10 +431,11 @@ Design tokens are defined in `design-tokens.css` and consumed by `src/app/shell.
 - **Font stack:** `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`
 - **Spacing:** 8-point scale (`--space-1` through `--space-6`)
 - **Layout:** Flexbox-based, responsive (breakpoint: 768px)
-- **Core components:** `.card`, `.btn` (primary/secondary/success/danger), `.member-card`, `.bill-card`
-- **Settlement components:** `.settlement-board`, `.settlement-card`, `.settlement-filter-chip`, `.balance-indicator`
+- **Core components:** `.card`, `.btn` pills (`.btn-primary` = Ember fill with Ink text, never white; `.btn-secondary`, `.btn-tertiary`, `.btn-ink`, `.btn-destructive`), `.member-card`, `.bill-card`
+- **Radii and shadows:** `--radius-card` 12 px, `--radius-input` 8 px, `--radius-alert` 8 px, `--radius-button` pill; `--shadow-card` / `--shadow-menu` / `--shadow-dialog` / `--shadow-toast` are Ink-tinted and whisper-light. `tests/react/shellPrimitives.test.js` pins these and the no-white-on-Ember rule.
+- **Settlement components:** `.settlement-board`, `.settlement-card`, `.settlement-filter-chip` (the `.filter-chip` primitive), `.balance-indicator`
 - **Dialog components:** `.dialog-overlay`, `.dialog-content`, `.confirm-dialog`
-- **Shared components:** `.action-menu`, `.status-badge`, `.empty-state`, `.toast`
+- **Shared components:** `.action-menu`, `.status-badge`, `.empty-state`, `.inline-alert` (`--error/--success/--warning/--info`), `.change-toast` (`--failure`)
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`
 - **Avatar size:** 48x48px circle (32x32px in invoices)
 

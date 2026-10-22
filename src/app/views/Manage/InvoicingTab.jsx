@@ -179,7 +179,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
             showToast('Share link generated!');
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            showToast('Failed to generate share link: ' + err.message);
+            showToast('Failed to generate share link: ' + err.message, { kind: 'failure' });
         }
         setGeneratingLink(false);
     }
@@ -268,7 +268,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                         onClick={() => {
                                             navigator.clipboard.writeText(previewShareUrl).then(
                                                 () => showToast('Link copied!'),
-                                                () => showToast('Failed to copy')
+                                                () => showToast('Failed to copy', { kind: 'failure' })
                                             );
                                         }}
                                     >Copy</button>
@@ -417,7 +417,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                 showToast('Test email sent to ' + testEmailTo.trim());
                             } catch (err) {
                                 setTestEmailOpen(false);
-                                showToast('Send failed: ' + (err.message || 'Unknown error'));
+                                showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
                             } finally {
                                 setTestEmailSending(false);
                             }

@@ -157,7 +157,7 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
                                                         Edit
                                                     </button>
                                                     <button
-                                                        className="btn btn-sm btn-tertiary payment-reverse-btn"
+                                                        className="btn btn-sm btn-destructive-outline payment-reverse-btn"
                                                         onClick={() => setReverseTarget(p)}
                                                         title="Reverse this payment"
                                                     >

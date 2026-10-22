@@ -39,8 +39,9 @@ Covers shared, reusable UI components and contexts used across the application: 
 - Renders a trigger button but not the dropdown initially.
 - Opens the dropdown on trigger click; closes on second click, Escape key, or outside click.
 - Calls item `onClick` handler when a menu item is clicked.
-- Supports danger-styled menu items.
-- Sets `aria-expanded` on the trigger to reflect open/closed state.
+- Supports danger-styled menu items and an `ActionMenuSeparator` (`role="separator"`) between item groups.
+- Sets `aria-expanded` on the trigger to reflect open/closed state; the trigger carries `aria-haspopup="menu"`.
+- The default trigger is a decorative ellipsis icon; the accessible name comes from `label` alone.
 
 ### BillAuditHistoryDialog
 
@@ -69,9 +70,9 @@ Covers shared, reusable UI components and contexts used across the application: 
 
 ### EmptyState
 
-- Renders title and optional message.
-- Renders icon when provided.
-- Renders an action slot (e.g., a button).
+- Renders the title as a heading (display face) and an optional message.
+- Renders the icon when provided, hidden from assistive technology (`aria-hidden`).
+- Renders an action slot (e.g., one or more pill buttons).
 - Omits optional sections when not provided.
 
 ### NavBar
@@ -96,7 +97,7 @@ Covers shared, reusable UI components and contexts used across the application: 
 
 ### ToastContext
 
-- `showToast` displays a toast message.
+- `showToast(message, { kind })` displays a toast message; `kind` is `'success'` (default, `role="status"`, polite) or `'failure'` (the Outstanding-red variant, `role="alert"`, assertive). Failure messages still say what failed, so colour is never the only cue.
 - Auto-dismisses after 3 seconds.
 - Can be manually dismissed via a dismiss button.
 - Replaces the previous toast when a new `showToast` call is made.

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import ActionMenu, { ActionMenuItem } from '@/app/components/ActionMenu.jsx';
+import ActionMenu, { ActionMenuItem, ActionMenuSeparator } from '@/app/components/ActionMenu.jsx';
 
 function renderMenu(props = {}) {
     const onEdit = vi.fn();
@@ -67,6 +67,26 @@ describe('ActionMenu', () => {
         renderMenu();
         fireEvent.click(screen.getByLabelText('Actions'));
         expect(screen.getByText('Delete')).toBeInTheDocument();
+    });
+
+    it('exposes the default trigger as a named menu button with a hidden icon', () => {
+        renderMenu();
+        const trigger = screen.getByRole('button', { name: 'Actions' });
+        expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+        // The ellipsis is decorative; the accessible name comes from the label alone.
+        expect(trigger).toHaveTextContent('');
+    });
+
+    it('renders a separator between item groups', () => {
+        render(
+            <ActionMenu label="More">
+                <ActionMenuItem onClick={() => {}}>One</ActionMenuItem>
+                <ActionMenuSeparator />
+                <ActionMenuItem onClick={() => {}}>Two</ActionMenuItem>
+            </ActionMenu>
+        );
+        fireEvent.click(screen.getByLabelText('More'));
+        expect(screen.getByRole('separator')).toBeInTheDocument();
     });
 
     it('sets aria-expanded on trigger', () => {

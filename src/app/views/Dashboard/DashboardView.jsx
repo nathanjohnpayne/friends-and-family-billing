@@ -87,6 +87,9 @@ export default function DashboardView() {
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
     const remaining = metrics.totalMembers - metrics.paidCount;
+    // Every household settled and nothing outstanding: the close-gate state,
+    // not the rounded display percentage (which reads 100 below a 0.5% shortfall).
+    const allSettled = remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
     const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
     const statusHeadline = isReadyToClose
@@ -202,7 +205,10 @@ export default function DashboardView() {
                         <span className="progress-figure">{metrics.percentage}% settled</span>
                     </div>
                     <div className="progress-track">
-                        <div className="progress-fill" style={{ width: metrics.percentage + '%' }} />
+                        <div
+                            className={'progress-fill' + (allSettled ? ' progress-fill--done' : '')}
+                            style={{ width: metrics.percentage + '%' }}
+                        />
                     </div>
                     {settlementMessage && <p className="settlement-message">{settlementMessage}</p>}
                 </div>
@@ -254,7 +260,7 @@ export default function DashboardView() {
                     })
                         .then(notice => {
                             if (notice && notice.emailError) {
-                                showToast('Refund recorded, but the Refund Notice email could not be sent: ' + notice.emailError);
+                                showToast('Refund recorded, but the Refund Notice email could not be sent: ' + notice.emailError, { kind: 'failure' });
                             }
                         })
                         .catch(err => console.error('Refund notice send failed:', err));
@@ -417,12 +423,12 @@ export default function DashboardView() {
                                     settings: freshState.settings || {},
                                 })
                             )
-                                .then(notice => showToast(notice && notice.emailError
-                                    ? 'Charges billed and Charge Notice recorded, but the email to the member could not be sent: ' + notice.emailError
-                                    : 'Charges billed—Charge Notice sent.'))
+                                .then(notice => (notice && notice.emailError
+                                    ? showToast('Charges billed and Charge Notice recorded, but the email to the member could not be sent: ' + notice.emailError, { kind: 'failure' })
+                                    : showToast('Charges billed—Charge Notice sent.')))
                                 .catch(err => {
                                     console.error('issueChargeNotice failed:', err);
-                                    showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message);
+                                    showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message, { kind: 'failure' });
                                 });
                         }}
                         onClose={() => setDialog({ type: null, memberId: null })}
@@ -442,7 +448,7 @@ export default function DashboardView() {
                         await service.setYearStatus(newStatus);
                         showToast(BILLING_YEAR_STATUSES[newStatus].label + '\u2014status updated.');
                     } catch (err) {
-                        showToast('Error: ' + err.message);
+                        showToast('Error: ' + err.message, { kind: 'failure' });
                     }
                 }}
                 onCancel={() => setConfirmAction(null)}
