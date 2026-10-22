@@ -607,22 +607,35 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Status Badge ────────────────────────────────────────── */
+/* Glyph + label + colour, always together (RD-03). Each variant takes its
+   tint and text colour from the status palette in design-tokens.css; the
+   glyph inherits the text colour via currentColor and is aria-hidden, so
+   the label alone carries the meaning. Geometry follows the wireframe .st
+   pill (plans/ffb-wireframes.html). */
 .status-badge {
     display: inline-flex;
     align-items: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 99px;
+    gap: 5px;
+    font-size: var(--text-badge-sm, 0.7rem);
+    font-weight: var(--font-weight-semi, 600);
+    padding: 2px 9px 2px 7px;
+    border-radius: var(--radius-pill, 9999px);
     white-space: nowrap;
-    line-height: 1.4;
+    line-height: 1.6;
     flex-shrink: 0;
 }
 
-.status-badge--outstanding { background: var(--color-danger-bg); color: var(--color-danger-fg); }
-.status-badge--partial     { background: var(--color-warning-bg); color: var(--color-warning-fg); }
-.status-badge--settled     { background: var(--color-success-bg); color: var(--color-success-fg); }
-.status-badge--overpaid    { background: var(--color-status-credit-bg); color: var(--color-status-credit-fg); }
+.status-badge-glyph {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+}
+
+.status-badge--outstanding { background: var(--color-status-outstanding-bg); color: var(--color-status-outstanding-fg); }
+.status-badge--partial     { background: var(--color-status-partial-bg);     color: var(--color-status-partial-fg); }
+.status-badge--settled     { background: var(--color-status-settled-bg);     color: var(--color-status-settled-fg); }
+.status-badge--review      { background: var(--color-status-review-bg);      color: var(--color-status-review-fg); }
+.status-badge--credit      { background: var(--color-status-credit-bg);      color: var(--color-status-credit-fg); }
 
 /* ── Action Menu ─────────────────────────────────────────── */
 .action-menu {
@@ -1318,9 +1331,11 @@ img, svg { display: block; max-width: 100%; }
     border-radius: 12px;
 }
 
-.settlement-card--outstanding { border-left: 3px solid var(--color-danger); }
-.settlement-card--partial { border-left: 3px solid var(--color-warning); }
-.settlement-card--settled { border-left: 3px solid var(--color-success); }
+/* The card edge repeats the badge's status hue (same palette tokens). */
+.settlement-card--outstanding { border-left: 3px solid var(--color-status-outstanding-fg); }
+.settlement-card--partial { border-left: 3px solid var(--color-status-partial-fg); }
+.settlement-card--settled { border-left: 3px solid var(--color-status-settled-fg); }
+.settlement-card--credit { border-left: 3px solid var(--color-status-credit-fg); }
 
 .settlement-card-main {
     display: flex;

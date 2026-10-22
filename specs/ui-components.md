@@ -89,8 +89,9 @@ Covers shared, reusable UI components and contexts used across the application: 
 
 ### StatusBadge
 
-- `getPaymentStatus` returns null for zero total, "outstanding" for zero paid, "partial" for partial payment, "settled" for full payment, and "overpaid" for excess payment.
-- Renders appropriate badge text ("Outstanding", "Settled", "Partial") for known statuses.
+- `getPaymentStatus` returns null for zero total, "outstanding" for zero paid, "partial" for partial payment, "settled" for full payment, and "credit" for excess payment (the household holds a Credit; RD-09 renamed the former "overpaid" variant).
+- Renders a glyph and a text label for every known status ("Outstanding", "Partial", "Settled", "Review request", "Credit"), so status is never carried by colour alone (RD-03). The glyph is decorative (`aria-hidden`); the label carries the meaning.
+- Colours come from the status-palette tokens in `design-tokens.css` (`--color-status-<variant>-fg` on `--color-status-<variant>-bg`).
 - Renders nothing for unknown or null status values.
 
 ### ToastContext

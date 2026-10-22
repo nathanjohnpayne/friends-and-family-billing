@@ -398,17 +398,20 @@ describe('SettlementBoard — household credit', () => {
     it('shows a Credit box with the overpaid amount for an overpaid household', () => {
         const payments = [{ memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
-        expect(screen.getByText('Credit')).toBeInTheDocument();
-        expect(screen.getByText('$68.98')).toBeInTheDocument();
+        // Both the summary box label and the status badge read "Credit" (RD-09).
+        const bobCard = screen.getByText('Bob').closest('.settlement-card');
+        expect(within(bobCard).getAllByText('Credit')).toHaveLength(2);
+        expect(within(bobCard).getByText('$68.98')).toBeInTheDocument();
     });
 
-    it('shows an Overpaid badge for a household carrying an unresolved credit', () => {
+    it('shows a Credit badge (never Overpaid) for a household carrying an unresolved credit', () => {
         const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
-        expect(screen.getAllByText('Overpaid').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('Credit').length).toBeGreaterThanOrEqual(1);
+        expect(screen.queryByText(/overpaid/i)).toBeNull();
     });
 
-    it('reads Settled (not Overpaid) when a recorded refund brings Net Contribution down to owed', () => {
+    it('reads Settled (not Credit) when a recorded refund brings Net Contribution down to owed', () => {
         // Bob paid 600 (owed 480) but a recorded refund of 120 nets his contribution back to 480.
         const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'refund', amount: 120, status: 'recorded' }];
@@ -422,8 +425,7 @@ describe('SettlementBoard — household credit', () => {
             />
         );
         expect(screen.getAllByText('Settled').length).toBeGreaterThanOrEqual(1);
-        expect(screen.queryByText('Overpaid')).toBeNull();
-        expect(screen.queryByText('Credit')).toBeNull(); // credit resolved → no Credit box
+        expect(screen.queryByText('Credit')).toBeNull(); // credit resolved → no Credit box, no Credit badge
     });
 
     it('nets internal household imbalance out — primary overpaid + linked underpaid shows no household credit', () => {

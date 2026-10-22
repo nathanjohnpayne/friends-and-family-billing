@@ -105,8 +105,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
     }).filter(Boolean);
 
-    // Sort: outstanding → partial → settled (mirrors main.js:1964)
-    const sortOrder = { outstanding: 0, partial: 1, settled: 2, overpaid: 3 };
+    // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
+    const sortOrder = { outstanding: 0, partial: 1, settled: 2, credit: 3 };
     rows.sort((a, b) => (sortOrder[a.status] || 0) - (sortOrder[b.status] || 0));
 
     // Filter counts
