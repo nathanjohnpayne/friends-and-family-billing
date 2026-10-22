@@ -147,8 +147,17 @@
     --color-icon:          var(--color-graphite);        /* icons only, non-text 3:1 */
 
     --color-canvas:         var(--color-linen);
-    --color-gradient-start: var(--color-ember);          /* progress fill is a flat Ember */
+    --color-gradient-start: var(--color-ember);          /* brand-mark gradient stops (NavBar.jsx) */
     --color-gradient-end:   var(--color-ember);
+
+    /* Progress bars (#570). The wireframe draws the fill in Ember on a Linen
+       track, but Ember is 2.2:1 against Linen-deep and 2.87:1 against Paper,
+       below the 3:1 non-text minimum (WCAG 1.4.11), so the rendered fill is
+       Ember text on the Linen-deep track (4.75:1); a finished bar is Settled
+       (5.05:1), as in the wireframe's .prog .bar.done. */
+    --color-progress-track:     var(--color-linen-deep);
+    --color-progress-fill:      var(--color-ember-text);
+    --color-progress-fill-done: var(--color-status-settled-fg);
 
     /* ── Dispute / status-specific ────────────────────────── */
     /* Review Request lifecycle: open = Warning, in review = Partial

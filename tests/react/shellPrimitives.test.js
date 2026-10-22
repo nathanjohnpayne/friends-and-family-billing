@@ -172,6 +172,19 @@ describe('radii and shadows', () => {
     });
 });
 
+describe('progress bar (#570)', () => {
+    it('keeps the fill at least 3:1 against its track and the card behind it', () => {
+        for (const [fillSel, trackSel] of [['.progress-fill', '.progress-track'], ['.share-progress-bar', '.share-progress']]) {
+            const fill = background(decls(fillSel));
+            const track = background(decls(trackSel));
+            expect(fill, fillSel).toBeTruthy();
+            expect(track, trackSel).toBeTruthy();
+            expect(contrastRatio(parseColor(fill), parseColor(track)), `${fillSel} on ${trackSel}`).toBeGreaterThanOrEqual(3);
+            expect(contrastRatio(parseColor(fill), parseColor(PAPER)), `${fillSel} on Paper`).toBeGreaterThanOrEqual(3);
+        }
+    });
+});
+
 describe('filter chips', () => {
     it('selects a chip with an Ink fill and Paper text, and keeps the count readable', () => {
         for (const sel of ['.settlement-filter-chip.active', '.dispute-filter-btn.active', '.filter-chip.active']) {

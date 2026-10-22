@@ -374,18 +374,24 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text-secondary);
 }
 
+/* Progress bar: a flat fill ≥3:1 against its track (#570); see the
+   --color-progress-* tokens for why the fill is Ember text, not Ember. */
 .progress-track {
     height: 6px;
-    background: var(--color-surface-inset);
+    background: var(--color-progress-track);
     border-radius: 3px;
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--color-gradient-start), var(--color-gradient-end));
+    background: var(--color-progress-fill);
     border-radius: 3px;
     transition: width 0.3s ease;
+}
+
+.progress-fill--done {
+    background: var(--color-progress-fill-done);
 }
 
 .settlement-message {
@@ -3586,7 +3592,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-progress {
     height: 8px;
-    background: var(--color-surface-alt);
+    background: var(--color-progress-track);
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: var(--space-1, 4px);
@@ -3594,7 +3600,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-progress-bar {
     height: 100%;
-    background: var(--color-success);
+    background: var(--color-progress-fill-done);
     border-radius: 4px;
     transition: width 0.3s ease;
 }

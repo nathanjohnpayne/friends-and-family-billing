@@ -202,7 +202,10 @@ export default function DashboardView() {
                         <span className="progress-figure">{metrics.percentage}% settled</span>
                     </div>
                     <div className="progress-track">
-                        <div className="progress-fill" style={{ width: metrics.percentage + '%' }} />
+                        <div
+                            className={'progress-fill' + (metrics.percentage >= 100 ? ' progress-fill--done' : '')}
+                            style={{ width: metrics.percentage + '%' }}
+                        />
                     </div>
                     {settlementMessage && <p className="settlement-message">{settlementMessage}</p>}
                 </div>
