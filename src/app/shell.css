@@ -1449,10 +1449,10 @@ img, svg { display: block; max-width: 100%; }
 .settlement-summary-paid { color: var(--color-success); }
 .settlement-summary-balance { color: var(--color-danger); }
 
-/* Three-state balance model: owed=red, settled=grey, credit=green */
+/* Three-state balance model: owed=Outstanding, settled=Graphite text, credit=Credit */
 .settled-zero { color: var(--color-text-secondary); }
 .balance-owed { color: var(--color-danger); }
-.settlement-summary-credit { color: var(--color-success); }
+.settlement-summary-credit { color: var(--color-status-credit-fg); }
 
 .settlement-expand-toggle {
     color: var(--color-primary);
@@ -2696,10 +2696,10 @@ img, svg { display: block; max-width: 100%; }
     border-color: var(--color-primary);
 }
 
-.dispute-card--open { border-left-color: var(--color-warning); }
-.dispute-card--in_review { border-left-color: var(--color-primary); }
-.dispute-card--resolved { border-left-color: var(--color-success); }
-.dispute-card--rejected { border-left-color: var(--color-danger); }
+.dispute-card--open { border-left-color: var(--color-open-fg); }
+.dispute-card--in_review { border-left-color: var(--color-review-fg); }
+.dispute-card--resolved { border-left-color: var(--color-resolved-fg); }
+.dispute-card--rejected { border-left-color: var(--color-rejected-fg); }
 
 .dispute-card-header {
     display: flex;
@@ -3638,10 +3638,10 @@ img, svg { display: block; max-width: 100%; }
     border-left: 3px solid transparent;
 }
 
-.share-dispute--open { border-left-color: var(--color-warning); }
-.share-dispute--in_review { border-left-color: var(--color-primary); }
-.share-dispute--resolved { border-left-color: var(--color-success); }
-.share-dispute--rejected { border-left-color: var(--color-danger); }
+.share-dispute--open { border-left-color: var(--color-open-fg); }
+.share-dispute--in_review { border-left-color: var(--color-review-fg); }
+.share-dispute--resolved { border-left-color: var(--color-resolved-fg); }
+.share-dispute--rejected { border-left-color: var(--color-rejected-fg); }
 
 .share-dispute-header {
     display: flex;
