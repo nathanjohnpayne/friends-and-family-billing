@@ -55,8 +55,18 @@ describe('brand mark (Ember tile, Ink glyph)', () => {
             expect(fills).toEqual([INK, INK]);
             expect(src).toMatch(/opacity="0?\.6"/);
             // The comment names the tokens so the next palette change finds this copy.
-            expect(src).toMatch(/--color-ember/);
-            expect(src).toMatch(/--color-ink/);
+            expect(src).toMatch(/color-ember token/);
+            expect(src).toMatch(/color-ink token/);
+        });
+
+        it(`${file} is well-formed XML (no "--" inside its comment)`, () => {
+            // A standalone SVG goes through the browser's strict XML parser, which
+            // rejects "--" inside a comment; jsdom's parser reports that the same
+            // way, as a <parsererror> document instead of an <svg> root.
+            const doc = new DOMParser().parseFromString(src, 'image/svg+xml');
+            expect(doc.querySelector('parsererror')).toBeNull();
+            expect(doc.documentElement.tagName).toBe('svg');
+            for (const [, comment] of src.matchAll(/<!--([\s\S]*?)-->/g)) expect(comment).not.toMatch(/--/);
         });
     }
 

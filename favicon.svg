@@ -1,8 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
   <!-- FFB brand mark: Ember tile, Ink receipt glyph (plans/ffb-wireframes.html,
        "Visual system"). A standalone SVG cannot read design-tokens.css, so the
-       legend values are literal here: Ember #ff692d (--color-ember) and Ink
-       #22201d (--color-ink). The in-app copy is src/app/components/NavBar.jsx. -->
+       legend values are literal here: Ember #ff692d (the color-ember token) and
+       Ink #22201d (the color-ink token). XML forbids a double hyphen inside a
+       comment, hence the token names without their leading dashes. The in-app
+       copy is src/app/components/NavBar.jsx. -->
   <rect width="48" height="48" rx="12" fill="#ff692d"/>
   <g transform="translate(6,5) scale(1.5)">
     <path d="M11,10A6,6,0,0,0,6,4.09V4A2,2,0,0,1,8,2H20a2,2,0,0,1,2,2V21a1,1,0,0,1-1.39.92l-1.95-.83-1.94.83a1,1,0,0,1-.78,0L14,21.09l-1.94.83a1,1,0,0,1-.78,0l-1.94-.83-1.94.83A1,1,0,0,1,7,22a1,1,0,0,1-.55-.17A1,1,0,0,1,6,21V15.91A6,6,0,0,0,11,10Z" fill="#22201d"/>
