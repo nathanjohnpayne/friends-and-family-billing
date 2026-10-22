@@ -29,8 +29,8 @@ export default function NavBar() {
                     <svg className="nav-brand-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <defs>
                             <linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0%" stopColor="#6E78D6" />
-                                <stop offset="100%" stopColor="#7B5FAF" />
+                                <stop offset="0%" style={{ stopColor: 'var(--color-gradient-start)' }} />
+                                <stop offset="100%" style={{ stopColor: 'var(--color-gradient-end)' }} />
                             </linearGradient>
                         </defs>
                         <rect width="48" height="48" rx="12" fill="url(#navGrad)" />

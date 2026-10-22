@@ -15,79 +15,159 @@
     --space-6: 48px;
     --space-section: 40px;
 
+    /* ── Palette (plans/ffb-wireframes.html § Visual system) ──
+       The named swatches from the redesign legend. Components do
+       not consume these directly; the semantic tokens below point
+       at them, so a later palette change is a one-line edit here.
+       Contrast ratios: scripts/contrast-ratios.mjs. ──────────── */
+    --color-linen:          #efecea;   /* page canvas (app and share page) */
+    --color-paper:          #ffffff;   /* cards, dialogs, inputs, the header */
+    --color-ink:            #22201d;   /* text; filled "ink" buttons; active tab */
+    --color-graphite-text:  #66645f;   /* muted text: labels, hints, metadata */
+    --color-graphite:       #777573;   /* icons, placeholder glyphs, chevrons; never text (3.90:1 on Linen) */
+    --color-placeholder:    #6f6d69;   /* input placeholder text (inputs sit on Paper) */
+    --color-stone:          #dcd9d6;   /* hairlines, borders, dividers */
+    --color-ember:          #ff692d;   /* accent fills: primary button (Ink text), progress, brand mark */
+    --color-ember-text:     #ad3c0b;   /* small accent text: links, token pills, "Unsaved changes" */
+    --color-ember-tint:     #ffe0d3;   /* accent chip background; carries Ember text */
+
+    /* Derived, not in the legend. Linen-deep, Stone-light and
+       Stone-strong are lifted from the wireframe CSS (.subtabs /
+       .btn.off, .tbl td, .cb); the hover shades darken their base
+       by 15% because the legend defines no hover states. */
+    --color-linen-deep:         #e6e2de;   /* segmented-control track, "off" buttons */
+    --color-stone-light:        #ebe8e5;   /* table row rules */
+    --color-stone-strong:       #9a9794;   /* checkbox / radio outline, strong borders */
+    --color-ember-text-hover:   #933309;   /* Ember text, hover */
+
+    /* Ember at low alpha for washes, outlines and the focus ring
+       (the ring alpha is the wireframe's .in.focus value). */
+    --color-ember-wash:         rgba(255, 105, 45, 0.06);
+    --color-ember-wash-strong:  rgba(255, 105, 45, 0.12);
+    --color-ember-outline-soft: rgba(255, 105, 45, 0.16);
+    --color-ember-outline:      rgba(255, 105, 45, 0.30);
+    --color-focus-ring:         rgba(255, 105, 45, 0.28);
+
+    /* ── Status palette (legend order) ───────────────────────
+       fg is the text and glyph colour, bg its tint, border the
+       inline-alert rule. Settled, Outstanding and Warning borders
+       come from the wireframe .ok / .alert / .warn rules; the
+       Partial, Review and Credit borders are derived the same way
+       (the tint mixed 16% toward the fg). StatusBadge variants
+       (#547) and the primitives (#546) consume these directly. */
+    --color-status-settled-fg:         #1e6b3f;
+    --color-status-settled-bg:         #e1f0e5;
+    --color-status-settled-border:     #bfdcc8;
+    --color-status-settled-hover:      #1a5b36;   /* derived */
+
+    --color-status-partial-fg:         #2f5b9c;
+    --color-status-partial-bg:         #e3ebf7;
+    --color-status-partial-border:     #c6d4e8;   /* derived */
+
+    --color-status-outstanding-fg:     #9b2335;
+    --color-status-outstanding-bg:     #f9e3e6;
+    --color-status-outstanding-border: #ebc3ca;
+    --color-status-outstanding-hover:  #841e2d;   /* derived */
+
+    --color-status-review-fg:          #6b3fa0;
+    --color-status-review-bg:          #ece4f6;
+    --color-status-review-border:      #d7cae8;   /* derived */
+
+    --color-status-credit-fg:          #0f6e73;
+    --color-status-credit-bg:          #dcf0ef;
+    --color-status-credit-border:      #bbdbdb;   /* derived */
+
+    --color-status-warning-fg:         #8a5a00;
+    --color-status-warning-bg:         #fbf1dc;
+    --color-status-warning-border:     #ecd9ae;
+
+    --color-status-neutral-fg:         var(--color-graphite-text);   /* wireframe .st-neutral */
+    --color-status-neutral-bg:         var(--color-linen);
+
     /* ── Brand ───────────────────────────────────────────── */
-    --brand-primary-top:    #6E78D6;
-    --brand-primary-bottom: #7B5FAF;
-    --color-ink:            #1F2430;
-    --color-body:           #5B6475;
+    --brand-primary-top:    var(--color-ember);
+    --brand-primary-bottom: var(--color-ember);
+    --color-body:           var(--color-graphite-text);
 
     /* ── Semantic Colors ──────────────────────────────────── */
-    --color-primary:       #6E78D6;
-    --color-primary-hover: #5F6BC2;
-    --color-primary-light: rgba(110, 120, 214, 0.10);
-    --color-primary-bg:    rgba(110, 120, 214, 0.06);
+    /* Ember itself is a fill colour (2.87:1 on Paper), so the
+       "primary" text/outline tokens resolve to Ember text; #546
+       restyles the primary button as an Ember fill with Ink text. */
+    --color-primary:       var(--color-ember-text);
+    --color-primary-hover: var(--color-ember-text-hover);
+    --color-primary-light: var(--color-ember-tint);
+    --color-primary-bg:    var(--color-ember-wash);
+    --color-accent:        var(--color-ember);
+    --color-accent-text:   var(--color-ember-text);
 
-    --color-secondary:       #718096;
-    --color-secondary-hover: #4a5568;
+    --color-secondary:       var(--color-graphite-text);
+    --color-secondary-hover: var(--color-ink);
 
-    --color-success:       #3FA37C;
-    --color-success-hover: #358D6B;
-    --color-success-light: rgba(63, 163, 124, 0.10);
-    --color-success-bg:    #c6f6d5;
-    --color-success-fg:    #22543d;
+    --color-success:       var(--color-status-settled-fg);
+    --color-success-hover: var(--color-status-settled-hover);
+    --color-success-light: var(--color-status-settled-bg);
+    --color-success-bg:    var(--color-status-settled-bg);
+    --color-success-fg:    var(--color-status-settled-fg);
 
-    --color-warning:       #D6A24A;
-    --color-warning-bg:    #fefcbf;
-    --color-warning-fg:    #975a16;
-    --color-warning-border:#facc15;
-    --color-warning-surface:#fefce8;
+    --color-warning:       var(--color-status-warning-fg);
+    --color-warning-bg:    var(--color-status-warning-bg);
+    --color-warning-fg:    var(--color-status-warning-fg);
+    --color-warning-border:var(--color-status-warning-border);
+    --color-warning-surface:var(--color-status-warning-bg);
 
-    --color-danger:        #C65A5A;
-    --color-danger-hover:  #B34E4E;
-    --color-danger-light:  rgba(198, 90, 90, 0.10);
-    --color-danger-bg:     #fed7d7;
-    --color-danger-fg:     #9b2c2c;
+    --color-danger:        var(--color-status-outstanding-fg);
+    --color-danger-hover:  var(--color-status-outstanding-hover);
+    --color-danger-light:  var(--color-status-outstanding-bg);
+    --color-danger-bg:     var(--color-status-outstanding-bg);
+    --color-danger-fg:     var(--color-status-outstanding-fg);
 
-    --color-info:          #5F86C9;
+    --color-info:          var(--color-status-partial-fg);
 
-    --color-surface:       #ffffff;
-    --color-surface-alt:   #F7F8FB;
-    --color-surface-dim:   #f9fafb;
-    --color-surface-inset: #E6E8EE;
+    --color-surface:       var(--color-paper);
+    --color-surface-alt:   var(--color-linen);
+    --color-surface-dim:   var(--color-linen);
+    --color-surface-inset: var(--color-linen-deep);
+    --color-bg-hover:      var(--color-linen);
 
-    --color-border:        #e0e0e0;
-    --color-border-light:  #f0f0f0;
-    --color-border-subtle: #e2e8f0;
-    --color-border-strong: #cbd5e0;
+    --color-border:        var(--color-stone);
+    --color-border-light:  var(--color-stone-light);
+    --color-border-subtle: var(--color-stone);
+    --color-border-strong: var(--color-stone-strong);
 
-    --color-text:          #1F2430;
-    --color-text-secondary:#5B6475;
-    --color-text-muted:    #666666;
-    --color-text-faint:    #999999;
-    --color-text-placeholder:#a0aec0;
-    --color-text-inverse:  #ffffff;
+    --color-text:          var(--color-ink);
+    --color-text-primary:  var(--color-ink);
+    --color-text-secondary:var(--color-graphite-text);
+    --color-text-muted:    var(--color-graphite-text);
+    --color-text-tertiary: var(--color-graphite-text);
+    --color-text-faint:    var(--color-graphite-text);   /* no text lighter than Graphite text (AA) */
+    --color-text-placeholder:var(--color-placeholder);
+    --color-text-inverse:  var(--color-paper);
+    --color-icon:          var(--color-graphite);        /* icons only, non-text 3:1 */
 
-    --color-canvas:         #F4F5F7;
-    --color-gradient-start: #6E78D6;
-    --color-gradient-end:   #7B5FAF;
+    --color-canvas:         var(--color-linen);
+    --color-gradient-start: var(--color-ember);          /* progress fill is a flat Ember */
+    --color-gradient-end:   var(--color-ember);
 
     /* ── Dispute / status-specific ────────────────────────── */
-    --color-open-bg:       #fefcbf;
-    --color-open-fg:       #975a16;
-    --color-open-border:   #ecc94b;
-    --color-review-bg:     #ebf4ff;
-    --color-review-fg:     #3c5a99;
-    --color-resolved-bg:   #f0fff4;
-    --color-resolved-fg:   #276749;
-    --color-rejected-bg:   #fff5f5;
-    --color-rejected-fg:   #c53030;
+    /* Review Request lifecycle: open = Warning, in review = Partial
+       (the legend's "In review on requests"), resolved = Settled,
+       rejected = Outstanding. */
+    --color-open-bg:       var(--color-status-warning-bg);
+    --color-open-fg:       var(--color-status-warning-fg);
+    --color-open-border:   var(--color-status-warning-border);
+    --color-review-bg:     var(--color-status-partial-bg);
+    --color-review-fg:     var(--color-status-partial-fg);
+    --color-resolved-bg:   var(--color-status-settled-bg);
+    --color-resolved-fg:   var(--color-status-settled-fg);
+    --color-rejected-bg:   var(--color-status-outstanding-bg);
+    --color-rejected-fg:   var(--color-status-outstanding-fg);
 
-    --color-ur-requested-bg:  #fef3c7;
-    --color-ur-requested-fg:  #92400e;
-    --color-ur-approved-bg:   #d1fae5;
-    --color-ur-approved-fg:   #065f46;
-    --color-ur-rejected-bg:   #fee2e2;
-    --color-ur-rejected-fg:   #991b1b;
+    --color-ur-requested-bg:  var(--color-status-warning-bg);
+    --color-ur-requested-fg:  var(--color-status-warning-fg);
+    --color-ur-approved-bg:   var(--color-status-settled-bg);
+    --color-ur-approved-fg:   var(--color-status-settled-fg);
+    --color-ur-rejected-bg:   var(--color-status-outstanding-bg);
+    --color-ur-rejected-fg:   var(--color-status-outstanding-fg);
 
     /* ── Typography ───────────────────────────────────────── */
     --font-family:        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -148,9 +228,9 @@
     --logo-height:    60px;
 
     /* ── Component: Toast ─────────────────────────────────── */
-    --toast-bg: #1a1a2e;
-    --toast-text: #ffffff;
-    --toast-dismiss: #8b8fa3;
+    --toast-bg: var(--color-ink);
+    --toast-text: var(--color-paper);
+    --toast-dismiss: var(--color-stone);
 
     /* ── Z-index scale ────────────────────────────────────── */
     --z-dropdown: 100;

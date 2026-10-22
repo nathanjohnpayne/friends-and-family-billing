@@ -36,7 +36,7 @@ export default function MembersTab() {
     const [linkTarget, setLinkTarget] = useState(null);
     const [linkSelections, setLinkSelections] = useState([]);
 
-    if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
+    if (loading) return <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>;
 
     function handleAdd(e) {
         e.preventDefault();

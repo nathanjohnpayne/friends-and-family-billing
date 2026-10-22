@@ -147,22 +147,22 @@ export default function LoginView() {
     return (
         <div style={{ maxWidth: 400, margin: '4rem auto', padding: '0 1rem', fontFamily: 'system-ui, sans-serif' }}>
             <h1 style={{ textAlign: 'center' }}>Friends &amp; Family Billing</h1>
-            <p style={{ textAlign: 'center', color: '#666', marginBottom: '2rem' }}>
+            <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', marginBottom: '2rem' }}>
                 {form === 'login' ? 'Sign in to continue' : 'Create your account'}
             </p>
 
             {error && (
-                <div role="alert" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#FEE', border: '1px solid #C65A5A', borderRadius: 6, color: '#C65A5A' }}>
+                <div role="alert" style={{ padding: '0.75rem', marginBottom: '1rem', background: 'var(--color-danger-bg)', border: '1px solid var(--color-status-outstanding-border)', borderRadius: 6, color: 'var(--color-danger-fg)' }}>
                     {error}
                 </div>
             )}
             {warning && (
-                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#FEFCE8', border: '1px solid #FACC15', borderRadius: 6, color: '#975A16' }}>
+                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', borderRadius: 6, color: 'var(--color-warning-fg)' }}>
                     {warning}
                 </div>
             )}
             {success && (
-                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: '#EFE', border: '1px solid #5AC65A', borderRadius: 6, color: '#2A7A2A' }}>
+                <div role="status" style={{ padding: '0.75rem', marginBottom: '1rem', background: 'var(--color-success-bg)', border: '1px solid var(--color-status-settled-border)', borderRadius: 6, color: 'var(--color-success-fg)' }}>
                     {success}
                 </div>
             )}
@@ -211,9 +211,9 @@ export default function LoginView() {
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', margin: '1.5rem 0', gap: 8 }}>
-                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #ddd' }} />
-                <span style={{ color: '#999', fontSize: '0.8rem' }}>or</span>
-                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #ddd' }} />
+                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid var(--color-border)' }} />
+                <span style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>or</span>
+                <hr style={{ flex: 1, border: 'none', borderTop: '1px solid var(--color-border)' }} />
             </div>
 
             <button type="button" onClick={handleGoogleSignIn} disabled={loading} style={btnGoogle}>
@@ -225,23 +225,23 @@ export default function LoginView() {
 }
 
 const inputStyle = {
-    width: '100%', padding: '0.6rem 0.75rem', border: '1px solid #ccc',
+    width: '100%', padding: '0.6rem 0.75rem', border: '1px solid var(--color-border-strong)',
     borderRadius: 6, fontSize: '1rem', boxSizing: 'border-box'
 };
 
 const btnPrimary = {
     width: '100%', padding: '0.7rem', marginTop: 16, border: 'none',
-    borderRadius: 6, background: '#6E78D6', color: '#fff', fontSize: '1rem',
+    borderRadius: 6, background: 'var(--color-primary)', color: 'var(--color-text-inverse)', fontSize: '1rem',
     fontWeight: 600, cursor: 'pointer'
 };
 
 const btnGoogle = {
-    width: '100%', padding: '0.65rem', border: '1px solid #ddd',
-    borderRadius: 6, background: '#fff', fontSize: '0.95rem', cursor: 'pointer',
+    width: '100%', padding: '0.65rem', border: '1px solid var(--color-border)',
+    borderRadius: 6, background: 'var(--color-surface)', fontSize: '0.95rem', cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
 };
 
 const linkBtn = {
-    background: 'none', border: 'none', color: '#6E78D6', cursor: 'pointer',
+    background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer',
     padding: 0, fontSize: 'inherit', textDecoration: 'underline'
 };

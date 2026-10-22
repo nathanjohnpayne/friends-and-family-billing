@@ -231,7 +231,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                                                     {copied === link.id ? 'Copied!' : 'Copy'}
                                                 </button>
                                                 {link.status === 'active' && (
-                                                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger, #C65A5A)' }} onClick={() => handleRevoke(link.id)}>
+                                                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRevoke(link.id)}>
                                                         Revoke
                                                     </button>
                                                 )}
