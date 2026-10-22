@@ -13,7 +13,7 @@
  *   node scripts/contrast-ratios.mjs --json     # rows as JSON
  *
  * tests/react/designTokens.test.js imports the same functions, so the suite
- * fails before a token change that breaks AA ever reaches a reviewer.
+ * fails locally the moment a token edit drops a text pair below AA.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

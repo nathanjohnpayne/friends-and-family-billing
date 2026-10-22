@@ -160,12 +160,13 @@
     --color-progress-fill-done: var(--color-status-settled-fg);
 
     /* ── Dispute / status-specific ────────────────────────── */
-    /* Review Request lifecycle: open = Warning, in review = Partial
-       (the legend's "In review on requests"), resolved = Settled,
-       rejected = Outstanding. */
-    --color-open-bg:       var(--color-status-warning-bg);
-    --color-open-fg:       var(--color-status-warning-fg);
-    --color-open-border:   var(--color-status-warning-border);
+    /* Review Request lifecycle, as the wireframe draws it: open = Review
+       request, in review = Partial (the legend's "In review on requests"),
+       resolved = Settled, rejected = Outstanding. Warning is reserved for
+       pending states ("Awaiting member", deferred notices). */
+    --color-open-bg:       var(--color-status-review-bg);
+    --color-open-fg:       var(--color-status-review-fg);
+    --color-open-border:   var(--color-status-review-border);
     --color-review-bg:     var(--color-status-partial-bg);
     --color-review-fg:     var(--color-status-partial-fg);
     --color-resolved-bg:   var(--color-status-settled-bg);
