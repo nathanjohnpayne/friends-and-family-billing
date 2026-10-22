@@ -170,7 +170,13 @@
     --color-ur-rejected-fg:   var(--color-status-outstanding-fg);
 
     /* ── Typography ───────────────────────────────────────── */
-    --font-family:        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    /* Fraunces (display) and Inter (UI) are self-hosted from @fontsource and
+       registered in src/app/main.jsx; no page requests a third-party font host.
+       Display is Fraunces at one light weight with tight tracking; everything
+       else is Inter (plans/ffb-wireframes.html, "Visual system"). */
+    --font-family-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --font-family-ui:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-family:         var(--font-family-ui);
 
     --text-heading-xl:    2.5rem;
     --text-heading-lg:    1.5rem;
@@ -184,11 +190,17 @@
     --text-badge:         0.75rem;
     --text-badge-sm:      0.7rem;
 
+    --font-weight-display: 300;
     --font-weight-normal:  400;
     --font-weight-medium:  500;
     --font-weight-semi:    600;
     --font-weight-bold:    700;
 
+    --tracking-display: -0.02em;
+    --tracking-tight:   -0.01em;
+    --tracking-eyebrow:  0.1em;
+
+    --line-height-display: 1.1;
     --line-height-tight:   1.2;
     --line-height-normal:  1.4;
     --line-height-relaxed: 1.5;

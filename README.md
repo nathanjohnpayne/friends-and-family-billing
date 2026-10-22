@@ -4,6 +4,8 @@ A cloud-based web application for coordinating and settling annual shared bills 
 
 **🌐 Live Application:** [https://friends-and-family-billing.web.app](https://friends-and-family-billing.web.app)
 
+**🎨 Redesign Wireframes:** [`plans/ffb-wireframes.html`](plans/ffb-wireframes.html) ([rendered](https://raw.githack.com/nathanjohnpayne/friends-and-family-billing/main/plans/ffb-wireframes.html)); see [Redesign Wireframes](#redesign-wireframes)
+
 ![Family Bill Splitter](https://img.shields.io/badge/status-live-success)
 ![Firebase](https://img.shields.io/badge/firebase-hosting-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -111,6 +113,7 @@ The terms below follow the domain glossary in [CONTEXT.md](CONTEXT.md).
 - ✅ Payment reversal model (full audit trail preserved); Refunds, Usage Charges and Service Credits are voided by status change, never deleted
 - ✅ Trust notes on the share page
 - ✅ Archive integrity messaging for historical years
+- ✅ Update prompt: the app polls `version.json` every minute and offers a refresh when a new deploy is live
 
 ## Quick Start
 
@@ -124,6 +127,8 @@ The terms below follow the domain glossary in [CONTEXT.md](CONTEXT.md).
 6. Record payments as they arrive, and close the year once every Household is settled
 
 ### For Developers
+
+Requires Node.js 24 or later (`.nvmrc` pins 24).
 
 ```bash
 # Clone the repository
@@ -162,6 +167,117 @@ npm run deploy:all         # Everything
 ```
 
 The deploy scripts use `op-firebase-deploy`, and Firebase Hosting runs the configured predeploy hook (`npm run build && node stamp-version.js`) before upload. See [DEPLOYMENT.md](DEPLOYMENT.md) for full setup instructions.
+
+### npm Scripts
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | Vite dev server with hot module replacement (opens a browser) |
+| `npm run build` | `build:react` (Vite) then `build:assemble` (`scripts/assemble-deploy.js`), output in `app/` |
+| `npm run preview` | Serve the last Vite build locally |
+| `npm test` | `test:react` + `test:functions` + `test:secrets` |
+| `npm run test:react` | Vitest + React Testing Library suite under `tests/react/` |
+| `npm run test:functions` | Node test runner over `tests/functions.test.js` (Cloud Functions logic) |
+| `npm run test:secrets` | Scan tracked files for committed API keys, OAuth tokens and private keys |
+| `npm run test:coverage` | Vitest with V8 coverage |
+| `npm run test:rules` | Firestore security-rules tests on the emulator (`scripts/test-rules.sh`, Java 21+) |
+| `npm run test:e2e` | Build with `VITE_E2E_MODE=true`, then run Playwright (Chromium) against it |
+| `npm run lint` | ESLint over the repo |
+| `npm run deploy` | Hosting + Firestore rules + Storage rules via `op-firebase-deploy` |
+| `npm run deploy:functions` | Cloud Functions only |
+| `npm run deploy:all` | Everything in `firebase.json` |
+
+### Environment Variables
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `VITE_FIREBASE_*` | `.env.local` (from `.env.example`, or `.env.tpl` via 1Password) | Firebase web config; turned into `firebase-config.local.js` by `scripts/generate-firebase-config.js` |
+| `VITE_LOGODEV_KEY` | `.env.local` (optional) | Enables the Logo.dev fallback for bill logos |
+| `VITE_USE_EMULATORS` | `.env.local` (optional, dev only) | `true` connects the dev server to local Firebase emulators |
+| `VITE_E2E_MODE` | set by `npm run test:e2e` (`.env.e2e`) | Swaps Firebase for injected fixture data so Playwright runs without a backend |
+| `RESEND_API_KEY` | Cloud Functions secret | Resend API key used by `processMailQueue` |
+
+### Project Structure
+
+```text
+src/
+  app/
+    App.jsx              routes (React Router v7)
+    main.jsx             entry point
+    components/          shared UI: SettlementBoard, dialogs, TipTap editor nodes, NavBar, toasts
+    contexts/            AuthContext, ToastContext
+    hooks/               useBillingData, useDisputes, useRefundNotices
+    views/               Dashboard, Manage (five tabs), Settings, Login, Share
+  lib/                   framework-free domain logic and services
+    BillingYearService.js   owns billing-year state (useSyncExternalStore)
+    SaveQueue.js            serialized saves
+    persistence.js          buildSavePayload allowlist (ADR 0008)
+    calculations.js         shares, balances, Credits, owed adjustments
+    share.js                share-link payloads and scopes
+    invoice.js, mail.js, sms.js, template-doc.js   invoicing
+    ChargeNoticeService.js, RefundNoticeService.js, ShareLinkService.js
+functions/
+  index.js               HTTP Cloud Functions and the mail-queue trigger
+  billing.js             server-side billing math for share pages
+tests/
+  react/                 Vitest component, hook, view and lib tests
+  functions.test.js      Cloud Functions tests (node --test)
+  rules/                 Firestore rules tests (emulator)
+  e2e/                   Playwright specs and fixtures
+  test_*.sh / *.py       review-tooling tests (shared mergepath scripts)
+specs/                   feature specifications and acceptance criteria
+docs/adr/                architecture decision records
+plans/                   design artifacts, including the redesign wireframes
+scripts/                 build, config, secret-scan and review-policy tooling
+firestore.rules, storage.rules, firebase.json, design-tokens.css
+```
+
+### App Routes
+
+| Route | Screen | Access |
+|---|---|---|
+| `/login` | Sign in / create account / forgot password | Signed-out only |
+| `/dashboard` | Lifecycle bar, KPIs, settlement board | Signed in (`/` redirects here) |
+| `/manage/members` | Members and Households | Signed in |
+| `/manage/bills` | Bills, logos, Service Credits, history | Signed in |
+| `/manage/invoicing` | Invoice template editor and test email | Signed in |
+| `/manage/reviews` | Review Requests | Signed in |
+| `/manage/refunds` | Refund Notices | Signed in |
+| `/settings` | Billing Controls and Payment Methods | Signed in |
+| `/share?token=…` | Member's Household billing summary | Public (token) |
+
+Legacy paths (`/app/*`, `/login.html`, `/share.html`, `/site/*`) 301-redirect to the current routes.
+
+### Cloud Functions
+
+All run in `us-central1`. The HTTP functions are reached through Hosting rewrites of the same name (for example `/resolveShareToken`).
+
+| Function | Trigger | Purpose |
+|---|---|---|
+| `resolveShareToken` | HTTP | Validate a share token and return the live Household summary for its scopes; refreshes the `publicShares` cache |
+| `requestShareLink` | HTTP | From an expired or revoked link, email the Administrator a request for a new one (rate-limited) |
+| `submitDispute` | HTTP | Create a Review Request from a share link (`disputes:create`) |
+| `getEvidenceUrl` | HTTP | Return a short-lived signed URL for Review Request evidence |
+| `submitDisputeDecision` | HTTP | Record a member's acceptance or rejection of a resolution |
+| `submitRefundConfirmation` | HTTP | Record a member's "received" / "not received" answer on a Refund Notice |
+| `processMailQueue` | Firestore `mailQueue` document created | Validate sender, recipient and rate limit, render HTML, send through Resend |
+
+The share-page functions append to a server-only `auditLog` under the Administrator's user document (share views, Review Requests, decisions, refund confirmations).
+
+### Firestore Collections
+
+| Path | Contents | Access |
+|---|---|---|
+| `users/{uid}` | `activeBillingYear` | Owner |
+| `users/{uid}/billingYears/{yearId}` | One billing year (see [Data Structure](#data-structure)) | Owner |
+| `users/{uid}/billingYears/{yearId}/disputes/{id}` | Review Requests, Refund Notices and Charge Notices | Owner; members via Cloud Functions |
+| `users/{uid}/auditLog/{id}` | Server-written audit entries | Owner read; server write |
+| `shareTokens/{sha256}` | Share-link metadata: owner, member, year, scopes, expiry, revocation | Owner |
+| `publicShares/{sha256}` | Cached share-page payload | Get by hash; owner list; guests update access counters only |
+| `publicQrCodes/{uid}_{id}` | Payment-method QR images | Get by ID; owner list and write |
+| `mailQueue/{id}` | Outbound email awaiting `processMailQueue` | Client create (own `uid`, `pending`, fixed field allowlist); owner read |
+
+Storage holds Review Request evidence under the owner's path (`storage.rules`).
 
 ## Technical Details
 
@@ -344,6 +460,27 @@ Shares are computed from each bill's annual total divided by the number of membe
 
 To view it, open the file directly in a browser (there is no build step), or use the rendered copy at [raw.githack.com](https://raw.githack.com/nathanjohnpayne/friends-and-family-billing/main/plans/ffb-wireframes.html). Implementation is tracked in epic [#524](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/524).
 
+```bash
+# macOS (use xdg-open on Linux, start on Windows)
+open plans/ffb-wireframes.html
+```
+
+What the document covers, in order:
+
+| Section | Screens drawn |
+|---|---|
+| Visual system | Tokens, type scale and the status palette, with computed WCAG contrast |
+| Entry | Sign in and the email-verification notice |
+| Dashboard | Year pill, lifecycle stepper and gate, KPIs, deferred charges, settlement board |
+| Manage | Members, Bills, Invoicing, Review Requests, Refund Notices |
+| Settings | Billing controls and payment methods |
+| Share page | The member's billing summary (`/share`) |
+| Dialogs | Email invoice, Text invoice, Share links, Review Request detail, Payment history, Edit payment, Record payment, Issue refund, Issue service credit, Add usage charge, Bill charges (Charge Notice), Bill history, Start new billing year, Confirmation, and the share page's QR, Request a review and Reject a resolution dialogs |
+| System surfaces | Toasts and the update prompt |
+| Summary | Every numbered Redesign change (01–25) with its home screen, the source file it touches and its rationale |
+
+Each screen is drawn with the sample 2026 year (five Households) so the states line up across screens, and each Redesign change names the component it would change (for example, Redesign 01 targets `src/app/components/SettlementBoard.jsx`).
+
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)**—AI agent instructions and technical reference
@@ -353,6 +490,10 @@ To view it, open the file directly in a browser (there is no build step), or use
 - **[DEPLOYMENT.md](DEPLOYMENT.md)**—Detailed deployment instructions
 - **[docs/QUICKSTART.md](docs/QUICKSTART.md)**—Fast 10-minute setup
 - **[REVIEW_POLICY.md](REVIEW_POLICY.md)**—Multi-identity code review policy
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**—Contribution workflow
+- **[SECURITY.md](SECURITY.md)**—Security policy and vulnerability reporting
+- **[docs/agents/](docs/agents/)**—Agent operating, documentation, testing and deployment rules
+- **[docs/invoicing-tab-redesign.md](docs/invoicing-tab-redesign.md)**—Invoicing tab redesign spec (implemented 2026-04)
 - **[plans/ffb-wireframes.html](plans/ffb-wireframes.html)**—Redesign wireframes (see [Redesign Wireframes](#redesign-wireframes))
 
 ## Troubleshooting
@@ -393,6 +534,10 @@ To view it, open the file directly in a browser (there is no build step), or use
 The app runs on Firebase Hosting, Cloud Firestore, Firebase Storage (Review Request evidence) and Cloud Functions, and sends email through Resend. What it costs depends on your Firebase plan and usage. Resend's free-tier limits are listed in [DEPLOYMENT.md](DEPLOYMENT.md) § Resend Free Tier Limits, and the app itself caps client-sent email at 100 messages per account per 24 hours.
 
 ## Changelog
+
+### README Reference Sections (2026-10)
+
+- ✅ README now documents npm scripts, environment variables, project structure, app routes, Cloud Functions and Firestore collections, and links the redesign wireframes from the top of the page with a section-by-section contents table
 
 ### Redesign Wireframes (2026-10)—#524
 
