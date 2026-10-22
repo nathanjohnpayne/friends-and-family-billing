@@ -24,7 +24,7 @@ export default function RefundNoticesTab() {
     const { refundNotices, loading, error, activeNotReceivedCount, resolveNotice } = useRefundNotices();
     const { showToast } = useToast();
 
-    if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
+    if (loading) return <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>;
     if (error) return <p className="composer-error">Error loading refund notices: {error}</p>;
 
     async function handleResolve(noticeId, resolution, toastMsg) {

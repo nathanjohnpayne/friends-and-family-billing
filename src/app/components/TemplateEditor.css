@@ -11,7 +11,7 @@
     min-height: 220px;
     font-size: 0.875rem;
     line-height: 1.7;
-    color: var(--color-text, #1F2430);
+    color: var(--color-text);
 }
 
 .template-editor-surface .ProseMirror p {
@@ -26,7 +26,7 @@
 .template-editor-surface .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     float: left;
-    color: var(--color-text-tertiary, #9CA3AF);
+    color: var(--color-text-tertiary);
     font-style: italic;
     pointer-events: none;
     height: 0;
@@ -37,8 +37,8 @@
     display: flex;
     align-items: center;
     padding: 6px 14px;
-    border-bottom: 1px solid var(--color-border-light, #f0f0f0);
-    background: var(--color-surface-alt, #F7F8FB);
+    border-bottom: 1px solid var(--color-border-light);
+    background: var(--color-surface-alt);
     gap: 6px;
     flex-wrap: wrap;
 }
@@ -52,7 +52,7 @@
 .template-composer-sep {
     width: 1px;
     height: 18px;
-    background: var(--color-border, #e0e0e0);
+    background: var(--color-border);
     margin: 0 2px;
     flex-shrink: 0;
 }
@@ -75,25 +75,25 @@
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.82rem;
-    color: var(--color-text-secondary, #5B6475);
+    color: var(--color-text-secondary);
     font-weight: 500;
     transition: background 0.15s, color 0.15s;
 }
 
 .template-tb:hover {
-    background: rgba(110, 120, 214, 0.08);
-    color: var(--color-text, #1F2430);
+    background: var(--color-ember-wash);
+    color: var(--color-text);
 }
 
 .template-tb--active {
-    background: rgba(110, 120, 214, 0.14);
-    color: var(--color-primary, #4A6FA5);
+    background: var(--color-ember-wash-strong);
+    color: var(--color-primary);
 }
 
 .template-tb-sep {
     width: 1px;
     height: 18px;
-    background: var(--color-border, #e0e0e0);
+    background: var(--color-border);
     margin: 0 4px;
     flex-shrink: 0;
 }
@@ -128,10 +128,10 @@
     justify-content: space-between;
     padding: 12px 14px;
     margin: 12px 0;
-    border: 1px dashed rgba(110, 120, 214, 0.35);
-    border-left: 3px solid rgba(110, 120, 214, 0.4);
+    border: 1px dashed var(--color-ember-outline);
+    border-left: 3px solid var(--color-ember-outline);
     border-radius: 10px;
-    background: rgba(110, 120, 214, 0.03);
+    background: var(--color-ember-wash);
     user-select: none;
 }
 
@@ -144,12 +144,12 @@
 .block-token-card-label {
     font-size: 0.82rem;
     font-weight: 500;
-    color: var(--color-primary, #4A6FA5);
+    color: var(--color-primary);
 }
 
 .block-token-card-desc {
     font-size: 0.75rem;
-    color: var(--color-text-tertiary, #999);
+    color: var(--color-text-tertiary);
 }
 
 /* Slash-command popup */
@@ -164,8 +164,8 @@
     max-height: 260px;
     overflow-y: auto;
     padding: 4px;
-    background: var(--color-surface, #ffffff);
-    border: 1px solid var(--color-border, #e0e0e0);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
@@ -181,13 +181,13 @@
     cursor: pointer;
     text-align: left;
     font-size: 0.82rem;
-    color: var(--color-text, #1F2430);
+    color: var(--color-text);
     transition: background 0.1s;
 }
 
 .slash-command-item:hover,
 .slash-command-item--selected {
-    background: rgba(110, 120, 214, 0.08);
+    background: var(--color-ember-wash);
 }
 
 .slash-command-item-label {
@@ -196,14 +196,14 @@
 
 .slash-command-item-type {
     font-size: 0.72rem;
-    color: var(--color-text-tertiary, #9CA3AF);
+    color: var(--color-text-tertiary);
     margin-left: 12px;
 }
 
 .slash-command-separator {
     height: 1px;
     margin: 4px 8px;
-    background: var(--color-border-light, #f0f0f0);
+    background: var(--color-border-light);
 }
 
 /* Subject editor — inline within the subject row */
@@ -215,7 +215,7 @@
 .subject-editor .ProseMirror {
     outline: none;
     font-size: 0.875rem;
-    color: var(--color-text, #1F2430);
+    color: var(--color-text);
     white-space: nowrap;
     overflow: hidden;
     min-height: 0;
@@ -234,7 +234,7 @@
 
 .subject-editor .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
-    color: var(--color-text-tertiary, #9CA3AF);
+    color: var(--color-text-tertiary);
     pointer-events: none;
     height: 0;
     float: left;
@@ -249,7 +249,7 @@
 /* Link styling inside the editor */
 .template-editor-surface .ProseMirror a,
 .template-editor-surface .ProseMirror .template-link {
-    color: var(--color-primary, #4A6FA5);
+    color: var(--color-primary);
     text-decoration: underline;
     cursor: text;
 }

@@ -53,7 +53,7 @@ export default function BillsTab() {
     // Service Credit dialog (#321) — the bill being credited.
     const [creditTarget, setCreditTarget] = useState(null);
 
-    if (loading) return <p style={{ color: '#666' }}>Loading…</p>;
+    if (loading) return <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>;
 
     function handleAdd(e) {
         e.preventDefault();

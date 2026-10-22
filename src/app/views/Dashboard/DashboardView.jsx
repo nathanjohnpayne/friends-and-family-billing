@@ -41,17 +41,17 @@ export default function DashboardView() {
     const [confirmAction, setConfirmAction] = useState(null);
 
     if (loading) {
-        return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>Loading…</p>;
+        return <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', marginTop: '2rem' }}>Loading…</p>;
     }
 
     if (!activeYear) {
-        return <p style={{ color: '#666', textAlign: 'center', marginTop: '2rem' }}>No billing year selected.</p>;
+        return <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', marginTop: '2rem' }}>No billing year selected.</p>;
     }
 
     if (familyMembers.length === 0) {
         return (
             <div className="dashboard-hero">
-                <p style={{ color: '#666', textAlign: 'center' }}>
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>
                     Add members and bills to start building this billing year.
                 </p>
             </div>
