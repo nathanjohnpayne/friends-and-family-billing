@@ -87,6 +87,9 @@ export default function DashboardView() {
     const currentStatus = activeYear.status || 'open';
     const currentOrder = (BILLING_YEAR_STATUSES[currentStatus] || BILLING_YEAR_STATUSES.open).order;
     const remaining = metrics.totalMembers - metrics.paidCount;
+    // Every household settled and nothing outstanding: the close-gate state,
+    // not the rounded display percentage (which reads 100 below a 0.5% shortfall).
+    const allSettled = remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
     const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
     const statusHeadline = isReadyToClose
@@ -203,7 +206,7 @@ export default function DashboardView() {
                     </div>
                     <div className="progress-track">
                         <div
-                            className={'progress-fill' + (metrics.percentage >= 100 ? ' progress-fill--done' : '')}
+                            className={'progress-fill' + (allSettled ? ' progress-fill--done' : '')}
                             style={{ width: metrics.percentage + '%' }}
                         />
                     </div>

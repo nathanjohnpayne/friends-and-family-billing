@@ -184,7 +184,7 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
             await onUploadEvidence(dispute.id, file);
             if (showToast) showToast('Evidence uploaded: ' + file.name);
         } catch (err) {
-            if (showToast) showToast(err.message);
+            if (showToast) showToast(err.message, { kind: 'failure' });
         }
         setUploading(false);
         // Reset input so same file can be re-selected

@@ -127,7 +127,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
 
     async function handleSendEmail() {
         if (!recipientEmail) {
-            if (showToast) showToast('No email address for this member.');
+            if (showToast) showToast('No email address for this member.', { kind: 'failure' });
             return;
         }
         setSending(true);

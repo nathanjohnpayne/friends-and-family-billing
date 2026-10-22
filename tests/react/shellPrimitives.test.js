@@ -157,6 +157,19 @@ describe('radii and shadows', () => {
         }
     });
 
+    it('applies the card shadow to every card primitive', () => {
+        for (const card of ['.member-card', '.bill-card', '.settlement-card', '.dispute-card', '.refund-notice-card', '.share-bill-card', '.dashboard-hero']) {
+            expect(decls(card)['box-shadow'], card).toMatch(/--shadow-card/);
+        }
+    });
+
+    it('keeps a visible keyboard focus ring on action menu items', () => {
+        const focused = decls('.action-menu-item:focus-visible');
+        expect(focused['box-shadow']).toMatch(/inset 0 0 0 2px var\(--color-text\)/);
+        const danger = decls('.action-menu-item--danger:focus-visible');
+        expect(danger['box-shadow']).toMatch(/inset 0 0 0 2px var\(--color-danger\)/);
+    });
+
     it('keeps shadows whisper-light and Ink-tinted (no pure-black shadows)', () => {
         const shadows = [...shell.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1]);
         expect(shadows.length).toBeGreaterThan(0);

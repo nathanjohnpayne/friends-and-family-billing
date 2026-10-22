@@ -82,7 +82,7 @@ export default function BillsTab() {
             service.updateBill(editingId, { [editField]: value });
             showToast('Bill updated');
         } catch (err) {
-            showToast(err.message);
+            showToast(err.message, { kind: 'failure' });
         }
         setEditingId(null);
         setEditField(null);
@@ -137,7 +137,7 @@ export default function BillsTab() {
             service.updateBill(freqTarget.id, { billingFrequency: targetFreq, amount: newAmount });
             showToast('Bill updated: ' + freqTarget.name + ' now $' + newAmount.toFixed(2) + (targetFreq === 'annual' ? ' / year' : ' / month'));
         } catch (err) {
-            showToast(err.message);
+            showToast(err.message, { kind: 'failure' });
         }
         setFreqTarget(null);
     }
