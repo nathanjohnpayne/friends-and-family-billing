@@ -37,6 +37,14 @@ describe('NavBar', () => {
         expect(screen.getByRole('button', { name: /alice/i })).toBeInTheDocument();
     });
 
+    it('names the brand link by the FFB wordmark alone; the mark is decorative', () => {
+        renderNavBar();
+        // The logo mark is aria-hidden, so the link's accessible name is just the name.
+        const brand = screen.getByRole('link', { name: 'FFB' });
+        expect(brand).toHaveAttribute('href', '/');
+        expect(brand).toHaveTextContent(/^FFB$/);
+    });
+
     it('renders Dashboard link at /dashboard', () => {
         renderNavBar('/dashboard');
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
