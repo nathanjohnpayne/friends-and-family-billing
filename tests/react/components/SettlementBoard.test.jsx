@@ -439,6 +439,22 @@ describe('SettlementBoard — household credit', () => {
         expect(screen.queryByText('Credit')).toBeNull();
     });
 
+    it('labels a linked member who overpaid their own share Settled, never Credit', () => {
+        // Carol (linked) pays 560 of her 480; Alice (primary) pays 400 of hers. The household
+        // nets to owed, so no household Credit exists and Carol's member badge must not invent one.
+        const payments = [
+            { memberId: 1, amount: 400, method: 'cash' },
+            { memberId: 3, amount: 560, method: 'cash' }
+        ];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
+        expandCard('Alice');
+        const carolRow = screen.getAllByText('Carol')
+            .map(n => n.closest('.settlement-linked-member'))
+            .find(Boolean);
+        expect(within(carolRow).getByText('Settled')).toBeInTheDocument();
+        expect(screen.queryByText('Credit')).toBeNull();
+    });
+
     it('shows a collectable Balance and Record Payment when Net Contribution falls below owed', () => {
         // Bob owes 480, paid 600, but a recorded carry-forward of 200 nets him to 400 —
         // below owed (an over-disposition later slices must prevent). The board must stay

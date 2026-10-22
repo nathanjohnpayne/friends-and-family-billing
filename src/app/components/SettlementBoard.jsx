@@ -417,7 +417,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                             {linkedData.map(ls => {
                                 const childPayment = getPaymentTotalForMember(payments, ls.member.id);
                                 const childBalance = ls.total - childPayment;
-                                const childStatus = getPaymentStatus(ls.total, childPayment);
+                                // A Credit is owned by the household (CONTEXT.md), and internal
+                                // imbalance between members is invisible to it: a linked member who
+                                // paid past their own share reads Settled, never Credit.
+                                const rawChildStatus = getPaymentStatus(ls.total, childPayment);
+                                const childStatus = rawChildStatus === 'credit' ? 'settled' : rawChildStatus;
                                 const isLinkedExpanded = !!linkedExpanded[ls.member.id];
                                 const sameBills = hasSameBillSet(data, ls);
                                 return (
