@@ -359,7 +359,7 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                                         await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
                                         if (showToast) showToast('Resolution emailed to ' + member.email);
                                     } catch (err) {
-                                        if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'));
+                                        if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
                                     }
                                 }}>{notifiedAt ? 'Re-send Email' : 'Email'}</button>
                             )}

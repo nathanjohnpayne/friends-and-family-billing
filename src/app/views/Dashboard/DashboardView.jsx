@@ -254,7 +254,7 @@ export default function DashboardView() {
                     })
                         .then(notice => {
                             if (notice && notice.emailError) {
-                                showToast('Refund recorded, but the Refund Notice email could not be sent: ' + notice.emailError);
+                                showToast('Refund recorded, but the Refund Notice email could not be sent: ' + notice.emailError, { kind: 'failure' });
                             }
                         })
                         .catch(err => console.error('Refund notice send failed:', err));
@@ -417,12 +417,12 @@ export default function DashboardView() {
                                     settings: freshState.settings || {},
                                 })
                             )
-                                .then(notice => showToast(notice && notice.emailError
-                                    ? 'Charges billed and Charge Notice recorded, but the email to the member could not be sent: ' + notice.emailError
-                                    : 'Charges billed—Charge Notice sent.'))
+                                .then(notice => (notice && notice.emailError
+                                    ? showToast('Charges billed and Charge Notice recorded, but the email to the member could not be sent: ' + notice.emailError, { kind: 'failure' })
+                                    : showToast('Charges billed—Charge Notice sent.')))
                                 .catch(err => {
                                     console.error('issueChargeNotice failed:', err);
-                                    showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message);
+                                    showToast('Charges billed, but the Charge Notice could not be sent: ' + err.message, { kind: 'failure' });
                                 });
                         }}
                         onClose={() => setDialog({ type: null, memberId: null })}
@@ -442,7 +442,7 @@ export default function DashboardView() {
                         await service.setYearStatus(newStatus);
                         showToast(BILLING_YEAR_STATUSES[newStatus].label + '\u2014status updated.');
                     } catch (err) {
-                        showToast('Error: ' + err.message);
+                        showToast('Error: ' + err.message, { kind: 'failure' });
                     }
                 }}
                 onCancel={() => setConfirmAction(null)}

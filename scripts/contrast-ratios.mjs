@@ -51,13 +51,21 @@ export const PAIRS = [
     { fg: '--color-primary', bg: '--color-ember-wash-strong', over: '--color-surface', use: 'Ember text on a strong Ember wash (hovered chips)', min: AA_TEXT },
     { fg: '--color-primary-hover', bg: '--color-surface', use: 'Ember text hover on Paper', min: AA_TEXT },
     { fg: '--color-primary-hover', bg: '--color-surface-alt', use: 'Ember text hover on Linen (tertiary button hover)', min: AA_TEXT },
-    // Inverse text on fills
-    { fg: '--color-text-inverse', bg: '--color-primary', use: 'White text on the primary fill (.btn-primary, update toast button)', min: AA_TEXT },
-    { fg: '--color-text-inverse', bg: '--color-primary-hover', use: 'White text on the primary hover fill', min: AA_TEXT },
+    // Fills with text on them (#546): the primary pill is Ink on Ember, never white
+    { fg: '--color-text', bg: '--color-accent-hover', use: 'Ink text on the Ember hover fill (primary button, hover)', min: AA_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-ink', use: 'White text on Ink (selected filter chip, segment, .btn-ink, toast)', min: AA_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-secondary-hover', use: 'White text on the Ink button hover fill', min: AA_TEXT },
+    { fg: '--color-stone', bg: '--color-ink', use: 'Stone count inside a selected filter chip', min: AA_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-primary', use: 'White text on the Ember-text fill (LoginView inline button, until RD-17)', min: AA_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-primary-hover', use: 'White text on the Ember-text hover fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger', use: 'White text on the destructive fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger-hover', use: 'White text on the destructive hover fill', min: AA_TEXT },
     { fg: '--toast-text', bg: '--toast-bg', use: 'Toast text on Ink', min: AA_TEXT },
     { fg: '--toast-dismiss', bg: '--toast-bg', use: 'Toast dismiss glyph on Ink', min: AA_TEXT },
+    { fg: '--toast-text', bg: '--color-status-outstanding-fg', use: 'Failure toast text on the Outstanding fill (RD-23)', min: AA_TEXT },
+    { fg: '--toast-dismiss', bg: '--color-status-outstanding-fg', use: 'Failure toast dismiss glyph on the Outstanding fill', min: AA_TEXT },
+    // Status text on its border colour is never set; borders are hairlines. Inline
+    // alerts put the status fg on its tint (the status rows below).
     // Status palette: each fg on its tint, on Paper and on Linen
     ...['settled', 'partial', 'outstanding', 'review', 'credit', 'warning'].flatMap((s) => [
         { fg: `--color-status-${s}-fg`, bg: `--color-status-${s}-bg`, use: `${s} on its tint (badges, alerts)`, min: AA_TEXT },

@@ -144,7 +144,7 @@ img, svg { display: block; max-width: 100%; }
 
 .nav-user-trigger:hover {
     border-color: var(--color-border-strong);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    box-shadow: var(--shadow-card);
 }
 
 .nav-user-icon {
@@ -176,7 +176,7 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    box-shadow: var(--shadow-menu);
     padding: 4px;
     z-index: 100;
 }
@@ -235,7 +235,7 @@ img, svg { display: block; max-width: 100%; }
 .dashboard-hero {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-4, 24px);
     margin-bottom: var(--space-4, 24px);
 }
@@ -321,7 +321,7 @@ img, svg { display: block; max-width: 100%; }
 
 .kpi-card--clickable:hover {
     background: var(--color-surface);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-card);
 }
 
 .kpi-label {
@@ -401,7 +401,7 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-warning-fg);
     background: var(--color-warning-surface);
     border: 1px solid var(--color-warning-border);
-    border-radius: 6px;
+    border-radius: var(--radius-alert, 8px);
     padding: var(--space-2, 8px) var(--space-3, 16px);
 }
 
@@ -409,7 +409,7 @@ img, svg { display: block; max-width: 100%; }
 .year-selector {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-4, 24px);
     margin-bottom: var(--space-4, 24px);
 }
@@ -450,7 +450,7 @@ img, svg { display: block; max-width: 100%; }
     flex: 1;
     padding: var(--space-1, 4px) var(--space-2, 8px);
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-input, 8px);
     font-size: 0.875rem;
     background: var(--color-surface);
 }
@@ -467,37 +467,80 @@ img, svg { display: block; max-width: 100%; }
     margin: var(--space-4, 24px) 0;
 }
 
-/* Status banner */
-.status-banner {
-    padding: var(--space-2, 8px) var(--space-3, 16px);
-    border-radius: 8px;
+/* ── Inline alerts ─────────────────────────────────────── */
+/* Wireframe .alert / .ok / .warn / .info: an 8 px box in the status tint
+   with its border and text in the status colour (every pair ≥4.5:1,
+   scripts/contrast-ratios.mjs). The copy names the condition ("Error: …",
+   "Awaiting member"), so the tint is never the only signal. The existing
+   .composer-error, .status-banner and .share-pending-notice classes map
+   onto these variants so every form keeps its markup. */
+.inline-alert,
+.status-banner,
+.composer-error,
+.share-pending-notice {
+    padding: var(--space-2, 8px) 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-alert, 8px);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
     font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+.inline-alert,
+.status-banner {
     margin-bottom: var(--space-3, 16px);
 }
 
+.inline-alert--error,
+.composer-error {
+    background: var(--color-status-outstanding-bg);
+    border-color: var(--color-status-outstanding-border);
+    color: var(--color-status-outstanding-fg);
+}
+
+.inline-alert--success {
+    background: var(--color-status-settled-bg);
+    border-color: var(--color-status-settled-border);
+    color: var(--color-status-settled-fg);
+}
+
+.inline-alert--warning,
+.status-banner--warning,
+.share-pending-notice {
+    background: var(--color-status-warning-bg);
+    border-color: var(--color-status-warning-border);
+    color: var(--color-status-warning-fg);
+}
+
+.inline-alert--info,
+.status-banner--archived {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    color: var(--color-text-secondary);
+}
+
 .status-banner--warning {
-    background: var(--color-warning-surface);
-    border: 1px solid var(--color-warning-border);
-    color: var(--color-warning-fg);
     display: flex;
     flex-direction: column;
     gap: var(--space-2, 8px);
 }
 
-.status-banner--warning p {
+.status-banner p,
+.inline-alert p {
     margin: 0;
 }
 
-.status-banner--archived {
-    background: var(--color-surface-inset);
-    color: var(--color-text-muted);
+.composer-error {
+    margin: 0 0 var(--space-2, 8px);
+    font-size: 0.8rem;
 }
 
 /* Placeholder tab content */
 .tab-placeholder {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-5, 32px);
     text-align: center;
     color: var(--color-text-secondary);
@@ -514,19 +557,38 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */
+/* Pills, per the legend (plans/ffb-wireframes.html § Visual system, .btn):
+   the base button is the secondary—Paper, Stone hairline, Ink text—and the
+   variants change fill and text together. The primary is an Ember fill with
+   Ink text (5.66:1); Ember never carries white text (2.87:1), which
+   tests/react/shellPrimitives.test.js pins. */
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-1, 4px);
-    padding: var(--space-2, 8px) var(--space-3, 16px);
-    border: 1px solid transparent;
-    border-radius: 6px;
+    gap: 6px;
+    padding: 7px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-button, 9999px);
+    background: var(--color-surface);
+    color: var(--color-text);
     font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.2;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
     white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+    background: var(--color-surface-alt);
+    border-color: var(--color-border-strong);
+}
+
+.btn:focus-visible {
+    outline: none;
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .btn:disabled {
@@ -535,64 +597,155 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .btn-sm {
-    padding: var(--space-1, 4px) var(--space-2, 8px);
+    padding: 5px 11px;
     font-size: 0.8rem;
 }
 
+.btn-block {
+    display: flex;
+    width: 100%;
+}
+
 .btn-primary {
-    background: var(--color-primary);
-    color: var(--color-text-inverse);
-    border-color: var(--color-primary);
+    background: var(--color-accent);
+    color: var(--color-text);
+    border-color: var(--color-accent);
+    font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: var(--color-primary-hover);
-    border-color: var(--color-primary-hover);
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
 }
 
+/* Ink fill: the legend's "filled ink button" (white text on Ink, 15.1:1). */
+.btn-ink {
+    background: var(--color-ink);
+    color: var(--color-text-inverse);
+    border-color: var(--color-ink);
+    font-weight: 600;
+}
+
+.btn-ink:hover:not(:disabled) {
+    background: var(--color-secondary-hover);
+    border-color: var(--color-secondary-hover);
+}
+
+.btn-secondary,
 .btn-header-secondary {
     background: var(--color-surface);
     color: var(--color-text);
     border-color: var(--color-border);
 }
 
+.btn-secondary:hover:not(:disabled),
 .btn-header-secondary:hover:not(:disabled) {
     border-color: var(--color-border-strong);
     background: var(--color-surface-alt);
 }
 
+/* Ghost: no fill, no hairline, Graphite text; Ink on hover. */
+.btn-tertiary,
 .btn-header-tertiary {
-    background: none;
+    background: transparent;
     color: var(--color-text-secondary);
     border-color: transparent;
-    padding: var(--space-1, 4px) var(--space-2, 8px);
+}
+
+.btn-tertiary:hover:not(:disabled),
+.btn-header-tertiary:hover:not(:disabled) {
+    background: var(--color-surface-alt);
+    border-color: transparent;
+    color: var(--color-text);
+}
+
+.btn-header-tertiary {
+    padding: 5px 11px;
     font-size: 0.8rem;
 }
 
-.btn-header-tertiary:hover:not(:disabled) {
-    color: var(--color-primary);
-    background: var(--color-primary-light);
+/* Destructive: the Outstanding fill, Paper text (7.4:1). */
+.btn-destructive {
+    background: var(--color-danger);
+    color: var(--color-text-inverse);
+    border-color: var(--color-danger);
+    font-weight: 600;
+}
+
+.btn-destructive:hover:not(:disabled) {
+    background: var(--color-danger-hover);
+    border-color: var(--color-danger-hover);
+}
+
+/* Outlined destructive (wireframe .btn.danger): Paper, Outstanding text and
+   a tinted hairline, for row-level actions such as Reverse. */
+.btn-destructive-outline {
+    background: var(--color-surface);
+    color: var(--color-danger);
+    border-color: var(--color-status-outstanding-border);
+}
+
+.btn-destructive-outline:hover:not(:disabled) {
+    background: var(--color-danger-light);
+    border-color: var(--color-danger);
+}
+
+/* Round icon button (wireframe .ico-btn): 30 px, Graphite glyph. */
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 50%;
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.icon-btn:hover {
+    background: var(--color-surface-alt);
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
+}
+
+.icon-btn:focus-visible {
+    outline: none;
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.icon-btn svg {
+    width: 16px;
+    height: 16px;
 }
 
 /* ── Empty State ─────────────────────────────────────────── */
+/* Wireframe .empty: a dashed Stone frame on Paper, the title in the display
+   face, Graphite body copy; the action slot holds pill buttons. */
 .empty-state {
     background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 12px;
-    padding: var(--space-5, 32px) var(--space-4, 24px);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-card, 12px);
+    padding: 28px 20px;
     text-align: center;
+    color: var(--color-text-secondary);
 }
 
 .empty-state-icon {
     display: block;
-    font-size: 2rem;
+    font-size: 1.75rem;
+    line-height: 1;
     margin-bottom: var(--space-2, 8px);
+    color: var(--color-icon);
 }
 
 .empty-state-title {
-    margin: 0 0 var(--space-1, 4px);
-    font-size: 1rem;
-    font-weight: 600;
+    margin: 0 0 6px;
+    font-size: 1.375rem;
     color: var(--color-text);
 }
 
@@ -603,6 +756,10 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .empty-state-action {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-2, 8px);
+    flex-wrap: wrap;
     margin-top: var(--space-3, 16px);
 }
 
@@ -625,54 +782,81 @@ img, svg { display: block; max-width: 100%; }
 .status-badge--overpaid    { background: var(--color-status-credit-bg); color: var(--color-status-credit-fg); }
 
 /* ── Action Menu ─────────────────────────────────────────── */
+/* Wireframe .ico-btn trigger + .menu-pop: a round Graphite ellipsis button
+   and a 10 px Paper popover with the menu shadow; items are 7 px rows that
+   tint Linen on hover, a destructive item reads in the Outstanding red. */
 .action-menu {
     position: relative;
     display: inline-block;
 }
 
 .action-menu-trigger {
-    background: var(--color-surface-alt);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
-    padding: var(--space-1, 4px) var(--space-2, 8px);
-    cursor: pointer;
-    font-size: 1rem;
+    border-radius: 50%;
     color: var(--color-text-secondary);
-    border-radius: 6px;
+    font-size: 1rem;
     line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.action-menu-trigger:hover {
-    background: var(--color-border-light);
-    border-color: var(--color-text-faint);
+.action-menu-trigger:hover,
+.action-menu-trigger[aria-expanded="true"] {
+    background: var(--color-surface-alt);
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
+}
+
+.action-menu-trigger:focus-visible {
+    outline: none;
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.action-menu-trigger svg {
+    width: 16px;
+    height: 16px;
 }
 
 .action-menu-dropdown {
     position: absolute;
     right: 0;
-    top: 100%;
+    top: calc(100% + 4px);
     z-index: var(--z-dropdown, 100);
-    min-width: 160px;
+    min-width: 190px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
-    box-shadow: var(--shadow-dropdown, 0 4px 16px rgba(0,0,0,0.12));
-    padding: var(--space-1, 4px) 0;
+    border-radius: var(--radius-menu, 10px);
+    box-shadow: var(--shadow-menu, 0 10px 28px rgba(34, 32, 29, 0.14));
+    padding: 6px;
 }
 
 .action-menu-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2, 8px);
     width: 100%;
     text-align: left;
-    padding: var(--space-2, 8px) var(--space-3, 16px);
+    padding: 7px 10px;
     background: none;
     border: none;
+    border-radius: 7px;
     font-size: 0.875rem;
     color: var(--color-text);
     cursor: pointer;
     white-space: nowrap;
 }
 
-.action-menu-item:hover {
+.action-menu-item:hover,
+.action-menu-item:focus-visible {
+    outline: none;
     background: var(--color-surface-alt);
 }
 
@@ -680,15 +864,22 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-danger);
 }
 
-.action-menu-item--danger:hover {
+.action-menu-item--danger:hover,
+.action-menu-item--danger:focus-visible {
     background: var(--color-danger-light);
+}
+
+.action-menu-separator {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--color-border);
 }
 
 /* ── Confirm Dialog ──────────────────────────────────────── */
 .dialog-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(34, 32, 29, 0.42);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -697,8 +888,8 @@ img, svg { display: block; max-width: 100%; }
 
 .dialog {
     background: var(--color-surface);
-    border-radius: 12px;
-    box-shadow: var(--shadow-dialog, 0 20px 60px rgba(0,0,0,0.3));
+    border-radius: var(--radius-dialog, 14px);
+    box-shadow: var(--shadow-dialog, 0 24px 60px rgba(34, 32, 29, 0.3));
     width: 90%;
     max-width: 440px;
     overflow-y: auto;
@@ -786,56 +977,32 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
-.btn-secondary {
-    background: var(--color-surface);
-    color: var(--color-text);
-    border-color: var(--color-border);
-}
-
-.btn-secondary:hover:not(:disabled) {
-    border-color: var(--color-border-strong);
-    background: var(--color-surface-alt);
-}
-
-.btn-tertiary {
-    background: transparent;
-    color: var(--color-primary);
-    border-color: transparent;
-    padding: 0.3rem 0.6rem;
-}
-
-.btn-tertiary:hover:not(:disabled) {
-    background: var(--color-surface-alt);
-    color: var(--color-primary-hover);
-}
-
-.btn-destructive {
-    background: var(--color-danger);
-    color: var(--color-text-inverse);
-    border-color: var(--color-danger);
-}
-
-.btn-destructive:hover:not(:disabled) {
-    background: var(--color-danger-hover);
-    border-color: var(--color-danger-hover);
-}
-
 /* ── Toast ───────────────────────────────────────────────── */
-.change-toast {
+/* Wireframe .toast: an Ink pill bottom-centre with the toast shadow, Paper
+   text, a Stone dismiss glyph. The failure variant (RD-23) is the same pill
+   in the Outstanding red so a failure is recognised before it is read; the
+   message still says "failed" / "Error", so the hue is never the only cue. */
+.change-toast,
+.update-toast {
     position: fixed;
     bottom: var(--space-4, 24px);
     left: 50%;
-    transform: translateX(-50%) translateY(20px);
-    background: var(--toast-bg);
-    color: var(--toast-text);
-    padding: var(--space-2, 8px) var(--space-3, 16px);
-    border-radius: 8px;
-    font-size: 0.875rem;
-    box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,0.08));
     z-index: var(--z-toast, 10000);
     display: flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    gap: var(--space-3, 12px);
+    max-width: calc(100vw - 32px);
+    padding: 10px 12px 10px 16px;
+    border-radius: var(--radius-pill, 9999px);
+    background: var(--toast-bg);
+    color: var(--toast-text);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    box-shadow: var(--shadow-toast, 0 10px 30px rgba(34, 32, 29, 0.3));
+}
+
+.change-toast {
+    transform: translateX(-50%) translateY(20px);
     opacity: 0;
     transition: opacity 0.2s, transform 0.2s;
     pointer-events: none;
@@ -847,18 +1014,36 @@ img, svg { display: block; max-width: 100%; }
     pointer-events: auto;
 }
 
-.toast-dismiss {
+.change-toast--failure {
+    background: var(--color-status-outstanding-fg);
+}
+
+.toast-dismiss,
+.update-toast-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
     background: none;
     border: none;
     color: var(--toast-dismiss);
     cursor: pointer;
-    font-size: 1.1rem;
-    padding: 0 2px;
+    font-size: 1.25rem;
     line-height: 1;
+    padding: 0 4px;
+    transition: color 0.15s;
 }
 
-.toast-dismiss:hover {
+.toast-dismiss:hover,
+.update-toast-dismiss:hover {
     color: var(--toast-text);
+}
+
+.toast-dismiss:focus-visible,
+.update-toast-dismiss:focus-visible {
+    outline: none;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--toast-text);
 }
 
 /* ── Tab Header ──────────────────────────────────────────── */
@@ -879,7 +1064,7 @@ img, svg { display: block; max-width: 100%; }
 .composer-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 16px);
     margin-bottom: var(--space-3, 16px);
 }
@@ -891,46 +1076,100 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-2, 8px);
 }
 
-.composer-input {
-    padding: var(--space-2, 8px) var(--space-3, 16px);
+/* ── Inputs ────────────────────────────────────────────── */
+/* Wireframe .in: 8 px corners, Stone hairline, Paper fill, Ink text; focus
+   darkens the hairline to Ink and adds the Ember ring; an invalid field
+   outlines in the Outstanding red (its message sits in an inline alert). */
+.composer-input,
+.payment-field-group input,
+.payment-field-group select,
+.payment-field-group textarea,
+.dialog input:not([type="checkbox"]):not([type="radio"]),
+.dialog select,
+.dialog textarea {
+    padding: var(--space-2, 8px) 10px;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-input, 8px);
     font-size: 0.875rem;
+    font-family: inherit;
+    color: var(--color-text);
     background: var(--color-surface);
+    min-height: 34px;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.composer-input:focus {
+.composer-input::placeholder,
+.dialog input::placeholder,
+.dialog textarea::placeholder {
+    color: var(--color-text-placeholder);
+    opacity: 1;
+}
+
+.composer-input:focus,
+.payment-field-group input:focus,
+.payment-field-group select:focus,
+.payment-field-group textarea:focus,
+.dialog input:not([type="checkbox"]):not([type="radio"]):focus,
+.dialog select:focus,
+.dialog textarea:focus {
     outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px var(--color-primary-light);
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
-.composer-error {
-    color: var(--color-danger);
-    font-size: 0.8rem;
-    margin: 0 0 var(--space-2, 8px);
+.composer-input[aria-invalid="true"],
+.dialog input[aria-invalid="true"],
+.dialog textarea[aria-invalid="true"] {
+    border-color: var(--color-status-outstanding-fg);
 }
 
+.composer-input:disabled,
+.dialog input:disabled,
+.dialog select:disabled,
+.dialog textarea:disabled {
+    background: var(--color-surface-alt);
+    color: var(--color-text-secondary);
+    cursor: not-allowed;
+}
+
+/* .composer-error is an inline alert (see "Inline alerts" above). */
+
+/* ── Segmented control ─────────────────────────────────── */
+/* Wireframe .seg: a Linen pill track; the selected segment fills Ink. */
 .frequency-toggle {
-    display: flex;
-    gap: 0;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    overflow: hidden;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: none;
+    border-radius: var(--radius-pill, 9999px);
+    background: var(--color-surface-alt);
     width: fit-content;
 }
 
 .frequency-option {
-    padding: var(--space-1, 4px) var(--space-3, 16px);
+    padding: 5px 12px;
     border: none;
-    background: var(--color-surface);
+    border-radius: var(--radius-pill, 9999px);
+    background: transparent;
     font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.2;
     cursor: pointer;
     color: var(--color-text-secondary);
+    transition: background 0.15s, color 0.15s;
+}
+
+.frequency-option:hover:not(.active) {
+    color: var(--color-text);
+}
+
+.frequency-option:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .frequency-option.active {
-    background: var(--color-primary);
+    background: var(--color-ink);
     color: var(--color-text-inverse);
 }
 
@@ -947,7 +1186,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-3, 16px);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 16px);
 }
 
@@ -1015,12 +1254,15 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .inline-edit-input {
-    padding: 2px 6px;
-    border: 1px solid var(--color-primary);
-    border-radius: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--color-text);
+    border-radius: var(--radius-input, 8px);
+    background: var(--color-surface);
+    color: var(--color-text);
     font-size: inherit;
     font-family: inherit;
     outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
     width: 100%;
     max-width: 200px;
 }
@@ -1060,7 +1302,7 @@ img, svg { display: block; max-width: 100%; }
 .bill-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 16px);
 }
 
@@ -1267,36 +1509,77 @@ img, svg { display: block; max-width: 100%; }
 
 .settlement-filters {
     display: flex;
-    gap: var(--space-1, 4px);
+    gap: 6px;
     flex-wrap: wrap;
 }
 
-.settlement-filter-chip {
-    padding: var(--space-1, 4px) var(--space-2, 8px);
+/* ── Filter chips ──────────────────────────────────────── */
+/* Wireframe .fchp: a Paper pill with a Stone hairline and Graphite text;
+   the selected chip fills Ink with Paper text and its count turns Stone.
+   The board and the reviews tab both use it. */
+.filter-chip,
+.settlement-filter-chip,
+.dispute-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
     border: 1px solid var(--color-border);
-    border-radius: 99px;
+    border-radius: var(--radius-pill, 9999px);
     background: var(--color-surface);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 500;
+    line-height: 1.4;
     color: var(--color-text-secondary);
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.settlement-filter-chip:hover {
-    border-color: var(--color-primary);
+.filter-chip:hover,
+.settlement-filter-chip:hover,
+.dispute-filter-btn:hover {
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
 }
 
-.settlement-filter-chip.active {
-    background: var(--color-primary);
+.filter-chip:focus-visible,
+.settlement-filter-chip:focus-visible,
+.dispute-filter-btn:focus-visible {
+    outline: none;
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.filter-chip.active,
+.filter-chip[aria-pressed="true"],
+.settlement-filter-chip.active,
+.dispute-filter-btn.active {
+    background: var(--color-ink);
     color: var(--color-text-inverse);
-    border-color: var(--color-primary);
+    border-color: var(--color-ink);
 }
 
-.settlement-filter-count {
+.filter-chip svg,
+.settlement-filter-chip svg,
+.dispute-filter-btn svg {
+    width: 11px;
+    height: 11px;
+}
+
+.filter-chip-count,
+.settlement-filter-count,
+.dispute-filter-count {
     font-weight: 400;
-    opacity: 0.8;
-    margin-left: 2px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+}
+
+.filter-chip.active .filter-chip-count,
+.filter-chip[aria-pressed="true"] .filter-chip-count,
+.settlement-filter-chip.active .settlement-filter-count,
+.dispute-filter-btn.active .dispute-filter-count {
+    color: var(--color-stone);
 }
 
 .settlement-rows {
@@ -1315,7 +1598,7 @@ img, svg { display: block; max-width: 100%; }
 .settlement-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
 }
 
 .settlement-card--outstanding { border-left: 3px solid var(--color-danger); }
@@ -1408,7 +1691,7 @@ img, svg { display: block; max-width: 100%; }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-primary);
+    background: var(--color-ink);
     color: var(--color-text-inverse);
     font-size: 0.65rem;
     font-weight: 700;
@@ -1427,7 +1710,7 @@ img, svg { display: block; max-width: 100%; }
     text-align: center;
     padding: var(--space-1, 4px) var(--space-2, 8px);
     background: var(--color-surface-dim);
-    border-radius: 6px;
+    border-radius: var(--radius-input, 8px);
     min-width: 64px;
 }
 
@@ -1661,7 +1944,7 @@ img, svg { display: block; max-width: 100%; }
     margin: 0 0 var(--space-3, 12px);
     padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-input, 8px);
 }
 
 .service-credit-scope-legend {
@@ -1706,7 +1989,7 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-2, 8px);
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-input, 8px);
 }
 
 .payment-distribute-option label {
@@ -1772,7 +2055,7 @@ img, svg { display: block; max-width: 100%; }
 .payment-history-item {
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
 }
 
 .payment-history-item.payment-reversed {
@@ -1824,7 +2107,7 @@ img, svg { display: block; max-width: 100%; }
 .payment-history-tag {
     font-size: 0.72rem;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
     font-weight: 600;
     text-transform: uppercase;
 }
@@ -1917,7 +2200,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     margin: var(--space-3, 12px) 0;
 }
 
@@ -1947,7 +2230,7 @@ img, svg { display: block; max-width: 100%; }
 .share-link-item {
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
 }
 
 .share-link-item-header {
@@ -1972,7 +2255,7 @@ img, svg { display: block; max-width: 100%; }
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
 }
 
 .share-link-status--active {
@@ -2066,12 +2349,12 @@ img, svg { display: block; max-width: 100%; }
     min-height: 140px;
     padding: 14px 16px;
     border: 1px solid var(--color-border);
-    border-radius: 10px;
+    border-radius: var(--radius-input, 8px);
     background: var(--color-surface);
     font-size: 0.875rem;
     line-height: 1.6;
     color: var(--color-text);
-    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    box-shadow: inset 0 1px 2px rgba(34, 32, 29, 0.04);
     outline: none;
     overflow-y: auto;
 }
@@ -2121,23 +2404,31 @@ img, svg { display: block; max-width: 100%; }
     gap: 8px;
 }
 
+/* Wireframe .subtabs: a Linen-deep pill track; the selected segment is a
+   Paper pill with the segment shadow. */
 .template-segmented-control {
     display: inline-flex;
+    gap: 2px;
     background: var(--color-surface-inset);
-    border-radius: 8px;
+    border-radius: var(--radius-pill, 9999px);
     padding: 3px;
 }
 
 .template-segment {
-    padding: 5px 18px;
+    padding: 5px 14px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-pill, 9999px);
     background: transparent;
     font-size: 0.82rem;
     font-weight: 500;
     color: var(--color-text-secondary);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.template-segment:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .template-segment:hover {
@@ -2147,23 +2438,24 @@ img, svg { display: block; max-width: 100%; }
 .template-segment--active {
     background: var(--color-surface);
     color: var(--color-text);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    box-shadow: var(--shadow-segment);
 }
 
 .template-header-action-btn {
     padding: 6px 16px;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-button, 9999px);
     background: var(--color-surface);
     font-size: 0.82rem;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: var(--color-text);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
 }
 
-.template-header-action-btn:hover {
+.template-header-action-btn:hover:not(:disabled) {
     background: var(--color-surface-alt);
+    border-color: var(--color-border-strong);
 }
 
 .template-dirty-indicator {
@@ -2186,7 +2478,7 @@ img, svg { display: block; max-width: 100%; }
 
 .template-card {
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--radius-card, 12px);
     background: var(--color-surface);
     overflow: hidden;
 }
@@ -2254,19 +2546,26 @@ img, svg { display: block; max-width: 100%; }
 
 /* Save button (now lives in header bar) */
 .template-save-btn {
-    padding: 6px 18px;
-    border: none;
-    border-radius: 6px;
-    background: var(--color-primary);
-    color: var(--color-text-inverse);
+    padding: 6px 16px;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-button, 9999px);
+    background: var(--color-accent);
+    color: var(--color-text);
     font-size: 0.82rem;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
 }
 
-.template-save-btn:hover {
-    background: var(--color-primary-hover);
+.template-save-btn:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+}
+
+.template-save-btn:focus-visible {
+    outline: none;
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .template-save-btn:disabled {
@@ -2305,7 +2604,7 @@ img, svg { display: block; max-width: 100%; }
 .template-preview-member-sel {
     padding: 3px 8px;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-input, 8px);
     font-size: 0.75rem;
     background: var(--color-surface);
     color: var(--color-text);
@@ -2326,7 +2625,7 @@ img, svg { display: block; max-width: 100%; }
 .template-preview-copy-btn {
     padding: 2px 8px;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-button, 9999px);
     background: var(--color-surface);
     font-size: 0.7rem;
     color: var(--color-text-secondary);
@@ -2367,7 +2666,7 @@ img, svg { display: block; max-width: 100%; }
 .invoice-template-preview {
     margin-top: var(--space-3, 12px);
     border: 1px solid var(--color-border-light);
-    border-radius: 10px;
+    border-radius: var(--radius-card, 12px);
     background: linear-gradient(180deg, var(--color-ember-wash), var(--color-surface));
 }
 
@@ -2425,7 +2724,7 @@ img, svg { display: block; max-width: 100%; }
 
 .invoice-preview-message {
     padding: 16px;
-    border-radius: 10px;
+    border-radius: var(--radius-card, 12px);
     background: var(--color-surface);
     border: 1px solid var(--color-ember-outline-soft);
     white-space: normal;
@@ -2498,7 +2797,7 @@ img, svg { display: block; max-width: 100%; }
 /* Legacy preview classes (kept for compatibility) */
 .template-preview {
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px);
 }
 
@@ -2534,7 +2833,7 @@ img, svg { display: block; max-width: 100%; }
     padding: var(--space-3, 12px);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
 }
 
 .payment-method-item.payment-method-disabled {
@@ -2631,42 +2930,12 @@ img, svg { display: block; max-width: 100%; }
 
 .dispute-filter-bar {
     display: flex;
-    gap: var(--space-2, 8px);
+    gap: 6px;
     flex-wrap: wrap;
 }
 
-.dispute-filter-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1, 4px);
-    padding: 0.35rem 0.7rem;
-    border-radius: var(--radius-pill, 20px);
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-    font-size: 0.82rem;
-    cursor: pointer;
-    color: var(--color-text-secondary);
-    transition: all 0.15s ease;
-}
-
-.dispute-filter-btn.active {
-    background: var(--color-primary);
-    color: white;
-    border-color: var(--color-primary);
-}
-
-.dispute-filter-count {
-    font-size: 0.72rem;
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: var(--radius-pill, 20px);
-    padding: 0.1rem 0.35rem;
-    min-width: 18px;
-    text-align: center;
-}
-
-.dispute-filter-btn.active .dispute-filter-count {
-    background: rgba(255, 255, 255, 0.25);
-}
+/* .dispute-filter-btn and .dispute-filter-count are styled with the
+   filter-chip primitive (see "Filter chips" above). */
 
 .dispute-empty {
     font-size: 0.85rem;
@@ -2685,7 +2954,7 @@ img, svg { display: block; max-width: 100%; }
 .dispute-card {
     padding: var(--space-3, 12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     background: var(--color-surface);
     cursor: pointer;
     transition: border-color 0.15s ease;
@@ -2726,7 +2995,7 @@ img, svg { display: block; max-width: 100%; }
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
 }
 
 .dispute-status-open { background: var(--color-open-bg); color: var(--color-open-fg); }
@@ -2737,7 +3006,7 @@ img, svg { display: block; max-width: 100%; }
 .dispute-evidence-badge {
     font-size: 0.72rem;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
     background: var(--color-surface-alt);
     color: var(--color-text-secondary);
 }
@@ -2745,7 +3014,7 @@ img, svg { display: block; max-width: 100%; }
 .dispute-user-review-badge {
     font-size: 0.72rem;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
     background: var(--color-surface-alt);
     color: var(--color-text-secondary);
 }
@@ -2787,7 +3056,7 @@ img, svg { display: block; max-width: 100%; }
 .refund-notice-card {
     padding: var(--space-3, 12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     background: var(--color-surface);
     border-left: 3px solid transparent;
 }
@@ -2811,7 +3080,7 @@ img, svg { display: block; max-width: 100%; }
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
 }
 
 .refund-notice-badge--sent { background: var(--color-surface-alt); color: var(--color-text-secondary); }
@@ -2907,7 +3176,7 @@ img, svg { display: block; max-width: 100%; }
     align-items: center;
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
 }
 
 .evidence-info {
@@ -2976,7 +3245,7 @@ img, svg { display: block; max-width: 100%; }
 .audit-event-item {
     padding: var(--space-2, 8px);
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
 }
 
 .audit-event-header {
@@ -3123,7 +3392,7 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text);
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border-light);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-alert, 8px);
     padding: var(--space-3, 12px);
 }
 
@@ -3171,7 +3440,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border-light);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-input, 8px);
     padding: var(--space-2, 8px) var(--space-3, 12px);
     font-size: 0.88rem;
     cursor: pointer;
@@ -3263,7 +3532,7 @@ img, svg { display: block; max-width: 100%; }
 .share-review-btn {
     font-size: 0.78rem;
     padding: 0.2rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-button, 9999px);
     background: transparent;
     color: var(--color-text-secondary);
     border: none;
@@ -3286,7 +3555,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-stat-card {
     background: var(--color-surface-alt);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px);
     text-align: center;
 }
@@ -3339,7 +3608,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-callout {
     padding: var(--space-3, 12px);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     margin-top: var(--space-3, 12px);
 }
 
@@ -3368,7 +3637,7 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     align-items: center;
     gap: var(--space-3, 12px);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
     margin-bottom: var(--space-4, 16px);
 }
@@ -3411,7 +3680,7 @@ img, svg { display: block; max-width: 100%; }
 .share-pending-notice {
     background: var(--color-warning-surface);
     border: 1px solid var(--color-warning-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-alert, 8px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
 }
 
@@ -3456,7 +3725,7 @@ img, svg { display: block; max-width: 100%; }
 .share-pm-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px);
     display: flex;
     flex-direction: column;
@@ -3486,7 +3755,7 @@ img, svg { display: block; max-width: 100%; }
 .share-bill-card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md, 8px);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px) var(--space-4, 16px);
 }
 
@@ -3538,7 +3807,7 @@ img, svg { display: block; max-width: 100%; }
 .share-pm-expand {
     background: transparent;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-button, 9999px);
     padding: 0.3rem 0.7rem;
     font-size: 0.82rem;
     color: var(--color-primary);
@@ -3605,7 +3874,7 @@ img, svg { display: block; max-width: 100%; }
 .share-copy-btn {
     font-size: 0.75rem;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-button, 9999px);
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border);
     cursor: pointer;
@@ -3620,7 +3889,7 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.82rem;
     background: var(--color-surface-alt);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-button, 9999px);
     cursor: pointer;
 }
 
@@ -3634,7 +3903,7 @@ img, svg { display: block; max-width: 100%; }
 .share-dispute-item {
     padding: var(--space-3, 12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     border-left: 3px solid transparent;
 }
 
@@ -3655,7 +3924,7 @@ img, svg { display: block; max-width: 100%; }
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.15rem 0.4rem;
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-pill, 9999px);
 }
 
 .share-dispute-badge--open { background: var(--color-open-bg); color: var(--color-open-fg); }
@@ -3698,7 +3967,7 @@ img, svg { display: block; max-width: 100%; }
 .share-refund-item {
     padding: var(--space-3, 12px);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm, 6px);
+    border-radius: var(--radius-card, 12px);
     border-left: 3px solid var(--color-success);
 }
 
@@ -3930,9 +4199,11 @@ img, svg { display: block; max-width: 100%; }
         align-items: center;
     }
 
-    /* ── Update toast mobile ───────────────────────────── */
+    /* ── Toasts mobile: the pill may wrap to two lines ──── */
+    .change-toast,
     .update-toast {
-        padding: 10px var(--space-3, 12px);
+        width: max-content;
+        padding: 10px 10px 10px 14px;
         font-size: 0.85rem;
         gap: var(--space-2, 8px);
     }
@@ -3947,66 +4218,47 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Update Toast ─────────────────────────────────────── */
+/* Shares the pill with .change-toast (see Toast above); the Refresh action
+   is the primary pill—Ember fill, Ink text—inside the Ink toast. */
 .update-toast {
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
     transform: translateX(-50%);
-    background: var(--toast-bg);
-    color: var(--toast-text);
-    padding: 14px var(--space-4, 24px);
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
-    display: flex;
-    align-items: center;
-    gap: var(--space-3, 12px);
-    z-index: 10000;
-    font-size: 0.95rem;
-    max-width: calc(100vw - 32px);
 }
 
 .update-toast-message {
     flex: 1;
-    line-height: 1.5;
+    min-width: 0;
 }
 
 .update-toast-btn {
-    background: var(--color-primary);
-    color: var(--color-text-inverse);
-    border: none;
-    padding: var(--space-2, 8px) 18px;
-    border-radius: 10px;
+    flex: 0 0 auto;
+    background: var(--color-accent);
+    color: var(--color-text);
+    border: 1px solid var(--color-accent);
+    padding: 5px 11px;
+    border-radius: var(--radius-button, 9999px);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
     cursor: pointer;
     white-space: nowrap;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
     font-family: inherit;
-    min-height: 44px;
+    min-height: 32px;
 }
 
 .update-toast-btn:hover {
-    background: var(--color-primary-hover);
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+}
+
+.update-toast-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--toast-text);
 }
 
 .update-toast-dismiss {
-    background: none;
-    border: none;
-    color: var(--toast-dismiss);
-    font-size: 1.25rem;
-    cursor: pointer;
-    padding: 10px;
-    min-height: 44px;
-    min-width: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    transition: color 0.15s;
-}
-
-.update-toast-dismiss:hover {
-    color: var(--toast-text);
+    min-width: 32px;
+    min-height: 32px;
 }
 
 .update-toast-short {

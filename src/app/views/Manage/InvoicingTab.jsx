@@ -417,7 +417,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                                 showToast('Test email sent to ' + testEmailTo.trim());
                             } catch (err) {
                                 setTestEmailOpen(false);
-                                showToast('Send failed: ' + (err.message || 'Unknown error'));
+                                showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
                             } finally {
                                 setTestEmailSending(false);
                             }

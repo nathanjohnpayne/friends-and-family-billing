@@ -19,6 +19,12 @@ describe('EmptyState', () => {
         expect(screen.getByText('Add New')).toBeInTheDocument();
     });
 
+    it('exposes the title as a heading and hides a decorative icon from assistive tech', () => {
+        render(<EmptyState icon="📦" title="Nothing to settle yet" />);
+        expect(screen.getByRole('heading', { name: 'Nothing to settle yet' })).toBeInTheDocument();
+        expect(screen.getByText('📦')).toHaveAttribute('aria-hidden', 'true');
+    });
+
     it('omits optional sections when not provided', () => {
         render(<EmptyState title="Bare" />);
         // Only title rendered, no message or action button
