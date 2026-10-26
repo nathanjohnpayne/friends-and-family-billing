@@ -98,8 +98,11 @@ export const E2E_DATA = {
  * - Blocks firebase-config.local.js (sets real Firebase config) and replaces
  *   it with a dummy config so the E2E guard in firebase.js works correctly
  * - Injects mock user and billing data onto window for AuthContext and useBillingData
+ *
+ * `user` and `state` replace E2E_USER and E2E_DATA; they go through this one
+ * init script because Playwright does not order separate init scripts.
  */
-export async function seedPage(page) {
+export async function seedPage(page, { user = E2E_USER, state = E2E_DATA } = {}) {
     // Block Firebase network calls to prevent analytics retry loops
     // and any Firestore/Auth API calls against the real project
     await page.route('**/*.googleapis.com/**', route => route.abort());
@@ -126,5 +129,5 @@ export async function seedPage(page) {
     await page.addInitScript((data) => {
         window.__E2E_USER__ = data.user;
         window.__E2E_DATA__ = data.state;
-    }, { user: E2E_USER, state: E2E_DATA });
+    }, { user, state });
 }
