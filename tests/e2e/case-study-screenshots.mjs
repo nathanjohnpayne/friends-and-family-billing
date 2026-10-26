@@ -19,7 +19,7 @@
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { seedPage, E2E_DATA } from './fixtures.js';
+import { seedPage, E2E_DATA, E2E_USER } from './fixtures.js';
 
 const out = process.argv[2];
 const PORT = process.env.PORT || '4176';
@@ -56,11 +56,7 @@ const state = { ...E2E_DATA, billingYears: [{ id: '2026', label: '2026', status:
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 960, height: 1400 }, deviceScaleFactor: SCALE });
 const page = await ctx.newPage();
-await seedPage(page);
-await page.addInitScript((s) => {
-    window.__E2E_DATA__ = s;
-    window.__E2E_USER__ = { ...window.__E2E_USER__, displayName: 'Nathan Payne' };
-}, state);
+await seedPage(page, { user: { ...E2E_USER, displayName: 'Nathan Payne' }, state });
 // CompanyLogo asks Logo.dev for 2x its CSS size; ask for SCALE x 2 so the
 // 16 px bill logos stay sharp at the capture scale.
 await page.route('https://img.logo.dev/**', (route) => {
@@ -74,8 +70,17 @@ await page.waitForSelector('.settlement-filter-chip');
 await page.locator('.settlement-card-main').first().click();
 await page.waitForSelector('.settlement-breakdown');
 await page.evaluate(() => document.fonts.ready);
-await page.waitForFunction(() => [...document.querySelectorAll('.settlement-bill-logo img, img.settlement-bill-logo')].every(i => i.complete && i.naturalWidth > 0), null, { timeout: 15000 })
-    .catch(() => console.warn('logos did not all load (is VITE_LOGODEV_KEY in .env.local?)'));
+// The published images need real logos: fail rather than shoot the initials
+// fallback CompanyLogo shows when Logo.dev is unreachable or the key is missing.
+await page.waitForFunction(() => {
+    const logos = [...document.querySelectorAll('.settlement-bill-logo')];
+    return logos.length > 0 && logos.every((logo) => {
+        const img = logo.matches('img') ? logo : logo.querySelector('img');
+        return img && img.complete && img.naturalWidth > 0 && !img.classList.contains('company-logo-hidden');
+    });
+}, null, { timeout: 15000 }).catch(() => {
+    throw new Error('bill logos did not all load (is VITE_LOGODEV_KEY in .env.local at build time?)');
+});
 // Park the pointer off the board so the clicked card drops its hover style.
 await page.mouse.move(950, 1390);
 await page.waitForTimeout(500);
