@@ -268,3 +268,42 @@ describe('inline alerts and toasts', () => {
         expect(resolveValue(refresh.color)).toBe(INK);
     });
 });
+
+describe('payment-method switch (#575 F14)', () => {
+    const track = '.payment-method-toggle input[type="checkbox"]';
+    const STONE = resolveToken(tokens, '--color-stone');
+    const SETTLED = resolveToken(tokens, '--color-status-settled-fg');
+
+    it('draws the native checkbox as a 30 x 18 pill track with a white knob', () => {
+        const d = decls(track);
+        expect(d.appearance).toBe('none');
+        expect(d.width).toBe('30px');
+        expect(d.height).toBe('18px');
+        expect(resolveValue(d.background)).toBe(STONE);
+        expect(resolveValue(decls(`${track}::after`).background)).toBe(PAPER);
+    });
+
+    it('turns Settled green when on', () => {
+        expect(resolveValue(decls(`${track}:checked`).background)).toBe(SETTLED);
+    });
+
+    it('keeps the track and knob at 3:1 against what they sit on', () => {
+        const outline = resolveValue(decls(track).border.split(/\s+/).pop());
+        expect(contrastRatio(parseColor(outline), parseColor(PAPER)), 'off outline on Paper').toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(parseColor(SETTLED), parseColor(PAPER)), 'on track on Paper').toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(parseColor(PAPER), parseColor(SETTLED)), 'knob on on-track').toBeGreaterThanOrEqual(3);
+    });
+
+    it('shows a keyboard focus ring', () => {
+        const d = decls(`${track}:focus-visible`);
+        expect(d.outline).toMatch(/2px solid var\(--color-ink\)/);
+    });
+});
+
+describe('display dialog titles (#575 F07)', () => {
+    it('restates the display weight over .dialog-title so Fraunces is not faux-bolded', () => {
+        const d = decls('.dialog-title.type-display');
+        expect(d['font-weight']).toMatch(/--font-weight-display/);
+        expect(resolveToken(tokens, '--font-weight-display')).toBe('300');
+    });
+});

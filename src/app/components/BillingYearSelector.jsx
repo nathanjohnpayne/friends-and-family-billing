@@ -124,7 +124,7 @@ export default function BillingYearSelector() {
 
                 {/* Year management */}
                 {status !== 'archived' && (
-                    <button className="btn btn-primary btn-sm" disabled={busy}
+                    <button className="btn btn-ink btn-sm" disabled={busy}
                         onClick={handleStartNewYear}>
                         Start New Year
                     </button>
@@ -145,7 +145,7 @@ export default function BillingYearSelector() {
             {newYearOpen && (
                 <div className="dialog-overlay" onClick={() => setNewYearOpen(false)}>
                     <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Start New Billing Year</div>
+                        <div className="dialog-title type-display">Start New Billing Year</div>
                         <div className="payment-dialog-fields">
                             <div className="payment-field-group">
                                 <label htmlFor="new-year-label">Billing year label</label>
