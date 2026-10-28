@@ -162,7 +162,7 @@ export default function BillingYearSelector() {
                         {newYearError && <p className="composer-error">{newYearError}</p>}
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={executeNewYear}>Create Year</button>
+                            <button className="btn btn-sm btn-ink" onClick={executeNewYear}>Create Year</button>
                         </div>
                     </div>
                 </div>

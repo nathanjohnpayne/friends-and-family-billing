@@ -342,3 +342,33 @@ describe('phone nav row (#575 F21 regression)', () => {
         expect(block).toMatch(/\.nav-link\s*\{\s*padding:\s*6px 7px;\s*font-size:\s*13px;/);
     });
 });
+
+describe('Ember button budget (#575 F11)', () => {
+    // The frames keep the Ember fill for a handful of actions; every other
+    // save, add, create and confirm is the Ink button. A new .btn-primary
+    // elsewhere is drift and fails here.
+    const ALLOWED = {
+        'views/LoginView.jsx': 2,            // Sign in, Create account
+        'components/SettlementBoard.jsx': 2, // Record Payment, Issue Refund
+        'views/Manage/RefundNoticesTab.jsx': 1 // Re-send Refund
+    };
+
+    function jsxFiles(dir, out = []) {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) jsxFiles(full, out);
+            else if (entry.name.endsWith('.jsx')) out.push(full);
+        }
+        return out;
+    }
+
+    it('uses .btn-primary only on the actions the frames draw in Ember', () => {
+        const appDir = path.join(ROOT, 'src', 'app');
+        const found = {};
+        for (const file of jsxFiles(appDir)) {
+            const n = (readFileSync(file, 'utf8').match(/\bbtn-primary\b/g) || []).length;
+            if (n) found[path.relative(appDir, file).split(path.sep).join('/')] = n;
+        }
+        expect(found).toEqual(ALLOWED);
+    });
+});

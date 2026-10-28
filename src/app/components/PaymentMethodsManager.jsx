@@ -301,7 +301,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary">Save</button>
+                        <button type="submit" className="btn btn-sm btn-ink">Save</button>
                     </div>
                 </form>
             </div>

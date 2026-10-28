@@ -236,7 +236,7 @@ export default function MembersTab() {
                         </div>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={saveLinkSelections}>Save Household</button>
+                            <button className="btn btn-sm btn-ink" onClick={saveLinkSelections}>Save Household</button>
                         </div>
                     </div>
                 </div>

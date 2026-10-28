@@ -389,7 +389,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                             />
                         </div>
                         <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-primary" onClick={() => setPaymentMethodsModal(false)}>Done</button>
+                            <button className="btn btn-sm btn-ink" onClick={() => setPaymentMethodsModal(false)}>Done</button>
                         </div>
                     </div>
                 </div>
@@ -441,7 +441,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                             </p>
                             <div className="dialog-buttons">
                                 <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-primary" disabled={testEmailSending || !testEmailTo.trim()}>
+                                <button type="submit" className="btn btn-sm btn-ink" disabled={testEmailSending || !testEmailTo.trim()}>
                                     {testEmailSending ? 'Sending\u2026' : 'Send'}
                                 </button>
                             </div>

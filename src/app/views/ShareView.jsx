@@ -281,7 +281,7 @@ export default function ShareView() {
                     {timedOut && (
                         <div className="share-timeout-hint">
                             <p>This is taking longer than expected.</p>
-                            <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()}>Retry</button>
+                            <button className="btn btn-sm btn-ink" onClick={() => window.location.reload()}>Retry</button>
                         </div>
                     )}
                 </div>
@@ -319,7 +319,7 @@ export default function ShareView() {
                     <h2>Unable to Load Summary</h2>
                     <p>{error}</p>
                     {canRequestLink && !linkRequested && (
-                        <button className="btn btn-sm btn-primary" onClick={handleRequestLink}>
+                        <button className="btn btn-sm btn-ink" onClick={handleRequestLink}>
                             Request New Link
                         </button>
                     )}
@@ -971,7 +971,7 @@ function ShareDisputeCard({ dispute, shareCtx }) {
 
             {d.userReview && d.userReview.state === 'requested' && !decision && (
                 <div className="share-dispute-actions">
-                    <button className="btn btn-sm btn-primary" onClick={() => submitDecision('approve')}>Approve</button>
+                    <button className="btn btn-sm btn-ink" onClick={() => submitDecision('approve')}>Approve</button>
                     <button className="btn btn-sm btn-secondary" onClick={() => {
                         const note = prompt('Please explain why you are rejecting:');
                         if (note !== null && note.trim()) submitDecision('reject', note.trim());
@@ -1071,7 +1071,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
                         <div className="dialog-title">Question Submitted</div>
                         <p>The account owner will be notified of your request.</p>
                         <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-primary" onClick={onClose}>Close</button>
+                            <button className="btn btn-sm btn-ink" onClick={onClose}>Close</button>
                         </div>
                     </>
                 ) : (
@@ -1103,7 +1103,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
                         </div>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={handleSubmit} disabled={submitting}>
+                            <button className="btn btn-sm btn-ink" onClick={handleSubmit} disabled={submitting}>
                                 {submitting ? 'Submitting...' : 'Submit'}
                             </button>
                         </div>

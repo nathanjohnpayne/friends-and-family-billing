@@ -318,7 +318,7 @@ export default function BillsTab() {
                         {websiteError && <p className="composer-error">{websiteError}</p>}
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={saveWebsite}>Save Website</button>
+                            <button className="btn btn-sm btn-ink" onClick={saveWebsite}>Save Website</button>
                         </div>
                     </div>
                 </div>

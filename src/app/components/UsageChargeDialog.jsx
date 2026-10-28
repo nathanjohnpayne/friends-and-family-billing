@@ -123,7 +123,7 @@ export default function UsageChargeDialog({ open, memberName, onSubmit, onClose 
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary">Save Charge</button>
+                        <button type="submit" className="btn btn-sm btn-ink">Save Charge</button>
                     </div>
                 </form>
             </div>

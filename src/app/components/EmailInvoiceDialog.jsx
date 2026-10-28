@@ -201,7 +201,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
                         Open Mail App
                     </button>
                     <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-ink"
                         onClick={handleSendEmail}
                         disabled={sending || !recipientEmail}
                     >
