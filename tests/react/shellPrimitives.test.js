@@ -372,3 +372,17 @@ describe('Ember button budget (#575 F11)', () => {
         expect(found).toEqual(ALLOWED);
     });
 });
+
+describe('nav bar user menu (#585 review)', () => {
+    it('lets a long display name ellipsize instead of pushing the trigger out of the row', () => {
+        // With the full wordmark and three links, a 140 px name overflowed the
+        // non-wrapping nav row between 641 px and ~720 px. Every box between the
+        // row and the name has to be allowed to shrink for the ellipsis to engage.
+        expect(decls('.nav-user-menu')['min-width']).toBe('0');
+        expect(decls('.nav-user-trigger')['max-width']).toBe('100%');
+        const name = decls('.nav-user-name');
+        expect(name['min-width']).toBe('0');
+        expect(name.overflow).toBe('hidden');
+        expect(name['text-overflow']).toBe('ellipsis');
+    });
+});

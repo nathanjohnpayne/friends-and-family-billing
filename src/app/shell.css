@@ -149,9 +149,14 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text);
 }
 
+/* The user menu is the one nav item that may shrink: with the full wordmark
+   and the three links, a long display name would otherwise push the trigger
+   past the viewport between 641px and ~720px (#575). min-width: 0 here, on
+   the trigger and on the name lets the name ellipsize instead. */
 .nav-user-menu {
     position: relative;
     margin-left: auto;
+    min-width: 0;
 }
 
 .nav-user-trigger {
@@ -166,6 +171,7 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.875rem;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
+    max-width: 100%;
 }
 
 .nav-user-trigger:hover {
@@ -182,6 +188,7 @@ img, svg { display: block; max-width: 100%; }
 
 .nav-user-name {
     white-space: nowrap;
+    min-width: 0;
     max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
