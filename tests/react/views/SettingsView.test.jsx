@@ -113,6 +113,16 @@ describe('SettingsView payment-method switch (#575 F14)', () => {
         expect(screen.queryByText('Off')).not.toBeInTheDocument();
     });
 
+    it('names each switch by its payment method, not by its On / Off state word', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+
+        // The switch role already announces on / off; the name has to say which
+        // method it controls, and must not change when the state flips.
+        expect(screen.getByRole('switch', { name: 'Venmo' })).toBeChecked();
+        expect(screen.getByRole('switch', { name: 'Zelle' })).toBeChecked();
+        expect(screen.queryByRole('switch', { name: 'On' })).not.toBeInTheDocument();
+    });
+
     it('turns a method Off from the keyboard', async () => {
         const user = userEvent.setup();
         render(<ToastProvider><SettingsView /></ToastProvider>);

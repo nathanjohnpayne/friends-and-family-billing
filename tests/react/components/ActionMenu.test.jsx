@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import ActionMenu, { ActionMenuItem, ActionMenuSeparator, MENU_GUTTER, menuAlignment } from '@/app/components/ActionMenu.jsx';
 
 function renderMenu(props = {}) {
@@ -119,6 +119,25 @@ describe('ActionMenu', () => {
         it('hangs from the trigger’s left edge when the right edge would push it off a phone screen', () => {
             // A trigger at x=140 on a 390 px phone: a 190 px right-aligned menu would start at -20.
             expect(openAt(140)).toHaveAttribute('data-align', 'start');
+        });
+
+        it('re-measures on a viewport resize while the menu stays open', () => {
+            const menu = openAt(300, 1280);
+            expect(menu).toHaveAttribute('data-align', 'end');
+            // The window narrows and the trigger reflows to x=140 on a 390 px phone.
+            HTMLElement.prototype.getBoundingClientRect.mockReturnValue({
+                left: 140, right: 170, top: 0, bottom: 30, width: 30, height: 30, x: 140, y: 0
+            });
+            vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(390);
+            act(() => { window.dispatchEvent(new Event('resize')); });
+            expect(screen.getByRole('menu')).toHaveAttribute('data-align', 'start');
+        });
+
+        it('stops listening for resizes once the menu closes', () => {
+            const remove = vi.spyOn(window, 'removeEventListener');
+            openAt(300);
+            fireEvent.keyDown(document, { key: 'Escape' });
+            expect(remove).toHaveBeenCalledWith('resize', expect.any(Function));
         });
     });
 

@@ -28,11 +28,15 @@ export default function NavBar() {
             <div className="nav-bar-inner">
                 <NavLink to="/" className="nav-brand">
                     <BrandMark />
-                    {/* The full name carries the accessible name at every width;
-                        "FFB" is the phone-width wordmark (shell.css, max-width
-                        600px) and is hidden from assistive tech. */}
+                    {/* The full name is in the accessible name at every width
+                        (visually hidden at phone width). "FFB", the phone-width
+                        wordmark (shell.css, max-width 600px), joins the name
+                        only where it is shown, so voice control can activate the
+                        link by the label it sees (WCAG 2.5.3); elsewhere it is
+                        display: none and drops out of the name. */}
                     <span className="nav-brand-long">Friends &amp; Family Billing</span>
-                    <span className="nav-brand-short" aria-hidden="true">FFB</span>
+                    {' '}
+                    <span className="nav-brand-short">FFB</span>
                 </NavLink>
 
                 <div className="nav-links">

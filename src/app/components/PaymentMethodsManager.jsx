@@ -80,6 +80,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                             <input
                                                 type="checkbox"
                                                 role="switch"
+                                                aria-label={method.label}
                                                 checked={method.enabled}
                                                 onChange={() => toggleEnabled(method.id)}
                                             />

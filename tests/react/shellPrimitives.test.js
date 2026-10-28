@@ -317,6 +317,18 @@ describe('payment dialogs (#538, #575 F04 / F11)', () => {
         expect(contrastRatio(parseColor(PAPER), parseColor(background(hover)))).toBeGreaterThanOrEqual(AA_TEXT);
     });
 
+    it('gives .btn-ink a keyboard focus cue that survives its Ink border (#585 review)', () => {
+        // The shared .btn:focus-visible only turns the border Ink and adds the 28%
+        // Ember halo; on an Ink button the border is already Ink and the halo is
+        // under 3:1, so .btn-ink needs its own outline.
+        const d = decls('.btn-ink:focus-visible');
+        expect(d.outline).toMatch(/2px solid var\(--color-ink\)/);
+        expect(d['outline-offset']).toBe('2px');
+        for (const bg of ['--color-surface', '--color-canvas', '--color-surface-dim']) {
+            expect(contrastRatio(parseColor(INK), parseColor(resolveToken(tokens, bg))), bg).toBeGreaterThanOrEqual(3);
+        }
+    });
+
     it('draws the distribute option and payment-history rows as Paper-tint insets, not Linen', () => {
         const paperTint = resolveToken(tokens, '--color-paper-tint');
         const graphiteText = resolveToken(tokens, '--color-graphite-text');

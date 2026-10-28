@@ -115,6 +115,11 @@ export const PAIRS = [
     { fg: '--color-icon', bg: '--color-surface', use: 'Switch outline (off: Stone track, Graphite outline) on Paper (non-text)', min: AA_NON_TEXT },
     { fg: '--color-status-settled-fg', bg: '--color-surface', use: 'Switch track (on, Settled green) on Paper (non-text)', min: AA_NON_TEXT },
     { fg: '--color-text-inverse', bg: '--color-status-settled-fg', use: 'Switch knob (white) on the Settled track (non-text)', min: AA_NON_TEXT },
+    // .btn-ink keyboard focus (#585): an offset Ink outline, since the shared
+    // Ember halo is ~1.4:1 and the Ink border does not change on an Ink button
+    { fg: '--color-ink', bg: '--color-surface', use: '.btn-ink focus outline (Ink) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-ink', bg: '--color-canvas', use: '.btn-ink focus outline (Ink) on Linen (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-ink', bg: '--color-surface-dim', use: '.btn-ink focus outline (Ink) on Paper-tint (non-text)', min: AA_NON_TEXT },
     // Fills, for information only: the legend keeps Ember off small text for this reason
     { fg: '--color-accent', bg: '--color-surface', use: 'Ember fill on Paper (brand mark; never text)', min: null }
 ];

@@ -64,16 +64,23 @@ export default function ActionMenu({ label, trigger, children }) {
     const triggerRef = useRef(null);
     const menuRef = useRef(null);
 
-    // Keep the open menu inside the viewport (measured before paint).
+    // Keep the open menu inside the viewport: measured before paint, and again
+    // whenever the viewport resizes while the menu stays open.
     useLayoutEffect(() => {
-        if (!open || !menuRef.current || !triggerRef.current) return;
-        const { left, right } = triggerRef.current.getBoundingClientRect();
-        setAlign(menuAlignment({
-            triggerLeft: left,
-            triggerRight: right,
-            menuWidth: menuRef.current.offsetWidth,
-            viewportWidth: document.documentElement.clientWidth
-        }));
+        if (!open) return;
+        function measure() {
+            if (!menuRef.current || !triggerRef.current) return;
+            const { left, right } = triggerRef.current.getBoundingClientRect();
+            setAlign(menuAlignment({
+                triggerLeft: left,
+                triggerRight: right,
+                menuWidth: menuRef.current.offsetWidth,
+                viewportWidth: document.documentElement.clientWidth
+            }));
+        }
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
     }, [open]);
 
     // Close on outside click
