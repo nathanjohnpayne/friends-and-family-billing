@@ -1209,6 +1209,18 @@ img, svg { display: block; max-width: 100%; }
     cursor: not-allowed;
 }
 
+/* Sign-in fields: full-width, 1rem text (avoids iOS focus zoom); the
+   look comes from .composer-input. */
+.login-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 1rem;
+}
+
+.login-submit {
+    margin-top: 16px;
+}
+
 /* .composer-error is an inline alert (see "Inline alerts" above). */
 
 /* ── Segmented control ─────────────────────────────────── */
