@@ -3574,7 +3574,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-header h1 {
-    font-size: 1.5rem;
+    font-size: 28px;
     margin: 0 0 var(--space-2, 8px);
 }
 
@@ -3615,7 +3615,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-section h2 {
-    font-size: 1.15rem;
+    font-size: 20px;
     margin-bottom: var(--space-3, 12px);
 }
 
@@ -3637,8 +3637,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-member-name {
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 20px;
     margin: 0 0 var(--space-2, 8px);
 }
 
@@ -3778,8 +3777,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-stat-value {
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: 22px;
 }
 
 .share-stat-value.paid { color: var(--color-success); }
@@ -3787,8 +3785,10 @@ img, svg { display: block; max-width: 100%; }
 .share-stat-value.settled-zero { color: var(--color-text-secondary); }
 
 .share-stat-unit {
-    font-size: 0.8rem;
+    font-family: var(--font-family-ui);
+    font-size: 13px;
     font-weight: 400;
+    letter-spacing: normal;
     color: var(--color-text-secondary);
     margin-left: 1px;
 }
@@ -3861,7 +3861,7 @@ img, svg { display: block; max-width: 100%; }
     flex: 0 0 auto;
 }
 
-.share-lead-title { font-size: 1.05rem; font-weight: 600; }
+.share-lead-title { font-size: 24px; }
 .share-lead-sub { font-size: 0.9rem; color: var(--color-text-secondary); }
 
 .share-lead--settled {
@@ -4179,8 +4179,15 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
-    border-left: 3px solid var(--color-success);
+    border-left: 3px solid transparent;
 }
+
+/* The rule follows the notice state (as .refund-notice--* on the Manage tab):
+   Settled only once confirmed, Outstanding when reported not received, and a
+   neutral Graphite rule while the notice is still pending. */
+.share-refund-item--sent { border-left-color: var(--color-text-secondary); }
+.share-refund-item--confirmed { border-left-color: var(--color-success); }
+.share-refund-item--not-received { border-left-color: var(--color-danger); }
 
 .share-refund-header {
     display: flex;
@@ -4282,6 +4289,9 @@ img, svg { display: block; max-width: 100%; }
 }
 
 @media (max-width: 640px) {
+    .share-header h1 { font-size: 24px; }
+    .share-lead-title { font-size: 20px; }
+
     .nav-user-name { display: none; }
 
     .tab-header h3 { font-size: var(--text-heading-lg, 1.5rem); }
