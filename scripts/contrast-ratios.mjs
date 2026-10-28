@@ -56,8 +56,6 @@ export const PAIRS = [
     { fg: '--color-text-inverse', bg: '--color-ink', use: 'White text on Ink (selected filter chip, segment, .btn-ink, toast)', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-secondary-hover', use: 'White text on the Ink button hover fill', min: AA_TEXT },
     { fg: '--color-stone', bg: '--color-ink', use: 'Stone count inside a selected filter chip', min: AA_TEXT },
-    { fg: '--color-text-inverse', bg: '--color-primary', use: 'White text on the Ember-text fill (LoginView inline button, until RD-17)', min: AA_TEXT },
-    { fg: '--color-text-inverse', bg: '--color-primary-hover', use: 'White text on the Ember-text hover fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger', use: 'White text on the destructive fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger-hover', use: 'White text on the destructive hover fill', min: AA_TEXT },
     { fg: '--toast-text', bg: '--toast-bg', use: 'Toast text on Ink', min: AA_TEXT },
