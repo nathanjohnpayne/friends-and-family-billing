@@ -82,6 +82,13 @@ export const PAIRS = [
     { fg: '--color-primary', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ember text on an Ember wash over the Paper-tint editor toolbar (token chips)', min: AA_TEXT },
     { fg: '--color-primary', bg: '--color-ember-wash-strong', over: '--color-surface-dim', use: 'Ember text on a strong Ember wash over the Paper-tint editor toolbar (active button, hovered chips)', min: AA_TEXT },
     { fg: '--color-text', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ink text on an Ember wash over the Paper-tint editor toolbar (hovered button)', min: AA_TEXT },
+    // Review Request evidence rows and bill audit-history rows (#575 F04, #534):
+    // Paper-tint with a Stone hairline, carrying Ink names, Graphite-text sizes,
+    // dates and notes, and the Graphite / Outstanding ghost buttons
+    { fg: '--color-text-primary', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint row (evidence name, audit label and detail)', min: AA_TEXT },
+    { fg: '--color-text-tertiary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint row (evidence size, audit note)', min: AA_TEXT },
+    { fg: '--color-danger', bg: '--color-surface-dim', use: 'Outstanding text on a Paper-tint row (evidence Remove button)', min: AA_TEXT },
+    { fg: '--color-border', bg: '--color-surface-dim', use: 'Stone hairline around a Paper-tint row (decorative; the row is not a control)', min: null },
     ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
         { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
     )),

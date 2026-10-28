@@ -198,6 +198,27 @@ describe('progress bar (#570)', () => {
     });
 });
 
+describe('dialog evidence and audit rows (#575 F04)', () => {
+    it('draws evidence and audit-history rows as Paper-tint insets with a Stone hairline, not Linen', () => {
+        for (const selector of ['.evidence-item', '.audit-event-item']) {
+            const d = decls(selector);
+            expect(background(d), selector).toBe(resolveToken(tokens, '--color-paper-tint'));
+            expect(background(d), selector).not.toBe(resolveToken(tokens, '--color-linen'));
+            expect(resolveValue(d.border?.split(/\s+/).pop()), selector).toBe(resolveToken(tokens, '--color-stone'));
+        }
+    });
+
+    it('keeps the muted and destructive text on those rows at AA', () => {
+        const bg = parseColor(resolveToken(tokens, '--color-paper-tint'));
+        for (const sel of ['.evidence-size', '.audit-event-date', '.audit-event-note']) {
+            const fg = resolveValue(decls(sel).color);
+            expect(fg, sel).toBeTruthy();
+            expect(contrastRatio(parseColor(fg), bg), sel).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+        expect(contrastRatio(parseColor(resolveToken(tokens, '--color-danger')), bg)).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+});
+
 describe('filter chips', () => {
     it('selects a chip with an Ink fill and Paper text, and keeps the count readable', () => {
         for (const sel of ['.settlement-filter-chip.active', '.dispute-filter-btn.active', '.filter-chip.active']) {
