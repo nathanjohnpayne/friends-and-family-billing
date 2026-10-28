@@ -15,17 +15,19 @@ const TABS = [
 export default function ManageView() {
     return (
         <div>
-            <nav className="manage-tabs" aria-label="Manage sections">
-                {TABS.map(tab => (
-                    <NavLink
-                        key={tab.to}
-                        to={tab.to}
-                        className={({ isActive }) => 'manage-tab' + (isActive ? ' active' : '')}
-                    >
-                        {tab.label}
-                    </NavLink>
-                ))}
-            </nav>
+            <div className="manage-tabs-bar">
+                <nav className="manage-tabs" aria-label="Manage sections">
+                    {TABS.map(tab => (
+                        <NavLink
+                            key={tab.to}
+                            to={tab.to}
+                            className={({ isActive }) => 'manage-tab' + (isActive ? ' active' : '')}
+                        >
+                            {tab.label}
+                        </NavLink>
+                    ))}
+                </nav>
+            </div>
             <Outlet />
         </div>
     );

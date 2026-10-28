@@ -38,7 +38,11 @@ export default function NavBar() {
                             <path className="nav-brand-glyph nav-brand-glyph-detail" d="M8,11.5A2.5,2.5,0,0,1,6,14V14a1,1,0,0,1-2,0H3a1,1,0,0,1,0-2H5.5a.5.5,0,0,0,0-1h-1A2.5,2.5,0,0,1,4,6.05V6A1,1,0,0,1,6,6H7A1,1,0,0,1,7,8H4.5a.5.5,0,0,0,0,1h1A2.5,2.5,0,0,1,8,11.5ZM13,16h5a1,1,0,0,0,0-2H13a1,1,0,0,0,0,2Zm2-4h3a1,1,0,0,0,0-2H15a1,1,0,0,0,0,2Z" />
                         </g>
                     </svg>
-                    <span>FFB</span>
+                    {/* The full name carries the accessible name at every width;
+                        "FFB" is the phone-width wordmark (shell.css, max-width
+                        600px) and is hidden from assistive tech. */}
+                    <span className="nav-brand-long">Friends &amp; Family Billing</span>
+                    <span className="nav-brand-short" aria-hidden="true">FFB</span>
                 </NavLink>
 
                 <div className="nav-links">

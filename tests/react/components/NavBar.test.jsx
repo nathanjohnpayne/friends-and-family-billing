@@ -27,7 +27,7 @@ function renderNavBar(route = '/') {
 describe('NavBar', () => {
     it('renders brand, nav links, and user menu', () => {
         renderNavBar();
-        expect(screen.getByText('FFB')).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Friends & Family Billing' })).toBeInTheDocument();
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('Manage')).toBeInTheDocument();
         expect(screen.getByText('Settings')).toBeInTheDocument();
@@ -37,12 +37,13 @@ describe('NavBar', () => {
         expect(screen.getByRole('button', { name: /alice/i })).toBeInTheDocument();
     });
 
-    it('names the brand link by the FFB wordmark alone; the mark is decorative', () => {
+    it('names the brand link by the full wordmark; the mark and the FFB short form are decorative', () => {
         renderNavBar();
-        // The logo mark is aria-hidden, so the link's accessible name is just the name.
-        const brand = screen.getByRole('link', { name: 'FFB' });
+        // The logo mark and the phone-width "FFB" span are aria-hidden, so the
+        // link's accessible name is the full name at every width.
+        const brand = screen.getByRole('link', { name: 'Friends & Family Billing' });
         expect(brand).toHaveAttribute('href', '/');
-        expect(brand).toHaveTextContent(/^FFB$/);
+        expect(screen.getByText('FFB')).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('renders Dashboard link at /dashboard', () => {
