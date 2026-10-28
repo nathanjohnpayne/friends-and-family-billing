@@ -89,6 +89,11 @@ export const PAIRS = [
     { fg: '--color-progress-fill', bg: '--color-progress-track', use: 'Progress fill on its track (dashboard, #570)', min: AA_NON_TEXT },
     { fg: '--color-progress-fill', bg: '--color-surface', use: 'Progress fill against the Paper card it sits in', min: AA_NON_TEXT },
     { fg: '--color-progress-fill-done', bg: '--color-progress-track', use: 'Finished progress fill on its track (share page, 100%)', min: AA_NON_TEXT },
+    // Payment-method switch (#575 F14, wireframe .sw): Stone track with a
+    // Graphite outline when off, Settled green when on, white knob
+    { fg: '--color-icon', bg: '--color-surface', use: 'Switch outline (off: Stone track, Graphite outline) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-status-settled-fg', bg: '--color-surface', use: 'Switch track (on, Settled green) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-status-settled-fg', use: 'Switch knob (white) on the Settled track (non-text)', min: AA_NON_TEXT },
     // Fills, for information only: the legend keeps Ember off small text for this reason
     { fg: '--color-accent', bg: '--color-surface', use: 'Ember fill on Paper (brand mark; never text)', min: null }
 ];

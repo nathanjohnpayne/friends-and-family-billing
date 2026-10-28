@@ -981,6 +981,14 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-text);
 }
 
+/* Display-face dialog titles (wireframe .dlg-h .ttl: Fraunces 300, 22 px).
+   .type-display sets the face, tracking and leading; the weight and size are
+   restated here because .dialog-title (above) would otherwise win with 600. */
+.dialog-title.type-display {
+    font-size: 1.375rem;
+    font-weight: var(--font-weight-display, 300);
+}
+
 .dialog-title + * {
     margin-top: var(--space-3, 12px);
 }
@@ -2915,7 +2923,10 @@ img, svg { display: block; max-width: 100%; }
     border-radius: var(--radius-card, 12px);
 }
 
-.payment-method-item.payment-method-disabled {
+/* A hidden method dims its identity (icon, label, detail) but never its
+   controls: the switch must stay at full strength to be turned back on. */
+.payment-method-item.payment-method-disabled .payment-method-icon,
+.payment-method-item.payment-method-disabled .payment-method-info {
     opacity: 0.5;
 }
 
@@ -2973,10 +2984,57 @@ img, svg { display: block; max-width: 100%; }
 
 .payment-method-toggle {
     display: flex;
+    flex-direction: row-reverse;   /* state word first, then the switch (wireframe) */
     align-items: center;
-    gap: var(--space-1, 4px);
+    gap: var(--space-2, 8px);
     font-size: 0.82rem;
     cursor: pointer;
+}
+
+/* Switch (wireframe .sw): a native checkbox drawn as a 30x18 track with a
+   white knob. Off is Stone with a Graphite outline (Stone alone is 1.4:1 on
+   Paper; the outline carries the 3:1 non-text target), on is Settled green.
+   The On / Off word beside it keeps the state from being colour-only. */
+.payment-method-toggle input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 30px;
+    height: 18px;
+    margin: 0;
+    border: 1px solid var(--color-icon);
+    border-radius: 999px;
+    background: var(--color-stone);
+    cursor: pointer;
+}
+
+.payment-method-toggle input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-paper);
+    box-shadow: 0 1px 2px rgba(34, 32, 29, 0.2);
+}
+
+.payment-method-toggle input[type="checkbox"]:checked {
+    background: var(--color-status-settled-fg);
+    border-color: var(--color-status-settled-fg);
+}
+
+.payment-method-toggle input[type="checkbox"]:checked::after {
+    left: 14px;
+}
+
+.payment-method-toggle input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--color-focus-ring);
 }
 
 .toggle-label {

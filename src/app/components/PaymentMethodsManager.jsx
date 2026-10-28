@@ -79,6 +79,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                         <label className="payment-method-toggle">
                                             <input
                                                 type="checkbox"
+                                                role="switch"
                                                 checked={method.enabled}
                                                 onChange={() => toggleEnabled(method.id)}
                                             />
@@ -117,7 +118,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 <option key={key} value={key}>{val.label}</option>
                             ))}
                         </select>
-                        <button className="btn btn-sm btn-primary" onClick={() => {
+                        <button className="btn btn-sm btn-ink" onClick={() => {
                             const selectedType = availableTypes.some(([key]) => key === newType) ? newType : availableTypes[0][0];
                             const typeDef = PAYMENT_METHOD_TYPES[selectedType];
                             const method = {
@@ -222,7 +223,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
     return (
         <div className="dialog-overlay" onClick={onCancel}>
             <div className="dialog" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Edit {method.label}</div>
+                <div className="dialog-title type-display">Edit {method.label}</div>
                 <form onSubmit={handleSave}>
                     <div className="payment-dialog-fields">
                         <div className="payment-field-group">
