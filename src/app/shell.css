@@ -1021,8 +1021,9 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* Display-face dialog titles (wireframe .dlg-h .ttl: Fraunces 300, 22 px).
-   .type-display sets the face, tracking and leading; the weight and size are
-   restated here because .dialog-title (above) would otherwise win with 600. */
+   .dialog-title (above, #527) already uses the display face at this size and
+   weight; the weight and size are restated here so a dialog that opts in with
+   .type-display keeps them even if the base .dialog-title rule changes. */
 .dialog-title.type-display {
     font-size: 1.375rem;
     font-weight: var(--font-weight-display, 300);
