@@ -255,7 +255,7 @@ function PaymentEditDialog({ payment, onSave, onCancel }) {
                     </div>
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary">Save</button>
+                        <button type="submit" className="btn btn-sm btn-ink">Save</button>
                     </div>
                 </form>
             </div>

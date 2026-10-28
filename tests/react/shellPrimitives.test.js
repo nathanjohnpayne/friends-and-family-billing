@@ -247,3 +247,25 @@ describe('inline alerts and toasts', () => {
         expect(resolveValue(refresh.color)).toBe(INK);
     });
 });
+
+describe('payment dialogs (#538, #575 F04 / F11)', () => {
+    it('fills .btn-ink, the dialogs’ save button, with Ink and Paper text', () => {
+        const d = decls('.btn-ink');
+        expect(background(d)).toBe(INK);
+        expect(resolveValue(d.color)).toBe(PAPER);
+        const hover = decls('.btn-ink:hover:not(:disabled)');
+        expect(contrastRatio(parseColor(PAPER), parseColor(background(hover)))).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+
+    it('draws the distribute option and payment-history rows as Paper-tint insets, not Linen', () => {
+        const paperTint = resolveToken(tokens, '--color-paper-tint');
+        const graphiteText = resolveToken(tokens, '--color-graphite-text');
+        for (const sel of ['.payment-distribute-option', '.payment-history-item']) {
+            const bg = background(decls(sel));
+            expect(bg, sel).toBe(paperTint);
+            expect(bg, sel).not.toBe(resolveToken(tokens, '--color-linen'));
+            expect(contrastRatio(parseColor(INK), parseColor(bg)), sel).toBeGreaterThanOrEqual(AA_TEXT);
+            expect(contrastRatio(parseColor(graphiteText), parseColor(bg)), sel).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+    });
+});

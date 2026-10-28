@@ -2064,10 +2064,11 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Payment Distribute Option ─────────────────────────── */
+/* An inset panel inside the Paper dialog: Paper-tint, not Linen (#575 F04). */
 .payment-distribute-option {
     margin-bottom: var(--space-2, 8px);
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
     border-radius: var(--radius-input, 8px);
 }
 
@@ -2131,9 +2132,10 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 12px);
 }
 
+/* A row inside the Paper dialog: Paper-tint, not Linen (#575 F04). */
 .payment-history-item {
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
     border-radius: var(--radius-card, 12px);
 }
 
