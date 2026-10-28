@@ -31,11 +31,12 @@
     --color-ember-text:     #ad3c0b;   /* small accent text: links, token pills, "Unsaved changes" */
     --color-ember-tint:     #ffe0d3;   /* accent chip background; carries Ember text */
 
-    /* Derived, not in the legend. Linen-deep, Stone-light and
-       Stone-strong are lifted from the wireframe CSS (.subtabs /
-       .btn.off, .tbl td, .cb); the hover shades darken their base
-       by 15% because the legend defines no hover states. */
+    /* Derived, not in the legend. Linen-deep, Paper-tint, Stone-light
+       and Stone-strong are lifted from the wireframe CSS (.subtabs /
+       .btn.off, .brk / .edbar, .tbl td, .cb); the hover shades darken
+       their base by 15% because the legend defines no hover states. */
     --color-linen-deep:         #e6e2de;   /* segmented-control track, "off" buttons */
+    --color-paper-tint:         #faf9f8;   /* inset panel inside a Paper card (.brk, .edbar, .evi, .blk) */
     --color-stone-light:        #ebe8e5;   /* table row rules */
     --color-stone-strong:       #9a9794;   /* checkbox / radio outline, strong borders */
     --color-ember-text-hover:   #933309;   /* Ember text, hover */
@@ -127,7 +128,11 @@
 
     --color-surface:       var(--color-paper);
     --color-surface-alt:   var(--color-linen);
-    --color-surface-dim:   var(--color-linen);
+    /* An inset panel inside a Paper card (the expanded household
+       breakdown, the board's figure boxes). Paper-tint, not Linen:
+       Linen is the canvas, so a Linen panel reads as a hole through
+       the card to the page (#575). */
+    --color-surface-dim:   var(--color-paper-tint);
     --color-surface-inset: var(--color-linen-deep);
     --color-bg-hover:      var(--color-linen);
 

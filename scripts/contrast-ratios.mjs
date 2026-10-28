@@ -73,6 +73,15 @@ export const PAIRS = [
         { fg: `--color-status-${s}-fg`, bg: '--color-canvas', use: `${s} on Linen`, min: AA_TEXT }
     ]),
     { fg: '--color-status-neutral-fg', bg: '--color-status-neutral-bg', use: 'neutral status on Linen', min: AA_TEXT },
+    // Paper-tint inset panels inside a Paper card (#575): the expanded household
+    // breakdown and the board's figure boxes, which carry Ink, muted and Ember
+    // text and the Settled / Outstanding / Credit / Partial figures
+    { fg: '--color-text', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint panel (household breakdown)', min: AA_TEXT },
+    { fg: '--color-text-secondary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint panel (figure labels)', min: AA_TEXT },
+    { fg: '--color-primary', bg: '--color-surface-dim', use: 'Ember text on a Paper-tint panel (Details toggle on hover)', min: AA_TEXT },
+    ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
+        { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
+    )),
     { fg: '--color-status-settled-hover', bg: '--color-surface', use: 'settled hover on Paper', min: AA_TEXT },
     // Non-text glyphs and graphical objects (WCAG 1.4.11, 3:1)
     { fg: '--color-icon', bg: '--color-surface', use: 'Graphite icons on Paper (non-text)', min: AA_NON_TEXT },

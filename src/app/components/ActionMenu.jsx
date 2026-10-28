@@ -6,8 +6,30 @@
  * Styled by `.action-menu-*` in shell.css after the wireframe's `.ico-btn`
  * trigger and `.menu-pop` popover (plans/ffb-wireframes.html § Visual
  * system): a round Graphite ellipsis button and a 10 px Paper menu.
+ *
+ * The menu hangs from the trigger's right edge. When that would push it past
+ * the left edge of the viewport (a trigger near the left of a 390 px phone),
+ * it hangs from the trigger's left edge instead, as the wireframe's phone
+ * frames draw it (#575).
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+
+/** Minimum gap, in px, between an open menu and the viewport edge. */
+export const MENU_GUTTER = 8;
+
+/**
+ * Which trigger edge the menu hangs from: 'end' (right edges aligned, the
+ * default) or 'start' (left edges aligned). 'start' only when the default
+ * would cross the left gutter and the flipped menu fits, or overflows less.
+ * @param {{ triggerLeft: number, triggerRight: number, menuWidth: number, viewportWidth: number }} box
+ * @returns {'end'|'start'}
+ */
+export function menuAlignment({ triggerLeft, triggerRight, menuWidth, viewportWidth }) {
+    const endOverflow = Math.max(0, MENU_GUTTER - (triggerRight - menuWidth));
+    if (endOverflow === 0) return 'end';
+    const startOverflow = Math.max(0, triggerLeft + menuWidth - (viewportWidth - MENU_GUTTER));
+    return startOverflow < endOverflow ? 'start' : 'end';
+}
 
 /** Lucide "ellipsis" (ISC), inlined so the menu stays dependency-free. */
 function EllipsisIcon() {
@@ -37,8 +59,22 @@ function EllipsisIcon() {
  */
 export default function ActionMenu({ label, trigger, children }) {
     const [open, setOpen] = useState(false);
+    const [align, setAlign] = useState('end');
     const containerRef = useRef(null);
     const triggerRef = useRef(null);
+    const menuRef = useRef(null);
+
+    // Keep the open menu inside the viewport (measured before paint).
+    useLayoutEffect(() => {
+        if (!open || !menuRef.current || !triggerRef.current) return;
+        const { left, right } = triggerRef.current.getBoundingClientRect();
+        setAlign(menuAlignment({
+            triggerLeft: left,
+            triggerRight: right,
+            menuWidth: menuRef.current.offsetWidth,
+            viewportWidth: document.documentElement.clientWidth
+        }));
+    }, [open]);
 
     // Close on outside click
     useEffect(() => {
@@ -81,7 +117,13 @@ export default function ActionMenu({ label, trigger, children }) {
                 {trigger || <EllipsisIcon />}
             </button>
             {open && (
-                <div className="action-menu-dropdown" role="menu" aria-label={label}>
+                <div
+                    ref={menuRef}
+                    className="action-menu-dropdown"
+                    data-align={align}
+                    role="menu"
+                    aria-label={label}
+                >
                     {children}
                 </div>
             )}

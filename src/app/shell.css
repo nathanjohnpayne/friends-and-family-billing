@@ -748,7 +748,9 @@ img, svg { display: block; max-width: 100%; }
 /* ── Cards ───────────────────────────────────────────────── */
 /* Wireframe .card: Paper, a Stone hairline, 12 px corners and the
    whisper-light card shadow. Each card rule below sets its own background,
-   border and radius; the shadow is applied here, once, to every card. */
+   border and radius; the shadow is applied here, once, to every card. A card
+   on the Linen canvas is Paper, never Linen or transparent, or it reads as a
+   hole in the page (#575). */
 .dashboard-hero,
 .year-selector,
 .composer-card,
@@ -894,6 +896,13 @@ img, svg { display: block; max-width: 100%; }
     border-radius: var(--radius-menu, 10px);
     box-shadow: var(--shadow-menu, 0 10px 28px rgba(34, 32, 29, 0.14));
     padding: 6px;
+}
+
+/* Flipped by ActionMenu.jsx when hanging from the right edge would cross
+   the left side of the viewport (a trigger near the left on a phone). */
+.action-menu-dropdown[data-align="start"] {
+    right: auto;
+    left: 0;
 }
 
 .action-menu-item {
@@ -3460,7 +3469,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
     font-size: 0.9rem;
     color: var(--color-text);
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-alert, 8px);
     padding: var(--space-3, 12px);
@@ -3508,7 +3517,7 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     align-items: center;
     gap: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-input, 8px);
     padding: var(--space-2, 8px) var(--space-3, 12px);
@@ -3624,7 +3633,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-stat-card {
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px);
     text-align: center;
@@ -3972,6 +3982,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-dispute-item {
     padding: var(--space-3, 12px);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
     border-left: 3px solid transparent;
@@ -4036,6 +4047,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-refund-item {
     padding: var(--space-3, 12px);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
     border-left: 3px solid var(--color-success);
