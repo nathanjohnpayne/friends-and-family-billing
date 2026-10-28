@@ -79,6 +79,13 @@ export const PAIRS = [
     { fg: '--color-text', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint panel (household breakdown)', min: AA_TEXT },
     { fg: '--color-text-secondary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint panel (figure labels)', min: AA_TEXT },
     { fg: '--color-primary', bg: '--color-surface-dim', use: 'Ember text on a Paper-tint panel (Details toggle on hover)', min: AA_TEXT },
+    // Review Request evidence rows and bill audit-history rows (#575 F04, #534):
+    // Paper-tint with a Stone hairline, carrying Ink names, Graphite-text sizes,
+    // dates and notes, and the Graphite / Outstanding ghost buttons
+    { fg: '--color-text-primary', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint row (evidence name, audit label and detail)', min: AA_TEXT },
+    { fg: '--color-text-tertiary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint row (evidence size, audit note)', min: AA_TEXT },
+    { fg: '--color-danger', bg: '--color-surface-dim', use: 'Outstanding text on a Paper-tint row (evidence Remove button)', min: AA_TEXT },
+    { fg: '--color-border', bg: '--color-surface-dim', use: 'Stone hairline around a Paper-tint row (decorative; the row is not a control)', min: null },
     ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
         { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
     )),

@@ -3249,12 +3249,15 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+/* Evidence and audit rows are Paper-tint insets with a Stone hairline inside
+   the Paper dialog (wireframe .evi, #575 F04), not Linen panels. */
 .evidence-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
 }
 
@@ -3323,7 +3326,8 @@ img, svg { display: block; max-width: 100%; }
 
 .audit-event-item {
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
 }
 
