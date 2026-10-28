@@ -227,6 +227,7 @@ export default function DashboardView() {
                 creditAdjustments={creditAdjustments}
                 reopenedAdjustmentIds={reopenedAdjustments}
                 owedAdjustments={owedAdjustments}
+                disputes={disputes}
                 readOnly={yearReadOnly}
                 onRecordPayment={data => service.recordPayment(data)}
                 onAddCharge={memberId => setDialog({ type: 'addCharge', memberId })}

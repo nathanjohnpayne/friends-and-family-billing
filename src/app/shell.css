@@ -1578,10 +1578,12 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+/* The board title is set in the display face (.type-display: Fraunces 300,
+   -0.02em); this rule only sizes it, so it no longer overrides the weight.
+   24px matches the frame's board title (#fx-dashboard-populated-*). */
 .settlement-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 1.5rem;
 }
 
 .settlement-filters {
@@ -1637,11 +1639,14 @@ img, svg { display: block; max-width: 100%; }
     border-color: var(--color-ink);
 }
 
+/* Status chips carry their 11px StatusBadge glyph before the label, in
+   currentColor (Graphite text, or Paper on the selected Ink fill). */
 .filter-chip svg,
 .settlement-filter-chip svg,
 .dispute-filter-btn svg {
     width: 11px;
     height: 11px;
+    flex: 0 0 auto;
 }
 
 .filter-chip-count,
