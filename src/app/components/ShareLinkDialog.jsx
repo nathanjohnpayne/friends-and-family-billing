@@ -202,7 +202,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
 
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                            <button className="btn btn-sm btn-primary" onClick={handleGenerate} disabled={generating}>
+                            <button className="btn btn-sm btn-ink" onClick={handleGenerate} disabled={generating}>
                                 {generating ? 'Generating...' : 'Generate & Copy Link'}
                             </button>
                         </div>

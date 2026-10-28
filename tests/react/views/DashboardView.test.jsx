@@ -66,6 +66,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import DashboardView from '@/app/views/Dashboard/DashboardView.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
+import { getDocs } from 'firebase/firestore';
+import { CHARGE_NOTICE_KIND } from '@/lib/chargeNotice.js';
 
 function renderDashboard(overrides = {}) {
     useBillingData.mockReturnValue({ ...mockState, ...overrides });
@@ -73,9 +75,10 @@ function renderDashboard(overrides = {}) {
 }
 
 describe('DashboardView', () => {
-    it('renders year pill without status badge', () => {
+    it('titles the hero with the year under a Billing year eyebrow, without a status badge', () => {
         renderDashboard();
-        expect(screen.getByText('Billing Year 2026')).toBeInTheDocument();
+        const year = screen.getByRole('heading', { level: 1, name: '2026' });
+        expect(year).toHaveAccessibleDescription('Billing year');
         // "Open" appears once in the lifecycle bar only (badge removed)
         const openElements = screen.getAllByText('Open');
         expect(openElements.length).toBe(1);
@@ -477,5 +480,28 @@ describe('DashboardView', () => {
             ]
         });
         expect(screen.queryByTestId('deferred-charges-indicator')).toBeNull();
+    });
+
+    it('passes its Review Requests into the board: Open review chip and card badge (RD-03)', async () => {
+        // useDisputes reads the disputes subcollection; a Refund Notice and a Charge
+        // Notice ride the same collection but are not Review Requests.
+        const doc = (id, data) => ({ id, data: () => ({ ...data }) });
+        vi.mocked(getDocs).mockResolvedValueOnce({
+            docs: [
+                doc('d1', { memberId: 1, status: 'open' }),
+                doc('n1', { memberId: 2, kind: 'refund_notice', status: 'open' }),
+                doc('n2', { memberId: 2, kind: CHARGE_NOTICE_KIND, status: 'open' })
+            ]
+        });
+        renderDashboard();
+        expect(await screen.findByRole('button', { name: 'Open review 1' })).toBeInTheDocument();
+        const alice = screen.getByText('Alice').closest('.settlement-card');
+        expect(within(alice).getByText('Review request')).toBeInTheDocument();
+        const bob = screen.getByText('Bob').closest('.settlement-card');
+        expect(within(bob).queryByText('Review request')).toBeNull();
+
+        await userEvent.click(screen.getByRole('button', { name: 'Open review 1' }));
+        expect(screen.getByText('Alice')).toBeInTheDocument();
+        expect(screen.queryByText('Bob')).toBeNull();
     });
 });

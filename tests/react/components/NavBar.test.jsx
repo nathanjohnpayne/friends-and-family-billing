@@ -27,7 +27,7 @@ function renderNavBar(route = '/') {
 describe('NavBar', () => {
     it('renders brand, nav links, and user menu', () => {
         renderNavBar();
-        expect(screen.getByText('FFB')).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: /^Friends & Family Billing/ })).toBeInTheDocument();
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
         expect(screen.getByText('Manage')).toBeInTheDocument();
         expect(screen.getByText('Settings')).toBeInTheDocument();
@@ -37,12 +37,16 @@ describe('NavBar', () => {
         expect(screen.getByRole('button', { name: /alice/i })).toBeInTheDocument();
     });
 
-    it('names the brand link by the FFB wordmark alone; the mark is decorative', () => {
+    it('names the brand link by the full wordmark and keeps the visible FFB label in the name', () => {
         renderNavBar();
-        // The logo mark is aria-hidden, so the link's accessible name is just the name.
-        const brand = screen.getByRole('link', { name: 'FFB' });
+        // jsdom applies no shell.css, so both wordmark spans render: the name
+        // then reads as the phone-width link does, full name plus the visible
+        // "FFB" (WCAG 2.5.3 label in name). At wider widths "FFB" is
+        // display: none and drops out. The logo mark stays decorative.
+        const brand = screen.getByRole('link', { name: 'Friends & Family Billing FFB' });
         expect(brand).toHaveAttribute('href', '/');
-        expect(brand).toHaveTextContent(/^FFB$/);
+        expect(screen.getByText('FFB')).not.toHaveAttribute('aria-hidden');
+        expect(brand.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('renders Dashboard link at /dashboard', () => {

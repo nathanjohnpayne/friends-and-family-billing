@@ -64,6 +64,11 @@ describe('InvoicingTab', () => {
         useBillingData.mockReturnValue(mockState);
     });
 
+    it('titles the tab Invoicing beside the Edit / Preview control', () => {
+        renderTab();
+        expect(screen.getByRole('heading', { level: 3, name: 'Invoicing' })).toBeInTheDocument();
+    });
+
     it('renders segmented control with Edit and Preview', () => {
         renderTab();
         const segControl = document.querySelector('.template-segmented-control');

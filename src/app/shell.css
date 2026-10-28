@@ -86,12 +86,25 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
     text-decoration: none;
     color: var(--color-text);
-    font-weight: 700;
-    font-size: 1rem;
+    /* Wordmark: Fraunces 300, tight tracking, ~17px, Ink; never bold
+       (plans/ffb-wireframes.html .brand). */
+    font-family: var(--font-family-display);
+    font-weight: var(--font-weight-display);
+    letter-spacing: var(--tracking-display);
+    font-size: 17px;
     white-space: nowrap;
 }
 
+/* Two spans toggled by width: the full name at desktop and tablet, "FFB" at
+   phone width (see the max-width: 600px block below). */
+.nav-brand-short {
+    display: none;
+}
+
 .nav-brand-icon {
+    /* Fixed 28px: without flex: 0 0 auto the img,svg { max-width: 100% }
+       reset lets a crowded flex row squeeze the tile to nothing. */
+    flex: 0 0 auto;
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -120,8 +133,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .nav-link {
-    padding: var(--space-1, 4px) var(--space-2, 8px);
-    border-radius: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-pill);
     text-decoration: none;
     color: var(--color-text-secondary);
     font-size: 0.875rem;
@@ -129,19 +142,21 @@ img, svg { display: block; max-width: 100%; }
     transition: background 0.15s, color 0.15s;
 }
 
-.nav-link:hover {
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-}
-
+/* Hover and active share the wireframe .nav a.on look: Ink on a Linen pill. */
+.nav-link:hover,
 .nav-link.active {
-    background: var(--color-primary-light);
-    color: var(--color-primary);
+    background: var(--color-canvas);
+    color: var(--color-text);
 }
 
+/* The user menu is the one nav item that may shrink: with the full wordmark
+   and the three links, a long display name would otherwise push the trigger
+   past the viewport between 641px and ~720px (#575). min-width: 0 here, on
+   the trigger and on the name lets the name ellipsize instead. */
 .nav-user-menu {
     position: relative;
     margin-left: auto;
+    min-width: 0;
 }
 
 .nav-user-trigger {
@@ -156,6 +171,7 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.875rem;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
+    max-width: 100%;
 }
 
 .nav-user-trigger:hover {
@@ -172,6 +188,7 @@ img, svg { display: block; max-width: 100%; }
 
 .nav-user-name {
     white-space: nowrap;
+    min-width: 0;
     max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -216,35 +233,46 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Manage Tabs ─────────────────────────────────────────── */
+/* The sticky bar keeps the strip in view under the nav; the nav inside is the
+   segmented pill track (wireframe .subtabs). */
+.manage-tabs-bar {
+    position: sticky;
+    top: 56px;
+    z-index: 90;
+    background: var(--color-canvas);
+    padding-bottom: 18px;
+    margin-bottom: 0;
+}
+
 .manage-tabs {
     display: flex;
     gap: var(--space-1, 4px);
-    border-bottom: 1px solid var(--color-border);
-    margin-bottom: var(--space-4, 24px);
-    padding: 0;
-    position: sticky;
-    top: 56px;
-    background: var(--color-canvas);
-    z-index: 90;
+    padding: 3px;
+    background: var(--color-linen-deep);
+    border-radius: var(--radius-pill);
+    width: max-content;
+    max-width: 100%;
 }
 
 .manage-tab {
-    padding: var(--space-2, 8px) var(--space-3, 16px);
+    padding: 6px 13px;
+    border-radius: var(--radius-pill);
     text-decoration: none;
     color: var(--color-text-secondary);
-    font-size: 0.875rem;
+    font-size: 12.5px;
     font-weight: 500;
-    border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
 }
 
 .manage-tab:hover {
-    color: var(--color-primary);
+    color: var(--color-text);
 }
 
 .manage-tab.active {
-    color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-segment);
 }
 
 /* ── Dashboard Status ────────────────────────────────────── */
@@ -256,20 +284,25 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-4, 24px);
 }
 
+/* Billing-year heading (wireframe hero: .eyebrow over h1.ttl.lg, F07 #530):
+   a small uppercase Graphite eyebrow over the year in the display face,
+   34px on desktop and tablet, 28px at phone width. */
 .dashboard-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2, 8px);
     margin-bottom: var(--space-3, 16px);
 }
 
-.dashboard-year-pill {
-    font-size: 0.75rem;
+.dashboard-eyebrow {
+    font-size: 0.7rem;
     font-weight: 600;
-    padding: 2px 10px;
-    border-radius: 99px;
-    background: var(--color-primary-light);
-    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+}
+
+.dashboard-year {
+    margin: 0;
+    font-size: 34px;
 }
 
 /* Lifecycle bar */
@@ -323,20 +356,23 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 16px);
 }
 
+/* Paper fill with a Stone hairline, like the frames' .kpi (F04, #530). */
 .kpi-card {
-    background: var(--color-surface-alt);
-    border-radius: 8px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-2, 8px) var(--space-3, 16px);
     text-align: center;
+    min-width: 0;
 }
 
 .kpi-card--clickable {
     cursor: pointer;
-    transition: background 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .kpi-card--clickable:hover {
-    background: var(--color-surface);
+    border-color: var(--color-border-strong);
     box-shadow: var(--shadow-card);
 }
 
@@ -349,10 +385,15 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: 2px;
 }
 
+/* Figures use the display face (F07, #530): 26px, 22px at phone. */
 .kpi-value {
     display: block;
-    font-size: 1.1rem;
-    font-weight: 700;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 26px;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
+    font-variant-numeric: tabular-nums;
     color: var(--color-text);
 }
 
@@ -653,6 +694,15 @@ img, svg { display: block; max-width: 100%; }
     border-color: var(--color-secondary-hover);
 }
 
+/* The shared .btn focus cue (Ink border + a 28% Ember halo) is invisible on an
+   Ink button: the border is already Ink and the halo is ~1.4:1. An offset Ink
+   outline, as on the payment-method switch, reads at 3:1+ on Paper and Linen. */
+.btn-ink:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
 .btn-secondary,
 .btn-header-secondary {
     background: var(--color-surface);
@@ -748,7 +798,9 @@ img, svg { display: block; max-width: 100%; }
 /* ── Cards ───────────────────────────────────────────────── */
 /* Wireframe .card: Paper, a Stone hairline, 12 px corners and the
    whisper-light card shadow. Each card rule below sets its own background,
-   border and radius; the shadow is applied here, once, to every card. */
+   border and radius; the shadow is applied here, once, to every card. A card
+   on the Linen canvas is Paper, never Linen or transparent, or it reads as a
+   hole in the page (#575). */
 .dashboard-hero,
 .year-selector,
 .composer-card,
@@ -896,6 +948,13 @@ img, svg { display: block; max-width: 100%; }
     padding: 6px;
 }
 
+/* Flipped by ActionMenu.jsx when hanging from the right edge would cross
+   the left side of the viewport (a trigger near the left on a phone). */
+.action-menu-dropdown[data-align="start"] {
+    right: auto;
+    left: 0;
+}
+
 .action-menu-item {
     display: flex;
     align-items: center;
@@ -967,9 +1026,22 @@ img, svg { display: block; max-width: 100%; }
 .dialog-title {
     padding: var(--space-3, 16px) var(--space-4, 24px) 0;
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 1.375rem;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
+    overflow-wrap: anywhere;
     color: var(--color-text);
+}
+
+/* Display-face dialog titles (wireframe .dlg-h .ttl: Fraunces 300, 22 px).
+   .dialog-title (above, #527) already uses the display face at this size and
+   weight; the weight and size are restated here so a dialog that opts in with
+   .type-display keeps them even if the base .dialog-title rule changes. */
+.dialog-title.type-display {
+    font-size: 1.375rem;
+    font-weight: var(--font-weight-display, 300);
 }
 
 .dialog-title + * {
@@ -1022,8 +1094,12 @@ img, svg { display: block; max-width: 100%; }
 
 .dialog-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 1.375rem;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
+    overflow-wrap: anywhere;
 }
 
 .dialog-body {
@@ -1114,6 +1190,24 @@ img, svg { display: block; max-width: 100%; }
     box-shadow: 0 0 0 2px var(--toast-text);
 }
 
+/* ── Page Header ─────────────────────────────────────────── */
+/* Top-level page title (wireframe .pagehead / .ttl): Fraunces 300, -0.02em,
+   28px on desktop, 24px at phone width, with a Graphite hint under it. */
+.page-head {
+    margin-bottom: var(--space-3, 16px);
+}
+
+.page-title {
+    margin: 0;
+    font-size: 1.75rem;
+}
+
+.page-hint {
+    margin: 4px 0 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
 /* ── Tab Header ──────────────────────────────────────────── */
 .tab-header {
     display: flex;
@@ -1122,10 +1216,15 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 16px);
 }
 
+/* Manage tab headings share the display face (wireframe .ttl): Fraunces 300,
+   -0.02em, 28px on desktop, 24px at phone width. */
 .tab-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 1.75rem;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
 }
 
 /* ── Composer ────────────────────────────────────────────── */
@@ -1198,6 +1297,30 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface-alt);
     color: var(--color-text-secondary);
     cursor: not-allowed;
+}
+
+/* Sign-in wordmark (frame .brand on the auth screen): the 28px Ember tile
+   beside the Fraunces name, centred. 30px desktop/tablet, 26px at phone so
+   tile + name stay on one line. */
+.login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 30px;
+    margin: 0 0 0.5rem;
+}
+
+/* Sign-in fields: full-width, 1rem text (avoids iOS focus zoom); the
+   look comes from .composer-input. */
+.login-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 1rem;
+}
+
+.login-submit {
+    margin-top: 16px;
 }
 
 /* .composer-error is an inline alert (see "Inline alerts" above). */
@@ -1546,7 +1669,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .checkbox-item input[type="checkbox"] {
-    accent-color: var(--color-primary);
+    accent-color: var(--color-ink);
 }
 
 .bill-actions-row {
@@ -1569,10 +1692,12 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+/* The board title is set in the display face (.type-display: Fraunces 300,
+   -0.02em); this rule only sizes it, so it no longer overrides the weight.
+   24px matches the frame's board title (#fx-dashboard-populated-*). */
 .settlement-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 1.5rem;
 }
 
 .settlement-filters {
@@ -1628,11 +1753,14 @@ img, svg { display: block; max-width: 100%; }
     border-color: var(--color-ink);
 }
 
+/* Status chips carry their 11px StatusBadge glyph before the label, in
+   currentColor (Graphite text, or Paper on the selected Ink fill). */
 .filter-chip svg,
 .settlement-filter-chip svg,
 .dispute-filter-btn svg {
     width: 11px;
     height: 11px;
+    flex: 0 0 auto;
 }
 
 .filter-chip-count,
@@ -2055,10 +2183,11 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Payment Distribute Option ─────────────────────────── */
+/* An inset panel inside the Paper dialog: Paper-tint, not Linen (#575 F04). */
 .payment-distribute-option {
     margin-bottom: var(--space-2, 8px);
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
     border-radius: var(--radius-input, 8px);
 }
 
@@ -2122,9 +2251,10 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 12px);
 }
 
+/* A row inside the Paper dialog: Paper-tint, not Linen (#575 F04). */
 .payment-history-item {
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
     border-radius: var(--radius-card, 12px);
 }
 
@@ -2368,6 +2498,11 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-3, 12px);
 }
 
+/* Section heading in the display face (F07), a step under the page title. */
+.payment-methods-title {
+    font-size: 1.25rem;
+}
+
 .invoicing-hint {
     font-size: 0.85rem;
     color: var(--color-text-secondary);
@@ -2460,11 +2595,20 @@ img, svg { display: block; max-width: 100%; }
 
 .template-header-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
-    /* Clear sticky nav-bar (56px) + manage-tabs (~40px) on scroll-into-view */
-    scroll-margin-top: 104px;
+    /* Clear sticky nav-bar (56px) + manage-tabs bar (~54px) on scroll-into-view */
+    scroll-margin-top: 112px;
+}
+
+/* Tab title in the bar, as the Invoicing frame's .pagehead.mid puts the
+   .ttl beside the Edit/Preview control: same face and size as the other
+   Manage tab headings (.tab-header h3). */
+.invoicing-title {
+    margin: 0 4px 0 0;
+    font-size: 1.75rem;
 }
 
 .template-header-actions {
@@ -2617,10 +2761,10 @@ img, svg { display: block; max-width: 100%; }
 /* Save button (now lives in header bar) */
 .template-save-btn {
     padding: 6px 16px;
-    border: 1px solid var(--color-accent);
+    border: 1px solid var(--color-ink);
     border-radius: var(--radius-button, 9999px);
-    background: var(--color-accent);
-    color: var(--color-text);
+    background: var(--color-ink);
+    color: var(--color-text-inverse);
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
@@ -2628,8 +2772,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .template-save-btn:hover:not(:disabled) {
-    background: var(--color-accent-hover);
-    border-color: var(--color-accent-hover);
+    background: var(--color-secondary-hover);
+    border-color: var(--color-secondary-hover);
 }
 
 .template-save-btn:focus-visible {
@@ -2906,7 +3050,10 @@ img, svg { display: block; max-width: 100%; }
     border-radius: var(--radius-card, 12px);
 }
 
-.payment-method-item.payment-method-disabled {
+/* A hidden method dims its identity (icon, label, detail) but never its
+   controls: the switch must stay at full strength to be turned back on. */
+.payment-method-item.payment-method-disabled .payment-method-icon,
+.payment-method-item.payment-method-disabled .payment-method-info {
     opacity: 0.5;
 }
 
@@ -2964,10 +3111,57 @@ img, svg { display: block; max-width: 100%; }
 
 .payment-method-toggle {
     display: flex;
+    flex-direction: row-reverse;   /* state word first, then the switch (wireframe) */
     align-items: center;
-    gap: var(--space-1, 4px);
+    gap: var(--space-2, 8px);
     font-size: 0.82rem;
     cursor: pointer;
+}
+
+/* Switch (wireframe .sw): a native checkbox drawn as a 30x18 track with a
+   white knob. Off is Stone with a Graphite outline (Stone alone is 1.4:1 on
+   Paper; the outline carries the 3:1 non-text target), on is Settled green.
+   The On / Off word beside it keeps the state from being colour-only. */
+.payment-method-toggle input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: 30px;
+    height: 18px;
+    margin: 0;
+    border: 1px solid var(--color-icon);
+    border-radius: 999px;
+    background: var(--color-stone);
+    cursor: pointer;
+}
+
+.payment-method-toggle input[type="checkbox"]::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-paper);
+    box-shadow: 0 1px 2px rgba(34, 32, 29, 0.2);
+}
+
+.payment-method-toggle input[type="checkbox"]:checked {
+    background: var(--color-status-settled-fg);
+    border-color: var(--color-status-settled-fg);
+}
+
+.payment-method-toggle input[type="checkbox"]:checked::after {
+    left: 14px;
+}
+
+.payment-method-toggle input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--color-focus-ring);
 }
 
 .toggle-label {
@@ -3240,12 +3434,15 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
 }
 
+/* Evidence and audit rows are Paper-tint insets with a Stone hairline inside
+   the Paper dialog (wireframe .evi, #575 F04), not Linen panels. */
 .evidence-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
 }
 
@@ -3314,7 +3511,8 @@ img, svg { display: block; max-width: 100%; }
 
 .audit-event-item {
     padding: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface-dim);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
 }
 
@@ -3436,7 +3634,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-header h1 {
-    font-size: 1.5rem;
+    font-size: 28px;
     margin: 0 0 var(--space-2, 8px);
 }
 
@@ -3460,7 +3658,7 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-2, 8px);
     font-size: 0.9rem;
     color: var(--color-text);
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-alert, 8px);
     padding: var(--space-3, 12px);
@@ -3477,7 +3675,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-section h2 {
-    font-size: 1.15rem;
+    font-size: 20px;
     margin-bottom: var(--space-3, 12px);
 }
 
@@ -3499,8 +3697,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-member-name {
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 20px;
     margin: 0 0 var(--space-2, 8px);
 }
 
@@ -3508,7 +3705,7 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     align-items: center;
     gap: var(--space-2, 8px);
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-input, 8px);
     padding: var(--space-2, 8px) var(--space-3, 12px);
@@ -3624,7 +3821,8 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-stat-card {
-    background: var(--color-surface-alt);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
     padding: var(--space-3, 12px);
     text-align: center;
@@ -3639,8 +3837,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .share-stat-value {
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: 22px;
 }
 
 .share-stat-value.paid { color: var(--color-success); }
@@ -3648,8 +3845,10 @@ img, svg { display: block; max-width: 100%; }
 .share-stat-value.settled-zero { color: var(--color-text-secondary); }
 
 .share-stat-unit {
-    font-size: 0.8rem;
+    font-family: var(--font-family-ui);
+    font-size: 13px;
     font-weight: 400;
+    letter-spacing: normal;
     color: var(--color-text-secondary);
     margin-left: 1px;
 }
@@ -3722,7 +3921,7 @@ img, svg { display: block; max-width: 100%; }
     flex: 0 0 auto;
 }
 
-.share-lead-title { font-size: 1.05rem; font-weight: 600; }
+.share-lead-title { font-size: 24px; }
 .share-lead-sub { font-size: 0.9rem; color: var(--color-text-secondary); }
 
 .share-lead--settled {
@@ -3972,6 +4171,7 @@ img, svg { display: block; max-width: 100%; }
 
 .share-dispute-item {
     padding: var(--space-3, 12px);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
     border-left: 3px solid transparent;
@@ -4036,10 +4236,18 @@ img, svg { display: block; max-width: 100%; }
 
 .share-refund-item {
     padding: var(--space-3, 12px);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-card, 12px);
-    border-left: 3px solid var(--color-success);
+    border-left: 3px solid transparent;
 }
+
+/* The rule follows the notice state (as .refund-notice--* on the Manage tab):
+   Settled only once confirmed, Outstanding when reported not received, and a
+   neutral Graphite rule while the notice is still pending. */
+.share-refund-item--sent { border-left-color: var(--color-text-secondary); }
+.share-refund-item--confirmed { border-left-color: var(--color-success); }
+.share-refund-item--not-received { border-left-color: var(--color-danger); }
 
 .share-refund-header {
     display: flex;
@@ -4093,17 +4301,86 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
-@media (max-width: 640px) {
-    .nav-user-name { display: none; }
-
-    .kpi-grid {
-        display: flex;
-        flex-wrap: wrap;
+/* Phone (wireframe @container max-width: 600px): the wordmark shortens to
+   FFB, and the Manage strip scrolls horizontally as separate chips. */
+@media (max-width: 600px) {
+    /* The long name stays in the accessibility tree (visually hidden) so the
+       link keeps its name; the short span is aria-hidden. */
+    .nav-brand-long {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
     }
 
-    .kpi-grid > * {
-        flex: 1 1 0;
-        min-width: 0;
+    .nav-brand-short {
+        display: inline;
+    }
+
+    /* The links still share the top bar at phone width (until #526 moves
+       them to a bottom tab bar), so they tighten to keep the row inside
+       390px: the wireframe's phone .nav a size (13px) with 7px side
+       padding and no gap between pills. */
+    .nav-links {
+        gap: 0;
+    }
+
+    .nav-link {
+        padding: 6px 7px;
+        font-size: 13px;
+    }
+
+    .login-brand {
+        font-size: 26px;
+    }
+
+    .manage-tabs {
+        width: auto;
+        max-width: none;
+        margin-left: calc(-1 * var(--space-3, 16px));
+        margin-right: calc(-1 * var(--space-3, 16px));
+        padding: 3px var(--space-3, 16px);
+        border-radius: 0;
+        background: transparent;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 6px;
+    }
+
+    .manage-tab {
+        flex: 0 0 auto;
+        border: 1px solid var(--color-stone);
+        background: var(--color-surface);
+    }
+
+    .manage-tab.active {
+        background: var(--color-ink);
+        color: var(--color-text-inverse);
+        border-color: var(--color-ink);
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .share-header h1 { font-size: 24px; }
+    .share-lead-title { font-size: 20px; }
+
+    .nav-user-name { display: none; }
+
+    .tab-header h3,
+    .invoicing-title,
+    .page-title { font-size: var(--text-heading-lg, 1.5rem); }
+
+    .dashboard-year { font-size: 28px; }
+
+    /* Two columns, as in the phone frames: display-face figures at 22px do not
+       fit four across. */
+    .kpi-grid {
+        grid-template-columns: 1fr 1fr;
     }
 
     .kpi-card {
@@ -4118,7 +4395,7 @@ img, svg { display: block; max-width: 100%; }
     }
 
     .kpi-value {
-        font-size: 0.95rem;
+        font-size: 22px;
     }
 
     .kpi-subtitle {
@@ -4127,19 +4404,6 @@ img, svg { display: block; max-width: 100%; }
         overflow: hidden;
         text-overflow: ellipsis;
     }
-
-    .manage-tabs {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .manage-tab {
-        font-size: 0.75rem;
-        padding: var(--space-2, 8px) var(--space-2, 8px);
-        white-space: nowrap;
-    }
-
-    .nav-brand span { display: none; }
 
     /* ── Bill card mobile reflow ───────────────────────── */
     .bill-card {

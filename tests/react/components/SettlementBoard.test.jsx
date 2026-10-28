@@ -803,3 +803,84 @@ describe('SettlementBoard — carried opening balance (#322)', () => {
         expect(within(balanceBox).getByText('$120.00')).toBeInTheDocument();  // collectable Balance
     });
 });
+
+describe('SettlementBoard — status glyphs on the filter chips (#575 F15)', () => {
+    it('puts a decorative glyph before each status chip label without changing its name', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        for (const name of ['Outstanding 2', 'Partial 0', 'Settled 0', 'Credit 0', 'Open review 0']) {
+            const chip = screen.getByRole('button', { name });
+            const glyph = chip.firstElementChild;
+            expect(glyph.tagName.toLowerCase()).toBe('svg');
+            expect(glyph).toHaveAttribute('aria-hidden', 'true');
+        }
+    });
+
+    it('leaves the All chip without a glyph', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        const all = screen.getByRole('button', { name: 'All 2' });
+        expect(all.firstElementChild.tagName.toLowerCase()).not.toBe('svg');
+    });
+
+    it('titles the board with a heading', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.getByRole('heading', { name: 'Settlement Board' })).toBeInTheDocument();
+    });
+});
+
+describe('SettlementBoard — open Review Requests (RD-03)', () => {
+    // Alice (1) heads a household with Carol (3) linked; Bob (2) is independent.
+    const reviewOnCarol = [
+        { id: 'd1', memberId: 3, status: 'open' },
+        { id: 'd2', memberId: 2, status: 'resolved' },
+        { id: 'd3', memberId: 2, status: 'rejected' }
+    ];
+
+    it('counts households with an open or in-review request, including via a linked member', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={reviewOnCarol} readOnly={false} />);
+        expect(screen.getByRole('button', { name: 'Open review 1' })).toBeInTheDocument();
+    });
+
+    it('counts an in-review request too, once per household', () => {
+        const disputes = [
+            { id: 'd1', memberId: 1, status: 'open' },
+            { id: 'd2', memberId: 3, status: 'in_review' },
+            { id: 'd3', memberId: 2, status: 'in_review' }
+        ];
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={disputes} readOnly={false} />);
+        expect(screen.getByRole('button', { name: 'Open review 2' })).toBeInTheDocument();
+    });
+
+    it('is cross-cutting: it does not change All or the status partition', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={reviewOnCarol} readOnly={false} />);
+        expect(screen.getByRole('button', { name: 'All 2' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Outstanding 2' })).toBeInTheDocument();
+    });
+
+    it('filters the board to households with an open request', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={reviewOnCarol} readOnly={false} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open review 1' }));
+        expect(screen.getByText('Alice')).toBeInTheDocument();
+        expect(screen.queryByText('Bob')).toBeNull();
+    });
+
+    it('shows "no households" when no request is open', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={[{ id: 'd2', memberId: 2, status: 'resolved' }]} readOnly={false} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open review 0' }));
+        expect(screen.getByText('No households match this filter.')).toBeInTheDocument();
+    });
+
+    it('marks the household card with a Review request badge beside its settlement badge', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} disputes={reviewOnCarol} readOnly={false} />);
+        const alice = screen.getByText('Alice').closest('.settlement-card');
+        expect(within(alice).getByText('Review request')).toBeInTheDocument();
+        expect(within(alice).getByText('Outstanding')).toBeInTheDocument();
+        const bob = screen.getByText('Bob').closest('.settlement-card');
+        expect(within(bob).queryByText('Review request')).toBeNull();
+    });
+
+    it('shows no Review request badge when no disputes are passed', () => {
+        render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.queryByText('Review request')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Open review 0' })).toBeInTheDocument();
+    });
+});

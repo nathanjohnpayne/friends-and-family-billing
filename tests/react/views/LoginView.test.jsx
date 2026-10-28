@@ -63,3 +63,16 @@ describe('LoginView sign-up email verification', () => {
         expect(screen.queryByRole('alert')).toBeNull();
     });
 });
+
+describe('LoginView wordmark', () => {
+    it('pairs the decorative brand mark with the wordmark heading', () => {
+        const { container } = render(<MemoryRouter><LoginView /></MemoryRouter>);
+        // The mark is aria-hidden, so the heading's name is the wordmark alone.
+        const heading = screen.getByRole('heading', { level: 1, name: 'Friends & Family Billing' });
+        const mark = heading.querySelector('svg');
+        expect(mark).not.toBeNull();
+        expect(mark).toHaveAttribute('aria-hidden', 'true');
+        // No inline font override: the page inherits the body UI face.
+        expect(container.firstChild.style.fontFamily).toBe('');
+    });
+});

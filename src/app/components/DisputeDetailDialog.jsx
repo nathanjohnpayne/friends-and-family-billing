@@ -319,7 +319,7 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
                                 Mark In Review
                             </button>
                         )}
-                        <button className="btn btn-sm btn-primary" onClick={() => handleActionClick('resolved')}>
+                        <button className="btn btn-sm btn-ink" onClick={() => handleActionClick('resolved')}>
                             Resolve
                         </button>
                         <button className="btn btn-sm btn-destructive" onClick={() => handleActionClick('rejected')}>

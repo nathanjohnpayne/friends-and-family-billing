@@ -198,7 +198,7 @@ export default function ServiceCreditDialog({ open, bill, billMembers = [], onSu
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary">Save Credit</button>
+                        <button type="submit" className="btn btn-sm btn-ink">Save Credit</button>
                     </div>
                 </form>
             </div>

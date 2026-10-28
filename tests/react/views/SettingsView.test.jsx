@@ -93,3 +93,62 @@ describe('SettingsView payment methods → share sync', () => {
         await waitFor(() => expect(fs.deleteDoc).toHaveBeenCalledWith({ path: 'publicQrCodes/owner-uid_pm_2' }));
     });
 });
+
+describe('SettingsView payment-method switch (#575 F14)', () => {
+    beforeEach(() => {
+        Object.values(fs).forEach(fn => fn.mockClear());
+        fs.getDocs.mockReset();
+        fs.getDocs.mockResolvedValue({ docs: [] });
+        mockService.updateSettings.mockClear();
+    });
+
+    it('exposes each On / Off control as a switch with a visible state word', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+
+        const switches = screen.getAllByRole('switch');
+        expect(switches).toHaveLength(2);
+        switches.forEach(sw => expect(sw).toBeChecked());
+        // The state is also written out, so it is never carried by colour alone.
+        expect(screen.getAllByText('On')).toHaveLength(2);
+        expect(screen.queryByText('Off')).not.toBeInTheDocument();
+    });
+
+    it('names each switch by its payment method, not by its On / Off state word', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+
+        // The switch role already announces on / off; the name has to say which
+        // method it controls, and must not change when the state flips.
+        expect(screen.getByRole('switch', { name: 'Venmo' })).toBeChecked();
+        expect(screen.getByRole('switch', { name: 'Zelle' })).toBeChecked();
+        expect(screen.queryByRole('switch', { name: 'On' })).not.toBeInTheDocument();
+    });
+
+    it('turns a method Off from the keyboard', async () => {
+        const user = userEvent.setup();
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+
+        const [first] = screen.getAllByRole('switch');
+        first.focus();
+        expect(first).toHaveFocus();
+        await user.keyboard(' ');
+
+        expect(mockService.updateSettings).toHaveBeenCalledTimes(1);
+        const { paymentMethods } = mockService.updateSettings.mock.calls[0][0];
+        expect(paymentMethods.find(m => m.id === 'pm_1').enabled).toBe(false);
+        expect(paymentMethods.find(m => m.id === 'pm_2').enabled).toBe(true);
+    });
+
+    it('offers Add Payment Method as a button', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+        expect(screen.getByRole('button', { name: 'Add Payment Method' })).toBeInTheDocument();
+    });
+});
+
+describe('SettingsView headings', () => {
+    it('titles the page Settings with a Payment Methods section heading under it', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+        expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
+        expect(screen.getByText('Billing years and the payment methods shown on invoices and share pages.')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 3, name: 'Payment Methods' })).toBeInTheDocument();
+    });
+});

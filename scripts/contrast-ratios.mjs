@@ -56,8 +56,6 @@ export const PAIRS = [
     { fg: '--color-text-inverse', bg: '--color-ink', use: 'White text on Ink (selected filter chip, segment, .btn-ink, toast)', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-secondary-hover', use: 'White text on the Ink button hover fill', min: AA_TEXT },
     { fg: '--color-stone', bg: '--color-ink', use: 'Stone count inside a selected filter chip', min: AA_TEXT },
-    { fg: '--color-text-inverse', bg: '--color-primary', use: 'White text on the Ember-text fill (LoginView inline button, until RD-17)', min: AA_TEXT },
-    { fg: '--color-text-inverse', bg: '--color-primary-hover', use: 'White text on the Ember-text hover fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger', use: 'White text on the destructive fill', min: AA_TEXT },
     { fg: '--color-text-inverse', bg: '--color-danger-hover', use: 'White text on the destructive hover fill', min: AA_TEXT },
     { fg: '--toast-text', bg: '--toast-bg', use: 'Toast text on Ink', min: AA_TEXT },
@@ -73,13 +71,55 @@ export const PAIRS = [
         { fg: `--color-status-${s}-fg`, bg: '--color-canvas', use: `${s} on Linen`, min: AA_TEXT }
     ]),
     { fg: '--color-status-neutral-fg', bg: '--color-status-neutral-bg', use: 'neutral status on Linen', min: AA_TEXT },
+    // Paper-tint inset panels inside a Paper card (#575): the expanded household
+    // breakdown and the board's figure boxes, which carry Ink, muted and Ember
+    // text and the Settled / Outstanding / Credit / Partial figures
+    { fg: '--color-text', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint panel (household breakdown)', min: AA_TEXT },
+    { fg: '--color-text-secondary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint panel (figure labels)', min: AA_TEXT },
+    { fg: '--color-primary', bg: '--color-surface-dim', use: 'Ember text on a Paper-tint panel (Details toggle on hover)', min: AA_TEXT },
+    // Invoicing editor toolbar is a Paper-tint bar (#533, F04): the active and
+    // hovered toolbar buttons and the token chips sit on it
+    { fg: '--color-primary', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ember text on an Ember wash over the Paper-tint editor toolbar (token chips)', min: AA_TEXT },
+    { fg: '--color-primary', bg: '--color-ember-wash-strong', over: '--color-surface-dim', use: 'Ember text on a strong Ember wash over the Paper-tint editor toolbar (active button, hovered chips)', min: AA_TEXT },
+    { fg: '--color-text', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ink text on an Ember wash over the Paper-tint editor toolbar (hovered button)', min: AA_TEXT },
+    // Review Request evidence rows and bill audit-history rows (#575 F04, #534):
+    // Paper-tint with a Stone hairline, carrying Ink names, Graphite-text sizes,
+    // dates and notes, and the Graphite / Outstanding ghost buttons
+    { fg: '--color-text-primary', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint row (evidence name, audit label and detail)', min: AA_TEXT },
+    { fg: '--color-text-tertiary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint row (evidence size, audit note)', min: AA_TEXT },
+    { fg: '--color-danger', bg: '--color-surface-dim', use: 'Outstanding text on a Paper-tint row (evidence Remove button)', min: AA_TEXT },
+    { fg: '--color-border', bg: '--color-surface-dim', use: 'Stone hairline around a Paper-tint row (decorative; the row is not a control)', min: null },
+    ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
+        { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
+    )),
+    // Paper-tint rows inside the payment dialogs (#538, #575 F04): the distribute
+    // option and the payment-history rows. Their text pairs are the rows above;
+    // these are the graphical objects drawn on the tint.
+    { fg: '--color-ink', bg: '--color-surface-dim', use: 'Ink checkbox on a Paper-tint panel (distribute option, non-text)', min: AA_NON_TEXT },
+    { fg: '--color-danger', bg: '--color-surface-dim', use: 'Reversal rule on a Paper-tint payment-history row (non-text)', min: AA_NON_TEXT },
     { fg: '--color-status-settled-hover', bg: '--color-surface', use: 'settled hover on Paper', min: AA_TEXT },
     // Non-text glyphs and graphical objects (WCAG 1.4.11, 3:1)
     { fg: '--color-icon', bg: '--color-surface', use: 'Graphite icons on Paper (non-text)', min: AA_NON_TEXT },
     { fg: '--color-icon', bg: '--color-canvas', use: 'Graphite icons on Linen (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-text-secondary', bg: '--color-surface', use: 'Status glyph in a filter chip (currentColor, Graphite text on Paper)', min: AA_NON_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-ink', use: 'Status glyph in the selected filter chip (Paper on Ink)', min: AA_NON_TEXT },
+    { fg: '--color-ink', bg: '--color-surface', use: 'Checked checkbox fill (.checkbox-item accent) on Paper (non-text)', min: AA_NON_TEXT },
     { fg: '--color-progress-fill', bg: '--color-progress-track', use: 'Progress fill on its track (dashboard, #570)', min: AA_NON_TEXT },
     { fg: '--color-progress-fill', bg: '--color-surface', use: 'Progress fill against the Paper card it sits in', min: AA_NON_TEXT },
     { fg: '--color-progress-fill-done', bg: '--color-progress-track', use: 'Finished progress fill on its track (share page, 100%)', min: AA_NON_TEXT },
+    // KPI tile hairline on Paper (#530): decorative, the figure inside carries the information
+    { fg: '--color-border', bg: '--color-surface', use: 'Stone hairline on Paper (KPI tile border; decorative)', min: null },
+    { fg: '--color-border-strong', bg: '--color-surface', use: 'Stone-strong hairline on Paper (KPI tile hover border; decorative)', min: null },
+    // Payment-method switch (#575 F14, wireframe .sw): Stone track with a
+    // Graphite outline when off, Settled green when on, white knob
+    { fg: '--color-icon', bg: '--color-surface', use: 'Switch outline (off: Stone track, Graphite outline) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-status-settled-fg', bg: '--color-surface', use: 'Switch track (on, Settled green) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-text-inverse', bg: '--color-status-settled-fg', use: 'Switch knob (white) on the Settled track (non-text)', min: AA_NON_TEXT },
+    // .btn-ink keyboard focus (#585): an offset Ink outline, since the shared
+    // Ember halo is ~1.4:1 and the Ink border does not change on an Ink button
+    { fg: '--color-ink', bg: '--color-surface', use: '.btn-ink focus outline (Ink) on Paper (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-ink', bg: '--color-canvas', use: '.btn-ink focus outline (Ink) on Linen (non-text)', min: AA_NON_TEXT },
+    { fg: '--color-ink', bg: '--color-surface-dim', use: '.btn-ink focus outline (Ink) on Paper-tint (non-text)', min: AA_NON_TEXT },
     // Fills, for information only: the legend keeps Ember off small text for this reason
     { fg: '--color-accent', bg: '--color-surface', use: 'Ember fill on Paper (brand mark; never text)', min: null }
 ];

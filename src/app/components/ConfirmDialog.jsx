@@ -59,7 +59,7 @@ export default function ConfirmDialog({
                     <button
                         ref={confirmRef}
                         type="button"
-                        className={'btn ' + (destructive ? 'btn-destructive' : 'btn-primary')}
+                        className={'btn ' + (destructive ? 'btn-destructive' : 'btn-ink')}
                         onClick={onConfirm}
                     >
                         {confirmLabel}

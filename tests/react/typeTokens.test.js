@@ -43,6 +43,15 @@ describe('self-hosted fonts', () => {
         }
     });
 
+    it('serves the content-hashed font files with a long-lived immutable cache header (#575)', () => {
+        const hosting = JSON.parse(read('firebase.json')).hosting;
+        const fonts = hosting.headers.find((h) => h.source === '**/*.woff2');
+        expect(fonts, 'a **/*.woff2 header rule in firebase.json').toBeDefined();
+        const cache = fonts.headers.find((h) => h.key === 'Cache-Control');
+        expect(cache.value).toMatch(/max-age=31536000/);
+        expect(cache.value).toMatch(/immutable/);
+    });
+
     it('never references a third-party font host from the entry or stylesheets', () => {
         for (const file of ['index.html', 'design-tokens.css', 'src/app/shell.css', 'vite.config.js', 'firebase.json']) {
             expect(read(file), file).not.toMatch(/fonts\.(googleapis|gstatic)\.com|use\.typekit|fonts\.bunny/);

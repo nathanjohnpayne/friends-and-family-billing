@@ -158,7 +158,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                     <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={generating}>
                         {copied ? 'Copied!' : 'Copy Message'}
                     </button>
-                    <button className="btn btn-sm btn-primary" onClick={handleOpenMessages} disabled={generating}>
+                    <button className="btn btn-sm btn-ink" onClick={handleOpenMessages} disabled={generating}>
                         {generating ? 'Generating link\u2026' : 'Open Messages'}
                     </button>
                 </div>

@@ -137,7 +137,7 @@ export default function ChargeNoticeDialog({ open, memberName, charges, now, onC
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary" disabled={preview.count === 0}>
+                        <button type="submit" className="btn btn-sm btn-ink" disabled={preview.count === 0}>
                             Bill &amp; Notify
                         </button>
                     </div>

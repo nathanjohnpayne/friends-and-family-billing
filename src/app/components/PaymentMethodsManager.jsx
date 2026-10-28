@@ -42,7 +42,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
 
     return (
         <div className="invoicing-section">
-            <h3>Payment Methods</h3>
+            <h3 className="type-display payment-methods-title">Payment Methods</h3>
             <p className="invoicing-hint">
                 Configure payment methods shown in invoices and on the share page.
                 Toggling a method Off hides it from invoices and share pages without removing it.
@@ -79,6 +79,8 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                         <label className="payment-method-toggle">
                                             <input
                                                 type="checkbox"
+                                                role="switch"
+                                                aria-label={method.label}
                                                 checked={method.enabled}
                                                 onChange={() => toggleEnabled(method.id)}
                                             />
@@ -117,7 +119,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
                                 <option key={key} value={key}>{val.label}</option>
                             ))}
                         </select>
-                        <button className="btn btn-sm btn-primary" onClick={() => {
+                        <button className="btn btn-sm btn-ink" onClick={() => {
                             const selectedType = availableTypes.some(([key]) => key === newType) ? newType : availableTypes[0][0];
                             const typeDef = PAYMENT_METHOD_TYPES[selectedType];
                             const method = {
@@ -222,7 +224,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
     return (
         <div className="dialog-overlay" onClick={onCancel}>
             <div className="dialog" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Edit {method.label}</div>
+                <div className="dialog-title type-display">Edit {method.label}</div>
                 <form onSubmit={handleSave}>
                     <div className="payment-dialog-fields">
                         <div className="payment-field-group">
@@ -300,7 +302,7 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
                     {error && <p className="composer-error">{error}</p>}
                     <div className="dialog-buttons">
                         <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-primary">Save</button>
+                        <button type="submit" className="btn btn-sm btn-ink">Save</button>
                     </div>
                 </form>
             </div>

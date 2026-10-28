@@ -198,6 +198,27 @@ describe('progress bar (#570)', () => {
     });
 });
 
+describe('dialog evidence and audit rows (#575 F04)', () => {
+    it('draws evidence and audit-history rows as Paper-tint insets with a Stone hairline, not Linen', () => {
+        for (const selector of ['.evidence-item', '.audit-event-item']) {
+            const d = decls(selector);
+            expect(background(d), selector).toBe(resolveToken(tokens, '--color-paper-tint'));
+            expect(background(d), selector).not.toBe(resolveToken(tokens, '--color-linen'));
+            expect(resolveValue(d.border?.split(/\s+/).pop()), selector).toBe(resolveToken(tokens, '--color-stone'));
+        }
+    });
+
+    it('keeps the muted and destructive text on those rows at AA', () => {
+        const bg = parseColor(resolveToken(tokens, '--color-paper-tint'));
+        for (const sel of ['.evidence-size', '.audit-event-date', '.audit-event-note']) {
+            const fg = resolveValue(decls(sel).color);
+            expect(fg, sel).toBeTruthy();
+            expect(contrastRatio(parseColor(fg), bg), sel).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+        expect(contrastRatio(parseColor(resolveToken(tokens, '--color-danger')), bg)).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+});
+
 describe('filter chips', () => {
     it('selects a chip with an Ink fill and Paper text, and keeps the count readable', () => {
         for (const sel of ['.settlement-filter-chip.active', '.dispute-filter-btn.active', '.filter-chip.active']) {
@@ -245,5 +266,135 @@ describe('inline alerts and toasts', () => {
         const refresh = decls('.update-toast-btn');
         expect(background(refresh)).toBe(EMBER);
         expect(resolveValue(refresh.color)).toBe(INK);
+    });
+});
+
+describe('payment-method switch (#575 F14)', () => {
+    const track = '.payment-method-toggle input[type="checkbox"]';
+    const STONE = resolveToken(tokens, '--color-stone');
+    const SETTLED = resolveToken(tokens, '--color-status-settled-fg');
+
+    it('draws the native checkbox as a 30 x 18 pill track with a white knob', () => {
+        const d = decls(track);
+        expect(d.appearance).toBe('none');
+        expect(d.width).toBe('30px');
+        expect(d.height).toBe('18px');
+        expect(resolveValue(d.background)).toBe(STONE);
+        expect(resolveValue(decls(`${track}::after`).background)).toBe(PAPER);
+    });
+
+    it('turns Settled green when on', () => {
+        expect(resolveValue(decls(`${track}:checked`).background)).toBe(SETTLED);
+    });
+
+    it('keeps the track and knob at 3:1 against what they sit on', () => {
+        const outline = resolveValue(decls(track).border.split(/\s+/).pop());
+        expect(contrastRatio(parseColor(outline), parseColor(PAPER)), 'off outline on Paper').toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(parseColor(SETTLED), parseColor(PAPER)), 'on track on Paper').toBeGreaterThanOrEqual(3);
+        expect(contrastRatio(parseColor(PAPER), parseColor(SETTLED)), 'knob on on-track').toBeGreaterThanOrEqual(3);
+    });
+
+    it('shows a keyboard focus ring', () => {
+        const d = decls(`${track}:focus-visible`);
+        expect(d.outline).toMatch(/2px solid var\(--color-ink\)/);
+    });
+});
+
+describe('display dialog titles (#575 F07)', () => {
+    it('restates the display weight over .dialog-title so Fraunces is not faux-bolded', () => {
+        const d = decls('.dialog-title.type-display');
+        expect(d['font-weight']).toMatch(/--font-weight-display/);
+        expect(resolveToken(tokens, '--font-weight-display')).toBe('300');
+    });
+});
+
+describe('payment dialogs (#538, #575 F04 / F11)', () => {
+    it('fills .btn-ink, the dialogs’ save button, with Ink and Paper text', () => {
+        const d = decls('.btn-ink');
+        expect(background(d)).toBe(INK);
+        expect(resolveValue(d.color)).toBe(PAPER);
+        const hover = decls('.btn-ink:hover:not(:disabled)');
+        expect(contrastRatio(parseColor(PAPER), parseColor(background(hover)))).toBeGreaterThanOrEqual(AA_TEXT);
+    });
+
+    it('gives .btn-ink a keyboard focus cue that survives its Ink border (#585 review)', () => {
+        // The shared .btn:focus-visible only turns the border Ink and adds the 28%
+        // Ember halo; on an Ink button the border is already Ink and the halo is
+        // under 3:1, so .btn-ink needs its own outline.
+        const d = decls('.btn-ink:focus-visible');
+        expect(d.outline).toMatch(/2px solid var\(--color-ink\)/);
+        expect(d['outline-offset']).toBe('2px');
+        for (const bg of ['--color-surface', '--color-canvas', '--color-surface-dim']) {
+            expect(contrastRatio(parseColor(INK), parseColor(resolveToken(tokens, bg))), bg).toBeGreaterThanOrEqual(3);
+        }
+    });
+
+    it('draws the distribute option and payment-history rows as Paper-tint insets, not Linen', () => {
+        const paperTint = resolveToken(tokens, '--color-paper-tint');
+        const graphiteText = resolveToken(tokens, '--color-graphite-text');
+        for (const sel of ['.payment-distribute-option', '.payment-history-item']) {
+            const bg = background(decls(sel));
+            expect(bg, sel).toBe(paperTint);
+            expect(bg, sel).not.toBe(resolveToken(tokens, '--color-linen'));
+            expect(contrastRatio(parseColor(INK), parseColor(bg)), sel).toBeGreaterThanOrEqual(AA_TEXT);
+            expect(contrastRatio(parseColor(graphiteText), parseColor(bg)), sel).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+    });
+});
+
+describe('phone nav row (#575 F21 regression)', () => {
+    it('keeps the brand tile at its fixed size in a crowded flex row', () => {
+        // img, svg { max-width: 100% } otherwise lets the row squeeze it to 0px.
+        expect(decls('.nav-brand-icon').flex).toBe('0 0 auto');
+    });
+
+    it('tightens the nav pills at phone width so the row fits 390px', () => {
+        const block = shell.match(/@media \(max-width: 600px\) \{([\s\S]*?)\n\}/)[1];
+        expect(block).toMatch(/\.nav-links\s*\{\s*gap:\s*0;/);
+        expect(block).toMatch(/\.nav-link\s*\{\s*padding:\s*6px 7px;\s*font-size:\s*13px;/);
+    });
+});
+
+describe('Ember button budget (#575 F11)', () => {
+    // The frames keep the Ember fill for a handful of actions; every other
+    // save, add, create and confirm is the Ink button. A new .btn-primary
+    // elsewhere is drift and fails here.
+    const ALLOWED = {
+        'views/LoginView.jsx': 2,            // Sign in, Create account
+        'components/SettlementBoard.jsx': 2, // Record Payment, Issue Refund
+        'views/Manage/RefundNoticesTab.jsx': 1 // Re-send Refund
+    };
+
+    function jsxFiles(dir, out = []) {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) jsxFiles(full, out);
+            else if (entry.name.endsWith('.jsx')) out.push(full);
+        }
+        return out;
+    }
+
+    it('uses .btn-primary only on the actions the frames draw in Ember', () => {
+        const appDir = path.join(ROOT, 'src', 'app');
+        const found = {};
+        for (const file of jsxFiles(appDir)) {
+            const n = (readFileSync(file, 'utf8').match(/\bbtn-primary\b/g) || []).length;
+            if (n) found[path.relative(appDir, file).split(path.sep).join('/')] = n;
+        }
+        expect(found).toEqual(ALLOWED);
+    });
+});
+
+describe('nav bar user menu (#585 review)', () => {
+    it('lets a long display name ellipsize instead of pushing the trigger out of the row', () => {
+        // With the full wordmark and three links, a 140 px name overflowed the
+        // non-wrapping nav row between 641 px and ~720 px. Every box between the
+        // row and the name has to be allowed to shrink for the ellipsis to engage.
+        expect(decls('.nav-user-menu')['min-width']).toBe('0');
+        expect(decls('.nav-user-trigger')['max-width']).toBe('100%');
+        const name = decls('.nav-user-name');
+        expect(name['min-width']).toBe('0');
+        expect(name.overflow).toBe('hidden');
+        expect(name['text-overflow']).toBe('ellipsis');
     });
 });

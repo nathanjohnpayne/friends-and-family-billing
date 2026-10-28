@@ -172,7 +172,7 @@ export default function BillsTab() {
                 <h3>Bills ({bills.length})</h3>
                 {!readOnly && (
                     <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-ink"
                         onClick={() => setComposerOpen(!composerOpen)}
                     >
                         {composerOpen ? '− Cancel' : '+ Add Bill'}
@@ -219,7 +219,7 @@ export default function BillsTab() {
                         />
                     </div>
                     {composerError && <p className="composer-error">{composerError}</p>}
-                    <button type="submit" className="btn btn-sm btn-primary">Add Bill</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Add Bill</button>
                 </form>
             )}
 
@@ -318,7 +318,7 @@ export default function BillsTab() {
                         {websiteError && <p className="composer-error">{websiteError}</p>}
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={saveWebsite}>Save Website</button>
+                            <button className="btn btn-sm btn-ink" onClick={saveWebsite}>Save Website</button>
                         </div>
                     </div>
                 </div>

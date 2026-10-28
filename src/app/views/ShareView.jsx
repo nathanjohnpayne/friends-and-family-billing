@@ -83,7 +83,7 @@ function ShareLeadCallout({ ps, year }) {
             <div className="share-lead share-lead--settled">
                 <span className="share-lead-icon"><LeadCheckIcon /></span>
                 <div className="share-lead-text">
-                    <div className="share-lead-title">You&apos;re all settled for {year}</div>
+                    <div className="share-lead-title type-display">You&apos;re all settled for {year}</div>
                     <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} paid in full — nothing due</div>
                 </div>
             </div>
@@ -94,7 +94,7 @@ function ShareLeadCallout({ ps, year }) {
             <div className="share-lead share-lead--owed">
                 <span className="share-lead-icon"><LeadAlertIcon /></span>
                 <div className="share-lead-text">
-                    <div className="share-lead-title">{formatCurrency(ps.balanceRemaining)} due for {year}</div>
+                    <div className="share-lead-title type-display">{formatCurrency(ps.balanceRemaining)} due for {year}</div>
                     <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} of {formatCurrency(ps.combinedAnnualTotal)} paid</div>
                 </div>
             </div>
@@ -281,7 +281,7 @@ export default function ShareView() {
                     {timedOut && (
                         <div className="share-timeout-hint">
                             <p>This is taking longer than expected.</p>
-                            <button className="btn btn-sm btn-primary" onClick={() => window.location.reload()}>Retry</button>
+                            <button className="btn btn-sm btn-ink" onClick={() => window.location.reload()}>Retry</button>
                         </div>
                     )}
                 </div>
@@ -319,7 +319,7 @@ export default function ShareView() {
                     <h2>Unable to Load Summary</h2>
                     <p>{error}</p>
                     {canRequestLink && !linkRequested && (
-                        <button className="btn btn-sm btn-primary" onClick={handleRequestLink}>
+                        <button className="btn btn-sm btn-ink" onClick={handleRequestLink}>
                             Request New Link
                         </button>
                     )}
@@ -366,7 +366,7 @@ function ShareHeader({ data }) {
     const lastName = deriveLastName(data.memberName);
     return (
         <header className="share-header">
-            <h1>{lastName} Household&apos;s Annual Billing Summary</h1>
+            <h1 className="type-display">{lastName} Household&apos;s Annual Billing Summary</h1>
             <p className="share-subtitle">Your shared billing summary for {data.year}.</p>
         </header>
     );
@@ -383,7 +383,7 @@ function MemberRow({ member, canDispute, onRequestReview, defaultExpanded, isSet
     if (defaultExpanded) {
         return (
             <div className="share-member-row">
-                <h3 className="share-member-name">{member.name}</h3>
+                <h3 className="share-member-name type-display">{member.name}</h3>
                 <BillsView bills={member.bills} canDispute={canDispute} onRequestReview={onRequestReview} />
             </div>
         );
@@ -547,14 +547,14 @@ function PaymentSummarySection({ ps }) {
             <div className="share-stat-grid">
                 {isSettled ? (
                     <>
-                        <div className="share-stat-card"><div className="share-stat-label">Your share</div><div className="share-stat-value">{formatCurrency(ps.combinedMonthlyTotal)}<span className="share-stat-unit">/mo</span></div></div>
-                        <div className="share-stat-card"><div className="share-stat-label">Annual total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Your share</div><div className="share-stat-value type-display">{formatCurrency(ps.combinedMonthlyTotal)}<span className="share-stat-unit">/mo</span></div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Annual total</div><div className="share-stat-value type-display">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
                     </>
                 ) : (
                     <>
-                        <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
-                        <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value paid">{formatCurrency(ps.totalPaid)}</div></div>
-                        <div className="share-stat-card"><div className="share-stat-label">{isOwed ? 'Balance Due' : 'Balance Remaining'}</div><div className={'share-stat-value ' + (isOwed ? 'owed' : 'settled-zero')}>{formatCurrency(ps.balanceRemaining)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Annual Total</div><div className="share-stat-value type-display">{formatCurrency(ps.combinedAnnualTotal)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">Paid to Date</div><div className="share-stat-value type-display paid">{formatCurrency(ps.totalPaid)}</div></div>
+                        <div className="share-stat-card"><div className="share-stat-label">{isOwed ? 'Balance Due' : 'Balance Remaining'}</div><div className={'share-stat-value type-display ' + (isOwed ? 'owed' : 'settled-zero')}>{formatCurrency(ps.balanceRemaining)}</div></div>
                     </>
                 )}
             </div>
@@ -684,7 +684,7 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
 
     return (
         <div className="share-section">
-            <h2>Payment Methods</h2>
+            <h2 className="type-display">Payment Methods</h2>
             <p className="share-trust-note share-trust-note--secure">
                 <svg className="share-trust-lock" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -748,7 +748,7 @@ function PaymentHistorySection({ history }) {
 
     return (
         <div className="share-section">
-            <h2>Payment History</h2>
+            <h2 className="type-display">Payment History</h2>
             {!open ? (
                 <button type="button" className="share-pm-expand" onClick={() => setOpen(true)}>
                     Show payment history ({payments.length})
@@ -782,7 +782,7 @@ function PaymentHistorySection({ history }) {
 function RefundNoticesSection({ notices, shareCtx }) {
     return (
         <div className="share-section">
-            <h2>Your Refunds</h2>
+            <h2 className="type-display">Your Refunds</h2>
             <p className="share-trust-note">
                 A refund was sent to your household. Please confirm when it arrives, or let us know if it has not.
             </p>
@@ -824,8 +824,15 @@ function RefundNoticeCard({ notice, shareCtx }) {
         setSubmitting(false);
     }
 
+    // The card's left rule follows the notice's state, as on the manager's
+    // Refund Notices tab: Settled green only once the member confirmed,
+    // Outstanding red once reported not received, neutral while pending.
+    const stateKey = confirmation === 'confirmed_by_member' ? 'confirmed'
+        : confirmation === 'not_received' ? 'not-received'
+            : 'sent';
+
     return (
-        <div className="share-refund-item">
+        <div className={'share-refund-item share-refund-item--' + stateKey}>
             <div className="share-refund-header">
                 <strong>{formatCurrency(notice.amount)}</strong>
                 {notice.method && <span className="share-refund-method">via {notice.method}</span>}
@@ -835,7 +842,7 @@ function RefundNoticeCard({ notice, shareCtx }) {
 
             {!confirmation && (
                 <div className="share-refund-actions">
-                    <button type="button" className="btn btn-sm btn-primary" disabled={submitting} onClick={() => submit('confirm')}>
+                    <button type="button" className="btn btn-sm btn-ink" disabled={submitting} onClick={() => submit('confirm')}>
                         Confirm Receipt
                     </button>
                     <button type="button" className="btn btn-sm btn-secondary" disabled={submitting} onClick={() => submit('not_received')}>
@@ -901,7 +908,7 @@ function PendingChargesSection({ pendingCharges }) {
 function DisputesSection({ disputes, shareCtx }) {
     return (
         <div className="share-section">
-            <h2>Your Review Requests</h2>
+            <h2 className="type-display">Your Review Requests</h2>
             <div className="share-disputes-list">
                 {disputes.map(d => (
                     <ShareDisputeCard key={d.id} dispute={d} shareCtx={shareCtx} />
@@ -964,7 +971,7 @@ function ShareDisputeCard({ dispute, shareCtx }) {
 
             {d.userReview && d.userReview.state === 'requested' && !decision && (
                 <div className="share-dispute-actions">
-                    <button className="btn btn-sm btn-primary" onClick={() => submitDecision('approve')}>Approve</button>
+                    <button className="btn btn-sm btn-ink" onClick={() => submitDecision('approve')}>Approve</button>
                     <button className="btn btn-sm btn-secondary" onClick={() => {
                         const note = prompt('Please explain why you are rejecting:');
                         if (note !== null && note.trim()) submitDecision('reject', note.trim());
@@ -1064,7 +1071,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
                         <div className="dialog-title">Question Submitted</div>
                         <p>The account owner will be notified of your request.</p>
                         <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-primary" onClick={onClose}>Close</button>
+                            <button className="btn btn-sm btn-ink" onClick={onClose}>Close</button>
                         </div>
                     </>
                 ) : (
@@ -1096,7 +1103,7 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
                         </div>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={handleSubmit} disabled={submitting}>
+                            <button className="btn btn-sm btn-ink" onClick={handleSubmit} disabled={submitting}>
                                 {submitting ? 'Submitting...' : 'Submit'}
                             </button>
                         </div>

@@ -132,7 +132,7 @@ export default function MembersTab() {
                 <h3>Members ({familyMembers.length})</h3>
                 {!readOnly && (
                     <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-ink"
                         onClick={() => setComposerOpen(!composerOpen)}
                     >
                         {composerOpen ? '− Cancel' : '+ Add Member'}
@@ -165,7 +165,7 @@ export default function MembersTab() {
                         />
                     </div>
                     {composerError && <p className="composer-error">{composerError}</p>}
-                    <button type="submit" className="btn btn-sm btn-primary">Add Member</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Add Member</button>
                 </form>
             )}
 
@@ -236,7 +236,7 @@ export default function MembersTab() {
                         </div>
                         <div className="dialog-buttons">
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>Cancel</button>
-                            <button className="btn btn-sm btn-primary" onClick={saveLinkSelections}>Save Household</button>
+                            <button className="btn btn-sm btn-ink" onClick={saveLinkSelections}>Save Household</button>
                         </div>
                     </div>
                 </div>
