@@ -1615,7 +1615,7 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .checkbox-item input[type="checkbox"] {
-    accent-color: var(--color-primary);
+    accent-color: var(--color-ink);
 }
 
 .bill-actions-row {
