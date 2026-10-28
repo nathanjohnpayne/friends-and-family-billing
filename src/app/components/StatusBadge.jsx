@@ -13,7 +13,10 @@
  * `credit` (formerly "Overpaid"). Only the display variant is renamed — the
  * billing math in src/lib/calculations.js and the persisted Firestore fields
  * are untouched. The `review` variant marks a household with an open Review
- * Request; RD-03 wires it onto the board in a later issue.
+ * Request; the Settlement Board shows it beside the settlement badge (RD-03).
+ *
+ * `StatusGlyph` is the glyph alone, exported so the board's filter chips carry
+ * the same status icon as the badge without duplicating the path data.
  */
 
 const GLYPHS = {
@@ -76,24 +79,37 @@ export function getPaymentStatus(total, paid) {
     return 'partial';
 }
 
+/**
+ * The decorative status glyph on its own: aria-hidden, drawn in currentColor so
+ * it takes the colour of whatever carries it (a badge, a filter chip).
+ * @param {{ status: string, className?: string }} props
+ */
+export function StatusGlyph({ status, className }) {
+    const glyph = GLYPHS[status];
+    if (!glyph) return null;
+    return (
+        <svg
+            className={className}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+        >
+            {glyph}
+        </svg>
+    );
+}
+
 export default function StatusBadge({ status }) {
     const config = STATUS_CONFIG[status];
     if (!config) return null;
     return (
         <span className={'status-badge ' + config.className} data-status={status}>
-            <svg
-                className="status-badge-glyph"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                focusable="false"
-            >
-                {GLYPHS[status]}
-            </svg>
+            <StatusGlyph status={status} className="status-badge-glyph" />
             {config.label}
         </span>
     );

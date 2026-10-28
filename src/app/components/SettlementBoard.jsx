@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance, CREDIT_EPSILON } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
-import StatusBadge, { getPaymentStatus } from './StatusBadge.jsx';
+import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
 
@@ -35,10 +35,20 @@ const PAYMENT_METHODS = [
     { value: 'other', label: 'Other' }
 ];
 
+/** A Review Request still awaiting the administrator (open or in review). */
+function isOpenReviewRequest(d) {
+    return !!d && (d.status === 'open' || d.status === 'in_review');
+}
+
 /**
- * @param {{ familyMembers: Array, bills: Array, payments: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
+ * `disputes` is the dashboard's useDisputes() result: Review Requests only
+ * (Refund Notices and Charge Notices are excluded by the hook). A household with
+ * an open or in-review request on any of its members is marked on its card and
+ * counted under the cross-cutting "Open review" filter (RD-03).
+ *
+ * @param {{ familyMembers: Array, bills: Array, payments: Array, disputes?: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -47,6 +57,10 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
     // Only show parent/independent members as top-level rows (mirrors main.js:1932)
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
+
+    // Members with an open or in-review Review Request; a household is marked
+    // when its primary or any linked member has one.
+    const reviewMemberIds = new Set((disputes || []).filter(isOpenReviewRequest).map(d => String(d.memberId)));
 
     const rows = mainMembers.map(member => {
         const data = summary[member.id];
@@ -102,7 +116,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
         const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
 
-        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges };
+        const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
+
+        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
@@ -112,26 +128,33 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
     // Filter counts
     // The four status chips partition All: a household holding a Credit is counted
     // and filterable like any other status (plans/ffb-wireframes.html, dashboard).
-    const counts = { all: rows.length, outstanding: 0, partial: 0, settled: 0, credit: 0 };
+    // "Open review" is cross-cutting: it overlaps the status chips and is not part
+    // of that partition (RD-03).
+    const counts = { all: rows.length, outstanding: 0, partial: 0, settled: 0, credit: 0, review: 0 };
     rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
+    counts.review = rows.filter(r => r.openReview).length;
 
     // Count households with linked members
     const linkedGroupCount = rows.filter(r => r.linkedData.length > 0).length;
 
-    const filtered = filter === 'all' ? rows : rows.filter(r => r.status === filter);
+    const filtered = filter === 'all' ? rows
+        : filter === 'review' ? rows.filter(r => r.openReview)
+        : rows.filter(r => r.status === filter);
 
+    // `glyph` names the StatusBadge glyph the chip carries before its label.
     const filters = [
         { key: 'all', label: 'All' },
-        { key: 'outstanding', label: 'Outstanding' },
-        { key: 'partial', label: 'Partial' },
-        { key: 'settled', label: 'Settled' },
-        { key: 'credit', label: 'Credit' }
+        { key: 'outstanding', label: 'Outstanding', glyph: 'outstanding' },
+        { key: 'partial', label: 'Partial', glyph: 'partial' },
+        { key: 'settled', label: 'Settled', glyph: 'settled' },
+        { key: 'credit', label: 'Credit', glyph: 'credit' },
+        { key: 'review', label: 'Open review', glyph: 'review' }
     ];
 
     return (
         <div className="settlement-board">
             <div className="settlement-header">
-                <h3>Settlement Board</h3>
+                <h3 className="type-display">Settlement Board</h3>
                 <div className="settlement-filters">
                     {filters.map(f => (
                         <button
@@ -139,6 +162,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             className={'settlement-filter-chip' + (filter === f.key ? ' active' : '')}
                             onClick={() => setFilter(f.key)}
                         >
+                            {f.glyph && <StatusGlyph status={f.glyph} />}
                             {f.label} <span className="settlement-filter-count">{counts[f.key] ?? 0}</span>
                         </button>
                     ))}
@@ -242,7 +266,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges } = row;
+    const { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview } = row;
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
     // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
@@ -384,6 +408,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                         )}
                     </div>
                     <StatusBadge status={status} />
+                    {openReview && <StatusBadge status="review" />}
                     <span className="settlement-expand-toggle">
                         {expanded ? 'Hide details \u25B2' : 'Details \u25BC'}
                     </span>
