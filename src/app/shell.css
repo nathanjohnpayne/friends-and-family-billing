@@ -102,6 +102,9 @@ img, svg { display: block; max-width: 100%; }
 }
 
 .nav-brand-icon {
+    /* Fixed 28px: without flex: 0 0 auto the img,svg { max-width: 100% }
+       reset lets a crowded flex row squeeze the tile to nothing. */
+    flex: 0 0 auto;
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -274,29 +277,25 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-4, 24px);
 }
 
+/* Billing-year heading (wireframe hero: .eyebrow over h1.ttl.lg, F07 #530):
+   a small uppercase Graphite eyebrow over the year in the display face,
+   34px on desktop and tablet, 28px at phone width. */
 .dashboard-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2, 8px);
     margin-bottom: var(--space-3, 16px);
 }
 
-.dashboard-year-pill {
-    font-size: 0.75rem;
+.dashboard-eyebrow {
+    font-size: 0.7rem;
     font-weight: 600;
-    padding: 2px 10px;
-    border-radius: 99px;
-    background: var(--color-primary-light);
-    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
 }
 
-/* Billing-year heading: display face (F07, #530). One light weight, so the
-   pill steps up a size to keep Fraunces' small x-height legible. */
-.dashboard-year-pill {
-    font-family: var(--font-family-display, Georgia, serif);
-    font-weight: var(--font-weight-display, 300);
-    letter-spacing: var(--tracking-display, -0.02em);
-    font-size: 0.875rem;
+.dashboard-year {
+    margin: 0;
+    font-size: 34px;
 }
 
 /* Lifecycle bar */
@@ -1175,6 +1174,24 @@ img, svg { display: block; max-width: 100%; }
     box-shadow: 0 0 0 2px var(--toast-text);
 }
 
+/* ── Page Header ─────────────────────────────────────────── */
+/* Top-level page title (wireframe .pagehead / .ttl): Fraunces 300, -0.02em,
+   28px on desktop, 24px at phone width, with a Graphite hint under it. */
+.page-head {
+    margin-bottom: var(--space-3, 16px);
+}
+
+.page-title {
+    margin: 0;
+    font-size: 1.75rem;
+}
+
+.page-hint {
+    margin: 4px 0 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
 /* ── Tab Header ──────────────────────────────────────────── */
 .tab-header {
     display: flex;
@@ -1264,6 +1281,18 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface-alt);
     color: var(--color-text-secondary);
     cursor: not-allowed;
+}
+
+/* Sign-in wordmark (frame .brand on the auth screen): the 28px Ember tile
+   beside the Fraunces name, centred. 30px desktop/tablet, 26px at phone so
+   tile + name stay on one line. */
+.login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 30px;
+    margin: 0 0 0.5rem;
 }
 
 /* Sign-in fields: full-width, 1rem text (avoids iOS focus zoom); the
@@ -2453,6 +2482,11 @@ img, svg { display: block; max-width: 100%; }
     gap: var(--space-3, 12px);
 }
 
+/* Section heading in the display face (F07), a step under the page title. */
+.payment-methods-title {
+    font-size: 1.25rem;
+}
+
 .invoicing-hint {
     font-size: 0.85rem;
     color: var(--color-text-secondary);
@@ -2545,11 +2579,20 @@ img, svg { display: block; max-width: 100%; }
 
 .template-header-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
     /* Clear sticky nav-bar (56px) + manage-tabs bar (~54px) on scroll-into-view */
     scroll-margin-top: 112px;
+}
+
+/* Tab title in the bar, as the Invoicing frame's .pagehead.mid puts the
+   .ttl beside the Edit/Preview control: same face and size as the other
+   Manage tab headings (.tab-header h3). */
+.invoicing-title {
+    margin: 0 4px 0 0;
+    font-size: 1.75rem;
 }
 
 .template-header-actions {
@@ -4261,6 +4304,23 @@ img, svg { display: block; max-width: 100%; }
         display: inline;
     }
 
+    /* The links still share the top bar at phone width (until #526 moves
+       them to a bottom tab bar), so they tighten to keep the row inside
+       390px: the wireframe's phone .nav a size (13px) with 7px side
+       padding and no gap between pills. */
+    .nav-links {
+        gap: 0;
+    }
+
+    .nav-link {
+        padding: 6px 7px;
+        font-size: 13px;
+    }
+
+    .login-brand {
+        font-size: 26px;
+    }
+
     .manage-tabs {
         width: auto;
         max-width: none;
@@ -4295,7 +4355,11 @@ img, svg { display: block; max-width: 100%; }
 
     .nav-user-name { display: none; }
 
-    .tab-header h3 { font-size: var(--text-heading-lg, 1.5rem); }
+    .tab-header h3,
+    .invoicing-title,
+    .page-title { font-size: var(--text-heading-lg, 1.5rem); }
+
+    .dashboard-year { font-size: 28px; }
 
     /* Two columns, as in the phone frames: display-face figures at 22px do not
        fit four across. */

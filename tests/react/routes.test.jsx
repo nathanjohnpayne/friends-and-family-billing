@@ -147,7 +147,7 @@ describe('Routes — authenticated user', () => {
 
     it('renders settings view', async () => {
         await renderAuthenticatedRoute(['/settings']);
-        expect(await screen.findByText('Settings')).toBeInTheDocument();
+        expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     });
 });
 

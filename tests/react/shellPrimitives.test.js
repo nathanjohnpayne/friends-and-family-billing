@@ -329,3 +329,16 @@ describe('payment dialogs (#538, #575 F04 / F11)', () => {
         }
     });
 });
+
+describe('phone nav row (#575 F21 regression)', () => {
+    it('keeps the brand tile at its fixed size in a crowded flex row', () => {
+        // img, svg { max-width: 100% } otherwise lets the row squeeze it to 0px.
+        expect(decls('.nav-brand-icon').flex).toBe('0 0 auto');
+    });
+
+    it('tightens the nav pills at phone width so the row fits 390px', () => {
+        const block = shell.match(/@media \(max-width: 600px\) \{([\s\S]*?)\n\}/)[1];
+        expect(block).toMatch(/\.nav-links\s*\{\s*gap:\s*0;/);
+        expect(block).toMatch(/\.nav-link\s*\{\s*padding:\s*6px 7px;\s*font-size:\s*13px;/);
+    });
+});

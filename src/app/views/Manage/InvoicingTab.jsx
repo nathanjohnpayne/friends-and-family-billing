@@ -205,6 +205,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
         <div className="invoicing-section">
             {/* ── Header bar ── */}
             <div className="template-header-bar">
+                <h3 className="type-display invoicing-title">Invoicing</h3>
                 <div className="template-segmented-control">
                     <button
                         className={'template-segment' + (activeTab === 'edit' ? ' template-segment--active' : '')}

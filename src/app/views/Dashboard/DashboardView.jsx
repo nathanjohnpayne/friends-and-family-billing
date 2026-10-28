@@ -157,7 +157,8 @@ export default function DashboardView() {
         <>
             <div className="dashboard-hero">
                 <div className="dashboard-meta">
-                    <span className="dashboard-year-pill">Billing Year {yearLabel}</span>
+                    <div className="dashboard-eyebrow" id="dashboard-year-eyebrow">Billing year</div>
+                    <h1 className="type-display dashboard-year" aria-describedby="dashboard-year-eyebrow">{yearLabel}</h1>
                 </div>
 
                 <LifecycleBar currentStatus={currentStatus} currentOrder={currentOrder} isReadyToClose={isReadyToClose} />

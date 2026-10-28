@@ -75,9 +75,10 @@ function renderDashboard(overrides = {}) {
 }
 
 describe('DashboardView', () => {
-    it('renders year pill without status badge', () => {
+    it('titles the hero with the year under a Billing year eyebrow, without a status badge', () => {
         renderDashboard();
-        expect(screen.getByText('Billing Year 2026')).toBeInTheDocument();
+        const year = screen.getByRole('heading', { level: 1, name: '2026' });
+        expect(year).toHaveAccessibleDescription('Billing year');
         // "Open" appears once in the lifecycle bar only (badge removed)
         const openElements = screen.getAllByText('Open');
         expect(openElements.length).toBe(1);

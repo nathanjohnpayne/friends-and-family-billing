@@ -11,6 +11,7 @@ import {
 import { auth, analytics } from '@/lib/firebase.js';
 import { logEvent } from 'firebase/analytics';
 import { reportVerificationSend } from '../components/EmailVerificationNotice.jsx';
+import BrandMark from '../components/BrandMark.jsx';
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -145,8 +146,10 @@ export default function LoginView() {
     }
 
     return (
-        <div style={{ maxWidth: 400, margin: '4rem auto', padding: '0 1rem', fontFamily: 'system-ui, sans-serif' }}>
-            <h1 className="type-display" style={{ textAlign: 'center' }}>Friends &amp; Family Billing</h1>
+        <div style={{ maxWidth: 400, margin: '4rem auto', padding: '0 1rem' }}>
+            {/* Wordmark: the Ember brand tile beside the Fraunces name, as the
+                nav brand and the frame's .brand pair them. */}
+            <h1 className="type-display login-brand"><BrandMark />Friends &amp; Family Billing</h1>
             <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', marginBottom: '2rem' }}>
                 {form === 'login' ? 'Sign in to continue' : 'Create your account'}
             </p>

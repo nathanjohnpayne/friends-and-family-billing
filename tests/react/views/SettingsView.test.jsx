@@ -133,3 +133,12 @@ describe('SettingsView payment-method switch (#575 F14)', () => {
         expect(screen.getByRole('button', { name: 'Add Payment Method' })).toBeInTheDocument();
     });
 });
+
+describe('SettingsView headings', () => {
+    it('titles the page Settings with a Payment Methods section heading under it', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+        expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
+        expect(screen.getByText('Billing years and the payment methods shown on invoices and share pages.')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 3, name: 'Payment Methods' })).toBeInTheDocument();
+    });
+});

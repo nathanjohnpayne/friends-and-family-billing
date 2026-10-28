@@ -42,7 +42,7 @@ export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) 
 
     return (
         <div className="invoicing-section">
-            <h3>Payment Methods</h3>
+            <h3 className="type-display payment-methods-title">Payment Methods</h3>
             <p className="invoicing-hint">
                 Configure payment methods shown in invoices and on the share page.
                 Toggling a method Off hides it from invoices and share pages without removing it.

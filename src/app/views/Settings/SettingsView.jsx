@@ -18,6 +18,11 @@ export default function SettingsView() {
 
     return (
         <div>
+            <div className="page-head">
+                <h1 className="type-display page-title">Settings</h1>
+                <p className="page-hint">Billing years and the payment methods shown on invoices and share pages.</p>
+            </div>
+
             <BillingYearSelector />
 
             {!loading && (<div className="settings-section-divider" />)}
