@@ -272,6 +272,15 @@ img, svg { display: block; max-width: 100%; }
     color: var(--color-primary);
 }
 
+/* Billing-year heading: display face (F07, #530). One light weight, so the
+   pill steps up a size to keep Fraunces' small x-height legible. */
+.dashboard-year-pill {
+    font-family: var(--font-family-display, Georgia, serif);
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    font-size: 0.875rem;
+}
+
 /* Lifecycle bar */
 .lifecycle-bar {
     display: flex;
@@ -323,20 +332,23 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 16px);
 }
 
+/* Paper fill with a Stone hairline, like the frames' .kpi (F04, #530). */
 .kpi-card {
-    background: var(--color-surface-alt);
-    border-radius: 8px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card, 12px);
     padding: var(--space-2, 8px) var(--space-3, 16px);
     text-align: center;
+    min-width: 0;
 }
 
 .kpi-card--clickable {
     cursor: pointer;
-    transition: background 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .kpi-card--clickable:hover {
-    background: var(--color-surface);
+    border-color: var(--color-border-strong);
     box-shadow: var(--shadow-card);
 }
 
@@ -349,10 +361,15 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: 2px;
 }
 
+/* Figures use the display face (F07, #530): 26px, 22px at phone. */
 .kpi-value {
     display: block;
-    font-size: 1.1rem;
-    font-weight: 700;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 26px;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
+    font-variant-numeric: tabular-nums;
     color: var(--color-text);
 }
 
@@ -4108,14 +4125,10 @@ img, svg { display: block; max-width: 100%; }
 @media (max-width: 640px) {
     .nav-user-name { display: none; }
 
+    /* Two columns, as in the phone frames: display-face figures at 22px do not
+       fit four across. */
     .kpi-grid {
-        display: flex;
-        flex-wrap: wrap;
-    }
-
-    .kpi-grid > * {
-        flex: 1 1 0;
-        min-width: 0;
+        grid-template-columns: 1fr 1fr;
     }
 
     .kpi-card {
@@ -4130,7 +4143,7 @@ img, svg { display: block; max-width: 100%; }
     }
 
     .kpi-value {
-        font-size: 0.95rem;
+        font-size: 22px;
     }
 
     .kpi-subtitle {

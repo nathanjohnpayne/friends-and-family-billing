@@ -89,6 +89,9 @@ export const PAIRS = [
     { fg: '--color-progress-fill', bg: '--color-progress-track', use: 'Progress fill on its track (dashboard, #570)', min: AA_NON_TEXT },
     { fg: '--color-progress-fill', bg: '--color-surface', use: 'Progress fill against the Paper card it sits in', min: AA_NON_TEXT },
     { fg: '--color-progress-fill-done', bg: '--color-progress-track', use: 'Finished progress fill on its track (share page, 100%)', min: AA_NON_TEXT },
+    // KPI tile hairline on Paper (#530): decorative, the figure inside carries the information
+    { fg: '--color-border', bg: '--color-surface', use: 'Stone hairline on Paper (KPI tile border; decorative)', min: null },
+    { fg: '--color-border-strong', bg: '--color-surface', use: 'Stone-strong hairline on Paper (KPI tile hover border; decorative)', min: null },
     // Fills, for information only: the legend keeps Ember off small text for this reason
     { fg: '--color-accent', bg: '--color-surface', use: 'Ember fill on Paper (brand mark; never text)', min: null }
 ];
