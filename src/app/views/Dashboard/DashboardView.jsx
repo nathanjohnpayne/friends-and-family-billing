@@ -165,7 +165,7 @@ export default function DashboardView() {
                 {lifecycleAction && (
                     <div className="dashboard-action">
                         <button
-                            className="btn btn-primary btn-sm"
+                            className="btn btn-ink btn-sm"
                             disabled={!lifecycleAction.enabled}
                             onClick={lifecycleAction.enabled ? () => setConfirmAction(lifecycleAction) : undefined}
                         >
