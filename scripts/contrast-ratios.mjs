@@ -92,6 +92,11 @@ export const PAIRS = [
     ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
         { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
     )),
+    // Paper-tint rows inside the payment dialogs (#538, #575 F04): the distribute
+    // option and the payment-history rows. Their text pairs are the rows above;
+    // these are the graphical objects drawn on the tint.
+    { fg: '--color-ink', bg: '--color-surface-dim', use: 'Ink checkbox on a Paper-tint panel (distribute option, non-text)', min: AA_NON_TEXT },
+    { fg: '--color-danger', bg: '--color-surface-dim', use: 'Reversal rule on a Paper-tint payment-history row (non-text)', min: AA_NON_TEXT },
     { fg: '--color-status-settled-hover', bg: '--color-surface', use: 'settled hover on Paper', min: AA_TEXT },
     // Non-text glyphs and graphical objects (WCAG 1.4.11, 3:1)
     { fg: '--color-icon', bg: '--color-surface', use: 'Graphite icons on Paper (non-text)', min: AA_NON_TEXT },

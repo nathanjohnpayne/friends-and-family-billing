@@ -645,7 +645,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                             {paymentError && <p className="composer-error">{paymentError}</p>}
                             <div className="dialog-buttons">
                                 <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-primary">Save Payment</button>
+                                <button type="submit" className="btn btn-sm btn-ink">Save Payment</button>
                             </div>
                         </form>
                     </div>
