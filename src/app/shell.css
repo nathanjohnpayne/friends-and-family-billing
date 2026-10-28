@@ -1131,10 +1131,15 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-3, 16px);
 }
 
+/* Manage tab headings share the display face (wireframe .ttl): Fraunces 300,
+   -0.02em, 28px on desktop, 24px at phone width. */
 .tab-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: var(--font-family-display, Georgia, serif);
+    font-size: 1.75rem;
+    font-weight: var(--font-weight-display, 300);
+    letter-spacing: var(--tracking-display, -0.02em);
+    line-height: var(--line-height-display, 1.1);
 }
 
 /* ── Composer ────────────────────────────────────────────── */
@@ -4107,6 +4112,8 @@ img, svg { display: block; max-width: 100%; }
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 640px) {
     .nav-user-name { display: none; }
+
+    .tab-header h3 { font-size: var(--text-heading-lg, 1.5rem); }
 
     .kpi-grid {
         display: flex;
