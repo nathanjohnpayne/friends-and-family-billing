@@ -79,6 +79,11 @@ export const PAIRS = [
     { fg: '--color-text', bg: '--color-surface-dim', use: 'Ink text on a Paper-tint panel (household breakdown)', min: AA_TEXT },
     { fg: '--color-text-secondary', bg: '--color-surface-dim', use: 'Graphite text on a Paper-tint panel (figure labels)', min: AA_TEXT },
     { fg: '--color-primary', bg: '--color-surface-dim', use: 'Ember text on a Paper-tint panel (Details toggle on hover)', min: AA_TEXT },
+    // Invoicing editor toolbar is a Paper-tint bar (#533, F04): the active and
+    // hovered toolbar buttons and the token chips sit on it
+    { fg: '--color-primary', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ember text on an Ember wash over the Paper-tint editor toolbar (token chips)', min: AA_TEXT },
+    { fg: '--color-primary', bg: '--color-ember-wash-strong', over: '--color-surface-dim', use: 'Ember text on a strong Ember wash over the Paper-tint editor toolbar (active button, hovered chips)', min: AA_TEXT },
+    { fg: '--color-text', bg: '--color-ember-wash', over: '--color-surface-dim', use: 'Ink text on an Ember wash over the Paper-tint editor toolbar (hovered button)', min: AA_TEXT },
     ...['settled', 'partial', 'outstanding', 'credit'].map((s) => (
         { fg: `--color-status-${s}-fg`, bg: '--color-surface-dim', use: `${s} figure on a Paper-tint panel`, min: AA_TEXT }
     )),
