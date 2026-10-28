@@ -172,7 +172,7 @@ export default function BillsTab() {
                 <h3>Bills ({bills.length})</h3>
                 {!readOnly && (
                     <button
-                        className="btn btn-sm btn-primary"
+                        className="btn btn-sm btn-ink"
                         onClick={() => setComposerOpen(!composerOpen)}
                     >
                         {composerOpen ? '− Cancel' : '+ Add Bill'}
@@ -219,7 +219,7 @@ export default function BillsTab() {
                         />
                     </div>
                     {composerError && <p className="composer-error">{composerError}</p>}
-                    <button type="submit" className="btn btn-sm btn-primary">Add Bill</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Add Bill</button>
                 </form>
             )}
 
