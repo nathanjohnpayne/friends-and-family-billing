@@ -7,11 +7,15 @@ Agent instructions are organized into focused sub-files under `docs/agents/`. Re
 ## Sections
 
 1. **[Repository Overview](docs/agents/repository-overview.md)** --- Project description, tech stack, agent role
-2. **[Agent Operating Rules](docs/agents/operating-rules.md)** --- Reading order, conflict resolution, PR-body requirements
-3. **[Code Modification Rules](docs/agents/code-modification-rules.md)** --- File creation, duplication, directory constraints
-4. **[Documentation Rules](docs/agents/documentation-rules.md)** --- When and what to update
-5. **[Testing Requirements](docs/agents/testing-requirements.md)** --- Coverage expectations, test deletion policy
-6. **[Deployment Process](docs/agents/deployment-process.md)** --- Build/deploy flow, 1Password-backed auth
+2. **[Shared Agent Operating Rules](docs/agents/shared-operating-rules.md)** --- The fleet-wide operating rules, identical in every repo (synced canonical core). Read before the local operating rules below
+3. **[Agent Operating Rules](docs/agents/operating-rules.md)** --- This repo's local overlay: reading order, conflict resolution, and anything true only here
+4. **[Code Modification Rules](docs/agents/code-modification-rules.md)** --- File creation, duplication, directory constraints
+5. **[Documentation Rules](docs/agents/documentation-rules.md)** --- When and what to update
+6. **[Testing Requirements](docs/agents/testing-requirements.md)** --- Coverage expectations, test deletion policy
+7. **[Deployment Process](docs/agents/deployment-process.md)** --- Build/deploy flow, 1Password-backed auth
+8. **[Code Review Requirements](docs/agents/code-review-requirements.md)** --- Thin pointer: all review behavior is governed by REVIEW_POLICY.md and `.github/review-policy.yml` (synced canonical pointer)
+
+Item 2 is the stable entrypoint for shared rules: it is one canonical file mirrored to every repo, so a new fleet-wide rule lands by editing it at the canonical source, not by editing every repo's index again.
 
 ## Code Review Policy
 
