@@ -36,7 +36,7 @@ describe('plainTextToDoc link parsing', () => {
      * `href` is truthy (src/lib/template-doc.js:57-58), so the next save writes
      * plain `nowhere`.
      *
-     * Justification under docs/agents/operating-rules.md § Serialization layer
+     * Justification under docs/agents/shared-operating-rules.md § Serialization layer
      * review requirement, which requires a lossy round trip to be justified or
      * eliminated:
      *
