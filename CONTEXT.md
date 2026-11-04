@@ -52,7 +52,9 @@ _Avoid_: Reversal, payout, reimbursement
 Applying a household's credit to its next billing year instead of sending it
 back—the household starts next year owing that much less. One of the two ways
 (with Refund) to clear a credit. There is deliberately no path for the
-administrator to simply keep or write off an overpayment.
+administrator to simply keep or write off an overpayment. At rollover the
+Year-End Review carries every undisposed Credit and deferred Usage Charge (True-ups
+included) as itemized Carried items on one `carry_opening` seed per household.
 _Avoid_: Roll-over, waiver, write-off
 
 **Net Contribution**:
@@ -64,19 +66,53 @@ gross "Paid" still exceeds what it owed.
 _Avoid_: Paid (when precision matters), gross paid
 
 **Usage Charge**:
-A per-member ad-hoc debit for something one member incurred mid-year (e.g. a
-roaming overage), recorded against that member for transparency but settled,
-gated, and carried forward at the household grain—the debit mirror of a Credit.
-Recorded without immediately billing it; defaults to deferred.
+A deferred debit for something incurred mid-year that the advance invoice did
+not cover—per-member (e.g. one member's roaming overage, `basis: 'member'`), or
+split across a bill's members as a True-up. Recorded against the member for
+transparency but settled, gated, and carried forward at the household grain—the
+debit mirror of a Credit. Recorded without immediately billing it; defaults to
+deferred, and auto-carries into the next year at rollover (ADR 0006).
 _Avoid_: Fee, surcharge, overage (as the record)
+
+**True-up**:
+The bill-level Usage Charge: a deferred debit for the months a bill's members
+were under-billed because its price went up partway through the year
+(`basis: 'price_change'`) or the subscription started partway through the year
+(`basis: 'late_start'`). Computed at month granularity, split among the bill's
+members with the same remainder rule as a Service Credit, tagged with the
+formula (`calc`) and a `trueUpId`, and created by the Year-End Review. Members
+never see the word: their pages say what happened and when ("Northline Mobile
+went from $180 to $198 a month in July. Your share of six months: $12.00.").
+_Avoid_: Catch-up charge (in code), back-bill, retro charge, price adjustment
 
 **Service Credit**:
 A reduction in what members owe because a service was canceled, reduced,
 discounted, or had an issue—the −owed mirror of a Usage Charge, recorded against
-a bill (split among its members) so the bill's history stays honest. Distinct
-from a Credit: a Service Credit lowers owed and, when the member has already
-paid, *produces* a Credit.
+a bill (split among its members) so the bill's history stays honest. The
+Year-End Review records one for a price decrease (`basis: 'price_change'`) or a
+bill that ended mid-year (`basis: 'ended'`), with the same `calc` as a True-up.
+Distinct from a Credit: a Service Credit lowers owed and, when the member has
+already paid, *produces* a Credit.
 _Avoid_: Credit (the overpayment balance), discount, write-down
+
+**Year-End Review**:
+The guided, four-step page through which the administrator creates the next
+billing year: closing-year bill changes (price changed, ended, next year's
+price), subscriptions that started mid-year, member charges, then a per-household
+preview and Start. It is the only way a new year is created. Nothing is persisted
+until Start, which appends the review's True-ups, Service Credits, and Usage
+Charges to the closing year, carries, and seeds the new year in one atomic
+commit (ADR 0009).
+_Avoid_: Rollover wizard, new-year dialog, reconciliation (in UI copy)
+
+**Carried item**:
+One line of a household's opening balance in a new year—a True-up share, a
+member's Usage Charge, or the household's net Credit—snapshotted on the
+`carry_opening` seed (`items[]`) with its member, bill name, description, and
+signed amount, so a member can read "Carried from 2026" line by line. The
+household's Credit is one negative item; the Service Credits that produced it
+are explanatory detail, never added again.
+_Avoid_: Opening balance line, carry_opening (in UI copy), adjustment
 
 ### Requests
 
