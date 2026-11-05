@@ -2,6 +2,9 @@
 
 import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, getHouseholdOpeningBalance, buildCarryForward, CREDIT_EPSILON } from './calculations.js';
 
+// Carry arithmetic uses integer cents, including symmetric signed rounding.
+const cents = amount => Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100);
+
 /**
  * Calculate total outstanding balance across all main (non-linked) households.
  * Used by closeCurrentYear to show the user how much is still unpaid. Mirrors
@@ -55,11 +58,131 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
  * @param {Array} payments
  * @param {Array} [creditAdjustments]
  * @param {Array} [owedAdjustments]
- * @param {{ reopenedAdjustmentIds?: Set }} [options]
+ * The review-only `carryUnusedOpeningCredit` option also preserves incoming money
+ * hidden by the owed floor (ADR 0009; specs/year-end-review.md § Itemized carry).
+ * It never turns excess Service Credits into money or changes `credit`: only
+ * payment-backed credit receives a disposition in the source year.
+ * @param {{ reopenedAdjustmentIds?: Set, carryUnusedOpeningCredit?: boolean }} [options]
  * @returns {{ households: Array, totalOpeningBalance: number, memberCount: number }}
  */
 export function buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], options = {}) {
-    return buildCarryForward(familyMembers, bills, payments, creditAdjustments, owedAdjustments, options);
+    const carry = buildCarryForward(familyMembers, bills, payments, creditAdjustments, owedAdjustments, options);
+    if (!options.carryUnusedOpeningCredit) return carry;
+
+    const summary = calculateAnnualSummary(familyMembers, bills);
+    const households = new Map(carry.households.map(h => [h.primaryMemberId, h]));
+    familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id)).forEach(member => {
+        const priorOpeningBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+        const { grossOwed, serviceCreditTotal } = getHouseholdFinancials(
+            member, summary, payments, creditAdjustments, null, owedAdjustments, priorOpeningBalance
+        );
+        const incomingCents = cents(priorOpeningBalance);
+        const chargesCents = Math.max(0, cents(grossOwed) - cents(serviceCreditTotal) + Math.max(0, incomingCents));
+        const unusedCents = Math.max(0, -incomingCents - chargesCents);
+        if (unusedCents / 100 <= CREDIT_EPSILON) return;
+
+        const memberIds = [member.id, ...(member.linkedMembers || [])];
+        const household = households.get(member.id) || {
+            primaryMemberId: member.id,
+            credit: 0,
+            deferredChargeTotal: 0,
+            deferredChargeIds: [],
+            creditAdjustmentIds: (creditAdjustments || [])
+                .filter(a => a && a.status !== 'cancelled' && !options.reopenedAdjustmentIds?.has(a.id) && memberIds.includes(a.memberId))
+                .map(a => a.id),
+            openingBalance: 0
+        };
+        households.set(member.id, {
+            ...household,
+            unusedOpeningCredit: unusedCents / 100,
+            openingSeedIds: (owedAdjustments || [])
+                .filter(a => a && a.kind === 'carry_opening' && a.status !== 'voided' && memberIds.includes(a.memberId))
+                .map(a => a.id),
+            openingBalance: (cents(household.openingBalance) - unusedCents) / 100
+        });
+    });
+
+    // Keep source-member order even when the legacy seam omitted a household.
+    const result = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id))
+        .flatMap(m => households.has(m.id) ? [households.get(m.id)] : []);
+    return {
+        households: result,
+        totalOpeningBalance: result.reduce((total, h) => total + h.openingBalance, 0),
+        memberCount: result.length
+    };
+}
+
+/**
+ * Snapshot one household's carried lines (ADR 0009). The caller attaches the
+ * returned array as `household.items` before calling buildNewYearData. This is
+ * the review seam; legacy callers do not build items.
+ *
+ * Only ctx.reviewServiceCredits supplies credit-detail provenance; earlier
+ * Service Credits in owedAdjustments belong in the remainder. Detail reconciles
+ * the single household credit item and is never added to the opening balance.
+ * No source record or nested calc is shared with the returned snapshot.
+ * @param {Object} household  entry from buildCarryForwardSummary
+ * @param {{ familyMembers: Array, bills: Array, owedAdjustments: Array,
+ *   reviewServiceCredits?: Array, fromYearLabel: string, nextYearLabel: string }} ctx
+ * @returns {Array} signed carried items; optional calc on Usage Charges
+ */
+export function buildCarryOpeningItems(household, ctx) {
+    const member = ctx.familyMembers.find(m => m.id === household.primaryMemberId);
+    const memberIds = [household.primaryMemberId, ...(member?.linkedMembers || [])];
+    const billName = a => a.billName ?? ctx.bills.find(b => b.id === a.billId)?.name ?? null;
+    const chargeIds = new Set(household.deferredChargeIds || []);
+    const items = (ctx.owedAdjustments || []).filter(a => a && chargeIds.has(a.id)).map(a => ({
+        sourceId: a.id,
+        kind: 'usage_charge',
+        basis: a.basis || 'member',
+        memberId: a.memberId,
+        billName: billName(a),
+        description: a.description || '',
+        amount: cents(a.amount) / 100,
+        incurredDate: a.incurredDate || null,
+        ...(a.calc ? { calc: structuredClone(a.calc) } : {})
+    }));
+
+    const creditCents = cents(household.credit || 0);
+    const unusedCents = cents(household.unusedOpeningCredit || 0);
+    if (creditCents + unusedCents > 0) {
+        const detail = (ctx.reviewServiceCredits || [])
+            .filter(a => a.kind === 'service_credit' && a.status === 'active' && memberIds.includes(a.memberId))
+            .map(a => ({
+                sourceId: a.id,
+                basis: a.basis,
+                memberId: a.memberId,
+                billName: billName(a),
+                description: a.reason || '',
+                amount: -cents(a.amount) / 100
+            }));
+        if (unusedCents > 0) {
+            detail.push({ kind: 'unused', description: 'Unused ' + ctx.fromYearLabel + ' credit', amount: -unusedCents / 100 });
+        }
+        const remainderCents = -(creditCents + unusedCents) - detail.reduce((sum, d) => sum + cents(d.amount), 0);
+        if (remainderCents !== 0) {
+            detail.push({
+                kind: remainderCents < 0 ? 'remainder' : 'applied',
+                description: remainderCents < 0
+                    ? 'Other ' + ctx.fromYearLabel + ' overpayment'
+                    : 'Part applied to your ' + ctx.fromYearLabel + ' balance',
+                amount: remainderCents / 100
+            });
+        }
+        items.push({
+            sourceId: creditCents > 0
+                ? 'cadj_carry_' + ctx.nextYearLabel + '_' + household.primaryMemberId
+                : household.openingSeedIds[0],
+            kind: 'credit',
+            basis: 'credit',
+            memberId: household.primaryMemberId,
+            billName: null,
+            description: "Your household's " + ctx.fromYearLabel + ' credit',
+            amount: -(creditCents + unusedCents) / 100,
+            detail
+        });
+    }
+    return items;
 }
 
 /**
@@ -72,6 +195,8 @@ export function buildCarryForwardSummary(familyMembers, bills, payments, creditA
  *     disposes the credit on the old year exactly like a refund (it subtracts
  *     from Net Contribution via getHouseholdFinancials), so the old year stops
  *     reading it as undisposed and the gate no longer sees it; and
+ *   - source carry_opening seeds for unused incoming credit are stamped with
+ *     `carriedForwardTo` without changing their status or creating a disposition;
  *   - each still-deferred Usage Charge that carried has its `status` transitioned
  *     `deferred` → `carried_forward` (stamped `carriedForwardTo`) IN PLACE — the
  *     record is preserved, never deleted (append-only via status, mirroring the
@@ -92,10 +217,16 @@ export function applyCarryForwardToPriorYear(creditAdjustments, owedAdjustments,
     // Set of deferred-charge ids that carried, for the in-place status transition.
     const carriedChargeIds = new Set();
     households.forEach(h => (h.deferredChargeIds || []).forEach(id => carriedChargeIds.add(id)));
+    const openingSeedIds = new Set();
+    households.filter(h => h.unusedOpeningCredit > CREDIT_EPSILON)
+        .forEach(h => (h.openingSeedIds || []).forEach(id => openingSeedIds.add(id)));
 
     const updatedOwed = (owedAdjustments || []).map(a => {
         if (a && carriedChargeIds.has(a.id)) {
             return { ...a, status: 'carried_forward', carriedForwardTo: nextYearLabel };
+        }
+        if (a && openingSeedIds.has(a.id)) {
+            return { ...a, carriedForwardTo: nextYearLabel };
         }
         return a;
     });
@@ -186,7 +317,10 @@ export function isYearLabelDuplicate(billingYears, label) {
  * positive). `getHouseholdOpeningBalance` reads these so the carried balance
  * lands in the new year's owed (its annual total) and first invoice. The seed
  * records ride the same verbatim `owedAdjustments[]` round-trip the full-document
- * save preserves, so they are never dropped. If no carry is supplied,
+ * save preserves, so they are never dropped. Review carries supply `items`, a
+ * detached snapshot, and retain zero-net seeds when they explain carried lines.
+ * A legacy carry with no items retains its original seed shape and zero skip.
+ * If no carry is supplied,
  * the arrays initialize empty (parity with buildSavePayload / buildInitialYearData).
  *
  * @param {Array} familyMembers
@@ -224,7 +358,7 @@ export function buildNewYearData(familyMembers, bills, settings, yearId, carry =
     const owedAdjustments = [];
     if (carry && Array.isArray(carry.households)) {
         carry.households.forEach(h => {
-            if (Math.abs(h.openingBalance || 0) <= CREDIT_EPSILON) return;
+            if (!h.items?.length && Math.abs(h.openingBalance || 0) <= CREDIT_EPSILON) return;
             owedAdjustments.push({
                 id: 'coadj_' + (fromYearLabel || 'prev') + '_' + h.primaryMemberId,
                 memberId: h.primaryMemberId,
@@ -232,6 +366,7 @@ export function buildNewYearData(familyMembers, bills, settings, yearId, carry =
                 amount: h.openingBalance,
                 status: 'carried_in',
                 fromYear: fromYearLabel || null,
+                ...(Array.isArray(h.items) ? { items: structuredClone(h.items) } : {}),
                 createdAt: new Date().toISOString()
             });
         });
