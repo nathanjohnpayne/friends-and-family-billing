@@ -41,6 +41,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ffb-output" "$RUNNER_TEMP/host-canary" /home/runner/.config
           printf 'fake credential; must never reach builder' > "$RUNNER_TEMP/host-canary/credential"
           printf 'fake cache; must never reach builder' > /home/runner/.config/ffb-isolation-canary
+          export FFB_HOST_TOKEN=fake-token-canary
+          export OP_PREFLIGHT_AUTHOR_PAT=fake-author-canary
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/host-canary/credential"
+          export FFB_DENIED_HOST_PATH="$RUNNER_TEMP/host-canary/credential"
           # Host canaries are deliberately NOT mounted. No runner HOME, Docker
           # socket, credential file/cache, Git credential or token is passed.
           docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -49,7 +53,7 @@ jobs:
             --tmpfs "/tmp:rw,noexec,uid=$(id -u),gid=$(id -g),mode=0700" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/input,readonly" \
             --mount "type=bind,source=$RUNNER_TEMP/ffb-output,target=/output" \
-            --env HOME=/work/home --env FFB_ISOLATED_BUILD=1 \
+            --env HOME=/work/home --env FFB_ISOLATED_BUILD=1 --env FFB_DENIED_HOST_PATH \
             --env SOURCE_SHA --env PUBLIC_FIREBASE_CONFIG --env PUBLIC_LOGODEV_KEY \
             --env NODE_OPTIONS=--require=/input/scripts/build-isolation-probe.cjs \
             node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 \

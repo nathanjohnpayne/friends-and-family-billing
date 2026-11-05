@@ -7,6 +7,7 @@ import io
 import json
 import os
 import signal
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -186,7 +187,7 @@ class ArtifactBoundary(unittest.TestCase):
                         return ''
                     raise AssertionError('Unexpected external command')
                 args = ['deployer', '--sha', SHA, '--target', 'functions', '--repository-dir', str(work), '--work-dir', str(work)]
-                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.os, 'fork') as consumer:
+                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy, 'checked_process') as consumer:
                     with self.assertRaises((ValueError, subprocess.CalledProcessError)):
                         deploy.main()
                     consumer.assert_not_called()
@@ -200,10 +201,60 @@ class ArtifactBoundary(unittest.TestCase):
         (source / 'app/old.js').write_text('stale build')
         (source / '.env.local').write_text('fake local credential')
         script = "require(" + repr(str(ROOT / 'scripts/build-deploy-artifact.cjs')) + ").copyTree(process.argv[1],process.argv[2]);"
-        subprocess.run(['/opt/homebrew/opt/node@24/bin/node' if Path('/opt/homebrew/opt/node@24/bin/node').exists() else 'node', '-e', script, str(source), str(dest)], check=True)
+        node = '/opt/homebrew/opt/node@24/bin/node' if Path('/opt/homebrew/opt/node@24/bin/node').exists() else shutil.which('node')
+        if node is None:
+            self.skipTest('Host Node unavailable; real source copy is exercised in the isolated production build')
+        subprocess.run([node, '-e', script, str(source), str(dest)], check=True)
         self.assertEqual((dest / 'src/app/main.jsx').read_text(), 'real production entry')
         self.assertFalse((dest / 'app').exists())
         self.assertFalse((dest / '.env.local').exists())
+
+    def test_unicode_component_and_pax_collisions_are_refused(self):
+        extra = tarfile.TarInfo('hosting/public/cafe\u0301.txt')
+        archive(self.tar, changes={'hosting/public/caf\u00e9.txt': b'one'}, extra=extra)
+        with self.assertRaisesRegex(ValueError, 'collision'):
+            deploy.extract_verified(self.tar, self.work / 'unicode', SHA, 'hosting')
+        # A PAX header can override a seemingly safe member path. No PAX
+        # overrides are needed by our deterministic USTAR producer.
+        with tarfile.open(self.tar, 'w', format=tarfile.PAX_FORMAT) as tf:
+            member = tarfile.TarInfo('safe')
+            member.pax_headers = {'comment': 'unexpected override capability'}
+            tf.addfile(member, io.BytesIO(b''))
+        with self.assertRaisesRegex(ValueError, 'PAX'):
+            deploy.extract_verified(self.tar, self.work / 'pax', SHA, 'hosting')
+
+    def test_clean_exec_consumer_drops_parent_tokens_and_python_hooks(self):
+        staging, _ = self.verify()
+        staging = staging.parent / 'hosting'
+        hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+        marker = self.work / 'observed.json'
+        op = self.work / 'fake-op'
+        op.write_text("#!/bin/bash\nprintf '%s' '{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}'\n")
+        op.chmod(0o700)
+        helper = self.work / 'fake-helper'
+        helper.write_text('#!/bin/bash\npython3 -c ' + deploy.shlex.quote("import json,os,pathlib;pathlib.Path(" + repr(str(marker)) + ").write_text(json.dumps({'env':dict(os.environ),'cwd':os.getcwd(),'json':json.__file__}))") + '\n')
+        helper.chmod(0o700)
+        canary = self.work / 'hostile-python'
+        canary.mkdir()
+        (canary / 'json.py').write_text("raise Exception('HOSTILE PYTHON IMPORT')")
+        tools = {'node': '/fake/node', 'op': str(op), 'helper': str(helper), 'python3': sys.executable}
+        with mock.patch.dict(os.environ, {'GH_TOKEN': 'fake-PAT-canary', 'OP_PREFLIGHT_AUTHOR_PAT': 'fake-author-canary', 'GOOGLE_APPLICATION_CREDENTIALS': '/hostile', 'PYTHONPATH': str(canary), 'NODE_OPTIONS': '--require=/hostile'}):
+            deploy.run_consumer(staging, 'hosting', tools, self.work, hashes)
+        observed = json.loads(marker.read_text())
+        env = observed['env']
+        self.assertFalse(any(key.startswith(('GH_', 'OP_')) or key in ['PYTHONPATH', 'NODE_OPTIONS'] for key in env))
+        self.assertEqual(env['HOME'], str(self.work / 'deploy-home'))
+        self.assertEqual(Path(observed['cwd']).resolve(), (self.work / 'credentialed-cwd').resolve())
+        self.assertNotIn('hostile-python', observed['json'])
+        self.assertFalse((self.work / 'source-credential.json').exists())
+        self.assertFalse((self.work / 'credential-tmp').exists())
+
+    def test_reader_output_is_bounded_and_child_is_reaped(self):
+        output = self.work / 'bounded'
+        with output.open('wb') as stream:
+            with self.assertRaises(subprocess.CalledProcessError):
+                deploy.checked_process([sys.executable, '-I', '-S', '-B', '-c', "import os,signal;signal.signal(signal.SIGXFSZ,signal.SIG_DFL);os.write(1,b'x'*100000);os.write(1,b'x')"], {}, self.work, capture=False, stdout=stream, output_limit=65536)
+        self.assertLessEqual(output.stat().st_size, 65536)
 
     def test_public_entry_rejects_private_modes_and_target_widening(self):
         bad = [["--consume", "/tmp/payload"], ["--firebase", "/tmp/payload"], ["--check-archive", "/tmp/payload"], ["--sha", SHA, "--target", "all"], ["--sha", SHA, "--target", "functions,hosting"], ["--sha", SHA, "--target", "functions", "--except", "hosting"]]
@@ -252,7 +303,7 @@ class ArtifactBoundary(unittest.TestCase):
                 helper.chmod(0o700)
                 harness = work / 'harness.py'
                 harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", acquire=acquire)\n")
-                process = subprocess.Popen([sys.executable, '-I', '-S', str(harness)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                process = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(harness)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 try:
                     deadline = time.monotonic() + 5
                     while not marker.exists() and time.monotonic() < deadline:

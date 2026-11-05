@@ -13,6 +13,7 @@ import re
 import shutil
 import shlex
 import signal
+import resource
 import unicodedata
 import subprocess
 import tarfile
@@ -164,10 +165,12 @@ def child_environment(home, path):
     return {"HOME": str(home), "PATH": path, "LANG": "C.UTF-8"}
 
 
-def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800):
-    process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE if capture else stdout, stderr=subprocess.PIPE if capture else None, text=capture, start_new_session=True)
+def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800, output_limit=None, input_data=None):
+    def limit_file():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (output_limit, output_limit))
+    process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE if input_data is not None else None, stdout=subprocess.PIPE if capture else stdout, stderr=subprocess.PIPE if capture else None, text=capture, start_new_session=True, preexec_fn=limit_file if output_limit is not None else None)
     try:
-        output, error = process.communicate(timeout=timeout)
+        output, error = process.communicate(input=input_data, timeout=timeout)
         if process.returncode:
             raise subprocess.CalledProcessError(process.returncode, argv, output=output, stderr=error)
         return output if capture else ""
@@ -270,6 +273,7 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
     # invocation is generated from already verified in-memory data only.
     verified = {"staging": str(staging), "target": target, "tools": tools, "hashes": hashes}
     guard = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['launch_firebase'](" + repr(verified) + ",sys.argv[1:])"
+    require(len(guard.encode()) <= 65536, "Firebase guard exceeds safe command bound")
     firebase = bin_dir / "firebase"
     firebase.write_text('#!/bin/bash -p\nexec ' + shlex.quote(tools["python3"]) + ' -I -S -c ' + shlex.quote(guard) + ' "$@"\n')
     firebase.chmod(0o500)
@@ -279,7 +283,7 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
         fd = os.open(credential, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
             if acquire is None:
-                checked_process([tools["op"], "read", ADC_URI], child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), cwd, capture=False, stdout=stream, timeout=60)
+                checked_process([tools["op"], "read", ADC_URI], child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), cwd, capture=False, stdout=stream, timeout=60, output_limit=65536)
             else:
                 acquire([tools["op"], "read", ADC_URI], env, cwd, stream)
         require(credential.stat().st_size <= 65536, "ADC source too large")
@@ -369,32 +373,22 @@ def main():
     if args.verify_only:
         print(json.dumps({"verified": True, "sourceSha": args.sha, "target": args.target, "credentialAcquired": False}))
         return
-    # Private consuming subprocess inherits verified in-memory arguments, not
-    # an argv mode/payload that a caller could select before verification.
-    operator_home = Path.home()
-    child = os.fork()
-    if child == 0:
-        try:
-            os.environ.clear()
-            os.environ.update(child_environment(operator_home, "/usr/bin:/bin"))
-            consume_verified(staging, args.target, tools, work, hashes)
-        except BaseException as error:
-            print("Deployment consumer failed: " + str(error), file=__import__("sys").stderr, flush=True)
-            os._exit(1)
-        os._exit(0)
-    waiting = True
-    try:
-        _, status = os.waitpid(child, 0)
-        waiting = False
-        require(os.waitstatus_to_exitcode(status) == 0, "Deployment consumer failed; no automatic retry")
-    except BaseException:
-        if waiting:
-            try:
-                os.kill(child, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            os.waitpid(child, 0)
-        raise
+    run_consumer(staging, args.target, tools, work, hashes)
+
+
+def run_consumer(staging, target, tools, work, hashes):
+    """Clean exec, anonymous verified-data pipe; no public private-mode dispatch.
+
+    A new process image receives no PAT-bearing parent environment or memory.
+    The fixed trusted code accepts data only from its already-verified parent.
+    """
+    cwd = Path(work) / "consumer-runtime"
+    cwd.mkdir(mode=0o700)
+    verified = {"staging": str(staging), "target": target, "tools": tools, "work": str(work), "hashes": hashes}
+    payload = json.dumps(verified).encode()
+    require(len(payload) <= 8 * 1024 * 1024, "Consumer payload too large")
+    code = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['install_signal_handlers'](); m['consume_verified'](**m['strict_json'](sys.stdin.buffer.read(8388609)))"
+    checked_process([tools["python3"], "-I", "-S", "-B", "-c", code], child_environment(Path.home(), "/usr/bin:/bin"), cwd, capture=False, input_data=payload)
 
 
 if __name__ == "__main__":
