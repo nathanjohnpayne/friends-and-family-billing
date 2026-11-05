@@ -80,6 +80,16 @@ describe('BillingYearService — CRUD mutations', () => {
         expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 0.01, memberCount: 3 });
     });
 
+    it('preserves legacy Service Credit allocation for duplicate loaded bill members', () => {
+        const svc = createService();
+        svc._setState({ bills: [{ ...svc.getState().bills[0], members: [1, 1, 2] }] });
+        const records = svc.recordServiceCredit({ billId: 101, amount: 10, reason: 'Legacy members' });
+        expect(records.map(record => ({ memberId: record.memberId, amount: record.amount }))).toEqual([
+            { memberId: 1, amount: 3.33 }, { memberId: 1, amount: 3.33 }, { memberId: 2, amount: 3.34 }
+        ]);
+        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 10, memberCount: 3 });
+    });
+
     // ── Members ──
 
     describe('addMember', () => {

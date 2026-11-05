@@ -502,7 +502,10 @@ Existing-credit answers are keyed by actual adjustment id. Store `seen` from
 explicit answer; `revalidateExistingCreditAnswers` clears changed answers.
 `validateDraft` returns input-only restored state, recomputed results, notices
 and step errors, and always requires a fresh preview. It preserves the reviewed
-source fingerprint until the administrator reviews current totals.
+source fingerprint until the administrator reviews current totals. Its context
+includes the current `payments`, `creditAdjustments`, and `billingEvents` arrays
+for source comparison; explicit context arrays override embedded `sourceYear`
+arrays, while a full source-year snapshot remains a supported fallback.
 
 `buildHouseholdPreview({ familyMembers, sourceBills, nextBills, carry })` consumes
 finalized `carry.households` with `{ primaryMemberId, openingBalance, items }`;

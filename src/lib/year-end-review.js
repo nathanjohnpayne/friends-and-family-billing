@@ -17,12 +17,13 @@ export function toCents(value) {
     return cents === 0 ? 0 : cents;
 }
 
-/** Preserve order: floor for every member except the last, who receives the remainder. */
+/**
+ * Preserve order: floor for every member except the last, who receives the remainder.
+ * Allocation accepts legacy member values; review-only identity checks live in validateBill.
+ */
 export function splitCents(totalCents, memberIds) {
     if (!Number.isSafeInteger(totalCents) || totalCents < 0) throw new Error('Cents must be a non-negative integer.');
-    if (!Array.isArray(memberIds) || memberIds.some(memberId => !id(memberId)) || new Set(memberIds).size !== memberIds.length) {
-        throw new Error('Members must be distinct ids.');
-    }
+    if (!Array.isArray(memberIds)) throw new Error('Members must be an array.');
     if (memberIds.length === 0) return [];
     const base = Math.floor(totalCents / memberIds.length);
     return memberIds.map((memberId, index) => ({ memberId, cents: index === memberIds.length - 1 ? totalCents - base * index : base }));
@@ -48,6 +49,7 @@ function validateBill(bill) {
     if (!object(bill) || !id(bill.id ?? bill.billId) || !money(bill.amount)) throw new Error('A bill with a positive price is required.');
     frequencyOf(bill);
     splitCents(0, bill.members);
+    if (bill.members.some(memberId => !id(memberId)) || new Set(bill.members).size !== bill.members.length) throw new Error('Members must be distinct ids.');
 }
 
 /** Stable serialization for financial equality and fingerprints; object key order is irrelevant. */
@@ -339,7 +341,14 @@ function assertKeys(value, keys) {
     if (!object(value) || Object.keys(value).some(key => !keys.includes(key))) throw new Error('Draft contains an invalid field.');
 }
 
-/** Returns a validated input-only draft plus recomputed results; never accepts stored totals. */
+/**
+ * Returns a validated input-only draft plus recomputed results; never accepts stored totals.
+ * @param {Object} raw untrusted draft inputs
+ * @param {{ userId: string, sourceYear: Object, bills: Array, familyMembers: Array,
+ *   owedAdjustments: Array, payments?: Array, creditAdjustments?: Array,
+ *   billingEvents?: Array }} ctx current source data; explicit financial arrays override
+ *   embedded sourceYear arrays, which remain a supported full-snapshot fallback
+ */
 export function validateDraft(raw, ctx) {
     const notices = [];
     const errors = [];
@@ -418,7 +427,9 @@ export function validateDraft(raw, ctx) {
         } catch (error) { errors.push({ step: 3, rowId: row?.rowId, message: error.message }); }
         return true;
     });
-    const state = { ...ctx.sourceYear, bills: ctx.bills, familyMembers: ctx.familyMembers, owedAdjustments: ctx.owedAdjustments };
+    const state = { ...ctx.sourceYear, bills: ctx.bills, familyMembers: ctx.familyMembers, owedAdjustments: ctx.owedAdjustments,
+        payments: ctx.payments ?? ctx.sourceYear.payments, creditAdjustments: ctx.creditAdjustments ?? ctx.sourceYear.creditAdjustments,
+        billingEvents: ctx.billingEvents ?? ctx.sourceYear.billingEvents };
     const stale = draft.sourceFingerprint !== computeSourceFingerprint(state);
     if (stale) notices.push('The source year changed; totals were recomputed. Review Step 4 again.');
     // Retain the reviewed fingerprint; restore never silently approves a new source state.

@@ -34,7 +34,10 @@ describe('Year-End Review cents and formulas', () => {
         expect(splitCents(1667, members).map(s => s.cents)).toEqual([555, 555, 557]);
         expect(splitCents(1, members).map(s => s.cents)).toEqual([0, 0, 1]);
         expect(() => splitCents(1.5, members)).toThrow();
-        expect(() => splitCents(10, [1, 1])).toThrow();
+        expect(splitCents(10, [1, 1]).map(share => share.cents)).toEqual([5, 5]);
+        expect(splitCents(10, [null, '']).map(share => share.cents)).toEqual([5, 5]);
+        expect(() => computeEnded({ ...bill, members: [1, 1] }, endedRow, ctx)).toThrow('distinct ids');
+        expect(() => computeEnded({ ...bill, members: [null, ''] }, endedRow, ctx)).toThrow('distinct ids');
         expect(() => toCents(Infinity)).toThrow();
     });
     it('counts inclusive starting months, exclusive ending months and rejects other years', () => {
@@ -278,6 +281,21 @@ describe('source guard, dashboard entry and restored drafts', () => {
         const stale = validateDraft(raw, restoreCtx([], { sourceYear: { ...year, payments: [{ id: 'p', memberId: 1, amount: 1 }] } }));
         expect(stale.stale).toBe(true);
         expect(stale.draft.sourceFingerprint).toBe(raw.sourceFingerprint);
+    });
+    it('compares restored drafts with complete explicit live arrays and supports embedded snapshots', () => {
+        const arrays = { payments: [{ id: 'p', memberId: 1, amount: 12 }],
+            creditAdjustments: [{ id: 'refund', memberId: 1, amount: 2, type: 'refund', status: 'recorded' }],
+            billingEvents: [{ id: 'event', eventType: 'PAYMENT_RECORDED' }] };
+        const source = { ...year, bills: [bill], familyMembers, owedAdjustments: [], ...arrays };
+        const raw = { ...draftFor(), sourceFingerprint: computeSourceFingerprint(source) };
+        expect(validateDraft(raw, restoreCtx([], arrays))).toMatchObject({ valid: true, stale: false });
+        expect(validateDraft(raw, restoreCtx([], { sourceYear: source }))).toMatchObject({ valid: true, stale: false });
+        for (const changed of [
+            { payments: [{ ...arrays.payments[0], amount: 13 }] },
+            { creditAdjustments: [{ ...arrays.creditAdjustments[0], amount: 3 }] },
+            { billingEvents: [...arrays.billingEvents, { id: 'new-event' }] }
+        ]) expect(validateDraft(raw, restoreCtx([], { ...arrays, ...changed })).stale).toBe(true);
+        expect(validateDraft(raw, restoreCtx([], { sourceYear: source, payments: [] })).stale).toBe(true);
     });
     it('rejects incompatible, malformed or derived storage fields', () => {
         for (const changed of [{ userId: 'other' }, { sourceYearId: '2025' }, { draftVersion: 2 }, { reconciliationId: null }, { confirmations: {} }, { totals: { gross: 999 } }]) {
