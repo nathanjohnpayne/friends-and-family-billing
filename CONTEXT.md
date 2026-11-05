@@ -54,7 +54,9 @@ back—the household starts next year owing that much less. One of the two ways
 (with Refund) to clear a credit. There is deliberately no path for the
 administrator to simply keep or write off an overpayment. At rollover the
 Year-End Review carries every undisposed Credit and deferred Usage Charge (True-ups
-included) as itemized Carried items on one `carry_opening` seed per household.
+included) as itemized Carried items on one `carry_opening` seed per household, and
+carries on an incoming credit the year's bills did not use (money, so it is never
+forfeited; it leaves no disposition record because it was never a payment).
 _Avoid_: Roll-over, waiver, write-off
 
 **Net Contribution**:
@@ -110,8 +112,9 @@ One line of a household's opening balance in a new year—a True-up share, a
 member's Usage Charge, or the household's net Credit—snapshotted on the
 `carry_opening` seed (`items[]`) with its member, bill name, description, and
 signed amount, so a member can read "Carried from 2026" line by line. The
-household's Credit is one negative item; the Service Credits that produced it
-are explanatory detail, never added again.
+household's Credit is one negative item; the Service Credits that produced it,
+and any unused credit carried in from the year before, are detail beneath it that
+sums to it and is never added again.
 _Avoid_: Opening balance line, carry_opening (in UI copy), adjustment
 
 ### Requests
