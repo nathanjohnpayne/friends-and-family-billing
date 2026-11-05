@@ -293,9 +293,9 @@ function withoutVolatile(value) {
 /** Two independent 32-bit hash lanes over canonical source fields; not an auth token. */
 export function computeSourceFingerprint(state) {
     const pick = (values, keys) => (values || []).map(value => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]])));
-    const text = canonical(withoutVolatile({ status: state.status ?? state.activeYear?.status,
+    const text = canonical(withoutVolatile({ status: state.status ?? state.activeYear?.status ?? state.year?.status,
         bills: pick(state.bills, ['id', 'name', 'amount', 'billingFrequency', 'members']),
-        familyMembers: pick(state.familyMembers, ['id', 'name', 'linkedMembers']),
+        familyMembers: pick(state.familyMembers ?? state.members, ['id', 'name', 'linkedMembers']),
         payments: pick(state.payments, ['id', 'memberId', 'amount', 'type', 'reversed']),
         creditAdjustments: state.creditAdjustments || [], owedAdjustments: state.owedAdjustments || [], billingEventCount: state.billingEvents?.length || 0 }));
     let a = 2166136261;
@@ -392,6 +392,7 @@ export function validateDraft(raw, ctx) {
         try {
             assertKeys(row, ['rowId', 'billId', 'name', 'amount', 'frequency', 'website', 'members', 'firstMonth', 'override']);
             if (!id(row.rowId) || !id(row.billId) || rowIds.has(row.rowId) || typeof row.name !== 'string' || !row.name.trim() || typeof row.website !== 'string') throw new Error('New subscription fields are invalid.');
+            if (!['monthly', 'annual'].includes(row.frequency)) throw new Error('New subscription frequency must be monthly or annual.');
             rowIds.add(row.rowId);
             if (billIds.has(row.billId)) {
                 // A deterministic unused numeric id preserves the row across subsequent restores.

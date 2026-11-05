@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { normalizeYearData } from '../../../src/lib/persistence.js';
 import {
     toCents, splitCents, monthsFromFirst, monthsAfterLast, computePriceChange, computeLateStart, computeEnded,
     buildTrueUpRecords, buildServiceCreditRecords, buildUsageChargeRecord, deriveNextYearBills, buildHouseholdPreview,
@@ -237,6 +238,17 @@ describe('source guard, dashboard entry and restored drafts', () => {
         expect(computeSourceFingerprint({ ...state, owedAdjustments: [{ ...state.owedAdjustments[0], timestamp: 'changed' }] })).not.toBe(computeSourceFingerprint(state));
         for (const changed of [{ ...state, status: 'closed' }, { ...state, payments: [{ ...state.payments[0], amount: 13 }] }, { ...state, billingEvents: [{}] }, { ...state, bills: [{ ...bill, amount: 13 }] }]) expect(computeSourceFingerprint(changed)).not.toBe(computeSourceFingerprint(state));
     });
+    it('hashes service and normalized source snapshots identically and detects normalized member/status edits', () => {
+        const source = { ...year, bills: [bill], familyMembers, payments: [{ id: 'p', memberId: 1, amount: 12 }], owedAdjustments: [credit('a', 1, 3)], billingEvents: [] };
+        const normalized = normalizeYearData(structuredClone(source), year.id);
+        const service = { ...source, activeYear: year };
+        delete service.status;
+        expect(computeSourceFingerprint(normalized)).toBe(computeSourceFingerprint(source));
+        expect(computeSourceFingerprint(normalized)).toBe(computeSourceFingerprint(service));
+        expect(computeSourceFingerprint({ ...normalized, year: { ...normalized.year, status: 'closed' } })).not.toBe(computeSourceFingerprint(source));
+        expect(computeSourceFingerprint({ ...normalized, members: normalized.members.map(member => member.id === 1 ? { ...member, linkedMembers: [2] } : member) })).not.toBe(computeSourceFingerprint(source));
+        expect(computeSourceFingerprint({ ...normalized, members: normalized.members.map(member => member.id === 2 ? { ...member, name: 'Renamed' } : member) })).not.toBe(computeSourceFingerprint(source));
+    });
     it('finds recorded successors even with no cached destination and falls back to higher numeric labels', () => {
         const years = [{ id: '2028', label: '2028' }, { id: '2027', label: '2027' }];
         expect(findSuccessorYear(years, year)).toEqual(years[1]);
@@ -294,6 +306,23 @@ describe('source guard, dashboard entry and restored drafts', () => {
         const vanished = validateDraft({ ...draftFor(), charges: [{ rowId: 'lost', memberId: 999, amount: 3, description: 'x', incurredDate: '2026-11-03' }] }, restoreCtx([], { bills: [] }));
         expect(vanished.draft.bills).toEqual({});
         expect(vanished.draft.charges).toEqual([]);
+    });
+    it.each([null, undefined, 'weekly'])('rejects restored new subscription frequency %s without defaulting to monthly', frequency => {
+        const raw = draftFor();
+        const row = { rowId: 'annual', billId: 21, name: 'Annual', amount: 139, website: '', members, firstMonth: '2026-03' };
+        if (frequency !== undefined) row.frequency = frequency;
+        raw.newBills = [row];
+        const restored = validateDraft(raw, restoreCtx());
+        expect(restored.valid).toBe(false);
+        expect(restored.errors).toContainEqual({ step: 2, rowId: 'annual', message: 'New subscription frequency must be monthly or annual.' });
+        expect(restored.results).not.toHaveProperty('new_annual');
+    });
+    it.each([['monthly', 139000], ['annual', 11583]])('restores a valid %s subscription at its entered frequency', (frequency, grossCents) => {
+        const raw = draftFor();
+        raw.newBills = [{ rowId: 'new', billId: 21, name: 'New', amount: 139, frequency, website: '', members, firstMonth: '2026-03' }];
+        const restored = validateDraft(raw, restoreCtx());
+        expect(restored.valid).toBe(true);
+        expect(restored.results.new_new.grossCents).toBe(grossCents);
     });
     it('reallocates a colliding new bill id and keeps it stable on subsequent restore', () => {
         const raw = draftFor();
