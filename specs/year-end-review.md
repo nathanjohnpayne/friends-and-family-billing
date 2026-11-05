@@ -48,7 +48,7 @@ Out of scope for v1: standalone mid-year price changes or late starts (the pure 
 - **New bills** in Step 2 allocate `billId` once with `generateUniqueBillId(existingIds)` when the row is created and store it on the draft; the True-up's `billId` and the new year's bill use that id. On draft restoration a `billId` that collides with a current source-year bill is reallocated and the row is flagged for re-check.
 - **The carried credit** record on the source year uses the deterministic id `cadj_carry_<nextYearLabel>_<primaryMemberId>` (the `applyCarryForwardToPriorYear` default factory), so the review path never passes a random `idFactory`.
 - **New persisted fields** on `owedAdjustments[]` records (`basis`, `calc`, `trueUpId`, `billName`, `reconciliationId`) and on `carry_opening` seeds (`items[]`) ride the verbatim array round-trip of `buildSavePayload`; no allowlist change (ADR 0008). Completion evidence lives in `billingEvents[]`, also already in the allowlist.
-- No change to `firestore.rules` or `storage.rules`.
+- No change to `storage.rules`. `firestore.rules` changes as § Versioned year-document writes specifies (decided 2026-11-05, D-A): version-checked writes on `users/{uid}/billingYears/{yearId}`, delete denied, staged before the reviewed rollover; nothing else in the rules changes.
 
 ### Itemized carry (`src/lib/billing-year.js`)
 
