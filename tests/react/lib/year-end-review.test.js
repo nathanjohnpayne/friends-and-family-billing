@@ -66,6 +66,32 @@ describe('Year-End Review cents and formulas', () => {
         expect([increase.grossCents, decrease.grossCents]).toEqual([13, 13]);
         expect(decrease.kind).toBe('service_credit');
     });
+    it.each([[139, 159.01, 1001], [159.01, 139, 1001], [139, 139.01, 1], [139.01, 139, 1]])(
+        'prorates annual price changes %s → %s at the exact half-cent boundary', (fromAmount, newAmount, expectedCents) => {
+            const result = computePriceChange({ ...bill, amount: fromAmount, billingFrequency: 'annual' }, { newAmount, firstMonth: '2026-07' }, ctx);
+            expect(result.grossCents).toBe(expectedCents);
+            expect(result.shares.reduce((sum, share) => sum + share.netCents, 0)).toBe(expectedCents);
+        }
+    );
+    it('subtracts fractional-cent entered amounts before final rounding', () => {
+        const result = computePriceChange({ ...bill, amount: 1.125 }, { newAmount: 1.25, firstMonth: '2026-12' }, ctx);
+        expect(result.grossCents).toBe(13);
+        expect(computePriceChange({ ...bill, amount: 1.25 }, { newAmount: 1.125, firstMonth: '2026-12' }, ctx).grossCents).toBe(13);
+        expect(computePriceChange({ ...bill, amount: 1.125 }, { newAmount: 1.25, firstMonth: '2026-07' }, ctx).grossCents).toBe(75);
+    });
+    it('rounds annual late-start and ended proration only once at the cent boundary', () => {
+        const annual = { ...bill, amount: 139.01, billingFrequency: 'annual' };
+        expect(computeLateStart({ ...annual, firstMonth: '2026-07' }, ctx).grossCents).toBe(6951);
+        expect(computeEnded(annual, { lastMonth: '2026-06' }, ctx).grossCents).toBe(6951);
+        expect(computeLateStart({ ...bill, amount: 1.005, firstMonth: '2026-12' }, ctx).grossCents).toBe(101);
+        expect(computeEnded({ ...bill, amount: 1.005 }, { lastMonth: '2026-11' }, ctx).grossCents).toBe(101);
+    });
+    it('supports scientific notation and refuses a proration beyond safe integer cents', () => {
+        const tiny = computePriceChange({ ...bill, amount: 1e-7, billingFrequency: 'annual' }, { newAmount: 0.0100001, firstMonth: '2026-07' }, ctx);
+        expect(tiny.grossCents).toBe(1);
+        expect(computeLateStart({ ...bill, amount: 1e-7, firstMonth: '2026-01' }, ctx).grossCents).toBe(0);
+        expect(() => computeLateStart({ ...bill, amount: 1e20, firstMonth: '2026-01' }, ctx)).toThrow('too large');
+    });
     it('fixtures 3–5: late start, reduced price and ended bill', () => {
         const late = computeLateStart({ ...bill, billId: 21, id: undefined, amount: 9.99, firstMonth: '2026-09' }, ctx);
         expect(late.grossCents).toBe(3996);

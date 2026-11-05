@@ -126,6 +126,28 @@ function formulaFor(result) {
     return formula;
 }
 
+/** Parse the entered Number's decimal representation without binary subtraction. */
+function decimalCoefficient(value) {
+    const [mantissa, exponent = '0'] = value.toString().split('e');
+    const [whole, fraction = ''] = mantissa.split('.');
+    return { coefficient: BigInt(whole + fraction), exponent: Number(exponent) - fraction.length };
+}
+
+/** Exact decimal difference × months; round the rational result once to symmetric cents. */
+function proratedCents(fromAmount, toAmount, months, divisor) {
+    const from = decimalCoefficient(fromAmount);
+    const to = decimalCoefficient(toAmount);
+    const exponent = Math.min(0, from.exponent, to.exponent);
+    const fromUnits = from.coefficient * 10n ** BigInt(from.exponent - exponent);
+    const toUnits = to.coefficient * 10n ** BigInt(to.exponent - exponent);
+    const difference = toUnits - fromUnits;
+    const numerator = (difference < 0n ? -difference : difference) * BigInt(months) * 100n;
+    const denominator = 10n ** BigInt(-exponent) * BigInt(divisor);
+    const rounded = (2n * numerator + denominator) / (2n * denominator);
+    if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Amount is too large.');
+    return Number(rounded);
+}
+
 function compute(bill, input, ctx, basis) {
     validateBill(bill);
     const frequency = frequencyOf(bill);
@@ -137,10 +159,9 @@ function compute(bill, input, ctx, basis) {
     const lastMonth = basis === 'ended' ? input.lastMonth : null;
     const months = basis === 'ended' ? monthsAfterLast(lastMonth, ctx.sourceYear) : monthsFromFirst(firstMonth, ctx.sourceYear);
     const divisor = frequency === 'annual' ? 12 : 1;
-    const signed = basis === 'ended' ? (fromAmount / divisor) * months : basis === 'late_start'
-        ? (toAmount / divisor) * months : ((toAmount - fromAmount) / divisor) * months;
-    const kind = basis === 'ended' || signed < 0 || (basis === 'price_change' && toAmount < fromAmount) ? 'service_credit' : 'usage_charge';
-    const computedCents = toCents(Math.abs(signed));
+    const kind = basis === 'ended' || (basis === 'price_change' && toAmount < fromAmount) ? 'service_credit' : 'usage_charge';
+    const computedCents = basis === 'ended' ? proratedCents(0, fromAmount, months, divisor)
+        : proratedCents(fromAmount ?? 0, toAmount, months, divisor);
     const overridden = input.override !== undefined && input.override !== null;
     if (overridden && (!money(input.override) || toCents(input.override) <= 0)) throw new Error('Override must be positive and in the formula’s direction.');
     if (overridden && computedCents === 0) throw new Error('There is no nonzero computed amount to override.');
