@@ -113,6 +113,15 @@ describe('per-record, per-member existing credit answers (fixture 8)', () => {
         expect(result.coveredBy).toEqual([]);
         expect(records).toEqual(before);
     });
+    it('accepts explicit answers for legacy zero-share credits without creating new zero records', () => {
+        const record = credit('legacy_zero', 1, 0);
+        for (const choice of ['covers', 'unrelated']) {
+            const result = computeEnded(bill, { ...endedRow, existingCredits: { legacy_zero: answer(record, base, choice) } }, { ...ctx, owedAdjustments: [record] });
+            expect(result.grossCents).toBe(4800);
+            expect(result.coveredBy).toEqual([]);
+            expect(buildServiceCreditRecords(result, recordCtx).every(record => record.amount > 0)).toBe(true);
+        }
+    });
     it('8b: covers only B and retains full coverage in the bill audit result', () => {
         const record = credit('b', 2, 16);
         const result = computeEnded(bill, { ...endedRow, existingCredits: { b: answer(record, base) } }, { ...ctx, owedAdjustments: [record] });

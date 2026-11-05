@@ -161,7 +161,7 @@ function compute(bill, input, ctx, basis) {
             if (!answer || !['covers', 'partial', 'unrelated'].includes(answer.choice)) throw new Error(`Answer whether credit ${record.id} covers this change.`);
             if ((answer.seen && !same(answer.seen, snapshotExistingCredit(record))) ||
                 (answer.coverage && !same(answer.coverage, existingCreditCoverage(result, record.memberId)))) throw new Error(`Answer again: credit ${record.id} changed.`);
-            if (!money(record.amount)) throw new Error(`Credit ${record.id} has an invalid amount.`);
+            if (typeof record.amount !== 'number' || !Number.isFinite(record.amount) || record.amount < 0) throw new Error(`Credit ${record.id} has an invalid amount.`);
             const share = shares.find(item => item.memberId === record.memberId);
             const amountCents = toCents(record.amount);
             const appliedCents = answer.choice === 'covers' ? amountCents : answer.choice === 'partial' ? answer.appliedCents : 0;
