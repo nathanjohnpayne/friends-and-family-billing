@@ -11,7 +11,7 @@
     "dev": "vite --open",
     "pr:auto": "node scripts/pr-auto.mjs",
     "preview": "vite preview",
-    "test": "npm run test:react && npm run test:functions && npm run test:secrets",
+    "test": "npm run test:react && npm run test:functions && npm run test:secrets && npm run test:deploy",
     "test:functions": "node --test 'tests/functions.test.js'",
     "test:react": "vitest run",
     "test:rules": "scripts/test-rules.sh",
@@ -19,9 +19,7 @@
     "test:e2e": "export VITE_E2E_MODE=true && npm run build:react && npm run build:assemble && npx playwright test",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "lint": "eslint .",
-    "deploy": "op-firebase-deploy --only hosting,firestore:rules,storage",
-    "deploy:functions": "op-firebase-deploy --only functions",
-    "deploy:all": "op-firebase-deploy"
+    "test:deploy": "PYTHONDONTWRITEBYTECODE=1 python3 -I -S -m unittest discover -s tests -p deploy_artifact_test.py"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
