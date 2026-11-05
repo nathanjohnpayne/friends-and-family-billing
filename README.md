@@ -173,7 +173,7 @@ Production builds run in isolated CI without deploy credentials. After provenanc
 | `npm run dev` | Vite dev server with hot module replacement (opens a browser) |
 | `npm run build` | `build:react` (Vite) then `build:assemble` (`scripts/assemble-deploy.js`), output in `app/` |
 | `npm run preview` | Serve the last Vite build locally |
-| `npm test` | `test:react` + `test:functions` + `test:secrets` |
+| `npm test` | `test:react` + `test:functions` + `test:secrets` + `test:deploy` |
 | `npm run test:react` | Vitest + React Testing Library suite under `tests/react/` |
 | `npm run test:functions` | Node test runner over `tests/functions.test.js` (Cloud Functions logic) |
 | `npm run test:secrets` | Scan tracked files for committed API keys, OAuth tokens and private keys |

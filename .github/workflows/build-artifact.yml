@@ -3,18 +3,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths:
-      - '.github/workflows/build-artifact.yml'
-      - 'scripts/*deploy*'
-      - 'scripts/verify-build-artifact.py'
-      - 'scripts/build-isolation-probe.cjs'
-      - 'scripts/check-functions-discovery.cjs'
-      - 'tests/deploy_artifact_test.py'
-      - 'package*.json'
-      - 'functions/**'
-      - 'firebase.json'
-      - 'vite.config.js'
-      - 'src/**'
   workflow_dispatch:
 permissions: {}
 concurrency:
