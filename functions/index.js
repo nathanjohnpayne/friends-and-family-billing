@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance } = require("./billing");
+const { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, buildCarriedItemsForShare } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -283,6 +283,10 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       if (serviceCredits.total > 0) {
         result.serviceCredits = serviceCredits;
       }
+      const carriedItems = buildCarriedItemsForShare(familyMembers, billsData, owedAdjustments, tokenData.memberId, linkedIds);
+      if (carriedItems.total !== 0 || carriedItems.items.length > 0) {
+        result.carriedItems = carriedItems;
+      }
     }
 
     if (scopes.includes("paymentMethods:read") || scopes.includes("paymentLinks:read")) {
@@ -389,6 +393,9 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       // the field is already absent.
       publicShareData.serviceCredits = result.serviceCredits || FieldValue.delete();
     }
+    // Reconcile on both cache-miss and refresh paths, including scope removal:
+    // merge:true must never leave old carried details readable in publicShares.
+    publicShareData.carriedItems = result.carriedItems || FieldValue.delete();
     if (result.paymentMethods) {
       publicShareData.paymentMethods = result.paymentMethods;
     }

@@ -383,7 +383,7 @@ All functions use the **v2 API** (`firebase-functions/v2/https` with `onRequest`
 
 > **Note:** The GCP organization policy blocks granting `allUsers` the Cloud Run invoker role, so these functions cannot be made publicly accessible. The React share page (`ShareView.jsx`) reads data directly from the `publicShares` Firestore collection, with a fallback to the `resolveShareToken` Cloud Function. Dispute-related functions are called via Firebase Hosting rewrites or direct URLs.
 
-- `resolveShareToken` — POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Writes audit log entry on access.
+- `resolveShareToken` — POST endpoint: validates share token, returns billing summary, linked members, payment data, disputes (if `disputes:read` scope), and payment methods. Under `summary:read`, includes member-safe `carriedItems` with separate floor remainder and unused net incoming credit; self-heals the same field into `publicShares` and deletes stale carried details when absent or no longer scoped. Writes audit log entry on access.
 - `submitDispute` — POST endpoint: creates a dispute from a share link (requires `disputes:create` scope), rate-limited to 10 per 24 hours per token. Writes audit log entry.
 - `getEvidenceUrl` — POST endpoint: returns a 1-hour signed URL for a dispute evidence file (requires `disputes:read` scope, validates member ownership)
 - `submitDisputeDecision` — POST endpoint: records user approve/reject decision on a dispute (requires `disputes:read` scope, idempotent). Writes audit log entry.
