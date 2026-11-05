@@ -49,10 +49,20 @@
       EmptyState.jsx, ActionMenu.jsx, CompanyLogo.jsx
     src/lib/calculations.js (settlement metrics), src/lib/constants.js, src/lib/formatting.js,
       src/app/contexts/ToastContext.jsx
+    Year-End Review (ADR 0009): docs/adr/0009-year-end-review-true-ups-and-itemized-carry.md,
+      specs/year-end-review.md, specs/billing-calculations.md (carry-forward seam, year creation),
+      src/lib/billing-year.js (buildNewYearData, applyCarryForwardToPriorYear, suggestNextYearLabel),
+      src/lib/BillingYearService.js (createYear, recordUsageCharge, recordServiceCredit, billDeferredCharges),
+      src/lib/share.js (buildPublicShareData), src/lib/invoice.js (getInvoiceSummaryContext, buildFullInvoiceText),
+      functions/index.js (resolveShareToken self-heal), functions/billing.js (the Cloud Function mirrors),
+      src/lib/persistence.js (buildSavePayload), src/lib/validation.js (id generators, isYearReadOnly)
   Structural template: matchline/plans/matchline-wireframes.html.
 
   Sample data is invented—people, bills, amounts, dates. Figures are internally
   consistent (bill splits sum to member totals, household totals sum to the year).
+  The Year-End Review group is drawn at a later snapshot (Tue Dec 8, 2026); its 2027 figures—True-ups,
+  Service Credits, carried items, next-year bills—are computed with the rules in specs/year-end-review.md
+  and add up per member, per household and for the year (the group intro lists them).
 -->
 <style>
   /* ---------- page chrome (document, not app UI) ---------- */
@@ -174,7 +184,7 @@
 
   /* ---------- app UI inside a frame—FFB redesign system (hardcoded palette) ----------
      Linen #efecea canvas · Paper #ffffff cards · Ink #22201d text · Graphite #777573 muted (icons) /
-     #66645f muted text · Stone #dcd9d6 hairlines · Ember #ff692d accent (fills) / #ad3c0b accent text.
+     #66645f muted text · Stone #dcd9d6 hairlines · Slate #86827d control outlines · Ember #ff692d accent (fills) / #ad3c0b accent text.
      Status: Settled #1e6b3f/#e1f0e5 · Partial #2f5b9c/#e3ebf7 · Outstanding #9b2335/#f9e3e6 ·
      Review #6b3fa0/#ece4f6 · Credit #0f6e73/#dcf0ef · Warning #8a5a00/#fbf1dc. */
   .app{container-type:inline-size;container-name:frame;width:100%;height:100%;display:flex;flex-direction:column;position:relative;
@@ -279,7 +289,7 @@
   .st-credit{background:#dcf0ef;color:#0f6e73}
   .st-warn{background:#fbf1dc;color:#8a5a00}
   .st-neutral{background:#efecea;color:#66645f}
-  .in{border:1px solid #dcd9d6;border-radius:8px;padding:8px 10px;background:#fff;font-size:12.5px;color:#22201d;min-height:34px;display:flex;align-items:center;gap:6px}
+  .in{border:1px solid #86827d;border-radius:8px;padding:8px 10px;background:#fff;font-size:12.5px;color:#22201d;min-height:34px;display:flex;align-items:center;gap:6px}
   .in.ph{color:#6f6d69}
   .in.focus{border-color:#22201d;box-shadow:0 0 0 3px rgba(255,105,45,.28)}
   .in.err{border-color:#9b2335}
@@ -288,9 +298,9 @@
   .lbl{display:block;font-size:11.5px;font-weight:500;color:#66645f;margin:0 0 4px}
   .field{margin:0 0 12px}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
-  .cb{width:15px;height:15px;border:1.5px solid #9a9794;border-radius:4px;flex:0 0 auto;background:#fff;display:inline-block;vertical-align:-3px}
+  .cb{width:15px;height:15px;border:1.5px solid #86827d;border-radius:4px;flex:0 0 auto;background:#fff;display:inline-block;vertical-align:-3px}
   .cb.on{background:#22201d;border-color:#22201d}
-  .rb{width:15px;height:15px;border:1.5px solid #9a9794;border-radius:50%;flex:0 0 auto;background:#fff;display:inline-block;vertical-align:-3px;position:relative}
+  .rb{width:15px;height:15px;border:1.5px solid #86827d;border-radius:50%;flex:0 0 auto;background:#fff;display:inline-block;vertical-align:-3px;position:relative}
   .rb.on{border-color:#22201d}
   .rb.on::after{content:"";position:absolute;inset:3px;border-radius:50%;background:#22201d}
   .sw{width:30px;height:18px;border-radius:999px;background:#dcd9d6;position:relative;display:inline-block;flex:0 0 auto}
@@ -510,6 +520,41 @@
   .pay.rev{color:#66645f;text-decoration:line-through}
   .pay .note{flex:1 1 100%;order:9;min-width:0}
 
+
+  /* year-end review (/year-end-review) */
+  .ysteps{display:flex;gap:0;flex-wrap:wrap;row-gap:6px;margin:0 0 16px;align-items:center}
+  .ystep{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#66645f;font-weight:500;white-space:nowrap}
+  .ystep i{width:20px;height:20px;border-radius:50%;border:1.5px solid #b5b1ad;background:#fff;font-style:normal;font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .ystep i svg{width:11px;height:11px}
+  .ystep.done{color:#1e6b3f}.ystep.done i{background:#1e6b3f;border-color:#1e6b3f;color:#fff}
+  .ystep.now{color:#22201d;font-weight:600}.ystep.now i{background:#ff692d;border-color:#ff692d;color:#22201d;box-shadow:0 0 0 3px #ffd9c9}
+  .ystep + .ystep::before{content:"";width:28px;height:1px;background:#cfcbc7;margin:0 10px}
+  .ysteps-c{display:none;align-items:center;gap:10px;margin:0 0 12px;font-size:12.5px;font-weight:600;color:#22201d}
+  .ysteps-c .bar{flex:1;height:4px;background:#e6e2de;border-radius:2px;overflow:hidden}.ysteps-c .bar i{display:block;height:100%;background:#ff692d}
+  .yhint-s{display:none}
+  .yb.none .yb-head{grid-template-columns:auto minmax(0,1fr) auto auto}
+  .yb-inl{display:flex;gap:8px;align-items:center;white-space:nowrap}
+  .ycred{margin-top:10px;padding:8px 12px;background:#fff;border:1px solid #ebe8e5;border-radius:10px}
+  .ycred .pay{padding:6px 0}
+  .ybar{display:flex;gap:12px;align-items:center;margin:0 0 12px;flex-wrap:wrap}
+  .ybar .hint{flex:1 1 320px}
+  .yb{background:#fff;border:1px solid #dcd9d6;border-radius:12px;padding:12px 14px;margin:0 0 10px;position:relative;border-left:4px solid #dcd9d6}
+  .yb.price{border-left-color:#8a5a00}.yb.ended{border-left-color:#0f6e73}
+  .yb-head{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center}
+  .yb-body{margin-top:10px;padding-top:10px;border-top:1px solid #ebe8e5}
+  .pair3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 12px}
+  .ycalc{background:#faf9f8;border:1px solid #ebe8e5;border-radius:10px;padding:8px 12px}
+  .ycalc-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .yformula{font-size:12.5px;margin:8px 0 2px;color:#22201d;font-variant-numeric:tabular-nums}
+  .ysplit{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .ysplit .chip{padding:2px 8px 2px 3px;gap:6px}
+  .yb-next{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #dcd9d6}
+  .yfoot{display:flex;gap:8px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid #dcd9d6}
+  .seg.ysg span{padding:5px 10px}
+  .yc-row{grid-template-columns:1.1fr .7fr .8fr 1.4fr}
+  .brk .row .f.cr{color:#0f6e73}
+  .pay .amt + .st{flex:0 0 auto}
+
   /* ---------- tablet: ≤ 900px container ---------- */
   @container frame (max-width: 900px) and (min-width: 601px){
     .sbar{display:flex;height:28px;padding:4px 22px 0;font-size:12px}
@@ -529,6 +574,7 @@
     .hh-head{grid-template-columns:minmax(0,1fr) auto auto;row-gap:10px}
     .hh-head .figs{grid-column:1 / -1}
     .hh-head .stwrap{grid-row:1;grid-column:2}
+    .yrev .hh-head .stwrap{grid-row:auto;grid-column:1 / -1;justify-self:start}
     .hh-head .chev{grid-row:1;grid-column:3}
     .hh-head .figs .fig{flex:1}
     .figs{gap:12px}
@@ -623,6 +669,34 @@
     .evt{flex-direction:column;gap:2px}.evt .dt{width:auto}
     .pm{flex-wrap:wrap}
     .pm .ctl{flex:0 0 100%;justify-content:flex-start;margin-top:4px}
+
+    .ysteps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+    .ystep{flex-direction:column;gap:4px;font-size:10.5px;white-space:normal;text-align:center;align-items:center}
+    .ysteps{display:none}.ysteps-c{display:flex}
+    .yhint-l{display:none}.yhint-s{display:block}
+    .yhead{gap:6px}.yhead .ttl{font-size:21px}.yhead .btnrow{justify-content:flex-end}
+    .btn{min-height:44px;padding:10px 16px;font-size:13.5px}
+    .btn.sm{min-height:40px;padding:8px 14px;font-size:12.5px}
+    .ico-btn{width:44px;height:44px}
+    .in{min-height:44px;font-size:14px}
+    .cb,.rb{width:20px;height:20px}
+    .seg span{min-height:38px;display:inline-flex;align-items:center;justify-content:center}
+    .ystep + .ystep::before{display:none}
+    .ystep .ylbl{line-height:1.2}
+    .yb-head{grid-template-columns:auto minmax(0,1fr)}
+    .yb.none .yb-head{grid-template-columns:auto minmax(0,1fr)}
+    .yb.none .yb-inl{grid-column:1 / -1;flex-wrap:wrap;white-space:normal}
+    .yb-head .seg{grid-column:1 / -1;width:100%;justify-content:space-between}
+    .yb-head .seg span{flex:1;text-align:center;padding:5px 4px;font-size:12px;min-height:38px}
+    .pair3{grid-template-columns:1fr}
+    .yb-next .in{width:100% !important}
+    .yrev .hh-head .stwrap{grid-row:auto}
+    .composer .row.yc-row{grid-template-columns:1fr}
+    .yfoot{flex-wrap:wrap}
+    .yfoot .btn{flex:1 1 auto}
+    .ybar .btn{width:100%}
+    .kpis[style*="repeat(4"]{grid-template-columns:1fr 1fr !important}
+    .hh-tot[style*="grid"]{font-size:12.5px}
   }
 </style>
 </head>
@@ -630,7 +704,7 @@
 
 <h1 id="sec-intro"><span class="wm">Friends &amp; Family Billing</span>—redesign wireframes, every screen at three widths</h1>
 <p class="sub">One product, one source per screen, drawn three times. Each frame renders the same markup inside a desktop (1280×800), tablet (834×1112) and phone (390×844) canvas—drawn as a macOS window, an iPad and an iPhone respectively, with the device chrome outside the canvas so the container width stays exact; the layout re-flows per width with container queries, so a tablet or phone frame shows the responsive proposal, not a shrunken desktop. Every frame carries a stable anchor of the form <code>#fx-&lt;screen&gt;-&lt;state&gt;-&lt;width&gt;</code> (<code>desk</code> / <code>tab</code> / <code>ph</code>). Captions under the desktop frame describe the state; captions under the tablet and phone frames describe only what changes at that width.</p>
-<p class="sub">This document proposes a <b>full visual and interaction redesign</b> of the shipped React app (<code>src/app/**</code>). Every screen keeps the shipped behaviour—the controls, the states, the copy that the glossary already gets right—and redraws it in one visual system. Where an element was confusing it is changed, chipped <span class="rd inl">Redesign <b>NN</b></span> inside the frame, explained in the screen's legend (citing the current file) and collected in the <a href="#sec-summary">summary table</a> at the end. Terms follow <code>CONTEXT.md</code>: Administrator, Member, Household, Credit, Refund, Carry-forward, Usage Charge, Service Credit, Review Request (never “dispute” in UI copy), Refund Notice, Charge Notice. The snapshot is <b>Wed Oct 21, 2026</b>; the active year is <b>2026 · Open</b>. All sample data—people, bills, amounts—is invented and internally consistent.</p>
+<p class="sub">This document proposes a <b>full visual and interaction redesign</b> of the shipped React app (<code>src/app/**</code>). Every screen keeps the shipped behaviour—the controls, the states, the copy that the glossary already gets right—and redraws it in one visual system. Where an element was confusing it is changed, chipped <span class="rd inl">Redesign <b>NN</b></span> inside the frame, explained in the screen's legend (citing the current file) and collected in the <a href="#sec-summary">summary table</a> at the end. Terms follow <code>CONTEXT.md</code>: Administrator, Member, Household, Credit, Refund, Carry-forward, Usage Charge, Service Credit, Review Request (never “dispute” in UI copy), Refund Notice, Charge Notice. The snapshot is <b>Wed Oct 21, 2026</b>; the active year is <b>2026 · Open</b>—except the <a href="#sec-year-end">Year-End Review</a> group and the 2027 frames it changes, drawn at <b>Tue Dec 8, 2026</b> (2026 · Settling) and after the rollover (2027 · Open). All sample data—people, bills, amounts—is invented and internally consistent.</p>
 
 <p class="sub callout"><b>How to read a frame.</b>
 <br>· <b>Chips above a frame</b> name the width and whether the frame is <span class="fchip current" style="vertical-align:middle">current</span> (mirrors shipped behaviour in the new skin), <span class="fchip redesign" style="vertical-align:middle">redesign</span> (one or more interface changes, each chipped inside the frame) or a <span class="fchip state" style="vertical-align:middle">state</span> (empty / loading / error / variant of a screen).
@@ -675,6 +749,7 @@ const LUCIDE = {
 "calendar": "<path d=\"M8 2v4\"/> <path d=\"M16 2v4\"/> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\"/> <path d=\"M3 10h18\"/>",
 "check": "<path d=\"M20 6 9 17l-5-5\"/>",
 "chevron-down": "<path d=\"m6 9 6 6 6-6\"/>",
+"chevron-left": "<path d=\"m15 18-6-6 6-6\"/>",
 "chevron-right": "<path d=\"m9 18 6-6-6-6\"/>",
 "chevron-up": "<path d=\"m18 15-6-6-6 6\"/>",
 "clock": "<circle cx=\"12\" cy=\"12\" r=\"10\"/> <path d=\"M12 6v6l4 2\"/>",
@@ -880,6 +955,16 @@ function dashEmpty(o = {}) {
      <div class="btnrow" style="justify-content:center;margin-top:14px">${btn(ic('plus') + ' Add members', 'ink')}${btn(ic('plus') + ' Add bills')}${rdi(19)}</div></div>`;
 }
 function dashboard(state, x = {}) {
+  if (state === 'yearend') return dashboardYearEnd();
+  if (state === 'stale') {
+    const inner = `<div class="hint" style="margin-bottom:10px">2026 was changed in another tab or device at <b>3:12 pm</b>. To avoid writing over those changes, nothing you did here since your last successful save at <b>3:09 pm</b> was saved—this tab is read-only until it reloads.${rdi(34)}${an(1)}</div>
+      <div class="card flat" style="padding:8px 12px;margin:0 0 10px"><div class="eyebrow" style="margin-bottom:4px">Not saved since 3:09 pm · 3 changes</div>
+        <div class="pay"><span>${av('ada', 'sm')}</span><span class="grow"><b>Payment recorded</b> · Ada Okafor<div class="xs dim">3:10 pm · Venmo</div></span><span class="amt num">$50.00</span></div>
+        <div class="pay"><span>${logo('mm', 'sm')}</span><span class="grow"><b>Service credit</b> · Meridian Music · “Outage, March”<div class="xs dim">3:11 pm · 3 members</div></span><span class="amt num">$12.00</span></div>
+      <div class="pay"><span>${av('kenji', 'sm')}</span><span class="grow"><b>Member edited</b> · Kenji Nakamura · phone number<div class="xs dim">3:11 pm · no event—found by comparing the unsaved data</div></span><span class="amt num"></span></div></div>
+      <div class="xs dim">This list is kept on this device and shown again after you reload, so you can record the changes against the current data. Nothing is merged for you. If it cannot be kept on this device, you are told so and asked to copy it before reloading.${an(2)}</div>`;
+    return dashboard('populated', { noRd: true, after: dlg('Reload to continue', inner, btn(ic('copy') + ' Copy details', 'ghost') + btn(ic('refresh-cw') + ' Reload', 'ink'), {}) });
+  }
   if (state === 'loading') return shell('dashboard', `<div class="center" style="min-height:300px"><span class="dim">Loading…</span></div>`);
   if (state === 'empty') return shell('dashboard', dashEmpty(), { year: { label: '2027', status: 'open' } });
   if (state === 'closed') {
@@ -948,24 +1033,27 @@ function billCard(id, o = {}) {
        <div class="cbgrid">${Object.keys(M).map(k => `<span class="optrow" style="margin:0"><span class="cb ${BILL_MEMBERS[id].includes(k) ? 'on' : ''}"></span>${M[k].n}</span>`).join('')}</div></div>`
     : `<div class="bill-split"><span class="split-avs">${avs(BILL_MEMBERS[id].slice(0, 4), 'sm')}${BILL_MEMBERS[id].length > 4 ? `<span class="xs dim">+${BILL_MEMBERS[id].length - 4}</span>` : ''}</span><span class="sm dim splt">${b.n_m} members · ${per}${o.an ? an(o.an) : ''}</span>${o.ro ? '' : `<span class="sp"></span>${btn('Edit split', 'sm')}`}</div>`;
   return `<div class="bill"><div class="bill-head">${logo(id, 'lg')}<div style="min-width:0"><div><b style="font-size:14px">${b.n}</b></div><div class="xs dim ellip">${b.site ? b.site.replace('https://', '') + ' · ' : ''}${cadence}</div></div>
-    <div class="bill-amt"><div class="a num">${money(b.amt)} <span class="dim" style="font-weight:400;font-size:12px">/ ${b.f === 'yr' ? 'year' : 'month'}</span></div></div>
+    <div class="bill-amt"><div class="a num">${money(o.amt || b.amt)} <span class="dim" style="font-weight:400;font-size:12px">/ ${b.f === 'yr' ? 'year' : 'month'}</span></div></div>
     ${o.ro ? '' : `<span class="acts">${o.rd7 ? rdi(7) : ''}<span class="ico-btn ghost" title="Edit name or amount">${ic('pencil')}</span><span class="ico-btn ghost">${ic('ellipsis')}</span></span>`}</div>${split}
     ${o.menu ? `<div class="menu-pop" style="right:14px;top:44px"><div>${ic('history')} View history</div><div class="on">${ic('receipt')} Issue service credit…</div><div>${ic('refresh-cw')} Convert to ${b.f === 'yr' ? 'monthly' : 'annual'}</div><div>${ic('link')} ${b.site ? 'Edit website' : 'Add website'}</div>${b.site ? `<div>${ic('external-link')} Open website</div>` : ''}<div>${ic('upload')} Upload logo</div><div class="sep"></div><div class="dng">${ic('trash-2')} Remove bill…</div></div>` : ''}</div>`;
 }
 function bills(state, x = {}) {
-  const head = `<div class="pagehead"><div><h1 class="ttl">Bills</h1><div class="hint">${state === 'empty' ? 'No bills yet' : '5 bills · $2,844.00 a year across 9 members · 2026'}</div></div><div class="btnrow">${btn(state === 'empty' ? '− Cancel' : ic('plus') + ' Add bill', state === 'empty' ? '' : 'ink')}</div></div>`;
+  const head = `<div class="pagehead"><div><h1 class="ttl">Bills</h1><div class="hint">${state === 'empty' ? 'No bills yet' : x.y27 ? '5 bills · $3,167.88 a year across 9 members · 2027' : '5 bills · $2,844.00 a year across 9 members · 2026'}</div></div><div class="btnrow">${btn(state === 'empty' ? '− Cancel' : ic('plus') + ' Add bill', state === 'empty' ? '' : 'ink')}</div></div>`;
   const composer = `<div class="composer"><div class="row"><div class="in focus">Bill name<span class="caret-i"></span></div><div class="in ph">Amount</div><span class="seg"><span class="on">Monthly</span><span>Annual</span></span></div>
     <div class="row" style="margin-top:10px;grid-template-columns:1fr"><div class="in ph">Website (optional)—https://…</div></div>
     <div class="btnrow" style="margin-top:10px;justify-content:space-between"><span class="hint">Name and amount are required. Assign members after adding.${an(1)}</span>${btn('Add bill', 'ink sm')}</div></div>`;
   if (state === 'empty') return shell('manage', subtabs('bills', { bills: 0, reviews: 0 }) + head + composer + `<div class="empty"><div class="ttl">No bills yet</div><div>Add bills and assign members to split costs.</div></div>`);
-  const ids = Object.keys(B);
-  const body = subtabs('bills') + head + ids.map((id, i) => billCard(id, { rd7: i === 0 && !x.noRd, split: id === 'hc' && !x.noSplit, menu: x.menu === id, an: i === 0 ? 2 : (id === 'hc' ? 3 : 0) })).join('');
-  return shell('manage', body, { after: x.after || '' });
+  const ids = x.y27 ? ['nl', 'cs', 'hc', 'mm'] : Object.keys(B);
+  const amt27 = { nl: 198, cs: 26, hc: 144, mm: 18 };
+  const lumen = x.y27 ? `<div class="bill"><div class="bill-head"><span class="logo lg b2" style="background:#dcf0ef;color:#0f6e73">LF</span><div style="min-width:0"><div><b style="font-size:14px">Lumen Fiber Backup</b></div><div class="xs dim ellip">lumen.example · Billed monthly · annualized ≈ $119.88</div></div><div class="bill-amt"><div class="a num">$9.99 <span class="dim" style="font-weight:400;font-size:12px">/ month</span></div></div><span class="acts"><span class="ico-btn ghost">${ic('pencil')}</span><span class="ico-btn ghost">${ic('ellipsis')}</span></span></div><div class="bill-split"><span class="split-avs">${avs(['kenji', 'dede', 'sam'], 'sm')}</span><span class="sm dim splt">3 members · $3.33 per person monthly</span><span class="sp"></span>${btn('Edit split', 'sm')}</div></div>` : '';
+  const body = subtabs('bills') + head + ids.map((id, i) => billCard(id, { rd7: i === 0 && !x.noRd, split: id === 'hc' && !x.noSplit, menu: x.menu === id, an: i === 0 ? 2 : (id === 'hc' ? 3 : 0), amt: x.y27 ? amt27[id] : 0 })).join('') + lumen;
+  return shell('manage', body, { after: x.after || '', year: x.y27 ? { label: '2027', status: 'open' } : undefined });
 }
 
 // ---- Manage → Invoicing ----------------------------------------------------
 const tok = (l, k = '') => `<span class="tok ${k}">${l}</span>`;
 function invoicing(state) {
+  if (state === 'preview-carried') return invoicingPreviewCarried();
   const preview = state === 'preview', slash = state === 'slash';
   const bar = `<div class="pagehead mid" style="margin-bottom:12px"><div style="flex:0 1 auto"><h1 class="ttl">Invoicing</h1></div>
     <div class="btnrow invbar" style="flex:1 1 auto"><span class="seg"><span class="${preview ? '' : 'on'}">Edit</span><span class="${preview ? 'on' : ''}">Preview</span></span>${preview ? '' : chip('Unsaved changes', 'emb')}${preview ? btn(ic('send') + ' Send test email') : btn('Save template', 'ink')}${an(1)}</div></div>`;
@@ -1042,16 +1130,17 @@ function settings(state, x = {}) {
   const pm = (p, i) => `<div class="pm ${p.on ? '' : 'off'}"><span class="ic ${p.cls}">${p.ic}</span><div class="grow"><div><b>${p.l}</b> ${p.pref ? chip(ic('star') + ' Preferred', 'emb') : ''} ${p.qr ? chip(ic('qr-code') + ' QR code', 'line') : ''}</div><div class="xs dim ellip">${p.d}</div></div>
     <span class="acts ctl"><span class="pref sm gr">${p.pref ? '' : 'Set preferred'}</span><span class="sm ${p.on ? '' : 'dim'}">${p.on ? 'Shown' : 'Hidden'}</span><span class="sw ${p.on ? 'on' : ''}"></span><span class="ico-btn ghost">${ic('ellipsis')}</span>${i === 0 ? an(3) : ''}</span></div>`;
   const body = `<div class="pagehead"><div><h1 class="ttl">Settings</h1><div class="hint">Billing years and the payment methods shown on invoices and share pages.</div></div></div>
-    <div class="card" style="margin-bottom:14px;position:relative"><div class="eyebrow">Billing controls</div>
-      <div class="pair" style="align-items:end"><div class="field"><span class="lbl">Active year</span><div class="in">2026 (Open) ${ic('chevron-down', 'caret')}</div></div><div class="field"><div class="btnrow">${btn(ic('plus') + ' Start new year', 'ink')}${an(1)}</div></div></div>
-      <div class="hint">Forward moves—Start settlement, Close year, Archive—live on the Dashboard, next to the year’s progress.</div></div>
+    <div class="card" style="margin-bottom:14px;position:relative"><div class="eyebrow">Billing year${rdi(26)}</div>
+      <div class="pair" style="align-items:end"><div class="field"><span class="lbl">Active year</span><div class="in">${x.exists ? '2026 (Closed)' : '2026 (Open)'} ${ic('chevron-down', 'caret')}</div></div><div class="field"><div class="btnrow">${btn(ic('arrow-right') + ' Review &amp; start 2027', x.exists ? 'ink off' : 'ink')}${an(1)}</div></div></div>
+      <div class="hint">${x.exists ? '<b>2027 already exists.</b> Record new charges, credits and refunds in 2027, the open year; a closed year is corrected forward.' : 'The review catches up mid-year price changes, adds subscriptions that started this year, folds in member charges and sets 2027’s prices before 2027 is created. Nothing is saved until its last step.'} Forward moves—Start settlement, Close year, Archive—live on the Dashboard, next to the year’s progress.</div></div>
     <div class="card" style="margin-bottom:14px;position:relative;border-style:dashed"><div class="eyebrow">Correct a closed year${rdi(11)}</div>
       <div class="hint" style="margin-bottom:10px">Reopening is for fixing that year’s own ledger—for example a payment recorded against the wrong year. Refunds, charges and credits for a closed year are handled forward, in the open year, because undisposed balances carry into it at close.${an(2)}</div>
-      <div class="btnrow">${btn('Back to open', 'sm off')}${btn('Reopen to settling', 'sm off')}<span class="xs dim">Available when the active year is settling or closed. 2026 is open—nothing to correct.</span></div></div>
+      <div class="btnrow">${btn('Back to open', 'sm off')}${btn('Reopen to settling', x.exists ? 'sm' : 'sm off')}<span class="xs dim">${x.exists ? 'Available when the active year is settling or closed. 2026 is closed; reopening it does not touch 2027.' : 'Available when the active year is settling or closed. 2026 is open—nothing to correct.'}</span></div></div>
     <div class="card" style="position:relative"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><div class="eyebrow">Payment methods${rdi(12)}</div><div class="hint">Shown on invoices and share pages. Hidden methods stay configured but are not shown.</div></div></div>
       <div style="margin-top:6px">${PMS.map(pm).join('')}</div>
       <div class="hr"></div><div class="btnrow"><div class="in" style="min-width:170px">PayPal ${ic('chevron-down', 'caret')}</div>${btn(ic('plus') + ' Add payment method', 'sm')}<span class="xs dim">Apple Cash and Other are also available.</span></div></div>`;
   let after = x.after || '';
+  if (state === 'exists') return settings('populated', { exists: true });
   if (state === 'editing') after = `<div class="modal"><div class="dlg"><div class="grab"></div><div class="dlg-h"><h2 class="ttl">Edit Venmo</h2></div>
     <div class="field"><span class="lbl">Display label</span><div class="in">Venmo</div></div>
     <div class="field"><span class="lbl">Handle / username</span><div class="in">@Morgan-Reyes-Example</div></div>
@@ -1059,7 +1148,7 @@ function settings(state, x = {}) {
     <div class="field"><span class="lbl">Instructions (optional)</span><div class="in ph">Additional payment instructions…</div></div>
     <div class="field"><span class="lbl">QR code (optional)</span><div style="display:flex;gap:12px;align-items:center"><span class="qr"></span><div><div class="btnrow">${btn('Replace', 'sm')}${btn('Remove', 'sm ghost')}</div><div class="xs dim" style="margin-top:6px">PNG or JPEG. Shown on the share page behind “Show QR code”.${an(4)}</div></div></div></div>
     <div class="dlg-f">${btn('Cancel', 'ghost')}${btn('Save', 'ink')}</div></div></div>`;
-  return shell('settings', body, { after });
+  return shell('settings', body, { after, year: x.exists ? { label: '2026', status: 'closed' } : undefined });
 }
 </script>
 <script>
@@ -1078,6 +1167,7 @@ const pmCards = (owed, canReview = true) => `<div class="sh-sec"><div class="h2"
   <div class="pmgrid"><div class="pmc"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic z">Z</span></span><b>Zelle</b></div><div class="row"><span class="ellip">morgan@example.com</span>${btn('Copy', 'sm')}</div><div class="row"><span>+1 415 555 0142</span>${btn('Copy', 'sm')}</div></div>
     <div class="pmc"><div style="display:flex;align-items:center;gap:10px"><span class="pm"><span class="ic c">✓</span></span><b>Check</b></div><div class="row"><span>Payee: Morgan Reyes</span>${btn('Copy', 'sm')}</div><div class="row"><span class="ellip">9 Example Court, Anytown, ST 00000</span>${btn('Copy', 'sm')}</div></div></div></div>`;
 function share(state, x = {}) {
+  if (state === 'carried') return shareCarried(x);
   if (state === 'loading' || state === 'timeout') return shareWrap(`<div class="card" style="text-align:center;margin-top:60px;padding:30px"><div class="spin"></div><div class="ttl" style="font-size:22px">Loading your annual billing summary…</div><div class="hint" style="margin-top:6px">This secure page is preparing your latest billing details.</div>
     ${state === 'timeout' ? `<div class="hr"></div><div class="hint" style="margin-bottom:10px">This is taking longer than expected.${an(5)}</div>${btn('Retry', 'ink sm')}` : ''}</div>`);
   if (state === 'error') return shareWrap(`<div class="card" style="text-align:center;margin-top:60px;padding:30px"><div class="ttl" style="font-size:22px">Unable to load summary</div><div class="hint" style="margin:6px 0 14px">This link has expired or has been removed.${an(5)}</div>${btn('Request a new link', 'ink')}<div class="xs dim" style="margin-top:10px">The administrator is notified and can send you a fresh link.</div></div>`);
@@ -1117,12 +1207,280 @@ function share(state, x = {}) {
       : `<div class="req inrev"><div class="top"><b>Northline Mobile</b><span class="sp"></span>${st('inrev')}</div><div class="xs dim" style="margin-top:4px">Jun 2, 2026</div><p class="msg">Our line count went from 2 to 1 in March, but the split still shows two lines for us.</p></div>`}</div>`, x.after);
 }
 
+// ---- Year-End Review (/year-end-review) ------------------------------------
+// Drawn at a LATER snapshot than the rest of the document: Tue Dec 8, 2026, 2026 · Settling, every
+// household's 2026 invoice paid. The review's own sample data (all figures add up—see the group intro):
+//   Northline Mobile $180 → $198/mo from July: (198 − 180) × 6 = $108.00 ÷ 9 = $12.00 each.
+//   Harbor Cloud Storage $120 → $144/yr from March: (144 − 120) ÷ 12 × 10 = $20.00 ÷ 4 = $5.00 each.
+//   Pinecone Vault ended after August: $60 ÷ 12 × 4 = $20.00 Service Credit ÷ 5 = $4.00 each; absent from 2027.
+//   Cloudstream Family unchanged in 2026; $26/mo from January 2027 (next-year price only, no True-up).
+//   Lumen Fiber Backup (new) $9.99/mo from September, Kenji · Dede · Sam: 9.99 × 4 = $39.96 ÷ 3 = $13.32 each.
+//   Member charges already recorded (deferred): Dede $38.50 (Jul 14), Kenji $12.00 (Aug 2), Maja $30.00 activation fee (Nov 3).
+//   Credits before the review: Okafor $22.00 overpayment; Rosa $36.00 (the October Service Credit on Meridian Music).
+const YE = { date: 'Dec 8, 2026', year: { label: '2026', status: 'settling' }, next: '2027' };
+const YE_BILLS = {
+  nl: { change: 'price', to: 198, first: 'Jul', months: 6, gross: 108, each: 12, next: 198 },
+  cs: { change: 'none', next: 26, nextNote: '$26.00 from January 2027—announced, no 2026 change' },
+  hc: { change: 'price', to: 144, first: 'Mar', months: 10, gross: 20, each: 5, next: 144 },
+  mm: { change: 'none', next: 18 },
+  pv: { change: 'ended', last: 'Aug', months: 4, gross: 20, each: 4 },
+};
+const YE_NEW = { n: 'Lumen Fiber Backup', amt: 9.99, f: 'mo', site: 'https://lumen.example', m: ['kenji', 'dede', 'sam'], first: 'Sep', months: 4, gross: 39.96, each: 13.32 };
+const YE_CHARGES = { lindqvist: [['maja', 30, 'Activation fee', 'Nov 3, 2026']], nakamura: [['dede', 38.5, 'Roaming overage—Lisbon trip', 'Jul 14, 2026'], ['kenji', 12, 'International calls', 'Aug 2, 2026']] };
+// Per-household preview. items: [memberKey|'hh', signed amount, member-facing sentence, detail?]
+const YE_HH = [
+  { id: 'okafor', name: 'Okafor household', m: ['ada', 'tobi', 'zara'], contact: 'ada', bills26: 978, bills27: 1056, per27: { ada: 352, tobi: 388, zara: 316 }, carried: 15, first: 1071,
+    items: [['hh', -26, 'Your household’s 2026 credit', [['Pinecone Vault ended in August', -4, 'Ada'], ['Other 2026 overpayment', -22]]],
+      ['ada', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['ada', 5, 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.'],
+      ['tobi', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['zara', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.']] },
+  { id: 'lindqvist', name: 'Lindqvist household', m: ['erik', 'maja'], contact: 'erik', bills26: 618, bills27: 668, per27: { erik: 352, maja: 316 }, carried: 55, first: 723,
+    items: [['hh', -4, 'Your household’s 2026 credit', [['Pinecone Vault ended in August', -4, 'Erik']]],
+      ['erik', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['erik', 5, 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.'],
+      ['maja', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['maja', 30, 'Activation fee (Nov 3).']] },
+  { id: 'nakamura', name: 'Nakamura–Osei household', m: ['kenji', 'dede'], contact: 'kenji', bills26: 606, bills27: 715.92, per27: { kenji: 339.96, dede: 375.96 }, carried: 98.14, first: 814.06,
+    items: [['hh', -8, 'Your household’s 2026 credit', [['Pinecone Vault ended in August', -4, 'Kenji'], ['Pinecone Vault ended in August', -4, 'Dede']]],
+      ['kenji', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['kenji', 5, 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.'], ['kenji', 13.32, 'Lumen Fiber Backup started in September at $9.99 a month. Your share of four months.'], ['kenji', 12, 'International calls (Aug 2).'],
+      ['dede', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['dede', 13.32, 'Lumen Fiber Backup started in September at $9.99 a month. Your share of four months.'], ['dede', 38.5, 'Roaming overage—Lisbon trip (Jul 14).']] },
+  { id: 'rosa', name: 'Rosa Delgado', m: ['rosa'], contact: 'rosa', bills26: 372, bills27: 388, per27: { rosa: 388 }, carried: -28, first: 360,
+    items: [['hh', -40, 'Your 2026 credit', [['Pinecone Vault ended in August', -4, 'Rosa'], ['Other 2026 overpayment', -36]]],
+      ['rosa', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.']] },
+  { id: 'sam', name: 'Sam Whitfield', m: ['sam'], contact: 'sam', bills26: 270, bills27: 339.96, per27: { sam: 339.96 }, carried: 30.32, first: 370.28,
+    items: [['sam', 12, 'Northline Mobile went from $180 to $198 a month in July. Your share of six months.'], ['sam', 5, 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.'], ['sam', 13.32, 'Lumen Fiber Backup started in September at $9.99 a month. Your share of four months.']] },
+];
+// “Nothing changed”: no bill changes, no new subscriptions, no added charges—only what already carries.
+const YE_HH_NOTHING = [
+  { id: 'okafor', name: 'Okafor household', m: ['ada', 'tobi', 'zara'], contact: 'ada', bills26: 978, bills27: 978, per27: { ada: 330, tobi: 360, zara: 288 }, carried: -22, first: 956, items: [['hh', -22, 'Your household’s 2026 credit', [['Other 2026 overpayment', -22]]]] },
+  { id: 'lindqvist', name: 'Lindqvist household', m: ['erik', 'maja'], contact: 'erik', bills26: 618, bills27: 618, per27: { erik: 330, maja: 288 }, carried: 30, first: 648, items: [['maja', 30, 'Activation fee (Nov 3).']] },
+  { id: 'nakamura', name: 'Nakamura–Osei household', m: ['kenji', 'dede'], contact: 'kenji', bills26: 606, bills27: 606, per27: { kenji: 282, dede: 324 }, carried: 50.5, first: 656.5, items: [['kenji', 12, 'International calls (Aug 2).'], ['dede', 38.5, 'Roaming overage—Lisbon trip (Jul 14).']] },
+  { id: 'rosa', name: 'Rosa Delgado', m: ['rosa'], contact: 'rosa', bills26: 372, bills27: 372, per27: { rosa: 372 }, carried: -36, first: 336, items: [['hh', -36, 'Your 2026 credit', [['Other 2026 overpayment', -36]]]] },
+  { id: 'sam', name: 'Sam Whitfield', m: ['sam'], contact: 'sam', bills26: 270, bills27: 270, per27: { sam: 270 }, carried: 0, first: 270, items: [] },
+];
+const signed = n => (n < 0 ? '−' : '+') + money(Math.abs(n));
+const monthsWord = n => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'][n];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const yeSteps = (on) => {
+  const S = [['bills', 'Bills'], ['new', 'New subscriptions'], ['charges', 'Member charges'], ['review', `Review &amp; start ${YE.next}`]];
+  const i = S.findIndex(([k]) => k === on);
+  return `<div class="ysteps">${S.map(([k, l], j) => `<span class="ystep ${j < i ? 'done' : j === i ? 'now' : ''}"><i>${j < i ? ic('check') : j + 1}</i><span class="ylbl">${l}</span></span>`).join('')}</div>`;
+};
+const yeStepsCompact = (on) => {
+  const S = [['bills', 'Bills'], ['new', 'New subscriptions'], ['charges', 'Member charges'], ['review', `Review &amp; start ${YE.next}`]];
+  const i = S.findIndex(([k]) => k === on);
+  return `<div class="ysteps-c"><span>Step ${i + 1} of 4 · ${S[i][1]}</span><span class="bar"><i style="width:${(i + 1) * 25}%"></i></span></div>`;
+};
+const yeHead = (step, o = {}) => `<div class="pagehead yhead"><div><div class="eyebrow">Year-End Review · ${YE.date}</div><h1 class="ttl">Review 2026 and start ${YE.next}${o.rd ? rdi(26) : ''}</h1><div class="hint yhint-l">Nothing is saved until you press Start ${YE.next}. Your draft is kept on this device.${o.an ? an(o.an) : ''}</div><div class="hint yhint-s">Draft kept on this device · nothing is saved until Start.</div></div>
+  <div class="btnrow">${o.lock ? `<span class="xs dim">${ic('lock')} Locked while ${YE.next} starts</span>` : btn('Discard draft', 'ghost sm')}</div></div>${yeSteps(step)}${yeStepsCompact(step)}`;
+const yeFoot = (back, next, o = {}) => `<div class="yfoot">${back ? btn(ic('chevron-left') + ' Back', 'ghost') : '<span></span>'}<span class="sp"></span>${btn(next + ' ' + ic('arrow-right'), o.off ? 'ink off' : 'ink')}</div>`;
+const yeSeg = (on) => `<span class="seg ysg"><span class="${on === 'none' ? 'on' : ''}">Unchanged</span><span class="${on === 'price' ? 'on' : ''}">Price changed</span><span class="${on === 'ended' ? 'on' : ''}">Ended</span></span>`;
+const yeSplit = (ids, each) => `<div class="ysplit">${ids.map(k => `<span class="chip line">${av(k, 'sm')} ${first(k)} <b class="num">${money(each)}</b></span>`).join('')}</div>`;
+function yeBillRow(id, o = {}) {
+  const b = B[id], r = YE_BILLS[id], unit = b.f === 'yr' ? 'year' : 'month';
+  const inl = r.change === 'none' ? `<div class="yb-inl"><span class="lbl" style="margin:0">${YE.next} price / ${unit}</span><div class="in" style="width:96px">${money(r.next).slice(1)}</div><span class="xs dim">${r.nextNote ? r.nextNote : 'Unchanged'}</span>${o.nan ? an(o.nan) : ''}</div>` : '';
+  const head = `<div class="yb-head">${logo(id, 'lg')}<div style="min-width:0"><div><b style="font-size:14px">${b.n}</b>${o.an ? an(o.an) : ''}</div><div class="xs dim">${money(b.amt)} / ${unit} · ${b.n_m} members · 2026</div></div>${yeSeg(r.change)}${inl}</div>`;
+  let body = '';
+  if (r.change === 'price') {
+    const err = o.err === id;
+    const ann = b.f === 'yr';
+    const formula = ann ? `(${money(r.to)} − ${money(b.amt)}) ÷ 12 × ${r.months} months = ${money(r.gross)} ÷ ${b.n_m} members = ${money(r.each)} each` : `(${money(r.to)} − ${money(b.amt)}) × ${r.months} months = ${money(r.gross)} ÷ ${b.n_m} members = ${money(r.each)} each`;
+    body = `<div class="yb-body"><div class="pair3">${F('New price / ' + unit, err && o.errKind === 'zero' ? '<span class="dim">0.00</span>' : money(r.to).slice(1), err && o.errKind === 'zero' ? 'err' : '')}${F('First month billed at it', err && o.errKind === 'month' ? '<span class="dim">Choose a month</span>' : SEL(r.first + ' 2026'), err && o.errKind === 'month' ? 'err' : '')}${F('True-up amount ($)', money(r.gross).slice(1) + (o.overr ? '' : '') )}</div>
+      ${err ? `<div class="alert">${ic('triangle-alert')} ${o.errKind === 'zero' ? 'Enter a price greater than $0.00.' : 'Choose the first month billed at ' + money(r.to) + '.'}${o.errAn ? an(o.errAn) : ''}</div>` : ''}
+      <div class="ycalc ${o.open ? 'open' : ''}"><div class="ycalc-h"><span class="st st-warn">${ic('clock')}True-up · ${money(r.gross)}</span><span class="dim sm">${r.months} months under-billed (${r.first}–Dec)</span><span class="sp"></span><span class="xs dim">${o.open ? 'hide math ▴' : 'show math ▾'}</span></div>
+        ${o.open ? `<div class="yformula num">${formula}${o.fan ? an(o.fan) : ''}</div><div class="xs dim" style="margin:4px 0 6px">Computed amount; edit the True-up amount above to override it—the formula stays on the record.</div>${yeSplit(BILL_MEMBERS[id], r.each)}` : ''}</div></div>`;
+  } else if (r.change === 'ended') {
+    const cred = o.credited === id;
+    const segc = (on, noFull) => `<span class="seg"><span class="${on === 'covers' ? 'on' : ''}" ${noFull ? 'style="opacity:.45;text-decoration:line-through" title="larger than the remaining share"' : ''}>Covers this change</span><span class="${on === 'partial' ? 'on' : ''}">Covers in part…</span><span class="${on === 'unrelated' ? 'on' : ''}">Unrelated</span></span>`;
+    const segp = (on) => segc(on, true);
+    const crow = (k, amt, ctl, note) => `<div class="pay"><span>${av(k, 'sm')}</span><span class="grow"><b>${M[k].n}</b>${note ? `<div class="xs dim">${note}</div>` : ''}</span><span class="amt num">${money(amt)}</span>${ctl}</div>`;
+    const credBlock = cred ? `<div class="ycred"><div class="sm" style="font-weight:600;margin:0 0 4px">Credits already on this bill in 2026${o.can ? an(o.can) : ''}</div><div class="xs dim" style="margin:0 0 8px">Answer for each credit, per member: Covers this change (all of it), Covers in part… (enter how much), or Unrelated. Next stays off until every one has an answer; the credits themselves are never changed.</div>
+        <div class="xs" style="font-weight:600;margin:6px 0 2px">Sep 2, 2026 · “Cancelled Pinecone Vault” · $15.00 across 5 members · from the Bills tab</div>
+        ${crow('ada', 3, segc('covers'), 'covers $3.00 of Ada’s $4.00')}${crow('erik', 3, segc('covers'), 'covers $3.00 of Erik’s $4.00')}${crow('kenji', 3, segc('covers'), 'covers $3.00 of Kenji’s $4.00')}${crow('dede', 3, segc('covers'), 'covers $3.00 of Dede’s $4.00')}${crow('rosa', 3, segc('covers'), 'covers $3.00 of Rosa’s $4.00')}
+        <div class="xs" style="font-weight:600;margin:10px 0 2px">Mar 14, 2026 · “Billing mistake” · Dede only</div>
+        ${crow('dede', 10, segc('unrelated'), 'a different matter—nothing applied')}
+        <div class="xs" style="font-weight:600;margin:10px 0 2px">Oct 20, 2026 · “Cancelled early—partial month” · Rosa only</div>
+        ${crow('rosa', 6, segp('partial'), 'larger than Rosa’s remaining $1.00, so “Covers this change” is unavailable—enter how much of it covers this change')}
+        <div style="display:flex;gap:8px;align-items:center;margin:2px 0 6px 34px"><span class="xs dim">Covering amount ($)</span><div class="in" style="width:90px">1.00</div><span class="xs dim">at most $1.00 (Rosa’s remaining share) and at most $6.00 (the credit)</span></div>
+        <div class="yformula num" style="margin-top:8px">${money(r.gross)} computed − $16.00 covered by earlier credits = <b>$4.00 to record</b> · Ada $1.00 · Erik $1.00 · Kenji $1.00 · Dede $1.00 · Rosa $0.00</div><div class="xs dim">Four $1.00 records; Rosa gets none. The covered ids and amounts are kept in the rollover audit. ${b.n} is still left out of ${YE.next}.</div></div>` : '';
+    body = `<div class="yb-body"><div class="pair3">${F('Last month of service', SEL(r.last + ' 2026'))}<div class="field"><span class="lbl">Service credit ($)</span><div class="in" ${cred ? 'style="background:#faf9f8;color:#66645f"' : ''}>${cred ? '4.00' : money(r.gross).slice(1)}</div></div><div class="field"><span class="lbl">Next year</span><div class="in" style="background:#faf9f8;color:#66645f">Left out of ${YE.next}</div></div></div>
+      <div class="ycalc open"><div class="ycalc-h">${cred ? `<span class="st st-credit">${ic('st-credit')}Service credit · $4.00</span><span class="dim sm">$20.00 computed · $16.00 covered by earlier credits</span>` : `<span class="st st-credit">${ic('st-credit')}Service credit · ${money(r.gross)}</span><span class="dim sm">${r.months} months unused (Sep–Dec)</span>`}</div>
+        <div class="yformula num">${money(b.amt)} / year ÷ 12 × ${r.months} months = ${money(r.gross)} ÷ ${b.n_m} members = ${money(r.each)} each</div>${cred ? '' : yeSplit(BILL_MEMBERS[id], r.each)}</div>${credBlock}</div>`;
+  }
+  const next = (r.change === 'ended' || r.change === 'none') ? '' : `<div class="yb-next"><span class="lbl" style="margin:0">${YE.next} price / ${unit}</span><div class="in" style="width:120px">${money(r.next).slice(1)}</div>${r.nextNote ? `<span class="xs dim">${r.nextNote}</span>` : r.change === 'price' ? `<span class="xs dim">Defaults to the new price.</span>` : `<span class="xs dim">Unchanged from 2026.</span>`}${o.nan ? an(o.nan) : ''}</div>`;
+  return `<div class="yb ${r.change}">${head}${body}${next}</div>`;
+}
+function yeBills(o = {}) {
+  const order = o.credited ? [o.credited, ...Object.keys(B).filter(k => k !== o.credited)] : Object.keys(B);
+  const rows = order.map(id => yeBillRow(id, { open: o.open === id, err: o.err, errKind: o.errKind, errAn: id === 'hc' ? o.errAn : 0, an: id === 'nl' ? o.an1 : 0, fan: id === 'nl' ? o.fan : 0, nan: id === 'cs' ? o.nan : 0, credited: o.credited, can: id === 'pv' ? o.can : 0 })).join('');
+  const bar = `<div class="ybar"><span class="hint">Every bill starts Unchanged. Mark the ones whose price changed or that ended during 2026, and confirm each bill’s ${YE.next} price.${o.rd ? rdi(27) : ''}</span><span class="sp"></span>${btn('No price changes this year', 'sm')}${o.an0 ? an(o.an0) : ''}</div>`;
+  const sum = o.err ? '' : o.credited ? `<div class="info" style="margin-top:12px">${ic('receipt')} <b>2 price changes · 1 ended (partly covered by earlier credits) · 2 unchanged.</b> True-ups $128.00 across 13 member shares; one $4.00 service credit across 4 (of $20.00 computed, $16.00 was already credited). Nothing is recorded yet.</div>` : `<div class="info" style="margin-top:12px">${ic('receipt')} <b>2 price changes · 1 ended · 2 unchanged.</b> True-ups $128.00 across 13 member shares; one $20.00 service credit across 5. Nothing is recorded yet.</div>`;
+  return yeHead('bills', { rd: o.rd, an: o.anH }) + bar + rows + sum + yeFoot(false, 'Next: new subscriptions', { off: !!o.err });
+}
+function yeNew(o = {}) {
+  const n = YE_NEW;
+  const row = `<div class="yb price"><div class="yb-head">${`<span class="logo lg b2" style="background:#dcf0ef;color:#0f6e73">LF</span>`}<div style="min-width:0"><div><b style="font-size:14px">${n.n}</b></div><div class="xs dim">lumen.example · new in 2026</div></div><span class="sp"></span>${btn(ic('trash-2') + ' Remove', 'ghost sm')}${o.an1 ? an(o.an1) : ''}</div>
+    <div class="yb-body"><div class="pair3">${F('Name', n.n)}${F('Price / month', '9.99')}<div class="field"><span class="lbl">Billed</span><span class="seg"><span class="on">Monthly</span><span>Annual</span></span></div></div>
+      <div class="pair3">${F('Website (for the logo)', 'https://lumen.example')}${F('First month of service', SEL('Sep 2026'))}${F('True-up amount ($)', '39.96')}</div>
+      <span class="lbl">Members</span><div class="cbgrid" style="margin:0 0 10px">${Object.keys(M).map(k => `<span class="optrow" style="margin:0"><span class="cb ${n.m.includes(k) ? 'on' : ''}"></span>${M[k].n}</span>`).join('')}</div>
+      <div class="ycalc open"><div class="ycalc-h"><span class="st st-warn">${ic('clock')}True-up · ${money(n.gross)}</span><span class="dim sm">${n.months} months of service in 2026 never billed (Sep–Dec)</span></div>
+        <div class="yformula num">${money(n.amt)} × ${n.months} months = ${money(n.gross)} ÷ ${n.m.length} members = ${money(n.each)} each${o.fan ? an(o.fan) : ''}</div>${yeSplit(n.m, n.each)}</div></div>
+    <div class="yb-next"><span class="lbl" style="margin:0">${YE.next} bill</span><span class="sm">${n.n} · ${money(n.amt)} / month · ${n.m.map(first).join(', ')}</span><span class="xs dim">Created in ${YE.next} with these members; absent from 2026’s bill list.${o.nan ? an(o.nan) : ''}</span></div></div>`;
+  const bar = `<div class="ybar"><span class="hint">Subscriptions that started during 2026 and were never billed. Empty is the usual case—skip ahead if there are none.${o.rd ? rdi(28) : ''}</span><span class="sp"></span>${btn(ic('plus') + ' Add subscription', 'sm')}</div>`;
+  return yeHead('new') + bar + row + yeFoot(true, 'Next: member charges');
+}
+function yeCharges(o = {}) {
+  const line = ([k, amt, d, date], ro) => `<div class="pay"><span>${av(k, 'sm')}</span><span class="grow"><b>${M[k].n}</b> · ${d}<div class="xs dim">${date}${ro ? ' · already recorded, carried once' : ''}</div></span><span class="amt num">${money(amt)}</span>${ro ? st('warn', 'Deferred') : btn(ic('trash-2'), 'ghost sm')}</div>`;
+  const hh = (h) => {
+    const rows = (YE_CHARGES[h.id] || []).map(c => line(c, true)).join('');
+    const composer = o.composer === h.id ? `<div class="composer" style="margin:10px 0 0"><div class="row yc-row">${F('Member', av(h.contact, 'sm') + ' ' + SEL(M[h.contact].n))}${F('Amount ($)', '6.00<span class="caret-i"></span>', 'focus')}${F('Date incurred', '2026-11-28')}${F('Description', 'Paper statement fee')}</div>
+      <div class="btnrow" style="margin-top:10px;justify-content:space-between"><span class="hint">Recorded when you start ${YE.next}, not now. Amount and description are required.${o.an2 ? an(o.an2) : ''}</span>${btn('Add to review', 'ink sm')}</div></div>` : '';
+    return `<div class="hcard"><div class="hcard-head">${avs(h.m, 'sm')}<div class="grow"><b>${h.name}</b><div class="xs dim">${h.m.length > 1 ? h.m.length + ' members' : 'Individual'}${rows ? '' : ' · no charges'}</div></div>${o.composer === h.id ? '' : btn(ic('plus') + ' Add charge', 'sm')}${h.id === 'lindqvist' && o.an1 ? an(o.an1) : ''}</div>${rows}${composer}</div>`;
+  };
+  const bar = `<div class="ybar"><span class="hint">Charges members ran up during 2026 that were never billed. Deferred charges already on record are listed and carried once; add anything that is missing.${o.rd ? rdi(29) : ''}</span></div>`;
+  return yeHead('charges') + bar + YE_HH.map(hh).join('') + yeFoot(true, `Next: review &amp; start ${YE.next}`);
+}
+const PEND = ' <span class="st st-warn" style="vertical-align:middle;font-size:10px;padding:1px 6px">pending</span>';
+function yeHousehold(h, o = {}) {
+  const expanded = o.expanded, many = h.m.length > 1;
+  const delta = h.bills27 - h.bills26;
+  const head = `<div class="hh-head"><div class="hh-who">${avs(h.m)}<div style="min-width:0"><div class="hh-name">${h.name}</div><div class="hh-sub">${many ? joinNames(h.m) + ' · ' + h.m.length + ' members' : 'Individual'}</div></div></div>
+    <div class="figs">${fig('2026 bills', money(h.bills26))}${fig(YE.next + ' bills', money(h.bills27) + (o.blocked ? PEND : ''))}${fig('First ' + YE.next + ' invoice', money(h.first) + (o.blocked ? PEND : ''))}</div>
+    <span class="stwrap" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="st ${delta > 0 ? 'st-neutral' : 'st-settled'}">${ic('refresh-cw')}Subscriptions ${Math.abs(delta) < 0.005 ? 'unchanged' : signed(delta)}</span><span class="st ${h.carried < 0 ? 'st-credit' : h.carried > 0 ? 'st-warn' : 'st-neutral'}">${ic(h.carried < 0 ? 'st-credit' : 'clock')}Carried ${h.carried === 0 ? 'none' : signed(h.carried)}</span>${o.an ? an(o.an) : ''}</span>
+    <span class="chev">${ic(expanded ? 'chevron-up' : 'chevron-down')}</span></div>`;
+  if (!expanded) return `<div class="hh ${h.carried < 0 ? 'credit' : 'settled'}">${head}</div>`;
+  const memberBlock = k => {
+    const items = h.items.filter(it => it[0] === k);
+    return `<div class="mrow" style="grid-template-columns:minmax(0,1fr)"><div class="who">${av(k)}<div style="min-width:0"><div><b>${M[k].n}</b>${h.contact === k && many ? '<span class="chip line tag">Contact</span>' : ''}</div><div class="xs dim">${YE.next} bills ${money(h.per27[k])}${items.length ? ' · carried ' + signed(items.reduce((s, it) => s + it[1], 0)) : ' · nothing carried'}</div></div></div>
+      ${items.length ? `<div class="brk">${items.map(it => `<div class="row"><span>${it[2]}</span><span class="f ${it[1] < 0 ? 'cr' : ''}">${signed(it[1])}</span></div>`).join('')}</div>` : ''}</div>`;
+  };
+  const hhItem = h.items.find(it => it[0] === 'hh');
+  const credit = hhItem ? `<div class="mrow" style="grid-template-columns:minmax(0,1fr)"><div class="who"><span class="av" style="background:#dcf0ef;color:#0f6e73">${ic('st-credit')}</span><div><div><b>${hhItem[2]}</b> <span class="xs dim">· household, not one member</span>${o.an2 ? an(o.an2) : ''}</div><div class="xs dim">Net of everything the household paid and was credited in 2026</div></div></div>
+      <div class="brk"><div class="row tot"><span>2026 credit carried into ${YE.next}</span><span class="f" style="color:#0f6e73">${signed(hhItem[1])}</span></div>${hhItem[3].map(d => `<div class="row"><span class="dim">↳ ${d[0]}${d[2] ? ' (' + d[2] + ')' : ''}</span><span class="f dim">${signed(d[1])}</span></div>`).join('')}<div class="row"><span class="xs dim">Detail explains the credit; it is not added again.</span><span></span></div></div></div>` : '';
+  const tot = `<div class="hh-tot" style="display:grid;grid-template-columns:minmax(0,1fr) auto;row-gap:4px"><span>2026 bills</span><span class="num">${money(h.bills26)}</span><span>${YE.next} bills at their new prices</span><span class="num">${money(h.bills27)} <span class="dim xs">(${signed(delta)} vs 2026)</span></span><span>Carried from 2026</span><span class="num ${h.carried < 0 ? 'cr' : ''}" style="${h.carried < 0 ? 'color:#0f6e73' : ''}">${signed(h.carried)}</span><span>First ${YE.next} invoice${o.an3 ? an(o.an3) : ''}</span><span class="num" style="font-size:15px">${money(h.first)}</span></div>`;
+  return `<div class="hh ${h.carried < 0 ? 'credit' : 'settled'}">${head}<div class="hh-body">${credit}${h.m.map(memberBlock).join('')}${tot}<div class="hh-acts">${btn('Edit bills', 'ghost sm')}${btn('Edit charges', 'ghost sm')}</div></div></div>`;
+}
+function yeReview(o = {}) {
+  const HHs = o.nothing ? YE_HH_NOTHING : YE_HH;
+  const t26 = HHs.reduce((s, h) => s + h.bills26, 0), t27 = HHs.reduce((s, h) => s + h.bills27, 0), tc = HHs.reduce((s, h) => s + h.carried, 0), tf = HHs.reduce((s, h) => s + h.first, 0);
+  const banner = o.banner || '';
+  const nothing = o.nothing ? `<div class="ok" style="display:flex;gap:10px;align-items:flex-start"><span>${ic('check')}</span><div><b>Nothing changed in 2026.</b> You confirmed: no bill price changes or ended bills · no new subscriptions · no additional member charges. ${YE.next} keeps every bill at its 2026 price. What already carries is still listed below, and nothing new is recorded.${o.an1 ? an(o.an1) : ''}<div class="btnrow" style="margin-top:6px">${btn('Edit bills', 'ghost sm')}${btn('Edit subscriptions', 'ghost sm')}${btn('Edit charges', 'ghost sm')}</div></div></div>` : '';
+  const kp = `<div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))"><div class="kpi"><div class="eyebrow">2026 bills</div><div class="v" style="font-size:22px">${money(t26)}</div><div class="xs dim">what 2026 subscriptions cost</div></div><div class="kpi"><div class="eyebrow">${YE.next} bills</div><div class="v" style="font-size:22px">${money(t27)}${o.blocked ? PEND : ''}</div><div class="xs dim">${signed(t27 - t26)} subscriptions vs 2026</div></div><div class="kpi"><div class="eyebrow">Carried from 2026</div><div class="v ${tc < 0 ? 'cr' : ''}" style="font-size:22px">${signed(tc)}${o.blocked ? PEND : ''}</div><div class="xs dim">catch-up charges less credits</div></div><div class="kpi"><div class="eyebrow">First ${YE.next} invoices</div><div class="v" style="font-size:22px">${money(tf)}${o.blocked ? PEND : ''}</div><div class="xs dim">${HHs.length} households${o.an0 ? an(o.an0) : ''}</div></div></div>`;
+  const list = `<div class="yrev">${HHs.map(h => yeHousehold(h, { expanded: o.expanded === h.id, blocked: !!o.blocked, an: h.id === 'okafor' ? o.anHead : 0, an2: h.id === o.expanded ? o.an2 : 0, an3: h.id === o.expanded ? o.an3 : 0 })).join('')}</div>`;
+  const starting = o.state === 'starting', failed = o.state === 'failed', exists = o.state === 'exists', blocked = !!o.blocked;
+  const counts = o.nothing ? 'no new charges or credits · 5 bills at their 2026 prices · 4 households carrying a balance' : '13 True-up shares ($167.96) and 5 service-credit shares ($20.00) recorded in 2026 and carried · Lumen Fiber Backup created · Northline Mobile, Harbor Cloud Storage and Cloudstream Family at their new prices · Pinecone Vault left out · 5 households carrying a balance';
+  const start = `<div class="card" style="margin-top:14px;position:relative">${o.rd ? rdi(30) : ''}<div class="pair" style="align-items:end"><div class="field"><span class="lbl">New billing year label</span><div class="in ${starting ? 'off' : ''}" style="width:160px">${YE.next}</div></div><div class="field"><div class="xs dim">Suggested from 2026; must not already exist.</div></div></div>
+    <div class="info" style="margin:0 0 12px"><b>Start ${YE.next} will</b>, in one step: write ${counts}; mark 2026 as rolled over; and open ${YE.next} with members, the invoice template and payment methods copied. 2026’s bills and payments are not changed.${o.an4 ? an(o.an4) : ''}</div>
+    ${failed ? `<div class="alert" role="alert">${ic('triangle-alert')} <b>${YE.next} was not created.</b> Nothing was saved and your draft is kept. We could not reach the server—check your connection and try again.${o.an5 ? an(o.an5) : ''}</div>` : ''}
+    ${exists ? `<div class="alert" role="alert">${ic('triangle-alert')} <b>${YE.next} already exists.</b> It was started from another device at 3:12 pm, so nothing was changed here and your draft is kept. Open ${YE.next} to continue there, or discard this draft.${o.an5 ? an(o.an5) : ''}</div>` : ''}
+    ${blocked ? `<div class="warn" style="margin:0 0 12px">${ic('triangle-alert')} <b>Start is off:</b> 1 earlier-credit answer on Pinecone Vault needs to be given again (Step 1). The figures above are pending until then.</div>` : ''}
+    <div class="btnrow" style="justify-content:flex-end">${exists ? btn('Discard draft', 'ghost') + btn('Open ' + YE.next, 'ink') : failed ? btn('Discard draft', 'ghost') + btn(ic('refresh-cw') + ' Retry', 'ink') : starting ? btn('Starting ' + YE.next + '…', 'ink off') : blocked ? btn('Start ' + YE.next, 'pri off') : btn('Start ' + YE.next, 'pri')}</div></div>`;
+  const progress = starting ? `<div class="warn" style="display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:2"><span class="spin" style="width:16px;height:16px;border-width:2px;margin:0"></span><span><b>Starting ${YE.next}…</b> Writing 2026 and ${YE.next} together. Don’t close this tab.${o.an5 ? an(o.an5) : ''}</span></div>` : '';
+  return yeHead('review', { lock: starting }) + progress + banner + nothing + kp + `<div class="hint" style="margin:0 0 10px">Per household: what 2026 subscriptions cost, what ${YE.next}’s cost at their new prices, and what carries over—catch-up charges and credits are shown apart from price changes, never folded into them.${o.anL ? an(o.anL) : ''}</div>` + list + start + (starting ? '' : `<div class="yfoot">${btn(ic('chevron-left') + ' Back to member charges', 'ghost')}<span class="sp"></span></div>`);
+}
+function yearEnd(state) {
+  let body;
+  switch (state) {
+    case 'bills': body = yeBills({ rd: true, an0: 1, an1: 2, anH: 5, nan: 4 }); break;
+    case 'bills-trueup': body = yeBills({ open: 'nl', fan: 3 }); break;
+    case 'bills-error': body = yeBills({ err: 'hc', errKind: 'zero', errAn: 6 }); break;
+    case 'bills-credited': body = yeBills({ credited: 'pv', can: 15 }); break;
+    case 'new': body = yeNew({ rd: true, an1: 9 }); break;
+    case 'charges': body = yeCharges({ rd: true, composer: 'okafor', an1: 10 }); break;
+    case 'review': body = yeReview({ rd: true, expanded: 'lindqvist', anL: 11, an2: 12, an3: 13 }); break;
+    case 'review-credit': body = yeReview({ expanded: 'rosa', an2: 12 }); break;
+    case 'review-nothing': body = yeReview({ nothing: true, expanded: 'nakamura', an1: 14 }); break;
+    case 'review-restored': body = yeReview({ expanded: null, blocked: true, banner: `<div class="banner" style="position:relative">${rdi(31)}<span>${ic('history')}</span><div class="grow"><b>Draft from Dec 6, 10:42 am restored.</b> 2026 changed since you saved it: 1 payment recorded (Lindqvist household) and 1 earlier credit on Pinecone Vault changed, so its answer was cleared—answer it again in Step 1. Every amount below was recomputed from today’s data—your other entries were kept, but the totals are pending and Start ${YE.next} stays off until that answer is given and Step 4 is checked again.${an(7)}</div></div>` }); break;
+    case 'review-starting': body = yeReview({ expanded: null, state: 'starting', an5: 8 }); break;
+    case 'review-failed': body = yeReview({ expanded: null, state: 'failed', an5: 8 }); break;
+    case 'review-exists': body = yeReview({ expanded: null, state: 'exists', an5: 8 }); break;
+    default: body = yeBills();
+  }
+  return shell('settings', body, { year: YE.year });
+}
+// ---- Surfaces changed by the Year-End Review (ADR 0009) ----------------------
+// Dashboard prompt (Dec 8, 2026 · Settling · every household paid; Okafor $22.00 and Rosa $36.00 in credit).
+function dashboardYearEnd() {
+  const hh = HH.map(h => h.id === 'okafor' ? { ...h, review: null } : h.id === 'rosa' ? { ...h, status: 'credit', credit: 36, review: null, paid: 412, owed: 336 } : { ...h, status: 'settled', paid: h.owed, balance: 0, review: null, pending: h.id === 'nakamura' ? h.pending : null, reopened: false, refunded: h.refunded || 0, paidBy: Object.fromEntries(h.m.map(k => [k, M[k].t])) });
+  const prompt = `<div class="card" style="margin:0 0 14px;position:relative;border-left:4px solid #ff692d"><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><div style="flex:1 1 320px;min-width:0"><div class="eyebrow">Next billing year</div><div class="h2" style="font-size:16px">Ready for 2027? Review 2026 first.${rdi(26)}</div>
+    <div class="hint">Catch up mid-year price changes, add subscriptions that started this year, fold in member charges, and set 2027’s prices—then start 2027 with invoices members can read line by line. Shown from November, or once the year is closed, until 2027 exists.${an(7)}</div></div>${btn('Review &amp; start 2027', 'pri')}</div></div>`;
+  const deferred = `<div class="warn">${ic('clock')} <b>Deferred charges: $80.50</b> (3 charges) not yet billed—these carry forward to 2027 unless you bill them first; the review lists them.</div>`;
+  const body = hero({ year: '2026', now: 'Settling', ready: true, action: 'Close year', hint: 'Everyone is settled—ready to close' })
+    + prompt + kpis({ out: 'Paid', outSub: 'all households', credit: '$58.00', settled: '5 / 5', reviews: '0' })
+    + deferred + progress({ title: 'Settlement complete', pct: 100, msg: 'Everyone is settled for 2026. Close the year when you are ready—or start 2027 from the review; closing first is not required.' })
+    + board({ hh, expanded: null });
+  return shell('dashboard', body, { year: YE.year });
+}
+// Share page, 2027, the Lindqvist household: bills at their new prices and the itemized “Carried from 2026”.
+function shareCarried(x = {}) {
+  const row = (b, monthly, nm, share, annual) => `<tr><td class="full"><span style="display:inline-flex;align-items:center;gap:8px">${logo(b, 'sm')}<b>${B[b].n}</b></span></td><td class="r" data-l="Monthly">${money(monthly)}</td><td class="r" data-l="Split">${nm} members</td><td class="r" data-l="Share">${money(share)}</td><td class="r" data-l="Annual"><b>${money(annual)}</b></td><td class="r">${btn('Request a review', 'sm ghost')}</td></tr>`;
+  const table = `<div class="card flat" style="padding:4px 12px 8px"><table class="tbl stack"><thead><tr><th>Bill</th><th class="r">Monthly</th><th class="r">Split</th><th class="r">Share</th><th class="r">Annual</th><th></th></tr></thead><tbody>
+    ${row('nl', 198, 9, 22, 264)}${row('cs', 26, 6, 4.3333, 52)}${row('hc', 12, 4, 3, 36)}
+    <tr class="tot"><td class="full">Total</td><td class="r" data-l=""></td><td class="r" data-l=""></td><td class="r" data-l="Share">$29.33</td><td class="r" data-l="Annual"><b>$352.00</b></td><td></td></tr></tbody></table></div>`.replace('$4.33', '$4.33');
+  const line = (t, amt) => `<div class="row"><span>${t}</span><span class="f ${amt < 0 ? 'cr' : ''}" style="${amt < 0 ? 'color:#0f6e73' : ''}">${signed(amt)}</span></div>`;
+  const carried = `<div style="position:relative;margin:0 0 12px"><div class="hint" style="margin:0 0 8px">Changes during 2026 that your 2026 invoice could not include. They are part of your 2027 total, listed by person; the household credit counts once.${rdi(32)}${an(9)}</div>
+    <div class="card flat" style="padding:10px 12px;border-left:4px solid #ff692d"><div class="brk" style="margin:0 0 8px"><div class="row tot" style="border-bottom:1px solid #ebe8e5"><span>${av('erik', 'sm')} Erik Lindqvist</span><span class="f">+$17.00</span></div>${line('Northline Mobile went from $180 to $198 a month in July. Your share of six months.', 12)}${line('Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.', 5)}</div>
+      <div class="brk" style="margin:0 0 8px"><div class="row tot" style="border-bottom:1px solid #ebe8e5"><span>${av('maja', 'sm')} Maja Lindqvist</span><span class="f">+$42.00</span></div>${line('Northline Mobile went from $180 to $198 a month in July. Your share of six months.', 12)}${line('Activation fee (Nov 3).', 30)}${an(10)}</div>
+      <div class="brk" style="margin:0 0 8px"><div class="row tot" style="border-bottom:1px solid #ebe8e5"><span>${ic('st-credit')} Your household’s 2026 credit</span><span class="f" style="color:#0f6e73">−$4.00</span></div><div class="row"><span class="dim">↳ Pinecone Vault ended in August (Erik)</span><span class="f dim">−$4.00</span></div></div>
+      <div class="row" style="display:flex;justify-content:space-between;font-weight:600;padding:6px 2px 0"><span>Carried total</span><span class="num">+$55.00</span></div></div></div>`;
+  return shareWrap(`<h1 class="ttl lg" style="margin-top:8px">Lindqvist Household’s Annual Billing Summary</h1><div class="hint" style="margin-top:4px">Your shared billing summary for 2027.</div>
+    <div class="lead owed"><span class="ic">${ic('triangle-alert')}</span><div><div class="t">$723.00 due for 2027</div><div class="s">$668.00 of bills plus <u style="text-underline-offset:2px">$55.00 carried from 2026</u> · nothing paid yet${an(8)}</div></div></div>
+    <div class="sh-sec"><div class="card flat" style="padding:4px 12px 8px;margin-bottom:10px"><table class="tbl"><tbody><tr><td>2027 bills subtotal</td><td class="r">$668.00</td></tr><tr><td>Carried from 2026 <span class="xs" style="color:#ad3c0b;font-weight:600;white-space:nowrap">${ic('chevron-up')} Hide breakdown</span></td><td class="r"><b style="color:#ad3c0b;text-decoration:underline;text-underline-offset:2px">+$55.00</b></td></tr><tr><td colspan="2" style="padding:6px 0 2px">${carried}</td></tr><tr class="tot"><td>Household Total</td><td class="r"><b>$723.00</b></td></tr></tbody></table></div>
+      <div class="h2" style="font-size:16px;font-family:Inter,system-ui,sans-serif;font-weight:600;display:flex;align-items:center;gap:8px">${ic('chevron-down')} Erik Lindqvist—3 bills ($29.33/mo)</div>${table}
+      <div class="h2" style="font-size:16px;font-family:Inter,system-ui,sans-serif;font-weight:600;display:flex;align-items:center;gap:8px;margin-top:12px">${ic('chevron-right')} Maja Lindqvist—2 bills ($26.33/mo)</div></div>
+    <div class="sh-sec"><div class="stat3"><div class="kpi"><div class="eyebrow">Annual total</div><div class="v">$723.00</div></div><div class="kpi"><div class="eyebrow">Paid to date</div><div class="v">$0.00</div></div><div class="kpi"><div class="eyebrow">Balance due</div><div class="v out">$723.00</div></div></div><div class="prog" style="margin:10px 0 0"><div class="bar"><i style="width:0%"></i></div><div class="xs dim">0% paid</div></div></div>
+    ${pmCards(723)}
+    <div class="sh-sec"><div class="h2">Payment history</div><span class="xs dim">No payments yet for 2027.</span></div>`, x.after);
+}
+// Invoicing preview, 2027, Erik Lindqvist: the configured message with the carried block appended before the link.
+function invoicingPreviewCarried() {
+  const bar = `<div class="pagehead mid" style="margin-bottom:12px"><div style="flex:0 1 auto"><h1 class="ttl">Invoicing</h1></div><div class="btnrow invbar" style="flex:1 1 auto"><span class="seg"><span>Edit</span><span class="on">Preview</span></span>${btn(ic('send') + ' Send test email')}</div></div>`;
+  const metabar = `<div class="metabar"><span class="l">To</span><div class="ellip">erik.lindqvist@example.com <span class="in" style="display:inline-flex;min-height:26px;padding:2px 8px;margin-left:6px">Erik Lindqvist ${ic('chevron-down', 'caret')}</span></div><span class="l">Link</span><div style="display:flex;gap:8px;align-items:center;min-width:0"><span class="ellip" style="flex:1 1 auto">https://ffb.example/share?token=b41e07d9…</span>${btn('Copy', 'sm')}${btn('Manage', 'sm ghost')}</div></div>`;
+  const subject = `<div class="subj"><span class="eyebrow" style="margin:0">Subject</span><div><b>Annual Billing Summary 2027—Erik Lindqvist</b></div></div>`;
+  const prev = `<div class="prev"><p style="margin:0 0 10px">Hi Erik,</p><p style="margin:0 0 10px">Here is your household’s share of our shared bills for 2027. Your household total is <b>$723.00</b>.</p>
+    <div class="pmlist" style="position:relative">${rdi(32)}<div><b>Carried from 2026</b> — part of the $723.00 above${an(7)}</div><div>Erik · Northline Mobile went from $180 to $198 a month in July. Your share of six months: <b>$12.00</b></div><div>Erik · Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months: <b>$5.00</b></div><div>Maja · Northline Mobile went from $180 to $198 a month in July. Your share of six months: <b>$12.00</b></div><div>Maja · Activation fee (Nov 3): <b>$30.00</b></div><div>Your household’s 2026 credit: <b>−$4.00</b> (Pinecone Vault ended in August)</div><div><b>Carried total: +$55.00</b> · 2027 bills $668.00 + carried $55.00 = $723.00</div></div>
+    <div class="pmlist"><div><b>Venmo</b>—@Morgan-Reyes-Example (preferred)</div><div><b>Zelle</b>—morgan@example.com · +1 415 555 0142</div><div><b>Check</b>—payable to Morgan Reyes, 9 Example Court, Anytown, ST 00000</div></div>
+    <p style="margin:0 0 10px">You can see the full breakdown, your payment history and request a review at <a>https://ffb.example/share?token=b41e07d9…</a>.</p><p style="margin:0">Thanks!—Morgan</p></div>`;
+  return shell('manage', subtabs('invoicing') + bar + `<div class="card flat" style="padding:0;overflow:visible">${metabar}${subject}${prev}</div><div class="hint" style="margin-top:10px">The carried block is added by the app whenever the household carries a balance into the year—no template token to remember—so the total in the message is always explained.${an(8)}</div>`, { year: { label: '2027', status: 'open' } });
+}
+// Email invoice, Full invoice variant, 2027, Erik: the plain-text invoice carries a CARRIED FROM 2026 block.
+function dlgEmailInvoiceFullCarried() {
+  const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> (household contact) · erik.lindqvist@example.com · household total $723.00${an(4)}</div>
+    <span class="lbl">What to send</span><span class="seg" style="margin-bottom:12px"><span>Text only</span><span>Text + link</span><span class="on">Full invoice</span></span>
+    ${F('Subject', 'Annual Billing Summary 2027—Erik Lindqvist')}
+    <div class="field"><span class="lbl">Message</span><div class="in ta num" style="min-height:190px;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.4">ERIK LINDQVIST'S BILLS
+Northline Mobile   $198.00 / month   9 ppl   $22.00 / month   $264.00
+Cloudstream Family  $26.00 / month   6 ppl    $4.33 / month    $52.00
+Harbor Cloud Storage $144.00 / year  4 ppl    $3.00 / month    $36.00
+SUBTOTAL: $29.33 / month = $352.00 / year
+
+MAJA LINDQVIST'S BILLS … SUBTOTAL: $26.33 / month = $316.00 / year
+
+CARRIED FROM 2026
+- Erik: Northline Mobile went from $180 to $198 a month in July.
+  Your share of six months: $12.00
+- Erik: Harbor Cloud Storage went from $120 to $144 a year in March.
+  Your share of ten months: $5.00
+- Maja: Northline Mobile went from $180 to $198 a month in July.
+  Your share of six months: $12.00
+- Maja: Activation fee (Nov 3): $30.00
+- Your household's 2026 credit: -$4.00
+  (Pinecone Vault ended in August: -$4.00, Erik)
+CARRIED TOTAL: +$55.00
+
+ANNUAL PAYMENT SUMMARY
+  2027 bills:                   $668.00
+  Carried from 2026:            +$55.00
+  Combined Annual Total:        $723.00
+  Balance Remaining:            $723.00${an(5)}</div></div>`;
+  const foot = `<span class="left">${btn('More ' + ic('chevron-down', 'caret'), 'ghost sm')}</span>${btn('Cancel', 'ghost')}${btn(ic('send') + ' Send email', 'ink')}`;
+  return dashboard('populated', { noRd: true, expanded: 'lindqvist', brk: null, after: dlg('Email invoice', inner, foot, { wide: true }) });
+}
+
 // ---- Dialogs (each drawn over its parent screen) ------------------------------
 const dlg = (title, inner, foot, o = {}) => `<div class="modal"><div class="dlg ${o.wide ? 'wide' : ''}"><div class="grab"></div>${rd(14, 'left:14px;top:8px', 'phonly')}<div class="dlg-h"><h2 class="ttl">${title}</h2>${o.hdr || ''}<span class="ico-btn ghost">${ic('x')}</span></div>${inner}${foot ? `<div class="dlg-f">${foot}</div>` : ''}</div></div>`;
 const F = (l, v, cls = '') => `<div class="field"><span class="lbl">${l}</span><div class="in ${cls}">${v}</div></div>`;
 const SEL = v => `${v} ${ic('chevron-down', 'caret')}`;
 
 function dlgEmailInvoice(state) {
+  if (state === 'full-carried') return dlgEmailInvoiceFullCarried();
   const inner = `<div class="hint" style="margin-bottom:12px">To <b>Erik Lindqvist</b> (household contact) · erik.lindqvist@example.com · household total $618.00 · balance $318.00${an(1)}</div>
     <span class="lbl">What to send</span><span class="seg" style="margin-bottom:12px"><span>Text only</span><span class="on">Text + link</span><span>Full invoice</span></span>${an(2)}
     ${F('Subject', 'Annual Billing Summary 2026—Erik Lindqvist')}
@@ -1235,15 +1593,20 @@ function dlgChargeNotice(state) {
   return dashboard('populated', { noRd: true, expanded: 'nakamura', brk: null, after: dlg('Bill charges', inner, `${btn('Cancel', 'ghost')}${btn(ic('send') + ' Bill &amp; notify', 'ink')}`) });
 }
 function dlgBillHistory(state) {
-  const ev = (d, l, det) => `<div class="evt"><span class="dt">${d}</span><span><b>${l}</b>${det ? `<span class="dim">—${det}</span>` : ''}</span></div>`;
+  const ev = (d, l, det, x = '') => `<div class="evt"><span class="dt">${d}</span><span><b>${l}</b>${det ? `<span class="dim">—${det}</span>` : ''}${x}</span></div>`;
+  if (state === 'rollover') {
+    const inner = `<div class="hint" style="margin-bottom:8px">Every change to this bill in 2027, newest first. The price it starts the year at was set in the Year-End Review; 2026’s history holds the True-up.${rdi(33)}</div>
+      ${ev('Dec 8, 2026 14:05', 'Price set at rollover', '$180.00 → $198.00 (from 2026)', an(2))}`;
+    return bills('populated', { noRd: true, noSplit: true, y27: true, after: dlg('History · Northline Mobile · 2027', inner, btn('Close', 'ghost'), { wide: true }) });
+  }
+  if (state === 'trueup') {
+    const inner = `<div class="hint" style="margin-bottom:8px">Every change to this bill in 2026, newest first. Payments are not listed here—see each household’s payment history.</div>
+      ${ev('Dec 8, 2026 14:05', 'True-up recorded', '$180.00 → $198.00 from Jul · $108.00 across 9 members', an(3))}${ev('Mar 2, 2026 10:14', 'Bill updated', '$170.00 → $180.00')}${ev('Feb 11, 2026 18:40', 'Member added', 'Sam Whitfield joined')}${ev('Jan 4, 2026 09:02', 'Bill created', '$170.00 / month')}`;
+    return bills('populated', { noRd: true, noSplit: true, after: dlg('History · Northline Mobile · 2026', inner, btn('Close', 'ghost'), { wide: true }) });
+  }
   const inner = `<div class="hint" style="margin-bottom:8px">Every change to this bill, newest first. Payments are not listed here—see each household’s payment history.${an(1)}</div>
     ${ev('Mar 2, 2026 10:14', 'Bill updated', '$170.00 → $180.00')}${ev('Feb 11, 2026 18:40', 'Member added', 'Sam Whitfield joined')}${ev('Jan 4, 2026 09:02', 'Bill created', '$170.00 / month')}`;
   return bills('populated', { noRd: true, noSplit: true, after: dlg('History · Northline Mobile', inner, btn('Close', 'ghost'), { wide: true }) });
-}
-function dlgNewYear(state) {
-  const inner = `${F('Billing year label', '2027<span class="caret-i"></span>', 'focus')}
-    <div class="info" style="margin:0">Members, bills and payment methods carry over. Undisposed credits and deferred charges from 2026 become each household’s opening balance in 2027; a refund still reported as not received stays owed in 2026.${an(1)}</div>`;
-  return settings('populated', { after: dlg('Start new billing year', inner, `${btn('Cancel', 'ghost')}${btn('Create year', 'ink')}`) });
 }
 function dlgConfirm(state) {
   const inner = `<div class="hint">Remove <b>Maja Lindqvist</b>? She will be removed from every bill and from the Lindqvist household. Removing a member also deletes any payments recorded against her—Maja has none for 2026. A member who has recorded payments should be kept (or the payments reversed first) rather than removed.${rdi(9)}${an(1)}</div>`;
@@ -1392,6 +1755,42 @@ const RD = {
     was: 'With no members the dashboard renders only the sentence “Add members and bills to start building this billing year.” inside the hero—no link to Manage.',
     now: 'The year strip stays (Start settlement disabled) and an empty state with two buttons—Add members, Add bills—uses the shipped EmptyState’s action slot.',
     why: 'The sentence told the administrator what to do; the buttons let them do it.' },
+  '26': { home: 'year-end', screens: 'year-end, settings, dashboard', title: 'The Year-End Review replaces the Start new year dialog', file: 'src/app/components/BillingYearSelector.jsx',
+    was: '“Start New Year” opens a one-field label prompt and `createYear` clones the year: `buildNewYearData()` in `src/lib/billing-year.js` copies every 2026 bill amount verbatim, nothing asks about prices that went up partway through the year, subscriptions that started mid-year, or one-off charges, and the carry-forward seam nets everything into one `carry_opening` number per household. Editing a 2026 bill to “fix” a price rewrites what was billed, charges twelve months at the new price and makes every household on the bill Outstanding (ADR 0005 already rejects this for reductions); `addBill` in 2026 does the same for a late start.',
+    now: 'A four-step page at `/year-end-review`—Bills, New subscriptions, Member charges, Review & start 2027—is the only way a year is created. Settings → Billing year opens it (the label dialog is retired); the Dashboard offers it from November 1 of the year’s label, or once the year is Closed, until the next year exists. Nothing is persisted until Start; the draft is component state mirrored to `localStorage` (keyed by user and source year, every access in try/catch), so ADR 0008’s save allowlist is untouched. The review may run from an Open, Settling or Closed year (never Archived); when a next year already exists the page says so and points to recording new charges in the open year (ADR 0007). Decided in ADR 0009; specified in `specs/year-end-review.md`.',
+    why: 'The administrator finishes a dozen-bill review in minutes because defaults do the work, every computed number shows its formula, and the year starts with prices and balances that are already explained.' },
+  '27': { home: 'year-end', screens: 'year-end', title: 'A price change or an ended bill becomes a True-up or a Service Credit, never a bill edit', file: 'src/lib/BillingYearService.js',
+    was: 'There is no bill-level price increase: `updateBill` changes the stored amount (`BILL_UPDATED`), which recalculates all twelve months and raises present-tense owed; `recordServiceCredit` exists for reductions but takes a free amount with no month arithmetic, and nothing records a subscription’s start month.',
+    now: 'Each bill row defaults to Unchanged with a one-click “No price changes this year”. Price changed asks for the new price (same frequency) and the first month billed at it and computes the catch-up at month granularity—`(new − old) × months` from that month through December, annual bills as `annual ÷ 12` before multiplying—as a True-up (the bill-level Usage Charge, `kind: \'usage_charge\'`, `basis: \'price_change\'`, split with the Service Credit remainder rule, formula kept on the record) or, when the price went down, a Service Credit with the same `calc`. Ended asks for the last month of service and credits the following month through December (`basis: \'ended\'`); the bill is left out of 2027. The amount is overridable (`overridden: true`, `computed` kept); a zero-month ended bill records nothing and is still left out; a new price equal to the old one is an error, never a zero record. A bill already credited during the year (a Service Credit from the Bills tab or a Review Request) shows “Already credited: $48.00” on its row and the credit to record defaults to the computed amount less what was credited, floored at zero—nothing is credited twice. Every bill also carries its 2027 price (defaulting to the current or new price), so an increase announced for January is entered without a True-up. 2026’s `bills[]` is never edited. `src/lib/calculations.js` is unchanged because True-ups ride the existing `usage_charge` + `deferred` helpers.',
+    why: 'What 2026 billed stays true, the catch-up is exactly the under-billed months, and the record carries the arithmetic a member will later read.' },
+  '28': { home: 'year-end', screens: 'year-end', title: 'A subscription that started mid-year is a late-start True-up plus a 2027 bill', file: 'src/lib/billing-year.js',
+    was: 'A subscription that started in September had no honest home: adding it to 2026 billed twelve months; leaving it out lost the four months members used; adding it only in 2027 forgot 2026 altogether.',
+    now: 'Step 2 takes name, price, frequency, website, members and first month of service, shows the late-start True-up (`price × months` from that month through December, split among its members) and the 2027 bill it will create. The bill id is allocated once when the row is created and kept on the draft, so the True-up’s `billId` and the 2027 bill share a stable identity without inserting the bill into 2026’s `bills[]`. Empty is the usual case and is one click to skip.',
+    why: 'The months used in 2026 are caught up and the subscription starts 2027 at its real price with its real members.' },
+  '29': { home: 'year-end', screens: 'year-end', title: 'Member charges are reviewed in one place and recorded in the same commit', file: 'src/app/components/UsageChargeDialog.jsx',
+    was: 'A one-off charge (the $30.00 activation fee) is recorded from a household card as a deferred Usage Charge and then forgotten until the deferred-charges indicator mentions a total; at rollover it carries as part of one netted number.',
+    now: 'Step 3 lists every household with its deferred Usage Charges prefilled (“already recorded, carried once”) and an Add charge composer with the existing validation; charges added here are written in the rollover commit, not immediately. Prefilled charges are reused by id and never re-recorded.',
+    why: 'The administrator sees everything that will be carried before it is, and nothing is double-counted because a row was prefilled.' },
+  '30': { home: 'year-end', screens: 'year-end', title: 'The preview names its baseline and keeps catch-up apart from price changes', file: 'src/lib/billing-year.js',
+    was: 'The close confirmation (`buildCloseYearMessage`) states one net amount “carrying forward” across N members; nothing shows a household what next year will cost or why it differs.',
+    now: 'Step 4 shows, per household and in total: 2026 bills (what 2026 subscriptions cost, bill-derived, before any adjustment), 2027 bills at their new prices with the subscription delta, and Carried from 2026 (catch-up charges +, credits −) as separate lines, then the first 2027 invoice. The household credit is one line attributed to the household, with the Service Credits that produced it beneath it as explanation that is never added again; True-ups and member charges are attributed to the member who incurred them. The year label is suggested and checked, and a plain-language statement says exactly what Start will write. The fast “Nothing changed” path needs three explicit confirmations (no bill changes, no new subscriptions, no extra charges) and still shows every existing carried item with links back to edit.',
+    why: 'A balance is never compared with an annual cost, and a price increase cannot hide a catch-up charge inside it.' },
+  '31': { home: 'year-end', screens: 'year-end', title: 'Draft, stale data, commit, failure and “created elsewhere” are states the page shows', file: 'src/lib/BillingYearService.js',
+    was: 'The label dialog has one failure mode (a toast) and no draft; `createYear` writes a `writeBatch` with an in-memory duplicate check, so two sessions creating the same year are last-writer-wins and a preview computed before a payment was recorded is never detected.',
+    now: 'The draft is versioned and bound to the user, the source year and a fingerprint of the reviewed data; a restored draft whose fingerprint differs keeps the entries, recomputes every amount and says what changed. Start commits through a Firestore transaction that reads both documents first, refuses to overwrite an existing 2027 and refuses a changed source (a fresh preview is required; a new fingerprint is never accepted silently). The page shows commit in progress (locked, “don’t close this tab”), a definite failure (nothing saved, draft kept, Retry), and “2027 already exists” (nothing changed, draft kept, Open 2027 or Discard draft). An uncertain outcome is reconciled by reading the two documents back before any retry; the draft is cleared only on confirmed success or explicit discard. Storage unavailable degrades to an in-memory draft with a notice.',
+    why: 'Recoverable input is never lost, a retry can never duplicate records or overwrite a year, and the administrator always knows which of the two documents exists.' },
+  '32': { home: 'share', screens: 'share, invoicing, dlg-email-invoice', title: '“Carried from 2026” is itemized on every member-facing surface', file: 'src/lib/share.js',
+    was: 'A household’s opening balance is one netted `carry_opening` amount; `buildPublicShareData` (`src/lib/share.js`), `getInvoiceSummaryContext` (`src/lib/invoice.js`) and the Cloud Function `resolveShareToken` (`functions/index.js`, mirrored helpers in `functions/billing.js`) fold it into the total, and the share page shows the difference as “Other adjustments”. A member’s 2027 total jumps with no explanation—the feature’s biggest trust risk, and it already affects today’s deferred Usage Charges.',
+    now: '`carry_opening` seeds gain `items[]`, a snapshot of each carried source (member, bill name, description, signed amount; the household credit is one negative item whose detail sums to it), built in `src/lib/billing-year.js` from the ids `buildCarryForward` already returns; the signed items sum to the seed within `CREDIT_EPSILON`. The share page, the Invoicing preview, and the invoice email (every variant; the Full invoice as a CARRIED FROM 2026 block) show a “Carried from 2026” section attributed per member and totaled at the household, in plain words—“Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00.”—never “True-up” or “carry_opening”. Seeds written before this change render as one “Carried from 2026” line. The Cloud Function gets the same builder in `functions/billing.js`, writes the field into the self-healed `publicShares` document, and ships before the client renders the section; a parity test keeps the two builders identical.',
+    why: 'A member can explain every line of their 2027 total without asking, and the two writers of the share document cannot drift apart.' },
+  '33': { home: 'dlg-bill-history', screens: 'dlg-bill-history', title: 'Bill history records the rollover price and the True-up', file: 'src/app/components/BillAuditHistoryDialog.jsx',
+    was: 'The dialog knows Bill created / updated / removed and member added / removed; a price set at rollover would appear nowhere, and the catch-up it implies has no event.',
+    now: 'The 2027 history opens with “Price set at rollover — $180.00 → $198.00 (from 2026)” (`BILL_PRICE_ROLLED_OVER`, written by the review); the 2026 history shows “True-up recorded — $180.00 → $198.00 from Jul · $108.00 across 9 members” (`TRUE_UP_RECORDED`), a late start as “Started Sep at $9.99 / month · $39.96 across 3 members”, and an ended bill’s Service Credit as “Ended after Aug · $20.00 across 5 members”.',
+    why: 'The bill’s own history explains both the new price and the catch-up, in the year each belongs to.' },
+  '34': { home: 'dashboard', screens: 'dashboard', title: 'A stale tab fails safely: nothing is overwritten and nothing is lost silently', file: 'src/lib/BillingYearService.js',
+    was: 'Every save is a full-document `setDoc` from state loaded once by `getDoc` (`save()`), the status change is a merge write that replaces the whole events array (`setYearStatus()`), and the rules allow any owner write; a tab that loaded before another tab’s change overwrites it, and the SaveQueue swallows a failed write after logging it.',
+    now: 'Every write of the year document carries a `rev`, runs as a transaction that reads first and advances the loaded version by one, and the Firestore rules refuse any write that does not (`create` at 1, `update` at stored + 1, `delete` denied), staged so old tabs are fenced before the reviewed rollover ships. A refused write stops the queue, the tab goes read-only behind “Reload to continue”, the unsaved changes are listed from the unsaved payload against the last successful save (events and non-event edits alike) and kept on the device when it can, and nothing is merged automatically; a tab still running the pre-feature build cannot show this and its denied writes are lost, an owner-acknowledged window of the stage-2 deploy (decided 2026-11-05, ADR 0009 § 3, spec § Versioned year-document writes).',
+    why: 'Two tabs can never silently destroy each other’s money records, and an administrator always knows exactly what was and was not saved.' },
 };
 const rdCap = n => { const r = RD[n]; return `<li data-rd-cap="RD-${n}"><span class="rdid">RD-${n}</span><b>${r.title}.</b> <i>What was confusing</i> (<code>${r.file}</code>): ${r.was} <i>New treatment:</i> ${r.now} <i>Why it’s better:</i> ${r.why}</li>`; };
 
@@ -1421,13 +1820,17 @@ const GROUPS = [
       '<b>Filter chips with counts</b>—the four status chips partition All (1 + 1 + 1 + 2 = 5), while “Open review” is a cross-cutting filter that overlaps them (Rosa’s open request, the Lindqvists’ request in review), so its count is not part of that sum. Both it and the Review request pill on a card need the dashboard to pass its <code>useDisputes</code> result into the board, which today receives no requests (part of Redesign 03).',
       '<b>Bill breakdown per member</b>, formula and result exactly as shipped (“$180.00 / month × 12 ÷ 9 members = $240.00”), with the member total; the household total closes the card. Members sharing the same bill set would read “Same bills as Ada” as today.',
       '<b>Credit re-opened by a not-received report</b>: Sam’s $15.00 refund was recorded (clearing the credit) but reported not received, so the credit is owed again while the year is open and Issue refund is withheld until the report is resolved on the Refund Notices tab—the refund cap is computed without the re-open, so it cannot be double-issued. The explanatory pill on Sam’s card is added copy; the shipped card shows the Credit box alone.',
-      '<b>Actions</b>: the primary matches the state (Issue refund on a credit household, Record payment while a balance remains, none when settled), Send and Adjust menus, Payment history. The dialogs each action opens are drawn in the Dialogs section.'],
+      '<b>Actions</b>: the primary matches the state (Issue refund on a credit household, Record payment while a balance remains, none when settled), Send and Adjust menus, Payment history. The dialogs each action opens are drawn in the Dialogs section.',
+      '<b>Reload required</b> (Redesign 34): every write of the year document is version-checked and the Firestore rules enforce the version, so a tab holding stale data cannot overwrite another tab’s changes. When its write is refused the tab stops saving, goes read-only, and says so in a blocking dialog that lists the changes that were not saved since the last successful save (events and edits that emit none, from the unsaved data) with Copy details and Reload; the list is kept on the device and shown again after the reload, or, if the device cannot keep it, the dialog asks for a copy before Reload. This is the new build’s behavior; a tab still on the pre-feature build has no such state (spec § Versioned year-document writes). A failed save is never shown as successful and stale data is never re-stamped with a fresh version (spec § Versioned year-document writes).',
+      '<b>Year-End Review prompt</b> (Redesign 26): a card above the KPIs while no next year exists and either the year is Closed or the calendar has reached November 1 of the year’s label (no successor is always required; either of the other two is enough—a Closed year in June shows it, an Open year on November 1 shows it, an Open year in June does not, and a year with a successor never does). It opens the review; it never creates a year itself. Hidden as soon as 2027 exists (the successor-year guard: a rollover event on 2026, or a year with a higher numeric label).'],
       states: [
         { id: 'populated', label: 'open year · mixed statuses · Lindqvist household expanded', kind: 'redesign', cap: { desk: 'Year strip with Start settlement; four KPIs; deferred-charges notice; progress at 68 % (the share of total owed that is net-satisfied, per <code>calculateSettlementMetrics</code>); the board with six filter chips and five household cards sorted outstanding → partial → settled → credit as shipped (the two credit households last). The Lindqvist household is expanded with Erik’s breakdown open; Record payment is its primary action and the Review request pill marks Erik’s open request.', tab: 'The year strip stacks the action under the stepper; KPIs stay four-up; the household header puts the three figures on their own row under the names.', ph: 'KPIs two-up; the stepper compresses; filter chips scroll horizontally; each household card stacks name, status, then the three figures in a row; member rows stack their figures the same way; the bottom tab bar replaces the top links.' } },
         { id: 'settling', label: 'settling · close gate blocked · Adjust menu open', kind: 'state', cap: { desk: 'Settling is the current step; Close year is disabled with “2 households still outstanding”; the progress headline reads “Settlement in progress” and the reminder hint appears. The Nakamura–Osei card is expanded with its Adjust menu open: Add usage charge, Bill charges · $50.50.', tab: 'As desktop, stacked.', ph: 'The Adjust menu opens under the button row; the four actions wrap two per row.' } },
         { id: 'empty', label: 'new year · no members or bills', kind: 'state', cap: { desk: 'A fresh 2027: the year strip with Start settlement disabled and an empty state with the two next steps. No KPIs, no board (the board renders nothing without members, as shipped).', tab: U, ph: 'Buttons stack.' } },
         { id: 'loading', label: 'loading', kind: 'state', cap: { desk: 'The shipped “Loading…” line alone until <code>useBillingData</code> resolves; the shell is already there.', tab: U, ph: U } },
-        { id: 'closed', label: 'closed year · read-only', kind: 'state', cap: { desk: '2025, closed: the stepper ticks Open and Settling, the action is Archive year, Outstanding reads “Paid”, progress is 100 % with “Year closed” and the two-case rule (adjustments forward; the year’s own ledger by reopening, ADR 0007). The board shows no mutation actions (<code>readOnly</code>): a card expands to its breakdown and Payment history only.', tab: U, ph: U } }] }] },
+        { id: 'closed', label: 'closed year · read-only', kind: 'state', cap: { desk: '2025, closed: the stepper ticks Open and Settling, the action is Archive year, Outstanding reads “Paid”, progress is 100 % with “Year closed” and the two-case rule (adjustments forward; the year’s own ledger by reopening, ADR 0007). The board shows no mutation actions (<code>readOnly</code>): a card expands to its breakdown and Payment history only.', tab: U, ph: U } },
+        { id: 'stale', label: 'stale tab · reload required · unsaved changes listed', kind: 'redesign', cap: { desk: 'The Dashboard behind a blocking “Reload to continue” dialog: the year changed in another tab or device at 3:12 pm, so nothing done here since the last successful save at 3:09 pm was saved and the tab is read-only; the three unsaved changes are listed from the unsaved payload against that baseline (a $50.00 Venmo payment from Ada, a $12.00 service credit on Meridian Music, and Kenji’s edited phone number, which emits no event) with Copy details and Reload. The list is kept on the device and shown again after the reload, and if the device cannot keep it the dialog says so and asks for a copy first; nothing is merged automatically (Redesign 34).', tab: U, ph: 'Bottom sheet with the same list; Reload is full width.' } },
+        { id: 'yearend', label: 'Dec 8 · settling · everyone paid · the Year-End Review prompt', kind: 'redesign', cap: { desk: 'The later snapshot: Settling, Close year enabled (“Everyone is settled—ready to close”), and above the KPIs the prompt card in Ember: “Ready for 2027? Review 2026 first.” with what the review does and Review &amp; start 2027. Outstanding reads Paid; Owed to members $58.00 (Okafor $22.00, Rosa $36.00); the deferred-charges notice counts three charges ($80.50) and says the review lists them. Closing first is not required.', tab: 'The prompt card stacks its button under the text.', ph: 'The prompt card wraps to five lines with a full-width button; KPIs two-up.' } }] }] },
   { id: 'manage', title: 'Manage—members, bills, invoicing, review requests, refund notices', sub: 'The five tabs of <code>src/app/views/Manage/ManageView.jsx</code>. Members and Bills are full CRUD with a composer, inline edits, confirmation dialogs and an action menu; Invoicing is the TipTap template editor with Edit / Preview; Review Requests and Refund Notices are the two kinds of Request (ADR 0002), each on its own tab and never mixed.', screens: [
     { id: 'members', title: 'Members', fn: members, legend: [
       '<b>Nine members in five households.</b> The count in the title and the hint under it; “+ Add member” opens the composer (Name required, Email, Phone in E.164) with the shipped duplicate-name error inline.',
@@ -1453,11 +1856,14 @@ const GROUPS = [
       '<b>Toolbar</b>: Bold, Italic, Link, bullet list, numbered list, horizontal rule (<code>FormattingToolbar</code> in <code>TemplateEditor.jsx</code>); no headings—these are emails. The Insert field menu on the right lists the same tokens as the / and % triggers.',
       '<b>Block token</b> for Payment Methods renders as a card with a Configure button that opens <code>PaymentMethodsManager</code> in a dialog without leaving the editor; Share Link is an inline token so it can be bolded or placed in a list. The duplicate-payment-text warning appears under the editor when the template has both the block and hard-coded provider names.',
       '<b>Slash menu</b>: typing <code>/</code> or <code>%</code> filters the token list as you type (“/pa” → Payment Methods); arrow keys, Enter / Tab insert, Escape closes; text fields and blocks are separated.',
-      '<b>Preview</b> resolves every token for the selected member (default: the first member), expands the Payment Methods block into the configured, shown methods, and shows the share link row—Generate when none exists, the URL with Copy and Manage (opens <code>ShareLinkDialog</code>) when one does.'],
+      '<b>Preview</b> resolves every token for the selected member (default: the first member), expands the Payment Methods block into the configured, shown methods, and shows the share link row—Generate when none exists, the URL with Copy and Manage (opens <code>ShareLinkDialog</code>) when one does.',
+      '<b>Carried from 2026 block</b> (Redesign 32): when the selected household carries a balance into the year, the preview—and every sent email variant—appends the itemized block after the message and before the payment methods, built from the <code>carry_opening</code> items by <code>getInvoiceSummaryContext</code>; the Full invoice variant places it between the bill tables and the payment summary.',
+      '<b>No new token</b>: the block is added by the app, not by a template token, so an administrator who never edits the template still sends an explained total.'],
       states: [
         { id: 'edit', label: 'Edit · unsaved changes', kind: 'redesign', cap: { desk: 'Subject with two pills, the toolbar with Bold active and the Insert field menu button, the body with inline tokens and the Payment Methods block card, the hint about / and %.', tab: 'Same card at full width.', ph: 'Subject label stacks above its field; the toolbar wraps the Insert button to a second line; the block card’s Configure button stays visible.' } },
         { id: 'slash', label: 'slash menu open · “/pa”', kind: 'state', cap: { desk: 'The caret is in the last paragraph after “/pa”; the menu lists the two matching text fields and the one block, the block highlighted.', tab: U, ph: 'The menu opens below the caret inside the gutter.' } },
-        { id: 'preview', label: 'Preview · Rosa Delgado', kind: 'state', cap: { desk: 'Metadata bar (To with the member selector, Link with Copy and Manage), the resolved subject, and the rendered email with the payment methods expanded as a list.', tab: U, ph: 'Metadata rows stack; the link row wraps its buttons.' } }] },
+        { id: 'preview', label: 'Preview · Rosa Delgado', kind: 'state', cap: { desk: 'Metadata bar (To with the member selector, Link with Copy and Manage), the resolved subject, and the rendered email with the payment methods expanded as a list.', tab: U, ph: 'Metadata rows stack; the link row wraps its buttons.' } },
+        { id: 'preview-carried', label: 'Preview · Erik Lindqvist · 2027 · Carried from 2026', kind: 'redesign', cap: { desk: 'The 2027 preview for the Lindqvist household: the configured message with the $723.00 total, then the Carried from 2026 block the app appends (five lines attributed to Erik and Maja, the household credit, the carried total and the arithmetic to $723.00), then the payment methods and the link.', tab: U, ph: 'The carried block wraps each sentence over two lines.' } }] },
     { id: 'reviews', title: 'Review Requests', fn: reviews, legend: [
       '<b>Filter bar</b>: Needs attention (the shipped “Actionable” filter, relabelled: open + in review, the default) and All, then one chip per status once there are more than three requests (the shipped compact bar shows only Actionable / All Requests for ≤3). Counts on every chip.',
       '<b>Request card</b>: the bill, badges for evidence (“1 file”) and the member’s response to a resolution (Awaiting member / Member accepted / Member rejected), the status, who and when, the message (truncated at 120 characters as shipped) and the proposed correction. Clicking opens the detail dialog.',
@@ -1475,15 +1881,16 @@ const GROUPS = [
         { id: 'populated', label: '2 notices · 1 not received', kind: 'redesign', cap: { desk: 'Banner, then Sam Whitfield’s $15.00 Zelle refund reported not received with its three actions, and Rosa Delgado’s confirmed $40.00 Venmo refund.', tab: U, ph: 'The three actions wrap to two lines; the banner wraps.' } },
         { id: 'dismiss', label: 'dismissing the not-received report', kind: 'state', cap: { desk: 'The dismiss dialog over the tab: what it does, the reason field (focused, filled), Cancel and a destructive Dismiss report.', tab: U, ph: 'Bottom sheet.' } },
         { id: 'empty', label: 'no refund notices', kind: 'state', cap: { desk: 'The shipped EmptyState copy: “When you issue a refund, the member is notified here and can confirm receipt.”', tab: U, ph: U } }] }] },
-  { id: 'settings', title: 'Settings—billing controls and payment methods', sub: '<code>src/app/views/Settings/SettingsView.jsx</code> renders <code>BillingYearSelector.jsx</code> (switch years, Start New Year, the two backward transitions) over <code>PaymentMethodsManager.jsx</code> (seven method types, preferred, On/Off, edit with QR upload, remove). Payment-method changes sync to every live share page.', screens: [
+  { id: 'settings', title: 'Settings—billing controls and payment methods', sub: '<code>src/app/views/Settings/SettingsView.jsx</code> renders <code>BillingYearSelector.jsx</code> (switch years, Review &amp; start the next year—the Year-End Review entry point, Redesign 26—and the two backward transitions) over <code>PaymentMethodsManager.jsx</code> (seven method types, preferred, On/Off, edit with QR upload, remove). Payment-method changes sync to every live share page.', screens: [
     { id: 'settings', title: 'Settings', fn: settings, legend: [
-      '<b>Active year</b> selector listing every year with its status; Start new year opens the label dialog (suggested next label, duplicate-label error inline) and is hidden for an archived year.',
+      '<b>Active year</b> selector listing every year with its status; <b>Review &amp; start 2027</b> opens the Year-End Review (Redesign 26), which replaces the shipped label dialog—the label is suggested and checked on the review’s last step. The button is hidden for an archived year and disabled once 2027 exists, with the ADR 0007 pointer to record new charges in the open year.',
       '<b>Correct a closed year</b> holds Back to open (while settling) and Reopen to settling (while closed), each behind the shipped confirmation; both are disabled while the year is open. The copy restates ADR 0007.',
       '<b>Payment method row</b>: icon, label with Preferred / QR chips, the detail line (<code>getPaymentMethodDetail</code>), the Shown / Hidden switch, and a menu with Edit and Remove (confirms). Preferred sorts first and is the method the share page highlights with the amount due. The add row offers only the types not yet configured and says “All payment methods configured.” when none remain.',
       '<b>Edit dialog</b> per type—Venmo / Cash App / PayPal: handle, URL, instructions; Zelle / Apple Cash: email, phone; Check: payee name, mailing address (required), phone; Other: URL—with the shipped validation (E.164 phone, http(s) URL) and the optional QR code upload (PNG/JPEG) shown as a preview with Replace / Remove.'],
       states: [
         { id: 'populated', label: '2026 open · 4 methods', kind: 'redesign', cap: { desk: 'Three cards: Billing controls, Correct a closed year (dashed, actions disabled), Payment methods with Venmo preferred and QR, Zelle, Check, Cash App hidden, and the add row.', tab: 'The year selector and Start new year stack.', ph: 'Every row wraps its controls under the detail line; the add row stacks.' } },
-        { id: 'editing', label: 'editing Venmo · QR uploaded', kind: 'state', cap: { desk: 'The Edit Venmo dialog: label, handle, URL, instructions, the QR preview with Replace / Remove, Save.', tab: U, ph: 'Bottom sheet; the QR preview and its buttons sit side by side.' } }] }] },
+        { id: 'editing', label: 'editing Venmo · QR uploaded', kind: 'state', cap: { desk: 'The Edit Venmo dialog: label, handle, URL, instructions, the QR preview with Replace / Remove, Save.', tab: U, ph: 'Bottom sheet; the QR preview and its buttons sit side by side.' } },
+        { id: 'exists', label: '2027 already exists · review not offered', kind: 'state', cap: { desk: 'The Billing year card after the rollover, viewing 2026, which is Closed everywhere on the screen—the header pill (2026 · Closed), the Active year select (2026 (Closed)) and the Correct a closed year card (Reopen to settling enabled; “2026 is closed; reopening it does not touch 2027”): Review &amp; start 2027 disabled and the hint says 2027 exists and that new charges, credits and refunds go in the open year (ADR 0007).', tab: U, ph: U } }] }] },
   { id: 'share', title: 'Share page—what a member sees', sub: 'The public route <code>/share?token=…</code> (<code>src/app/views/ShareView.jsx</code>): no app navigation, no sign-in. Reads the <code>publicShares</code> cache or resolves live through the Cloud Function. The member sees their household’s bills and split math, the payment summary and methods (with QR), payment history, pending Usage Charges, Refund Notices to confirm, their Review Requests, and can submit a Review Request from any bill when the link allows it.', screens: [
     { id: 'share', title: 'Member billing summary', fn: share, legend: [
       '<b>Header</b>: “{Surname} Household’s Annual Billing Summary” and the year, under a slim bar with the brand and the lock—the shipped trust banner (“secure annual billing summary”).',
@@ -1492,21 +1899,54 @@ const GROUPS = [
       '<b>Two kinds of link, two permissions.</b> An ordinary share link (<code>src/lib/ShareLinkService.js</code>, <code>DEFAULT_SCOPES = buildShareScopes(true, true)</code>) carries the summary, payment methods, pending charges, payment history and the review scopes; today it never carries <code>refunds:read</code> (<code>src/lib/share.js</code>). A Refund Notice mints its own link with <code>buildShareScopes(false, false, true)</code> (<code>src/lib/RefundNoticeService.js</code>): summary plus <code>refunds:read</code>, no review scopes. With Redesign 24 the ordinary link gains a <i>read-only</i> Your refunds section—status only—while confirming receipt or non-receipt stays with the notice link alone, as a separate server-checked permission. Both are recipient-bound: a link shows, and may act on, only the Refund Notices issued to its own member (<code>filterMemberRefundNotices</code> in <code>functions/index.js</code>); since notices go to the household contact, the contact’s links show the household’s refund and a linked member’s own link shows none. So the settled frame (ordinary link) shows the refund’s status with no controls; the refund frame (notice link) shows the same refund with Confirm receipt / I have not received it. No frame shows a control its link cannot use.',
       '<b>Your refunds</b> on the notice link: each notice offers Confirm receipt / I have not received it until answered; the answer is recorded through the Cloud Function and the card then shows the terminal line (“You confirmed you received this refund.” / “You reported this refund as not received.”). On an ordinary link the same card is read-only: sent, confirmed, or reported not received, with a pointer to the notice email for confirming.',
       '<b>Gross paid vs. Net Contribution</b>: the settled lead repeats the shipped figure (gross paid, <code>ps.totalPaid</code>) and adds the refund beside it, because the member recognises the money they sent; Net Contribution (gross paid minus recorded refunds, CONTEXT.md) is what makes the household settled, and the page says both in one line rather than showing a $372.00 the member never paid.',
-      '<b>Unable to load</b>: the shipped error card with the server’s message, or the generic “invalid or has been removed”; when the token is known but expired the member can Request a new link (rate-limited), after which the card says the administrator will send one.'],
+      '<b>Unable to load</b>: the shipped error card with the server’s message, or the generic “invalid or has been removed”; when the token is known but expired the member can Request a new link (rate-limited), after which the card says the administrator will send one.',
+      '<b>Lead for a year with carried items</b> says both parts of the total—bills plus what carried—so the first number the member sees is already explained.',
+      '<b>Carried from 2026</b> (Redesign 32): lines grouped by member, each a sentence that says what happened and when and the member’s share; the household credit sits at the household level (icon, label and the Credit teal) with the Service Credits that produced it beneath as explanation that sums to the credit and is not added again; the carried total equals the line in the reconciliation above. The breakdown sits directly under that reconciliation row as an expandable panel, open by default, and the row’s amount and the lead sentence’s “carried from 2026” are its toggles—nothing says “see below”. Plain words only—never “True-up”, “carry_opening” or “adjustment”. A link minted before the rollover shows the same section, because the data lives on the 2027 seeds, not on the link.',
+      '<b>Attribution</b>: a linked member’s lines (Maja’s activation fee) appear under that member, not under the household contact; households are peers (Redesign 01) and the contact is a tag, not a rank.'],
       states: [
         { id: 'populated', label: 'Lindqvist household · $318.00 due', kind: 'redesign', cap: { desk: 'Header, owed callout, household total, Erik’s bills expanded as the table with Request a review per row, Maja collapsed, the three summary figures and the 49 % bar, payment methods with Venmo preferred and “Send $318.00 via Venmo”, payment history collapsed, the in-review request.', tab: 'Same single column, 720 px wide.', ph: 'The bills table stacks into one block per bill (monthly / split / share / annual as labelled lines); the three figures become two columns; payment-method cards stack.' } },
         { id: 'settled', label: 'Delgado household · settled · ordinary link', kind: 'state', cap: { desk: 'The ordinary share link for a settled household: the callout shows the gross $412.00 the household paid (the shipped lead uses gross `totalPaid`) with the $40.00 refund stated beside it—owed $372.00, two $206.00 payments, one refund, so Net Contribution (CONTEXT.md: gross paid minus refunds) equals what is owed; each bill as a card with a Paid pill, its split math and its own Request a review (the shipped settled layout), the two figures that still matter, payment methods without an amount due, payment history (2), the open review request with its evidence file, and the read-only Your refunds section with the $40.00 refund Rosa confirmed on Mar 11—status only, no buttons (Redesign 24).', tab: U, ph: 'Bill cards stack their math under the name; the refund card wraps its status under the amount.' } },
         { id: 'refund', label: 'Delgado household · refund-notice link · confirm receipt', kind: 'state', cap: { desk: 'The link the $40.00 Refund Notice emailed on Mar 9, opened before Rosa answered: the same summary and bills without Request a review (no review scopes), payment methods, payment history, and Your refunds with the pending notice’s Confirm receipt / I have not received it.', tab: U, ph: 'The two buttons wrap to one per line.' } },
         { id: 'loading', label: 'loading', kind: 'state', cap: { desk: 'The shipped state card: spinner, heading and the one-line explanation, nothing else while the first read is in flight.', tab: U, ph: U } },
         { id: 'timeout', label: 'loading · 12 s timeout', kind: 'state', cap: { desk: 'The same card after the shipped 12-second timer: “This is taking longer than expected.” and a Retry button that reloads the page.', tab: U, ph: U } },
-        { id: 'error', label: 'expired link', kind: 'state', cap: { desk: '“Unable to load summary” with the reason and Request a new link.', tab: U, ph: U } }] }] },
-  { id: 'dialogs', title: 'Dialogs—drawn over their parent screen', sub: 'The dialogs the app opens, each over the screen that opens it and dimmed. Desktop and tablet keep a centred card (wide variants at 600 px); the phone turns each one into a bottom sheet (Redesign 14). Dialogs that stack on a dialog (reverse payment, edit payment) are drawn stacked. Not drawn, because they are the same primitives with other copy: the Edit website dialog and the Convert billing frequency and Remove bill confirmations on Bills, the Remove payment method confirmation on Settings, and the Send test email and Payment Methods (Configure) dialogs on Invoicing.', screens: [
+        { id: 'error', label: 'expired link', kind: 'state', cap: { desk: '“Unable to load summary” with the reason and Request a new link.', tab: U, ph: U } },
+        { id: 'carried', label: 'Lindqvist household · 2027 · Carried from 2026', kind: 'redesign', cap: { desk: 'The 2027 page after the rollover: $723.00 due with “carried from 2026” linked in the lead sentence; the household total reconciliation with “2027 bills subtotal $668.00” and “Carried from 2026 +$55.00” as its own row whose amount toggles the breakdown directly beneath it, before the Household Total row (open here, “Hide breakdown”): Erik’s two lines (+$17.00), Maja’s two lines (+$42.00, the activation fee attributed to her), the household credit −$4.00 with its Pinecone detail, Carried total +$55.00; then Erik’s bills at their new prices ($198.00, $26.00, $144.00 / year), Maja collapsed; the three figures; payment methods with “Send $723.00 via Venmo”.', tab: 'Same single column, 720 px wide.', ph: 'Each carried line wraps its sentence over the amount; member blocks stack.' } }] }] },
+  { id: 'year-end', title: 'Year-End Review—how a new billing year is created', sub: 'A new screen (<code>/year-end-review</code>, ADR 0009, <code>specs/year-end-review.md</code>) that replaces the Start new year dialog. Drawn at a <b>later snapshot than the rest of the document: Tue Dec 8, 2026</b>, 2026 · Settling, every household’s 2026 invoice paid; the Okafor household holds a $22.00 credit and Rosa Delgado a $36.00 credit from the October Service Credit on Meridian Music. The review’s sample changes, all computed with the repo’s rules: Northline Mobile $180 → $198/mo from July ((198 − 180) × 6 = $108.00 ÷ 9 = $12.00 each); Harbor Cloud Storage $120 → $144/yr from March ((144 − 120) ÷ 12 × 10 = $20.00 ÷ 4 = $5.00 each); Pinecone Vault ended after August ($60 ÷ 12 × 4 = $20.00 Service Credit ÷ 5 = $4.00 each, left out of 2027); Cloudstream Family $26/mo from January 2027 (next-year price only); Lumen Fiber Backup, new, $9.99/mo from September for Kenji, Dede and Sam ($39.96 ÷ 3 = $13.32 each); deferred member charges already recorded—Dede $38.50, Kenji $12.00, Maja $30.00 activation fee. Per household the carry is Okafor +$15.00, Lindqvist +$55.00, Nakamura–Osei +$98.14, Rosa −$28.00, Sam +$30.32 (total +$170.46); 2027 bills total $3,167.88 against $2,844.00 in 2026; first invoices total $3,338.34. State matrix: Steps 1–3 are drawn populated (Step 1 also with a True-up expanded, with a validation error, and with an ended bill whose earlier credits are answered per member—decision D-B); Step 4 is drawn populated, with a household that nets to a credit, on the “Nothing changed” path, with a restored stale draft, while committing, after a failed commit, and when 2027 was created elsewhere—the states where visual feedback is needed. Non-visual recovery rules (uncertain outcomes, read-back, retries) are in the spec.', screens: [
+    { id: 'year-end', title: 'Year-End Review', fn: yearEnd, legend: [
+      '<b>No price changes this year</b> marks every bill Unchanged in one click; it does not skip Steps 2 and 3—the “Nothing changed” path needs all three confirmations (Redesign 30).',
+      '<b>Bill row</b>: logo, 2026 price and member count, then Unchanged / Price changed / Ended. A changed or ended row opens its fields and a computed panel with a status pill (True-up in the Warning amber, Service credit in the Credit teal—icon and label, never hue alone) and the months it covers.',
+      '<b>Show math</b> expands the formula beside the computed amount exactly as the spec writes it—“($198.00 − $180.00) × 6 months = $108.00 ÷ 9 members = $12.00 each”—and the per-member split from the shared remainder helper (the annual fixture $16.67 across three members splits $5.55 · $5.55 · $5.57). Editing the True-up amount overrides it; the formula stays on the record.',
+      '<b>2027 price</b> on every bill, defaulting to the current or new price; Cloudstream’s January 2027 increase is entered here and creates no True-up. An ended bill has no 2027 price—it is left out.',
+      '<b>Draft</b>: kept on this device until Start or Discard draft; the header says so on every step.',
+      '<b>Credits already on this bill</b> (decided, D-B option 1): an Ended or reduced row whose bill already carries active Service Credits lists every per-member credit record (date, reason, member, amount; grouped by reason and date for reading only) and requires an answer for each, with no default—<i>Covers this change</i> (all of it), <i>Covers in part…</i> (an entered amount, offered for every record because a smaller credit can still be mixed-purpose) or <i>Unrelated</i>; Next stays off until every record has one, because the stored credit has no period, basis or group and the page cannot tell an earlier outage credit from the cancellation it is looking at. Only the amount that actually covers this change is netted, per member: a record larger than the member’s remaining share cannot be answered Covers (the option is struck through with the reason) and the covering amount is capped by the remaining share and must be below the credit. The row previews the resulting credit per member before anything is recorded; the covered ids and amounts are kept in the rollover audit even when nothing is recorded; the existing credits are never changed; answers are stored by the record’s own id and cleared when the credit or the months change (a restored draft says so and asks again). When every member nets to zero the row records nothing and says what still happens—an ended bill is left out of 2027, a reduced bill is kept at its new price. A carried credit larger than next year’s bills is preserved at the following rollover without a disposition record and the member page says what remains (spec § Itemized carry).',
+      '<b>Compact rows and chrome</b>: an Unchanged bill is one line—logo, 2026 price, the segmented control and its 2027 price inline—so a dozen unchanged bills are a short list; on the phone the four-step strip collapses to “Step 1 of 4 · Bills” with a progress bar, the promise line shortens to one line, and controls grow to a 44 px touch height with Slate outlines (3.8:1) on every input, select and checkbox.',
+      '<b>Validation</b> is inline per row and Next is disabled while an error stands: a price of $0.00, a missing first month, a new price equal to the old one (“No change—leave the bill Unchanged or enter a different price”), an override of $0.00, a late-start bill with no members. An ended bill whose last month is December records nothing and is still left out of 2027—stated, never silent.',
+      '<b>Restored draft</b> banner names when it was saved and what changed in 2026 since (counts, in plain terms); amounts are recomputed, entries kept, and the administrator passes Step 4 again before Start.',
+      '<b>Commit states</b>: Start 2027 becomes “Starting 2027…” with the page locked; a definite failure says nothing was saved and offers Retry and Discard draft; “2027 already exists” names when and offers Open 2027 or Discard draft. An uncertain outcome (the request was sent, the answer lost) is reconciled by reading both documents back before any retry—no visual beyond the same locked state, so it is specified, not drawn.'],
+      states: [
+        { id: 'bills', label: 'Step 1 · bills · 2 price changes, 1 ended, 2 unchanged', kind: 'redesign', route: '/year-end-review', cap: { desk: 'Header with the date, the one-line promise that nothing is saved until Start, Discard draft; the four-step strip; the “No price changes this year” bar; five bill rows—Northline and Harbor Cloud marked Price changed with their fields and collapsed True-up panels, Pinecone Vault Ended with its $20.00 service credit and “Left out of 2027”, Cloudstream and Meridian unchanged—each with its 2027 price; a summary line; Next.', tab: 'Rows keep their three-column fields; the segmented control stays on the header line.', ph: 'The step strip collapses to “Step 1 of 4 · Bills” with a progress bar and the promise line shortens to one line; each row’s segmented control drops under the name at full width (38 px tall); an Unchanged row keeps its 2027 price on one wrapped line; fields stack at 44 px; Next is full width.' } },
+        { id: 'bills-trueup', label: 'Step 1 · Northline row expanded · show math', kind: 'state', route: '/year-end-review', cap: { desk: 'The Northline Mobile row with its True-up panel open: the formula, the note that editing the amount overrides it, and nine $12.00 member chips.', tab: U, ph: 'Member chips wrap to three lines under the formula.' } },
+        { id: 'bills-error', label: 'Step 1 · validation error · Harbor Cloud price $0.00', kind: 'state', route: '/year-end-review', cap: { desk: 'Harbor Cloud Storage’s new price is $0.00: the field is outlined in the Outstanding red with “Enter a price greater than $0.00.” under the fields; the summary line is withheld and Next is disabled until it is fixed. Other rows are untouched.', tab: U, ph: 'The alert sits under the stacked fields.' } },
+        { id: 'bills-credited', label: 'Step 1 · Pinecone Vault ended · earlier credits on the bill answered per member', kind: 'state', route: '/year-end-review', cap: { desk: 'An alternate scenario, drawn first: Pinecone Vault ended after August ($20.00 computed, $4.00 each) with three earlier credits on the bill. “Cancelled Pinecone Vault” (Sep 2, $15.00 across five members) is answered Covers on each $3.00 record; Dede’s “Billing mistake” (Mar 14, $10.00) is Unrelated; Rosa’s “Cancelled early—partial month” (Oct 20, $6.00) is larger than her remaining $1.00, so Covers this change is struck through with the reason and Covers in part… takes the covering amount $1.00; every row offers all three answers. The preview reads $20.00 − $16.00 covered = $4.00 to record, $1.00 each for Ada, Erik, Kenji and Dede and $0.00 for Rosa; the Service credit field shows $4.00 and is locked; the bill is still left out of 2027; the summary line says the ended bill is partly covered. An unanswered record disables Next (not drawn).', tab: U, ph: 'Each credit row stacks its control under the member; the covering-amount field is full width.' } },
+        { id: 'new', label: 'Step 2 · new subscriptions · Lumen Fiber Backup from September', kind: 'redesign', route: '/year-end-review', cap: { desk: 'One row: name, price, Monthly / Annual, website, first month, the True-up amount, the member grid with Kenji, Dede and Sam checked, the computed panel ($9.99 × 4 = $39.96 ÷ 3 = $13.32 each) and the 2027 bill it creates. Add subscription above; Back and Next below.', tab: 'Fields two-up; the member grid two columns.', ph: 'Fields stack; the member grid is two columns; the computed panel wraps its chips.' } },
+        { id: 'charges', label: 'Step 3 · member charges · prefilled, one composer open', kind: 'redesign', route: '/year-end-review', cap: { desk: 'Five household cards: Lindqvist with Maja’s $30.00 activation fee (Deferred pill, “already recorded, carried once”), Nakamura–Osei with Dede’s and Kenji’s charges, Okafor with the Add charge composer open—four labeled fields, Member, Amount ($), Date incurred, Description, with Amount focused—and “Recorded when you start 2027, not now”; Rosa and Sam with no charges.', tab: U, ph: 'Composer fields stack with their labels; each charge wraps its description under the name.' } },
+        { id: 'review', label: 'Step 4 · review · Lindqvist household expanded', kind: 'redesign', route: '/year-end-review', cap: { desk: 'Four figures (2026 bills $2,844.00; 2027 bills $3,167.88, +$323.88; Carried from 2026 +$170.46; first invoices $3,338.34), the baseline sentence, five household cards each headed 2026 bills / 2027 bills / First 2027 invoice with a Subscriptions pill and a Carried pill. Lindqvist is expanded: the household’s −$4.00 credit with its Pinecone detail at the household level, Erik’s two lines, Maja’s two lines (the $30.00 activation fee attributed to Maja, a linked member), the four-line total, Edit bills / Edit charges; then the label, the plain-language statement of what Start will write, and Start 2027 in Ember with Ink text.', tab: 'Figures stay four-up; household headers put the three figures on their own row.', ph: 'Figures two-up; each household card stacks name, pills, then the three figures; member blocks stack their lines; the total block is two columns; Start 2027 is full width above the Back control.' } },
+        { id: 'review-credit', label: 'Step 4 · a household whose carry nets to a credit · Rosa Delgado', kind: 'state', route: '/year-end-review', cap: { desk: 'Rosa’s card expanded: the Credit-teal Carried −$28.00 pill; the household credit −$40.00 with two detail lines—Pinecone Vault ended in August (−$4.00) and Other 2026 overpayment (−$36.00, the October Service Credit)—marked as explanation, not added again; her +$12.00 Northline line; the total: 2027 bills $388.00, carried −$28.00, first invoice $360.00.', tab: U, ph: 'The credit block and its detail stack; the card’s left edge is the Credit teal.' } },
+        { id: 'review-nothing', label: 'Step 4 · “Nothing changed” · after the three confirmations', kind: 'state', route: '/year-end-review', cap: { desk: 'The green confirmation names the three statements confirmed and links back to each step; the figures show 2027 bills equal to 2026 ($2,844.00), Carried −$22.00 + $30.00 + $50.50 − $36.00 = +$22.50; Nakamura–Osei is expanded showing only the two existing deferred charges; the Start statement says no new charges or credits are written. Sam’s card reads Carried none.', tab: U, ph: 'The confirmation’s three edit links wrap to two lines.' } },
+        { id: 'review-restored', label: 'Step 4 · draft restored · 2026 changed since it was saved', kind: 'redesign', route: '/year-end-review', cap: { desk: 'The amber banner above the figures: when the draft was saved, what changed (1 payment recorded, Lindqvist household; 1 earlier credit on Pinecone Vault changed, so its Covers / Unrelated answer was cleared and must be given again in Step 1), that every amount was recomputed and the other entries kept, that the totals are pending (the 2027 bills, Carried and first-invoices figures and every household’s 2027 and first-invoice totals carry a pending pill; 2026 bills are source data and do not) and that Start 2027 is disabled—the amber line under the Start statement names the blocker (the cleared answer, with its step)—until the answer is given and Step 4 is checked again. All cards collapsed.', tab: U, ph: 'The banner wraps to four lines above the figures.' } },
+        { id: 'review-starting', label: 'Step 4 · starting 2027 · commit in progress', kind: 'state', route: '/year-end-review', cap: { desk: 'The label field and every control locked; the header’s Discard draft is replaced by “Locked while 2027 starts”; an amber line with a spinner directly under the step strip, sticky at the top—“Starting 2027… Writing 2026 and 2027 together. Don’t close this tab.”—and the Start button disabled with “Starting 2027…”. No Back, no Discard, no Edit links while the commit is in flight; the spinner line is the only thing that moves.', tab: U, ph: U } },
+        { id: 'review-failed', label: 'Step 4 · commit failed · nothing saved', kind: 'state', route: '/year-end-review', cap: { desk: 'The red alert: “2027 was not created. Nothing was saved and your draft is kept.” with the cause (could not reach the server) and Retry beside Discard draft. Retry re-runs the guard and the transaction with the same ids and the same reviewed fingerprint.', tab: U, ph: 'Retry and Discard draft share a row.' } },
+        { id: 'review-exists', label: 'Step 4 · 2027 created elsewhere', kind: 'state', route: '/year-end-review', cap: { desk: 'The red alert: “2027 already exists. It was started from another device at 3:12 pm, so nothing was changed here and your draft is kept.” with Open 2027 and Discard draft. The same card appears on reload when the guard finds a successor before Start.', tab: U, ph: U } }] }] },
+  { id: 'dialogs', title: 'Dialogs—drawn over their parent screen', sub: 'The dialogs the app opens, each over the screen that opens it and dimmed. Desktop and tablet keep a centred card (wide variants at 600 px); the phone turns each one into a bottom sheet (Redesign 14). Dialogs that stack on a dialog (reverse payment, edit payment) are drawn stacked. The Start new billing year label dialog is retired by the Year-End Review (Redesign 26). Not drawn, because they are the same primitives with other copy: the Edit website dialog and the Convert billing frequency and Remove bill confirmations on Bills, the Remove payment method confirmation on Settings, and the Send test email and Payment Methods (Configure) dialogs on Invoicing.', screens: [
     { id: 'dlg-email-invoice', title: 'Email invoice', fn: dlgEmailInvoice, legend: [
       '<b>Recipient line</b> with the figures the shipped dialog lists (recipient, email, annual total, balance when something is paid); Send email is disabled when the member has no email.',
       '<b>Variant</b>: Text only / Text + link / Full invoice (the “full” variant includes the ANNUAL BILLING SUMMARY breakdown). Changing it rebuilds the body unless the administrator has edited it, in which case the link is appended at send time.',
       '<b>Share link at send time</b>: Text + link and Full invoice mint the member’s share link only when Copy, Open mail app or Send email is used (<code>ensureShareLink</code>), so closing the dialog leaves no orphan link.',
+      '<b>Recipient line for a year with carried items</b> shows the household total that already includes what carried; the email body explains it (Redesign 32).',
+      '<b>CARRIED FROM 2026</b> in the Full invoice: one line per carried item attributed to its member, the household credit with its detail, and a carried total; the ANNUAL PAYMENT SUMMARY lists 2027 bills and the carried amount before the Combined Annual Total so the arithmetic is on the page.',
       ...['13', '14'].map(rdCap)],
-      states: [{ id: 'default', label: 'Text + link · Erik Lindqvist', kind: 'redesign', cap: { desk: 'Wide dialog over the dashboard (the Lindqvist card expanded behind it): recipient line, segmented variant, subject, message, More on the left and Send email as the one filled button.', tab: 'Dialog at 560 px.', ph: 'Bottom sheet: the More control sits above the two full-width buttons; the message area shrinks.' } }] },
+      states: [{ id: 'default', label: 'Text + link · Erik Lindqvist', kind: 'redesign', cap: { desk: 'Wide dialog over the dashboard (the Lindqvist card expanded behind it): recipient line, segmented variant, subject, message, More on the left and Send email as the one filled button.', tab: 'Dialog at 560 px.', ph: 'Bottom sheet: the More control sits above the two full-width buttons; the message area shrinks.' } },
+        { id: 'full-carried', label: 'Full invoice · Erik Lindqvist · 2027 · CARRIED FROM 2026', kind: 'redesign', cap: { desk: 'The Full invoice variant for 2027: the plain-text invoice (<code>buildFullInvoiceText</code>) with Erik’s and Maja’s bill tables at the new prices, the CARRIED FROM 2026 block (one bullet per carried item with the member named first and the share on its own line, the household credit with its detail, the carried total) and a payment summary that lists 2027 bills and the carried amount before the combined total.', tab: 'Dialog at 560 px; the monospace text scrolls horizontally.', ph: 'Bottom sheet; the text scrolls.' } }] },
     { id: 'dlg-text-invoice', title: 'Text invoice', fn: dlgTextInvoice, legend: [
       '<b>Two variants</b> (Text only / Text + link) and the SMS greeting (“Hey …”); the recipient’s phone is shown and Open Messages opens the native composer through the SMS deep link, copying the text as a fallback.',
       '<b>Copy message</b> is the secondary action on the left; the link is minted at send time exactly as for email.'],
@@ -1563,11 +2003,12 @@ const GROUPS = [
       '<b>Bill &amp; notify</b> flips the selected charges to billed (raising the household’s owed, the Outstanding KPI and the close gate), then sends the outbound Charge Notice with a share link; the member pays through the normal ledger or opens a Review Request. Disabled when no charge matches the period.'],
       states: [{ id: 'default', label: 'Nakamura–Osei household · 2 charges · $50.50', kind: 'current', cap: { desk: 'Over the dashboard: the explanation, the period radios, the two charges with avatars, the total, Bill &amp; notify.', tab: U, ph: 'Bottom sheet.' } }] },
     { id: 'dlg-bill-history', title: 'Bill history', fn: dlgBillHistory, legend: [
-      '<b>Events for one bill</b>, newest first, from the billing events log: Bill created (amount / cadence), Bill updated (old → new), Member added / removed (who), Bill removed; “No history recorded yet” when empty. Payments are not here—they live in each household’s payment history.'],
-      states: [{ id: 'default', label: 'Northline Mobile · 3 events', kind: 'current', cap: { desk: 'Wide dialog over the Bills tab with three events.', tab: U, ph: 'Bottom sheet; each event stacks its date over its label.' } }] },
-    { id: 'dlg-new-year', title: 'Start new billing year', fn: dlgNewYear, legend: [
-      '<b>Label</b> suggested from the active year (<code>suggestNextYearLabel</code>), “Label is required.” / “Billing year “2027” already exists.” inline; Enter creates. The note states what carries over: members, bills, payment methods, and—per ADR 0006—undisposed credits and deferred charges as opening balances, with a credit re-opened by an active not-received report held back in the old year.'],
-      states: [{ id: 'default', label: '2027', kind: 'current', cap: { desk: 'Over Settings: the label field focused with the suggested “2027”, the carry-forward note, Create year.', tab: U, ph: 'Bottom sheet.' } }] },
+      '<b>Events for one bill</b>, newest first, from the billing events log: Bill created (amount / cadence), Bill updated (old → new), Member added / removed (who), Bill removed; “No history recorded yet” when empty. Payments are not here—they live in each household’s payment history.',
+      '<b>Price set at rollover</b> (Redesign 33): the first event in a bill’s next-year history, written by the Year-End Review, old price → new price with the source year.',
+      '<b>True-up recorded</b> in the closing year’s history: the price change and first month, the gross amount and the member count; a late start reads “Started Sep at $9.99 / month · $39.96 across 3 members”, an ended bill’s Service Credit “Ended after Aug · $20.00 across 5 members”.'],
+      states: [{ id: 'default', label: 'Northline Mobile · 3 events', kind: 'current', cap: { desk: 'Wide dialog over the Bills tab with three events.', tab: U, ph: 'Bottom sheet; each event stacks its date over its label.' } },
+        { id: 'rollover', label: 'Northline Mobile · 2027 · price set at rollover', kind: 'redesign', cap: { desk: 'The 2027 history over the 2027 Bills tab (header pill 2027 · Open; Northline at $198.00, Cloudstream $26.00, Harbor Cloud $144.00 / year, Meridian, Lumen Fiber Backup; no Pinecone Vault): one event, “Price set at rollover — $180.00 → $198.00 (from 2026)”, and the hint that 2026’s history holds the True-up.', tab: U, ph: 'Bottom sheet over the 2027 list.' } },
+        { id: 'trueup', label: 'Northline Mobile · 2026 · True-up recorded', kind: 'state', cap: { desk: 'The 2026 history after the rollover: “True-up recorded — $180.00 → $198.00 from Jul · $108.00 across 9 members” above the three shipped events.', tab: U, ph: 'Bottom sheet.' } }] },
     { id: 'dlg-confirm', title: 'Confirmation (destructive example)', fn: dlgConfirm, legend: [
       '<b>ConfirmDialog</b>: title, message, Cancel and a confirm button labelled for the action, destructive styling when the action is; closes on Escape or an overlay click; focus lands on the confirm button. The example is Remove member from the Members tab; the same component confirms Remove bill, Convert billing frequency, the lifecycle transitions, Resolve / Reject and Reverse payment. The message tells the shipped truth: `removeMember()` in `src/lib/BillingYearService.js` also deletes the member’s ledger entries (`payments.filter(p => p.memberId !== memberId)`), which conflicts with the append-only payments rule in `rules/repo_rules.md` (never physically delete entries—use reversals), so the copy says payments are deleted and steers the administrator to keep a member who has them. Preserving the entries instead is not proposed here; it would need a removed member to stay addressable—a retired member record kept for the ledger, excluded from bills and settlement.'],
       states: [{ id: 'default', label: 'Remove member · Maja Lindqvist', kind: 'redesign', cap: { desk: 'Over the Members tab: the message in glossary terms and a red filled Remove.', tab: U, ph: 'Bottom sheet with full-width buttons.' } }] },
@@ -1608,7 +2049,7 @@ for (const [n, r] of Object.entries(RD).sort(([a], [b]) => a.localeCompare(b))) 
 const SHARE_ROUTE = '/share?token=7f3a91c2…';
 const ROUTES = { login: '/login', dashboard: '/dashboard', members: '/manage/members', bills: '/manage/bills', invoicing: '/manage/invoicing', reviews: '/manage/reviews', refunds: '/manage/refunds', settings: '/settings', share: SHARE_ROUTE, system: '/dashboard',
   'dlg-email-invoice': '/dashboard', 'dlg-text-invoice': '/dashboard', 'dlg-share-link': '/dashboard', 'dlg-payment-history': '/dashboard', 'dlg-payment-edit': '/dashboard', 'dlg-record-payment': '/dashboard', 'dlg-issue-refund': '/dashboard', 'dlg-usage-charge': '/dashboard', 'dlg-charge-notice': '/dashboard',
-  'dlg-dispute-detail': '/manage/reviews', 'dlg-service-credit': '/manage/bills', 'dlg-bill-history': '/manage/bills', 'dlg-new-year': '/settings', 'dlg-confirm': '/manage/members', 'dlg-share-qr': SHARE_ROUTE, 'dlg-share-review': SHARE_ROUTE, 'dlg-share-reject': SHARE_ROUTE };
+  'dlg-dispute-detail': '/manage/reviews', 'dlg-service-credit': '/manage/bills', 'dlg-bill-history': '/manage/bills', 'year-end': '/year-end-review', 'dlg-confirm': '/manage/members', 'dlg-share-qr': SHARE_ROUTE, 'dlg-share-review': SHARE_ROUTE, 'dlg-share-reject': SHARE_ROUTE };
 function unit(screen, state, w, label) {
   const id = `fx-${screen.id}-${state.id}-${w}`;
   const kindChip = { current: 'current', redesign: 'redesign', state: 'state' }[state.kind];
@@ -1654,7 +2095,8 @@ const TOKENS = [
   ['Graphite text', '#66645f', 'Muted text: labels, hints, metadata', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen']]],
   ['Graphite', '#777573', 'Icons, placeholder glyphs, chevrons—never body text (non-text target 3:1)', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen']]],
   ['Placeholder', '#6f6d69', 'Input placeholder text (inputs are always on Paper)', '#ffffff', [['#ffffff', 'Paper']]],
-  ['Stone', '#dcd9d6', 'Hairlines, borders, dividers (decorative, no contrast target)', '#ffffff', [['#ffffff', 'Paper']]],
+  ['Stone', '#dcd9d6', 'Hairlines, card borders, dividers (decorative, no contrast target)', '#ffffff', [['#ffffff', 'Paper']]],
+  ['Slate', '#86827d', 'Input, select, checkbox and radio outlines—the outline identifies the control, so it meets the 3:1 non-text target (3.8:1 on Paper)', '#ffffff', [['#ffffff', 'Paper']]],
   ['Ember', '#ff692d', 'Accent fills: primary button (Ink text), progress fill, active step, brand mark, focus ring tint', '#22201d', [['#22201d', 'Ink text on Ember'], ['#ffffff', 'white text on Ember—not used']]],
   ['Ember text', '#ad3c0b', 'Small accent text: token pills, email links, “Unsaved changes”, Preferred chip', '#ffffff', [['#ffffff', 'Paper'], ['#efecea', 'Linen'], ['#ffe0d3', 'Ember tint']]],
   ['Settled', '#1e6b3f', 'Status: paid in full—check-circle glyph; settled “Paid” figures; completed steps', '#e1f0e5', [['#e1f0e5', 'its tint'], ['#ffffff', 'Paper']]],
