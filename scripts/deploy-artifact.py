@@ -244,7 +244,8 @@ def verify_staging(staging, target, hashes):
 def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=None):
     """Final consumer: reverify -> one fixed ADC read -> unchanged helper.
 
-    Every child receives a neutral HOME, empty external cwd and narrow env.
+    The trusted op reader retains operator HOME for desktop CLI configuration.
+    Helper/Firebase use neutral HOME, empty external cwd and narrow env.
     Credentials remain outside project/upload trees and are always removed.
     """
     work, staging = Path(work), Path(staging)
