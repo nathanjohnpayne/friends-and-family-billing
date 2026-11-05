@@ -5,6 +5,7 @@ Stdlib only; executed with -I -S from an external runtime materialized from
 current main. Artifact files are inert data, never imports or executable hooks.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -165,7 +166,7 @@ def child_environment(home, path):
     return {"HOME": str(home), "PATH": path, "LANG": "C.UTF-8"}
 
 
-def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800, output_limit=None, input_data=None):
+def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800, output_limit=None, input_data=None, credential_owner=False):
     def limit_file():
         resource.setrlimit(resource.RLIMIT_FSIZE, (output_limit, output_limit))
     process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE if input_data is not None else None, stdout=subprocess.PIPE if capture else stdout, stderr=subprocess.PIPE if capture else None, text=capture, start_new_session=True, preexec_fn=limit_file if output_limit is not None else None)
@@ -175,15 +176,42 @@ def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800, out
             raise subprocess.CalledProcessError(process.returncode, argv, output=output, stderr=error)
         return output if capture else ""
     except BaseException:
-        # A caught signal must not leave a helper/reader or its children alive.
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+        # Cleanup is one coordinated protocol: the outer supervisor asks the
+        # credential owner to cancel and waits for it, without racing its own
+        # SIGKILL deadline against the owner's bounded helper escalation.
+        with defer_cancellation():
+            if credential_owner:
+                if process.poll() is None:
+                    process.send_signal(signal.SIGTERM)
                 process.wait()
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                finally:
+                    # The leader can exit while a descendant ignores TERM.
+                    # Kill the entire remaining group before reaping/returning.
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
         raise
+
+
+@contextmanager
+def defer_cancellation():
+    """Repeated cancellation cannot interrupt reaping or credential wiping."""
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGHUP, signal.SIGINT, signal.SIGTERM})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
 def run(argv, env, cwd, capture=True):
@@ -195,6 +223,9 @@ class DeploymentInterrupted(BaseException):
 
 
 def interrupted(signum, _frame):
+    # Cancellation is terminal. Block repeats before unwinding can reach any
+    # wait/finally boundary; the owner must finish reaping and wiping first.
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGHUP, signal.SIGINT, signal.SIGTERM})
     raise DeploymentInterrupted(f"Interrupted by signal {signum}")
 
 
@@ -294,8 +325,11 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
         env["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential)
         invoke([tools["helper"], PROJECT, "--only", target, "--config", str(staging / "firebase.json")], env, cwd, False)
     finally:
-        credential.unlink(missing_ok=True)
-        shutil.rmtree(temp, ignore_errors=True)
+        with defer_cancellation():
+            try:
+                credential.unlink(missing_ok=True)
+            finally:
+                shutil.rmtree(temp, ignore_errors=True)
 
 
 def launch_firebase(payload, argv):
@@ -389,7 +423,7 @@ def run_consumer(staging, target, tools, work, hashes):
     payload = json.dumps(verified).encode()
     require(len(payload) <= 8 * 1024 * 1024, "Consumer payload too large")
     code = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['install_signal_handlers'](); m['consume_verified'](**m['strict_json'](sys.stdin.buffer.read(8388609)))"
-    checked_process([tools["python3"], "-I", "-S", "-B", "-c", code], child_environment(Path.home(), "/usr/bin:/bin"), cwd, capture=False, input_data=payload)
+    checked_process([tools["python3"], "-I", "-S", "-B", "-c", code], child_environment(Path.home(), "/usr/bin:/bin"), cwd, capture=False, input_data=payload, credential_owner=True)
 
 
 if __name__ == "__main__":

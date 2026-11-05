@@ -142,9 +142,9 @@ Secrets are accessed in Cloud Functions via `defineSecret()` (Firebase Functions
 The deployer service account needs `roles/secretmanager.viewer` on this project
 so Firebase CLI can validate `defineSecret()` declarations during functions
 deploy analysis. If the separately approved Functions deployment fails with
-`Permission 'secretmanager.secrets.get' denied` for `RESEND_API_KEY`, rerun the
-current `op-firebase-setup friends-and-family-billing` helper or grant that role
-to `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
+`Permission 'secretmanager.secrets.get' denied` for `RESEND_API_KEY`, stop and report the failure. Obtain separate human authorization before rerunning
+`op-firebase-setup friends-and-family-billing` or repairing the role on
+`firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`; the failed deployment does not authorize IAM changes.
 
 
 ## Email Delivery (Resend)

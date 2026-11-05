@@ -46,6 +46,8 @@ WORK="$(mktemp -d /tmp/ffb-deploy.XXXXXXXX)"
 trap 'chmod -R u+w "$WORK" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 DRIVER=
 stop_driver() {
+  # A repeated signal must not interrupt the wait for credential-owner cleanup.
+  trap '' HUP INT TERM
   if [ -n "$DRIVER" ]; then
     kill -s "$1" "$DRIVER" 2>/dev/null || true
     wait "$DRIVER" 2>/dev/null || true

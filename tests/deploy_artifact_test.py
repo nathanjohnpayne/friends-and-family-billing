@@ -321,6 +321,54 @@ class ArtifactBoundary(unittest.TestCase):
                         process.kill()
                         process.wait()
 
+    def test_nested_repeated_cancellation_reaps_stubborn_helper_before_wiping_credentials(self):
+        staging, _ = self.verify()
+        staging = staging.parent / 'hosting'
+        hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+        reader = self.work / 'fake-op'
+        reads = self.work / 'reads'
+        reader.write_text("#!/bin/sh\necho read >> " + str(reads) + "\nprintf '%s' '{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}'\n")
+        reader.chmod(0o700)
+        helper = self.work / 'stubborn-helper'
+        marker, heartbeat = self.work / 'helper-pid', self.work / 'heartbeat'
+        helper.write_text('#!/bin/sh\ntrap "" TERM\necho $$ > ' + str(marker) + '\nwhile :; do echo tick >> ' + str(heartbeat) + '; /bin/sleep .05; done\n')
+        helper.chmod(0o700)
+        tools = {'node': '/fake/node', 'op': str(reader), 'helper': str(helper), 'python3': sys.executable}
+        harness = self.work / 'nested.py'
+        harness.write_text("import importlib.util\ns=importlib.util.spec_from_file_location('d'," + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d);d.install_signal_handlers();d.run_consumer(" + repr(str(staging)) + ",'hosting'," + repr(tools) + "," + repr(str(self.work)) + "," + repr(hashes) + ")\n")
+        process = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(harness)], env={'HOME': str(self.work), 'PATH': '/usr/bin:/bin'}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        helper_pid = None
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(marker.exists(), 'Credentialed fake helper must begin before cancellation')
+            helper_pid = int(marker.read_text())
+            self.assertTrue((self.work / 'source-credential.json').exists())
+            os.kill(process.pid, signal.SIGTERM)
+            # Repeated cancellation must not interrupt either level's cleanup.
+            for signum in [signal.SIGHUP, signal.SIGINT, signal.SIGTERM]:
+                time.sleep(.1)
+                os.kill(process.pid, signum)
+            self.assertNotEqual(process.wait(timeout=10), 0)
+            self.assertEqual(reads.read_text().splitlines(), ['read'])
+            self.assertFalse((self.work / 'source-credential.json').exists())
+            self.assertFalse((self.work / 'credential-tmp').exists())
+            before = heartbeat.stat().st_size
+            time.sleep(.15)
+            self.assertEqual(heartbeat.stat().st_size, before)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(helper_pid, 0)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            if helper_pid:
+                try:
+                    os.killpg(helper_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
     def test_real_pinned_cli_discovers_manifest_without_candidate_import_or_spawn(self):
         node = Path('/opt/homebrew/opt/node@24/bin/node')
         cli = Path('/opt/homebrew/lib/node_modules/firebase-tools/lib/bin/firebase.js')
