@@ -18,10 +18,12 @@ const {
     projectMemberDisputes,
     getServiceCreditTotalForMember,
     buildServiceCreditsForShare,
+    buildCarriedItemsForShare,
     getHouseholdOpeningBalance,
 } = require(path.join(__dirname, '..', 'functions', 'billing'));
 
-const { _testHelpers } = require(path.join(__dirname, '..', 'functions', 'index'));
+const { _testHelpers, resolveShareToken } = require(path.join(__dirname, '..', 'functions', 'index'));
+const { getFirestore, FieldValue } = require(require.resolve('firebase-admin/firestore', { paths: [path.join(__dirname, '..', 'functions')] }));
 const {
     validateToken,
     validateDisputeInput,
@@ -527,6 +529,144 @@ describe('getHouseholdOpeningBalance (#322)', () => {
 
 // ──────────────── submitDispute validation helpers ─────────────
 
+describe('buildCarriedItemsForShare (#602)', () => {
+    it('projects fixture 7 as signed household lines without adding credit detail again', () => {
+        const members = [{ id: 1, name: 'Ada', linkedMembers: [2] }, { id: 2, name: 'Kenji' }];
+        const items = [
+            { sourceId: 'tu-1', memberId: 1, kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12, calc: { months: 6 } },
+            { sourceId: 'tu-2', memberId: 2, kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12 },
+            { sourceId: 'carry', memberId: 1, kind: 'credit', basis: 'credit', billName: null, description: "Your household's 2026 credit", amount: -22,
+                detail: [{ kind: 'remainder', description: 'Other 2026 overpayment', amount: -22, sourceId: 'private' }] }
+        ];
+        const result = buildCarriedItemsForShare(members, [], [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 2, items }], 1, [2]);
+        assert.deepEqual(result, {
+            fromYear: '2026', notApplied: 0, remainingCredit: 0, total: 2,
+            items: [
+                { memberId: 1, memberName: 'Ada', kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12, detail: [] },
+                { memberId: 2, memberName: 'Kenji', kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12, detail: [] },
+                { memberId: 1, memberName: 'Ada', kind: 'credit', basis: 'credit', billName: null, description: "Your household's 2026 credit", amount: -22,
+                    detail: [{ memberId: null, memberName: null, kind: 'remainder', basis: null, billName: null, description: 'Other 2026 overpayment', amount: -22 }] }
+            ]
+        });
+    });
+
+    it('whitelists top-level and detail fields and rejects foreign-household attribution', () => {
+        const detail = Object.freeze({ sourceId: 'private-credit', memberId: 2, memberName: 'forged', basis: 'ended', billName: 'Ended service', description: 'Ended in August.', amount: -20, calc: { private: true }, adminNote: 'private', detail: [{ secret: 'nested' }] });
+        const credit = Object.freeze({ sourceId: 'private-carry', memberId: 1, kind: 'credit', basis: 'credit', description: 'Household credit', amount: -20, adminNote: 'private', detail: Object.freeze([detail, { memberId: 9, description: 'Other household private text', amount: -99 }]) });
+        const adjustments = Object.freeze([
+            { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: -20, items: [credit, { memberId: 9, description: 'Foreign item', amount: 99 }] },
+            { memberId: 9, kind: 'carry_opening', status: 'carried_in', fromYear: 'private', amount: 300, items: [{ memberId: 9, amount: 300 }] },
+            { memberId: 2, kind: 'carry_opening', status: 'voided', fromYear: '2026', amount: 100 },
+            { memberId: 1, kind: 'usage_charge', status: 'deferred', amount: 100 }
+        ]);
+        const members = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Kenji' }, { id: 9, name: 'Private' }];
+        const result = buildCarriedItemsForShare(members, [], adjustments, 1, [2]);
+        assert.equal(result.total, -20);
+        assert.equal(result.total, getHouseholdOpeningBalance({ id: 1, linkedMembers: [2] }, adjustments));
+        assert.equal(result.items.length, 1);
+        assert.deepEqual(result.items[0].detail, [{ memberId: 2, memberName: 'Kenji', kind: 'service_credit', basis: 'ended', billName: 'Ended service', description: 'Ended in August.', amount: -20 }]);
+        assert.ok(!JSON.stringify(result).includes('private'));
+        assert.ok(!JSON.stringify(result).includes('Foreign'));
+        result.items[0].detail[0].description = 'changed output';
+        assert.equal(detail.description, 'Ended in August.');
+    });
+
+    it('keeps one legacy line per primary or linked seed without looking up current bill names', () => {
+        const adjustments = [
+            { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: -20 },
+            { memberId: 2, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 5 }
+        ];
+        assert.deepEqual(buildCarriedItemsForShare([], [], adjustments, 1, [2]), {
+            fromYear: '2026', notApplied: 15, remainingCredit: 15, total: -15,
+            items: [{ kind: 'legacy', description: 'Carried from 2026', amount: -20 }, { kind: 'legacy', description: 'Carried from 2026', amount: 5 }]
+        });
+    });
+
+    for (const [name, bill, serviceCredit, incoming, notApplied, remainingCredit] of [
+        ['fixture9 empty year', 0, 0, -132, 132, 132],
+        ['fixture9 partial use', 60, 0, -132, 72, 72],
+        ['fixture10l excess Service Credit', 100, 200, -20, 120, 20],
+        ['no incoming money', 100, 200, 0, 100, 0]
+    ]) {
+        it(`separates floor remainder and remaining money: ${name}`, () => {
+            const adjustments = [
+                { memberId: 1, kind: 'service_credit', status: 'active', amount: serviceCredit },
+                ...(incoming ? [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: incoming }] : [])
+            ];
+            const result = buildCarriedItemsForShare([{ id: 1 }], [{ amount: bill, billingFrequency: 'annual', members: [1] }], adjustments, 1, []);
+            assert.equal(result.notApplied, notApplied);
+            assert.equal(result.remainingCredit, remainingCredit);
+            assert.equal(result.total, incoming);
+        });
+    }
+
+    it('aggregates fractional household bill shares before cent rounding', () => {
+        const result = buildCarriedItemsForShare([{ id: 1 }, { id: 2 }, { id: 3 }],
+            [{ amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }],
+            [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -100, fromYear: '2026' }], 1, [2]);
+        // Two thirds of $100 is $66.67, not two individually rounded $33.33 shares.
+        assert.equal(result.notApplied, 33.33);
+        assert.equal(result.remainingCredit, 33.33);
+    });
+
+    for (const [credit, total, notApplied] of [[10, 0, 100], [5, 5, 95]]) {
+        it(`fixture 10n keeps net ${total} carry from promising a freed $${credit} credit`, () => {
+            const result = buildCarriedItemsForShare([{ id: 1, name: 'Ada' }],
+                [{ amount: 100, billingFrequency: 'annual', members: [1] }], [
+                    { memberId: 1, kind: 'service_credit', status: 'active', amount: 200 },
+                    { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: total,
+                        items: [{ memberId: 1, kind: 'usage_charge', amount: 10 }, { memberId: 1, kind: 'credit', amount: -credit }] }
+                ], 1, []);
+            assert.equal(result.notApplied, notApplied);
+            assert.equal(result.remainingCredit, 0);
+            assert.equal(result.total, total);
+            assert.deepEqual(result.items.map((item) => item.amount), [10, -credit]);
+        });
+    }
+
+    it('property: remaining credit equals actual rollover U across mixed seeds and Service Credit excess', async () => {
+        const { buildCarryForwardSummary } = await import('../src/lib/billing-year.js');
+        let randomState = 0x60210;
+        const random = (max) => {
+            randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+            return randomState % max;
+        };
+        for (let run = 0; run < 400; run++) {
+            const members = [{ id: 1, name: 'Ada', linkedMembers: [2] }, { id: 2, name: 'Kenji', linkedMembers: [] }, { id: 3, name: 'Other', linkedMembers: [] }];
+            const bills = Array.from({ length: 2 }, (_, i) => ({
+                id: i, amount: random(20001) / 100, billingFrequency: random(2) ? 'monthly' : 'annual', members: [1, 2, 3]
+            }));
+            const adjustments = members.flatMap((member) => {
+                const charge = random(20001) / 100;
+                const credit = random(20001) / 100;
+                const amount = Math.round((charge - credit) * 100) / 100;
+                return [
+                    { id: `seed-${member.id}`, memberId: member.id, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount,
+                        items: [{ memberId: member.id, kind: 'usage_charge', amount: charge }, { memberId: member.id, kind: 'credit', amount: -credit }] },
+                    { id: `sc-${member.id}`, memberId: member.id, kind: 'service_credit', status: 'active', amount: random(50001) / 100 },
+                    { id: `voided-${member.id}`, memberId: member.id, kind: 'carry_opening', status: 'voided', amount: -1000 }
+                ];
+            });
+            const carry = buildCarryForwardSummary(members, bills, [], [], adjustments, { carryUnusedOpeningCredit: true });
+            for (const memberId of [1, 3]) {
+                const linkedIds = memberId === 1 ? [2] : [];
+                const result = buildCarriedItemsForShare(members, bills, adjustments, memberId, linkedIds);
+                const expectedU = carry.households.find((household) => household.primaryMemberId === memberId)?.unusedOpeningCredit || 0;
+                assert.equal(result.remainingCredit, expectedU, `run ${run}, household ${memberId}`);
+                assert.ok(result.remainingCredit <= result.notApplied);
+                assert.equal(result.total, getHouseholdOpeningBalance({ id: memberId, linkedMembers: linkedIds }, adjustments));
+                assert.ok(result.items.every((item) => [memberId, ...linkedIds].includes(item.memberId)));
+            }
+        }
+    });
+
+    it('returns a serializable empty projection for missing inputs', () => {
+        assert.deepEqual(buildCarriedItemsForShare(undefined, undefined, undefined, 1, undefined), {
+            fromYear: null, notApplied: 0, remainingCredit: 0, total: 0, items: []
+        });
+    });
+});
+
 describe('validateToken', () => {
     it('rejects null/undefined token', () => {
         assert.equal(validateToken(null).valid, false);
@@ -838,5 +978,111 @@ describe('markdownToPlainText (processMailQueue text alternative)', () => {
 
     it('leaves list, quote and plain lines as they are', () => {
         assert.equal(markdownToPlainText('- a\n1. b\n> c\nplain 2 * 3'), '- a\n1. b\n> c\nplain 2 * 3');
+    });
+});
+
+/** Exercise the exported HTTP function with Firestore mocked only at its SDK boundary. */
+async function resolveCarriedShare(t, { owedAdjustments, refreshOnly, scopes = ['summary:read'], cached = {} }) {
+    const writes = [];
+    const updates = [];
+    const audit = [];
+    const cache = { ...cached };
+    const year = {
+        label: '2027', familyMembers: [{ id: 1, name: 'Ada', linkedMembers: [2] }, { id: 2, name: 'Kenji', linkedMembers: [] }],
+        bills: [{ id: 'next', name: 'Next subscription', amount: 100, billingFrequency: 'annual', members: [1, 2] }],
+        owedAdjustments, payments: [], settings: {}
+    };
+    const tokenData = { ownerId: 'owner', memberId: 1, billingYearId: '2027', scopes, accessCount: 4 };
+    const collection = (parts) => ({
+        doc: (id) => {
+            const document = [...parts, id];
+            return {
+                collection: (name) => collection([...document, name]),
+                get: async () => ({ exists: true, data: () => parts[0] === 'shareTokens' ? tokenData : year,
+                    ref: { update: async (data) => { updates.push(data); } } }),
+                set: async (data, options) => {
+                    assert.equal(parts[0], 'publicShares');
+                    writes.push({ data, options });
+                    for (const [key, value] of Object.entries(data)) {
+                        if (value?.isEqual?.(FieldValue.delete())) delete cache[key];
+                        else cache[key] = value;
+                    }
+                }
+            };
+        },
+        add: async (data) => { audit.push(data); }
+    });
+    const stub = t.mock.method(getFirestore(), 'collection', (name) => collection([name]));
+    let response;
+    let status;
+    const req = { method: 'POST', headers: {}, body: { token: 'a'.repeat(64), refreshOnly } };
+    const res = {
+        set() {},
+        status(code) { status = code; return this; },
+        json(data) { response = data; return this; }
+    };
+    try {
+        await resolveShareToken(req, res);
+    } finally {
+        stub.mock.restore();
+    }
+    assert.equal(status, 200);
+    return { response, writes, updates, audit, cache };
+}
+
+describe('resolveShareToken carried-items reconciliation (#602)', () => {
+    for (const refreshOnly of [false, true]) {
+        it(`includes the same legacy carry in the response and ${refreshOnly ? 'refresh' : 'cache-miss'} document`, async (t) => {
+            const seed = { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: -20 };
+            const result = await resolveCarriedShare(t, { owedAdjustments: [seed], refreshOnly,
+                cached: refreshOnly ? { accessCount: 7, lastAccessedAt: 'keep', unrelated: 'keep' } : {} });
+            assert.deepEqual(result.response.carriedItems, {
+                fromYear: '2026', notApplied: 0, remainingCredit: 0, total: -20,
+                items: [{ kind: 'legacy', description: 'Carried from 2026', amount: -20 }]
+            });
+            assert.deepEqual(result.cache.carriedItems, result.response.carriedItems);
+            assert.deepEqual(result.writes[0].options, { merge: true });
+            assert.deepEqual(result.response.paymentSummary, { combinedAnnualTotal: 80, combinedMonthlyTotal: 6.67, totalPaid: 0, balanceRemaining: 80 });
+            assert.equal(result.cache.accessCount, refreshOnly ? 7 : 5);
+            assert.equal(result.updates.length, refreshOnly ? 0 : 1);
+            assert.equal(result.audit.length, refreshOnly ? 0 : 1);
+            if (refreshOnly) {
+                assert.equal(result.cache.lastAccessedAt, 'keep');
+                assert.equal(result.cache.unrelated, 'keep');
+                assert.ok(!Object.hasOwn(result.writes[0].data, 'lastAccessedAt'));
+            }
+        });
+
+        it(`removes stale carried details on ${refreshOnly ? 'refresh' : 'cache miss'} when no seeds remain`, async (t) => {
+            const result = await resolveCarriedShare(t, { owedAdjustments: [], refreshOnly,
+                cached: { carriedItems: { privateStaleValue: true }, unrelated: 'keep' } });
+            assert.ok(!Object.hasOwn(result.response, 'carriedItems'));
+            assert.ok(!Object.hasOwn(result.cache, 'carriedItems'));
+            assert.ok(result.writes[0].data.carriedItems.isEqual(FieldValue.delete()));
+            assert.equal(result.cache.unrelated, 'keep');
+        });
+    }
+
+    it('keeps zero-net itemized carry in both the response and cache', async (t) => {
+        const seed = { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 0,
+            items: [{ memberId: 2, kind: 'usage_charge', basis: 'member', description: 'Activation', amount: 10 },
+                { memberId: 1, kind: 'credit', basis: 'credit', description: 'Credit', amount: -10 }] };
+        const result = await resolveCarriedShare(t, { owedAdjustments: [seed], refreshOnly: true });
+        assert.equal(result.response.carriedItems.total, 0);
+        assert.deepEqual(result.response.carriedItems.items.map((item) => item.amount), [10, -10]);
+        assert.deepEqual(result.cache.carriedItems, result.response.carriedItems);
+        assert.equal(result.response.paymentSummary.combinedAnnualTotal, 100);
+        assert.deepEqual(Object.keys(result.response).sort(), ['billingYearId', 'carriedItems', 'linkedMembers', 'memberId', 'memberName', 'ownerId', 'paymentSummary', 'scopes', 'summary', 'year']);
+    });
+
+    it('does not expose carried data without summary scope and deletes an old cached value', async (t) => {
+        const result = await resolveCarriedShare(t, {
+            owedAdjustments: [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -20, fromYear: '2026' }],
+            scopes: ['paymentMethods:read'], refreshOnly: true, cached: { carriedItems: { stale: true } }
+        });
+        assert.ok(!Object.hasOwn(result.response, 'carriedItems'));
+        assert.ok(!Object.hasOwn(result.cache, 'carriedItems'));
+        assert.deepEqual(result.response.paymentLinks, []);
+        assert.deepEqual(result.response.paymentMethods, []);
     });
 });
