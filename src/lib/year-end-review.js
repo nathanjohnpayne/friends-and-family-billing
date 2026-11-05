@@ -75,7 +75,7 @@ export function existingCreditCoverage(result, memberId) {
     const { basis, calc, shares } = result;
     return {
         basis, frequency: calc.frequency, fromAmount: calc.fromAmount, toAmount: calc.toAmount,
-        firstMonth: calc.firstMonth, lastMonth: calc.lastMonth, override: calc.overridden ? calc.gross : null,
+        firstMonth: calc.firstMonth, lastMonth: calc.lastMonth, override: result.enteredOverride,
         shareCents: shares.find(share => share.memberId === memberId)?.shareCents ?? 0
     };
 }
@@ -173,7 +173,7 @@ function compute(bill, input, ctx, basis) {
         calc: { frequency, fromAmount, toAmount, fromMonthly: fromAmount === null ? null : fromAmount / divisor,
             toMonthly: toAmount === null ? null : toAmount / divisor, firstMonth, lastMonth, months,
             computed: dollars(computedCents), gross: dollars(beforeNet), overridden, recorded: 0, coveredBy: [], alreadyCreditedCents: 0 },
-        grossCents: beforeNet, shares, coveredBy: [], records: [], outcome: 'recorded',
+        grossCents: beforeNet, enteredOverride: overridden ? input.override : null, shares, coveredBy: [], records: [], outcome: 'recorded',
         billOutcome: basis === 'ended' ? 'omitted' : 'kept_at_new_price'
     };
     const records = relevantCredits(ctx.owedAdjustments, result.billId);

@@ -200,6 +200,24 @@ describe('per-record, per-member existing credit answers (fixture 8)', () => {
         existingCredits.second = answer(records[1], base, 'unrelated');
         expect(computeEnded(bill, { ...endedRow, existingCredits }, { ...ctx, owedAdjustments: records }).grossCents).toBe(3200);
     });
+    it('clears raw override edits even when the resulting cents and member shares match', () => {
+        const record = credit('b', 2, 10);
+        const original = computeEnded(bill, { ...endedRow, override: 40.001 }, ctx);
+        const changed = computeEnded(bill, { ...endedRow, override: 40.002 }, ctx);
+        expect(changed.calc.gross).toBe(original.calc.gross);
+        expect(changed.shares).toEqual(original.shares);
+        const persisted = buildServiceCreditRecords(original, recordCtx)[0];
+        expect(persisted).not.toHaveProperty('enteredOverride');
+        expect(persisted.calc).not.toHaveProperty('enteredOverride');
+        const row = { ...endedRow, override: 40.001, existingCredits: { b: answer(record, original) } };
+        expect(revalidateExistingCreditAnswers(row, [record], original).unanswered).toEqual([]);
+        expect(revalidateExistingCreditAnswers(row, [record], changed)).toMatchObject({ existingCredits: {}, unanswered: ['b'] });
+        const raw = draftFor([record], { ...row, override: 40.002 });
+        const restored = validateDraft(raw, restoreCtx([record]));
+        expect(restored.valid).toBe(false);
+        expect(restored.draft.bills[20].existingCredits).toEqual({});
+        expect(existingCreditCoverage(computeEnded(bill, { ...endedRow, override: 40 }, ctx), 2).override).toBe(40);
+    });
     it('8g: clears changed records or complete changed coverage and drops removed answers', () => {
         const record = credit('b', 2, 16);
         const row = { ...endedRow, existingCredits: { b: answer(record, base) } };
