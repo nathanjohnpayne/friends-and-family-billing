@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import shlex
+import signal
 import unicodedata
 import subprocess
 import tarfile
@@ -91,7 +92,7 @@ def validate_config(root, target):
                 expected["httpsTrigger"] = {}
             require(endpoint == expected, "Unexpected Functions endpoint configuration")
     elif target == "hosting":
-        allowed = {"public", "ignore", "redirects", "headers", "rewrites", "cleanUrls", "trailingSlash", "appAssociation", "i18n"}
+        allowed = {"public", "ignore", "redirects", "headers", "rewrites", "cleanUrls", "trailingSlash", "appAssociation"}
         require(set(value) <= allowed and value.get("public") == "public", "Unexpected Hosting configuration")
         require((root / "public/index.html").is_file() and (root / "public/firebase-config.local.js").is_file(), "Missing production Hosting output")
         bridge = (root / "public/firebase-config.local.js").read_text()
@@ -108,10 +109,11 @@ def extract_verified(archive, destination, sha, target):
     require(re.fullmatch(r"[0-9a-f]{40}", sha) is not None, "Full source revision required")
     destination = Path(destination)
     require(not destination.exists(), "Staging destination must be fresh")
+    require(Path(archive).stat().st_size <= 600 * 1024 * 1024, "Archive is too large")
     with tarfile.open(archive, "r:") as tf:
         members = tf.getmembers()
         require(len(members) <= 20000, "Too many archive entries")
-        seen, files, total = set(), {}, 0
+        seen, prefixes, files, total = set(), {}, {}, 0
         for member in members:
             name = member.name
             parts = PurePosixPath(name).parts
@@ -122,6 +124,11 @@ def extract_verified(archive, destination, sha, target):
             require(not member.pax_headers, "PAX overrides are forbidden")
             require(not any(part.startswith(".env") or part == ".runtimeconfig.json" for part in parts), "Environment files are forbidden")
             require(member.isfile() or member.isdir(), "Archive links/devices are forbidden")
+            for size in range(1, len(parts) + 1):
+                prefix = "/".join(parts[:size])
+                normalized = unicodedata.normalize("NFC", prefix).casefold()
+                require(normalized not in prefixes or prefixes[normalized] == prefix, "Archive path component collision")
+                prefixes[normalized] = prefix
             seen.add(canonical)
             if member.isfile():
                 total += member.size
@@ -157,25 +164,51 @@ def child_environment(home, path):
     return {"HOME": str(home), "PATH": path, "LANG": "C.UTF-8"}
 
 
+def checked_process(argv, env, cwd, capture=True, stdout=None, timeout=1800):
+    process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE if capture else stdout, stderr=subprocess.PIPE if capture else None, text=capture, start_new_session=True)
+    try:
+        output, error = process.communicate(timeout=timeout)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, argv, output=output, stderr=error)
+        return output if capture else ""
+    except BaseException:
+        # A caught signal must not leave a helper/reader or its children alive.
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        raise
+
+
 def run(argv, env, cwd, capture=True):
-    result = subprocess.run(argv, cwd=cwd, env=env, check=True, capture_output=capture, text=capture, timeout=1800)
-    return result.stdout if capture else ""
+    return checked_process(argv, env, cwd, capture)
+
+
+class DeploymentInterrupted(BaseException):
+    """A signal exception that cannot be mistaken for a retryable OS EINTR."""
+
+
+def interrupted(signum, _frame):
+    raise DeploymentInterrupted(f"Interrupted by signal {signum}")
+
+
+def install_signal_handlers():
+    for name in [signal.SIGHUP, signal.SIGINT, signal.SIGTERM]:
+        signal.signal(name, interrupted)
 
 
 def resolve_tools(repository):
-    safe = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    fixed = {"git": "/usr/bin/git", "gh": "/opt/homebrew/bin/gh", "python3": "/usr/bin/python3", "node": "/opt/homebrew/opt/node@24/bin/node", "firebase": "/opt/homebrew/lib/node_modules/firebase-tools/lib/bin/firebase.js", "op": "/opt/homebrew/bin/op"}
     tools = {}
-    for name in ["git", "gh", "python3", "node", "firebase", "op"]:
-        found = shutil.which(name, path=safe)
-        require(found is not None, f"Missing trusted tool: {name}")
-        path = Path(found).resolve()
-        require(repository not in path.parents, f"Tool resolves into repository: {name}")
-        if "node_modules" in path.parts:
-            require(name == "firebase" and "/lib/node_modules/firebase-tools/lib/bin/firebase.js" in str(path), "Repository dependency tools forbidden")
+    for name, fixed_path in fixed.items():
+        path = Path(fixed_path).resolve()
+        require(path.is_file(), f"Missing trusted installed tool: {name}")
+        require(str(path).startswith(("/usr/bin/", "/opt/homebrew/")), f"Tool escaped trusted installation: {name}")
+        require(repository not in path.parents, f"Tool resolves into candidate repository: {name}")
         tools[name] = str(path)
-    node24 = Path("/opt/homebrew/opt/node@24/bin/node")
-    require(node24.is_file(), "Install the trusted Node24 runtime")
-    tools["node"] = str(node24.resolve())
     helper = Path.home() / ".local/bin/op-firebase-deploy"
     require(helper.is_file() and digest(helper.read_bytes()) == HELPER_SHA256, "Canonical deploy helper differs from reviewed pin")
     require(repository not in helper.resolve().parents, "Canonical helper resolves into candidate repository")
@@ -233,10 +266,12 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
         check_discovery(staging, tools, env, cwd, invoke)
     # The launcher repeats the manifest/hash/resolution guard at Firebase's
     # execution boundary, including after the helper's credential checks.
-    launch = work / "firebase-launch.json"
-    launch.write_text(json.dumps({"staging": str(staging), "target": target, "tools": tools, "hashes": hashes}))
+    # No public private-mode dispatcher or caller-supplied payload. The guard
+    # invocation is generated from already verified in-memory data only.
+    verified = {"staging": str(staging), "target": target, "tools": tools, "hashes": hashes}
+    guard = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['launch_firebase'](" + repr(verified) + ",sys.argv[1:])"
     firebase = bin_dir / "firebase"
-    firebase.write_text('#!/bin/bash -p\nexec ' + shlex.quote(tools["python3"]) + ' -I -S ' + shlex.quote(str(Path(__file__).resolve())) + ' --firebase ' + shlex.quote(str(launch)) + ' "$@"\n')
+    firebase.write_text('#!/bin/bash -p\nexec ' + shlex.quote(tools["python3"]) + ' -I -S -c ' + shlex.quote(guard) + ' "$@"\n')
     firebase.chmod(0o500)
     bin_dir.chmod(0o500)
     credential = work / "source-credential.json"
@@ -244,7 +279,7 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
         fd = os.open(credential, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
             if acquire is None:
-                subprocess.run([tools["op"], "read", ADC_URI], cwd=cwd, env=child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), stdout=stream, check=True, timeout=60)
+                checked_process([tools["op"], "read", ADC_URI], child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), cwd, capture=False, stdout=stream, timeout=60)
             else:
                 acquire([tools["op"], "read", ADC_URI], env, cwd, stream)
         require(credential.stat().st_size <= 65536, "ADC source too large")
@@ -290,7 +325,8 @@ def main():
     git_env = {**base, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0"}
     main_sha = os.environ["FFB_TRUSTED_MAIN"]
     run(git + ["merge-base", "--is-ancestor", args.sha, main_sha], git_env, work)
-    require(run([tools["firebase"], "--version"], base, work).strip() == CLI_VERSION, "Wrong global Firebase CLI version")
+    require(run([tools["node"], "-p", "process.versions.node.split(\".\")[0]"], base, work).strip() == "24", "Trusted runtime must be Node24")
+    require(run([tools["node"], tools["firebase"], "--version"], base, work).strip() == CLI_VERSION, "Wrong global Firebase CLI version")
     gh_env = dict(base)
     for name in ["GH_TOKEN", "GH_CONFIG_DIR"]:
         if os.environ.get(name):
@@ -315,8 +351,11 @@ def main():
     # Source/rules files are byte-bound to git, not merely trusted build outputs.
     source_files = {"functions/source/" + name: "functions/" + name for name in FUNCTION_FILES - {"functions.yaml"}}
     source_files.update({"firestore-rules/firestore.rules": "firestore.rules", "storage/storage.rules": "storage.rules"})
+    original_config = strict_json(subprocess.check_output(git + ["cat-file", "blob", args.sha + ":firebase.json"], env=git_env, cwd=work, timeout=60))
+    hosting = {**original_config["hosting"], "public": "public"}
+    require(strict_json((work / "extracted/hosting/firebase.json").read_bytes()) == {"hosting": hosting}, "Hosting config differs from reviewed git configuration")
     for output, original in source_files.items():
-        require((work / "extracted" / output).read_bytes() == run(git + ["cat-file", "blob", args.sha + ":" + original], git_env, work).encode(), "Packaged source differs from reviewed git source")
+        require((work / "extracted" / output).read_bytes() == subprocess.check_output(git + ["cat-file", "blob", args.sha + ":" + original], env=git_env, cwd=work, timeout=60), "Packaged source differs from reviewed git source")
     # Only the selected target is copied into the final project/upload tree.
     selected_stage = work / "selected"
     shutil.copytree(staging, selected_stage)
@@ -330,24 +369,37 @@ def main():
     if args.verify_only:
         print(json.dumps({"verified": True, "sourceSha": args.sha, "target": args.target, "credentialAcquired": False}))
         return
-    # Credential acquisition exists only in the final consuming subprocess.
-    consumer_env = child_environment(Path.home(), "/usr/bin:/bin")
-    payload = work / "consumer.json"
-    payload.write_text(json.dumps({"staging": str(staging), "target": args.target, "tools": tools, "work": str(work), "hashes": hashes}))
-    run([tools["python3"], "-I", "-S", str(Path(__file__).resolve()), "--consume", str(payload)], consumer_env, work, False)
+    # Private consuming subprocess inherits verified in-memory arguments, not
+    # an argv mode/payload that a caller could select before verification.
+    operator_home = Path.home()
+    child = os.fork()
+    if child == 0:
+        try:
+            os.environ.clear()
+            os.environ.update(child_environment(operator_home, "/usr/bin:/bin"))
+            consume_verified(staging, args.target, tools, work, hashes)
+        except BaseException as error:
+            print("Deployment consumer failed: " + str(error), file=__import__("sys").stderr, flush=True)
+            os._exit(1)
+        os._exit(0)
+    waiting = True
+    try:
+        _, status = os.waitpid(child, 0)
+        waiting = False
+        require(os.waitstatus_to_exitcode(status) == 0, "Deployment consumer failed; no automatic retry")
+    except BaseException:
+        if waiting:
+            try:
+                os.kill(child, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            os.waitpid(child, 0)
+        raise
 
 
 if __name__ == "__main__":
+    install_signal_handlers()
     try:
-        import sys
-        if len(sys.argv) == 6 and sys.argv[1] == "--check-archive":
-            extract_verified(sys.argv[2], Path(sys.argv[3]), sys.argv[4], sys.argv[5])
-            print("Archive/config verification passed; no credentials acquired.")
-        elif len(sys.argv) >= 3 and sys.argv[1] == "--firebase":
-            launch_firebase(strict_json(Path(sys.argv[2]).read_bytes()), sys.argv[3:])
-        elif len(sys.argv) == 3 and sys.argv[1] == "--consume":
-            consume_verified(**strict_json(Path(sys.argv[2]).read_bytes()))
-        else:
-            main()
-    except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError, tarfile.TarError) as error:
+        main()
+    except (DeploymentInterrupted, ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError, tarfile.TarError) as error:
         raise SystemExit("Deployment refused: " + str(error))

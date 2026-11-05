@@ -19,7 +19,7 @@
     "test:e2e": "export VITE_E2E_MODE=true && npm run build:react && npm run build:assemble && npx playwright test",
     "test:secrets": "node scripts/check-no-public-secrets.mjs",
     "lint": "eslint .",
-    "test:deploy": "PYTHONDONTWRITEBYTECODE=1 python3 -I -S -m unittest discover -s tests -p deploy_artifact_test.py"
+    "test:deploy": "PYTHONDONTWRITEBYTECODE=1 python3 -I -S -B -m unittest discover -s tests -p deploy_artifact_test.py"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

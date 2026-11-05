@@ -5,14 +5,14 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 function requireCondition(ok, message) { if (!ok) throw new Error(message); }
-function copyTree(source, dest) {
+function copyTree(source, dest, root = true) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
     requireCondition(!entry.isSymbolicLink(), 'Source links are forbidden');
-    if (['.git', 'node_modules', 'app', 'firebase-config.local.js'].includes(entry.name) || entry.name.startsWith('.env')) continue;
+    if (['.git', 'node_modules'].includes(entry.name) || (root && ['app', 'firebase-config.local.js'].includes(entry.name)) || entry.name.startsWith('.env')) continue;
     const input = path.join(source, entry.name);
     const output = path.join(dest, entry.name);
-    if (entry.isDirectory()) copyTree(input, output);
+    if (entry.isDirectory()) copyTree(input, output, false);
     else { requireCondition(entry.isFile(), 'Source devices are forbidden'); fs.copyFileSync(input, output); }
   }
 }

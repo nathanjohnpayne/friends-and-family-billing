@@ -2,11 +2,11 @@ name: Build deployment artifact
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     paths:
       - '.github/workflows/build-artifact.yml'
       - 'scripts/*deploy*'
+      - 'scripts/verify-build-artifact.py'
       - 'scripts/build-isolation-probe.cjs'
       - 'scripts/check-functions-discovery.cjs'
       - 'tests/deploy_artifact_test.py'
@@ -30,11 +30,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Credential-free production build and isolation proof
         env:
           PUBLIC_FIREBASE_CONFIG: ${{ vars.PUBLIC_FIREBASE_CONFIG }}
           PUBLIC_LOGODEV_KEY: ${{ vars.PUBLIC_LOGODEV_KEY }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ffb-output" "$RUNNER_TEMP/host-canary" /home/runner/.config
@@ -56,13 +57,13 @@ jobs:
           rm -f /home/runner/.config/ffb-isolation-canary
       - name: Verify actual archive and target configurations without credentials
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 \
-            /usr/bin/python3 -I -S scripts/deploy-artifact.py --check-archive \
+            /usr/bin/python3 -I -S -B scripts/verify-build-artifact.py \
             "$RUNNER_TEMP/ffb-output/ffb-deploy-$SOURCE_SHA.tar" "$RUNNER_TEMP/ffb-verified" "$SOURCE_SHA" functions
           env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 \
-            /usr/bin/python3 -I -S -m unittest discover -s tests -p deploy_artifact_test.py
+            /usr/bin/python3 -I -S -B -m unittest discover -s tests -p deploy_artifact_test.py
       - name: Publish build proof (not deployment material)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -94,6 +95,21 @@ jobs:
         with:
           name: unattested-${{ github.sha }}
           path: artifact
+      - name: Verify exact unsigned file set and digest before signing
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 -I -S -B - "$SOURCE_SHA" <<'PYTHON'
+          import hashlib, pathlib, sys
+          root = pathlib.Path('artifact')
+          name = 'ffb-deploy-' + sys.argv[1] + '.tar'
+          files = list(root.iterdir())
+          assert {p.name for p in files} == {name, 'SHA256SUMS'}
+          assert all(p.is_file() and not p.is_symlink() for p in files)
+          expected = hashlib.sha256((root / name).read_bytes()).hexdigest() + '  ' + name + '\n'
+          assert (root / 'SHA256SUMS').read_text() == expected
+          PYTHON
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: artifact/*.tar

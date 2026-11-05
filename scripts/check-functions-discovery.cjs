@@ -26,4 +26,3 @@ const {Delegate} = require(path.resolve(path.dirname(cli), '../deploy/functions/
  const build = await delegate.discoverBuild({}, {});
  if (!Object.keys(build.endpoints).length) throw Error('No manifest endpoints');
 })().catch(e => { console.error(e.message); process.exitCode = 1; });
-

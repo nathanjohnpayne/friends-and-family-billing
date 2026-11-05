@@ -6,6 +6,9 @@ import importlib.util
 import io
 import json
 import os
+import signal
+import sys
+import time
 from pathlib import Path
 import subprocess
 import tarfile
@@ -150,6 +153,122 @@ class ArtifactBoundary(unittest.TestCase):
         self.assertEqual(calls, ["acquire", "deploy"])
         self.assertFalse((self.work / "source-credential.json").exists())
         self.assertFalse((self.work / "credential-tmp").exists())
+
+    def test_provenance_and_workflow_failures_happen_before_credential_consumer(self):
+        for failure in ['workflow', 'attestation', 'archive']:
+            with self.subTest(failure=failure):
+                work = self.work / failure
+                work.mkdir()
+                events = []
+                def external(argv, _env, _cwd, _capture=True):
+                    if 'merge-base' in argv:
+                        events.append('ancestor')
+                        return ''
+                    if '-p' in argv:
+                        return '24'
+                    if '--version' in argv:
+                        return '15.34.2'
+                    if 'api' in argv:
+                        events.append('workflow')
+                        runs = [] if failure == 'workflow' else [{'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success', 'status': 'completed'}]
+                        return json.dumps([{'workflow_runs': runs}])
+                    if 'download' in argv:
+                        events.append('download')
+                        download = Path(argv[-1])
+                        name = 'ffb-deploy-' + SHA + '.tar'
+                        archive(download / name, metadata_changes={'repository': 'wrong/repo'} if failure == 'archive' else None)
+                        (download / 'SHA256SUMS').write_text(deploy.digest((download / name).read_bytes()) + '  ' + name + '\n')
+                        return ''
+                    if 'attestation' in argv:
+                        events.append('attestation')
+                        if failure == 'attestation':
+                            raise subprocess.CalledProcessError(1, argv)
+                        return ''
+                    raise AssertionError('Unexpected external command')
+                args = ['deployer', '--sha', SHA, '--target', 'functions', '--repository-dir', str(work), '--work-dir', str(work)]
+                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.os, 'fork') as consumer:
+                    with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                        deploy.main()
+                    consumer.assert_not_called()
+                self.assertEqual(events, ['ancestor', 'workflow'] if failure == 'workflow' else ['ancestor', 'workflow', 'download', 'attestation'])
+
+    def test_source_copy_keeps_nested_app_but_excludes_root_build_and_local_config(self):
+        source, dest = self.work / 'input', self.work / 'copy'
+        (source / 'src/app').mkdir(parents=True)
+        (source / 'app').mkdir()
+        (source / 'src/app/main.jsx').write_text('real production entry')
+        (source / 'app/old.js').write_text('stale build')
+        (source / '.env.local').write_text('fake local credential')
+        script = "require(" + repr(str(ROOT / 'scripts/build-deploy-artifact.cjs')) + ").copyTree(process.argv[1],process.argv[2]);"
+        subprocess.run(['/opt/homebrew/opt/node@24/bin/node' if Path('/opt/homebrew/opt/node@24/bin/node').exists() else 'node', '-e', script, str(source), str(dest)], check=True)
+        self.assertEqual((dest / 'src/app/main.jsx').read_text(), 'real production entry')
+        self.assertFalse((dest / 'app').exists())
+        self.assertFalse((dest / '.env.local').exists())
+
+    def test_public_entry_rejects_private_modes_and_target_widening(self):
+        bad = [["--consume", "/tmp/payload"], ["--firebase", "/tmp/payload"], ["--check-archive", "/tmp/payload"], ["--sha", SHA, "--target", "all"], ["--sha", SHA, "--target", "functions,hosting"], ["--sha", SHA, "--target", "functions", "--except", "hosting"]]
+        for args in bad:
+            with self.subTest(args=args):
+                result = subprocess.run([str(ROOT / "scripts/deploy-artifact.sh"), *args], capture_output=True)
+                self.assertEqual(result.returncode, 2)
+                # Direct Python invocation also has only the public parser.
+                result = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "scripts/deploy-artifact.py"), *args], capture_output=True)
+                self.assertEqual(result.returncode, 2)
+
+    def test_bad_acquisition_or_helper_error_never_retries_and_cleans(self):
+        for label in ["reader", "shape", "helper"]:
+            with self.subTest(label=label):
+                work = self.work / label
+                work.mkdir()
+                archive(self.tar)
+                staging, _ = deploy.extract_verified(self.tar, work / "staged", SHA, "hosting")
+                hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+                calls = []
+                def acquire(_argv, _env, _cwd, stream):
+                    calls.append("read")
+                    if label == "reader":
+                        raise OSError("Fake reader failed")
+                    stream.write('{"type":"service_account"}' if label == "shape" else '{"type":"authorized_user","client_id":"fake","client_secret":"fake","refresh_token":"fake"}')
+                def invoke(*_args):
+                    calls.append("helper")
+                    raise OSError("Fake helper token check failed")
+                with self.assertRaises((ValueError, OSError)):
+                    deploy.consume_verified(staging, "hosting", {"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": "/fake/helper"}, work, hashes, invoke, acquire)
+                self.assertEqual(calls, ["read", "helper"] if label == "helper" else ["read"])
+                self.assertFalse((work / "source-credential.json").exists())
+                self.assertFalse((work / "credential-tmp").exists())
+
+    def test_hup_int_term_clean_credentials_and_wait_for_fake_child(self):
+        for signum in [signal.SIGHUP, signal.SIGINT, signal.SIGTERM]:
+            with self.subTest(signal=signum):
+                work = self.work / str(signum)
+                work.mkdir()
+                archive(self.tar)
+                staging, _ = deploy.extract_verified(self.tar, work / "staged", SHA, "hosting")
+                hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+                helper = work / 'fake-helper'
+                marker = work / 'helper-pid'
+                helper.write_text('#!/bin/bash\necho $$ > ' + str(marker) + '\nexec /bin/sleep 30\n')
+                helper.chmod(0o700)
+                harness = work / 'harness.py'
+                harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", acquire=acquire)\n")
+                process = subprocess.Popen([sys.executable, '-I', '-S', str(harness)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    deadline = time.monotonic() + 5
+                    while not marker.exists() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue(marker.exists(), 'Fake helper must begin before signal')
+                    child = int(marker.read_text())
+                    os.kill(process.pid, signum)
+                    self.assertNotEqual(process.wait(timeout=8), 0)
+                    self.assertFalse((work / 'source-credential.json').exists())
+                    self.assertFalse((work / 'credential-tmp').exists())
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(child, 0)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
 
     def test_real_pinned_cli_discovers_manifest_without_candidate_import_or_spawn(self):
         node = Path('/opt/homebrew/opt/node@24/bin/node')
