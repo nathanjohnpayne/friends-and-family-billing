@@ -80,6 +80,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── BillingYearService.js  # Service-owns-state: all billing mutations
 │       ├── SaveQueue.js           # Serialized Firestore write queue
 │       ├── billing-year.js        # Year lifecycle utilities
+│       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
@@ -484,3 +485,27 @@ Currently implemented Firebase Analytics events:
 The repository enables current-head external-review enforcement through `codex.external_review_gate.enabled`; see [the local review policy](../../REVIEW_POLICY.md#external-clearance-enforcement-in-this-repository) for activation and approval-count rollout requirements.
 
 Blocked Codex external-clearance diagnostics bind request age and acknowledgement to an exact `@codex review` command comment; later prose mentions do not replace it. The filter preserves requester deduplication, clearance decisions, and blocked exits ([mergepath#1276](https://github.com/nathanjohnpayne/mergepath/issues/1276)).
+
+### Year-End Review library
+
+`src/lib/year-end-review.js` contains the pure review helpers specified in
+`specs/year-end-review.md`; it performs no persistence. `computePriceChange` and
+`computeEnded` take a source bill, its draft row, and `{ sourceYear,
+owedAdjustments }`. `computeLateStart` takes the new bill row and source-year
+context. Results keep all member shares for audit, including zero shares; record
+factories omit zero records and take fixed `{ sourceYearId, reconciliationId,
+now }` context for retry-stable ids and timestamps. `recordServiceCredit` uses
+the same `splitCents` allocation while retaining its existing mutation behavior.
+
+Existing-credit answers are keyed by actual adjustment id. Store `seen` from
+`snapshotExistingCredit` and `coverage` from `existingCreditCoverage` with each
+explicit answer; `revalidateExistingCreditAnswers` clears changed answers.
+`validateDraft` returns input-only restored state, recomputed results, notices
+and step errors, and always requires a fresh preview. It preserves the reviewed
+source fingerprint until the administrator reviews current totals.
+
+`buildHouseholdPreview({ familyMembers, sourceBills, nextBills, carry })` consumes
+finalized `carry.households` with `{ primaryMemberId, openingBalance, items }`;
+it does not calculate the carry. `canStart` consumes validation errors and
+unanswered ids plus an explicit `previewCurrent` flag maintained by the page
+after each edit and preview. The helpers alone do not enable the review UI.
