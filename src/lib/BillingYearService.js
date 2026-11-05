@@ -18,6 +18,7 @@ import { generateEventId, generateUniqueId, generateUniqueBillId, generateUnique
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
 import { selectBillableCharges } from './chargeNotice.js';
 import { SaveQueue } from './SaveQueue.js';
+import { splitCents } from './year-end-review.js';
 
 /** Default settings for a new billing year. */
 const DEFAULT_SETTINGS = {
@@ -1146,16 +1147,11 @@ export class BillingYearService {
             targetIds = billMembers.slice();
         }
 
-        const baseCents = Math.floor(totalCents / targetIds.length);
         const incurredDate = data.incurredDate || localDateString();
         const createdAt = new Date().toISOString();
 
         const records = [];
-        let allocated = 0;
-        targetIds.forEach((memberId, i) => {
-            // Last member absorbs the remainder so the shares sum exactly to totalCents.
-            const shareCents = i === targetIds.length - 1 ? totalCents - allocated : baseCents;
-            allocated += shareCents;
+        splitCents(totalCents, targetIds).forEach(({ memberId, cents: shareCents }) => {
             records.push({
                 id: generateUniqueAdjustmentId(),
                 memberId,

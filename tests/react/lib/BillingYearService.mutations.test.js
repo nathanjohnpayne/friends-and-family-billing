@@ -69,6 +69,27 @@ function createService() {
 describe('BillingYearService — CRUD mutations', () => {
     beforeEach(() => clearStore());
 
+    it('preserves the existing Service Credit zero-share shape after shared split extraction', () => {
+        const svc = createService();
+        svc._setState({ bills: [{ ...svc.getState().bills[0], members: [1, 2, 3] }] });
+        const records = svc.recordServiceCredit({ billId: 101, amount: 0.01, reason: 'One cent' });
+        expect(records.map(record => ({ memberId: record.memberId, amount: record.amount }))).toEqual([
+            { memberId: 1, amount: 0 }, { memberId: 2, amount: 0 }, { memberId: 3, amount: 0.01 }
+        ]);
+        expect(svc.getState().owedAdjustments).toEqual(records);
+        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 0.01, memberCount: 3 });
+    });
+
+    it('preserves legacy Service Credit allocation for duplicate loaded bill members', () => {
+        const svc = createService();
+        svc._setState({ bills: [{ ...svc.getState().bills[0], members: [1, 1, 2] }] });
+        const records = svc.recordServiceCredit({ billId: 101, amount: 10, reason: 'Legacy members' });
+        expect(records.map(record => ({ memberId: record.memberId, amount: record.amount }))).toEqual([
+            { memberId: 1, amount: 3.33 }, { memberId: 1, amount: 3.33 }, { memberId: 2, amount: 3.34 }
+        ]);
+        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 10, memberCount: 3 });
+    });
+
     // ── Members ──
 
     describe('addMember', () => {
