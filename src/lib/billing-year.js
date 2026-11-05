@@ -150,7 +150,7 @@ export function buildCarryOpeningItems(household, ctx) {
             .filter(a => a.kind === 'service_credit' && a.status === 'active' && memberIds.includes(a.memberId))
             .map(a => ({
                 sourceId: a.id,
-                basis: a.basis,
+                basis: a.basis ?? null,
                 memberId: a.memberId,
                 billName: billName(a),
                 description: a.reason || '',

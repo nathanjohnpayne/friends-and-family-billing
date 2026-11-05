@@ -528,6 +528,19 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         expect(item.detail[1]).toEqual({ kind: 'remainder', description: 'Other 2026 overpayment', amount: -35 });
     });
 
+    it('serializes a supplied Service Credit without basis as null, never the member-charge default', () => {
+        const source = carryFixture({ paid: 100, serviceCredit: 48 });
+        delete source.reviewServiceCredits[0].basis;
+        const detail = reviewCarry(freezeRecords(source)).next.owedAdjustments[0].items[0].detail;
+        expect(detail).toEqual([{
+            sourceId: 'review-credit', basis: null, memberId: 1, billName: 'Northline',
+            description: 'Service ended in August.', amount: -48
+        }]);
+        // Serialization must not silently erase an undefined field before save.
+        expect(JSON.parse(JSON.stringify(detail))).toEqual(detail);
+        expect(detail[0].basis).not.toBe('member');
+    });
+
     it('stamps every active household seed without changing status, voided seeds or other households', () => {
         const source = carryFixture({ bills: 0, incoming: -100 });
         source.familyMembers.push({ id: 2, linkedMembers: [] }, { id: 3, linkedMembers: [] });
