@@ -1,9 +1,6 @@
 {
   "hosting": {
     "public": "app",
-    "predeploy": [
-      "npm run build && node stamp-version.js"
-    ],
     "ignore": [
       "firebase.json",
       "**/.*",

@@ -1,0 +1,113 @@
+name: Build deployment artifact
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: deploy-artifact-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Credential-free production build and isolation proof
+        env:
+          PUBLIC_FIREBASE_CONFIG: ${{ vars.PUBLIC_FIREBASE_CONFIG }}
+          PUBLIC_LOGODEV_KEY: ${{ vars.PUBLIC_LOGODEV_KEY }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ffb-output" "$RUNNER_TEMP/host-canary" /home/runner/.config
+          printf 'fake credential; must never reach builder' > "$RUNNER_TEMP/host-canary/credential"
+          printf 'fake cache; must never reach builder' > /home/runner/.config/ffb-isolation-canary
+          export FFB_HOST_TOKEN=fake-token-canary
+          export OP_PREFLIGHT_AUTHOR_PAT=fake-author-canary
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/host-canary/credential"
+          export FFB_DENIED_HOST_PATH="$RUNNER_TEMP/host-canary/credential"
+          # Host canaries are deliberately NOT mounted. No runner HOME, Docker
+          # socket, credential file/cache, Git credential or token is passed.
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            --tmpfs "/work:rw,exec,uid=$(id -u),gid=$(id -g),mode=0700" \
+            --tmpfs "/tmp:rw,noexec,uid=$(id -u),gid=$(id -g),mode=0700" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/input,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/ffb-output,target=/output" \
+            --env HOME=/work/home --env FFB_ISOLATED_BUILD=1 --env FFB_DENIED_HOST_PATH \
+            --env SOURCE_SHA --env PUBLIC_FIREBASE_CONFIG --env PUBLIC_LOGODEV_KEY \
+            --env NODE_OPTIONS=--require=/input/scripts/build-isolation-probe.cjs \
+            node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 \
+            node /input/scripts/build-deploy-artifact.cjs
+          rm -f /home/runner/.config/ffb-isolation-canary
+      - name: Verify actual archive and target configurations without credentials
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 \
+            /usr/bin/python3 -I -S -B scripts/verify-build-artifact.py \
+            "$RUNNER_TEMP/ffb-output/ffb-deploy-$SOURCE_SHA.tar" "$RUNNER_TEMP/ffb-verified" "$SOURCE_SHA" functions
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP" PYTHONDONTWRITEBYTECODE=1 \
+            /usr/bin/python3 -I -S -B -m unittest discover -s tests -p deploy_artifact_test.py
+      - name: Publish build proof (not deployment material)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: isolation-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/ffb-output/isolation-proof.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Transfer main-only artifact to attestation job
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unattested-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/ffb-output/*.tar
+            ${{ runner.temp }}/ffb-output/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+  attest:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # No checkout or candidate execution on the signing runner.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unattested-${{ github.sha }}
+          path: artifact
+      - name: Verify exact unsigned file set and digest before signing
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 -I -S -B - "$SOURCE_SHA" <<'PYTHON'
+          import hashlib, pathlib, sys
+          root = pathlib.Path('artifact')
+          name = 'ffb-deploy-' + sys.argv[1] + '.tar'
+          files = list(root.iterdir())
+          assert {p.name for p in files} == {name, 'SHA256SUMS'}
+          assert all(p.is_file() and not p.is_symlink() for p in files)
+          expected = hashlib.sha256((root / name).read_bytes()).hexdigest() + '  ' + name + '\n'
+          assert (root / 'SHA256SUMS').read_text() == expected
+          PYTHON
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: artifact/*.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ffb-deploy-${{ github.sha }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 30

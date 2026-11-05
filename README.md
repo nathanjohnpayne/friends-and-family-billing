@@ -160,13 +160,11 @@ npm run test:e2e
 # Firestore security-rules tests on the emulator (needs Java 21+)
 npm run test:rules
 
-# Deploy (requires 1Password CLI + deploy tooling)
-npm run deploy             # Hosting + Firestore rules + Storage rules
-npm run deploy:functions   # Cloud Functions
-npm run deploy:all         # Everything
+# Verify an attested main artifact (direct trusted entrypoint)
+./scripts/deploy-artifact.sh --sha <full-main-revision> --target functions --verify-only
 ```
 
-The deploy scripts use `op-firebase-deploy`, and Firebase Hosting runs the configured predeploy hook (`npm run build && node stamp-version.js`) before upload. See [DEPLOYMENT.md](DEPLOYMENT.md) for full setup instructions.
+Production builds run in isolated CI without deploy credentials. After provenance and artifact verification, a separate consumer acquires keyless 1Password-backed impersonation for one explicitly approved target. See [DEPLOYMENT.md](DEPLOYMENT.md) for the direct entrypoint and setup.
 
 ### npm Scripts
 
@@ -175,7 +173,7 @@ The deploy scripts use `op-firebase-deploy`, and Firebase Hosting runs the confi
 | `npm run dev` | Vite dev server with hot module replacement (opens a browser) |
 | `npm run build` | `build:react` (Vite) then `build:assemble` (`scripts/assemble-deploy.js`), output in `app/` |
 | `npm run preview` | Serve the last Vite build locally |
-| `npm test` | `test:react` + `test:functions` + `test:secrets` |
+| `npm test` | `test:react` + `test:functions` + `test:secrets` + `test:deploy` |
 | `npm run test:react` | Vitest + React Testing Library suite under `tests/react/` |
 | `npm run test:functions` | Node test runner over `tests/functions.test.js` (Cloud Functions logic) |
 | `npm run test:secrets` | Scan tracked files for committed API keys, OAuth tokens and private keys |
@@ -183,9 +181,8 @@ The deploy scripts use `op-firebase-deploy`, and Firebase Hosting runs the confi
 | `npm run test:rules` | Firestore security-rules tests on the emulator (`scripts/test-rules.sh`, Java 21+) |
 | `npm run test:e2e` | Build with `VITE_E2E_MODE=true`, then run Playwright (Chromium) against it |
 | `npm run lint` | ESLint over the repo |
-| `npm run deploy` | Hosting + Firestore rules + Storage rules via `op-firebase-deploy` |
-| `npm run deploy:functions` | Cloud Functions only |
-| `npm run deploy:all` | Everything in `firebase.json` |
+| `npm run test:deploy` | Archive/config and fake-credential deployment security tests |
+| `./scripts/deploy-artifact.sh --sha <full-revision> --target <target> --verify-only` | Verify an attested CI artifact; see deployment guide for the separately authorized consuming step |
 
 ### Environment Variables
 
@@ -451,7 +448,7 @@ Shares are computed from each bill's annual total divided by the number of membe
 - The normal maintainer flow reads the shared `Private/GCP ADC` source credential through the 1Password CLI, so routine deploy work does not need browser login once that item exists.
 - The 1Password-first deploy-auth model is intentional for this repo. Do not switch it back to ADC-first or deploy-key-based guidance unless a human explicitly requests that change.
 - `op-firebase-setup friends-and-family-billing` creates the deployer service account, grants deploy roles, and grants the current maintainer impersonation rights.
-- `npm run deploy`, `npm run deploy:functions`, and `npm run deploy:all` use `op-firebase-deploy`, which creates a temporary impersonated credential for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
+- The direct artifact entrypoint invokes the unchanged pinned `op-firebase-deploy` only after verification. Its private temporary impersonated ADC for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` embeds the source credential; neither file enters the project/upload tree.
 - For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ## Redesign Wireframes

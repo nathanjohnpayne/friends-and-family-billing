@@ -1,8 +1,225 @@
 # Deployment
 
+Production deployment uses the attested artifact from **Build deployment artifact** (`.github/workflows/build-artifact.yml`). Invoke the reviewed entrypoint directly from current `main`; do not invoke it through npm, `bash script`, an arbitrary candidate checkout, or a package lifecycle hook.
+
+There is no staging environment. Every selected target deploys to `friends-and-family-billing`. Obtain the human's approval for the exact revision and target before a production action.
+
+## Build and signing boundary
+
+The GitHub-hosted build runner starts a disposable, pinned Node24 container. Only the clean source checkout and an empty output directory are mounted. Its HOME, npm cache and working directory live in disposable tmpfs; operator homes, preflight caches, credential-manager files and the Docker socket are unavailable. No author/reviewer PAT, deployment credential or Actions signing token is passed to candidate build processes. Checkout does not persist Git credentials.
+
+The build uses two **public Actions variables** configured by the maintainer:
+
+- `PUBLIC_FIREBASE_CONFIG`: JSON with `apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`, and optional `measurementId`.
+- `PUBLIC_LOGODEV_KEY`: the client Logo.dev key.
+
+These public client identifiers are not deployment credentials. They are provided through the Actions variable API, never committed or printed. Production requires project `friends-and-family-billing`; the E2E stub is rejected. CI creates its own temporary `.env.local` and runtime config bridge from those inputs; it does not read an operator's ignored local configuration. Local `npm run build` remains a development check, not deployment material.
+
+CI performs the real React production build, assembly and version stamp. It installs the locked Functions dependencies and generates `functions.yaml` with SDK7.4.0 in the same credential-free container. Declaring the `RESEND_API_KEY` secret is supported; reading its value during discovery is not. The container also exercises the pinned Firebase CLI's manifest discovery with candidate imports and child processes forbidden.
+
+A separate runner, with no checkout or candidate execution, attests the successful main build. Pull requests run the real build and isolation proof but publish only the proof receipt, never an attested deployment artifact. Deployment material is named `ffb-deploy-<full-source-SHA>` and consists of one tar archive and `SHA256SUMS`.
+
+<a id="deployment-steps"></a>
+
+## Verify first, deploy one target
+
+Install trusted global tools separately from this repository: Git, GitHub CLI, Python3 supporting `-I -S`, Node24 at `/opt/homebrew/opt/node@24/bin/node`, Firebase CLI **15.34.2**, 1Password CLI and the canonical `~/.local/bin/op-firebase-deploy`. The entrypoint pins the canonical helper's reviewed bytes. Updating any pin requires review; do not edit the canonical helper in a consumer repository or use an `npx` fallback.
+
+For a successful main artifact at the exact approved revision:
+
+```bash
+./scripts/deploy-artifact.sh --sha <full-40-character-main-revision> --target functions --verify-only
+```
+
+Verification fetches current main, pins the entrypoint/helper code to that trusted revision, requires the source revision to be its ancestor, selects a successful main workflow run and verifies GitHub provenance. The attestation must bind this repository, full revision, main source ref, expected signer workflow and GitHub-hosted runner. It checks the archive digest, exact per-file allowlist/hashes, bounded safe extraction, target-only configs and the original git bytes for Functions source and rules.
+
+After verification and the human's production authorization, use the same command without `--verify-only`:
+
+```bash
+./scripts/deploy-artifact.sh --sha <approved-full-main-revision> --target functions
+```
+
+The required target accepts exactly one of `functions`, `hosting`, `firestore:rules`, or `storage`. There is no default, `all`, comma-separated target list, `--except` or arbitrary Firebase argument passthrough. Each command stages only the selected target with a fixed config. A Functions deployment does not publish Hosting or either rules file; approval for Functions does not authorize the other targets.
+
+The first rollout for #602 is **Functions only**. Later Hosting and rules rollout steps retain their own approval and verification gates. This tooling does not authorize new access rules or change either rules file.
+
+## Credential consumer
+
+Only after artifact/config/source verification does an external, isolated Python consuming subprocess read the fixed approved keyless ADC source once:
+
+`op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`
+
+The accepted source is bounded `authorized_user` JSON for the existing service-account impersonation model. External-account/executable sources, service-account keys, caller-supplied credential paths/source URIs and source/service-account overrides are not accepted by this adapter. This preserves the repository's 1Password-first authentication model; it does not create IAM bindings or change who can deploy.
+
+Only the trusted 1Password reader retains the operator HOME for its desktop CLI configuration; helper/Firebase receive a fresh neutral HOME. The subprocess writes the source into a private temporary file outside every project/upload directory and passes its explicit path only to the unchanged canonical helper. That helper validates the source token and constructs `impersonated_service_account` ADC for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`. The temporary impersonated ADC embeds the refresh-capable source credential; both files require the same private storage and cleanup. They are not merely short-lived access tokens. Source/helper/auth errors stop the attempt; there is no automatic fallback, refresh or retry.
+
+The helper runs from an empty external CWD with isolated Python imports. Firebase receives a neutral HOME, trusted Node24/tool paths and only the explicit temporary ADC. Caller PATs, preflight markers, npm/Node/Python startup hooks, cached Firebase login and caller GAC do not cross the boundary. The selected staging hashes and Functions manifest/discovery are checked again before acquisition and at the Firebase launch boundary.
+
+Never use `op-preflight --mode all`/deploy exports, `npm run deploy`, local predeploy hooks, direct `firebase deploy`, or a locally rebuilt candidate as this deployment boundary. Review credentials may be used only by the GitHub download/attestation subprocess; they are not passed to the deployment consumer.
+
+## Functions guarantee and limits
+
+Functions deployment uploads **attested source and a precomputed discovery manifest**, not a prebuilt container image. The verified extraction contains no `node_modules`, `.npmrc`, `.bin`, environment files or lifecycle scripts. Node24 SDK resolution is checked against source ancestors/global paths; any resolvable SDK is refused. The pinned CLI's local build is a no-op and its discover step reads the validated manifest instead of importing the candidate Functions module. Missing, changed or unreadable manifests fail closed before discovery fallback.
+
+The trusted CLI re-zips validated source as data. Google then builds the container remotely from that uploaded source. The isolation guarantee covers local build/deploy separation and the attested uploaded source; it makes no claim that the provider's remote build account lacks provider credentials.
+
+## Verification and failures
+
+`npm test` includes the fake-credential archive/config/consumer security suite. The CI build emits an `isolation-proof-<SHA>` receipt after the actual production build and discovery proof. No security test deploys production or reads 1Password. Required application tests/lint and independent review remain required for the final PR head.
+
+If verification fails, stop before acquiring deployment credentials. If acquisition, token validation or deployment fails, report that failure and preserve its non-secret receipt; do not switch identities/auth sources, widen targets, strip hooks ad hoc or rebuild under credentials. Rollback uses a separately approved, previously attested full main revision with the same explicit-target path.
+
+After deployment, verify the selected production behavior and record exact revision, target and result on the owning issue. A merged implementation does not complete #602 until its required Functions deployment is verified.
+
+
+## Environments
+
+| Environment | Firebase Project | URL |
+|-------------|-----------------|-----|
+| Production | `friends-and-family-billing` | https://friends-and-family-billing.web.app |
+
+There is no staging environment. All deploys go directly to production.
+
+## Build Process
+
+The production CI packager builds the `app/` directory (`"public": "app"` in the development config), then places those compiled bytes under the artifact’s target-only `hosting/public/` root. The React SPA is the sole client at `/`.
+
+| Step | Build command | Output | Served at |
+|------|---------------|--------|-----------|
+| 1. React SPA | `npm run build:react` | `app/` directory (Vite) | `/` |
+| 2. Assemble | `npm run build:assemble` | generates the config bridge, copies shared assets → `app/` | `/` |
+
+```bash
+# Local development check only; production builds use isolated CI
+npm run build
+```
+
+`npm run build` runs `build:react` (Vite) then `build:assemble` (assembly script).
+
+
+## Post-Deployment Verification
+
+Verify the app after each deploy:
+
+### React app
+
+1. Open https://friends-and-family-billing.web.app/ in an incognito window
+2. Sign in — confirm the dashboard loads with KPIs and settlement board
+3. Verify data populates (settlement board, members, bills)
+4. Check browser DevTools → Console for errors
+
+### Common deploy issues
+- **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it
+  exists in the verified CI artifact. CI generates it from the public Actions variables; operator-local ignored files are not deployment inputs.
+- **Artifact/config verification fails**: stop before credentials; use the failure handling above. There is no predeploy hook to strip.
+- **Rules deployment**: verify the intended allow and deny cases after the separately authorized rules target; owner-only user-data access remains an invariant. This tooling does not relax either rules file.
+
+
+## Secrets Management
+
+- No API keys or secrets are committed to this repository.
+- Deploy auth uses the fixed 1Password-backed keyless ADC/impersonation consumer described above. Source and impersonated ADC files both contain refresh-capable credential material and remain outside upload trees.
+- For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
+
+### Cloud Functions Secrets
+
+| Secret | Purpose | 1Password Item | `op://` Reference |
+|--------|---------|----------------|-------------------|
+| `RESEND_API_KEY` | Resend email delivery API key | `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`) | `op://Private/kjkuytr4u24wwlkstwmsm5237i/credential` |
+
+Cloud Functions secrets are managed via Firebase. Setting/rotating a production secret is a separate human-authorized operation; it is never part of the credential-free artifact build. The existing maintainer operation passes the value directly from 1Password to Firebase stdin:
+
+```bash
+# Set or rotate the Resend API key
+op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY
+
+# Verify the secret exists
+firebase functions:secrets:get RESEND_API_KEY --project friends-and-family-billing
+```
+
+Secrets are accessed in Cloud Functions via `defineSecret()` (Firebase Functions v2 params) and are only loaded at runtime for functions that declare them.
+
+The deployer service account needs `roles/secretmanager.viewer` on this project
+so Firebase CLI can validate `defineSecret()` declarations during functions
+deploy analysis. If the separately approved Functions deployment fails with
+`Permission 'secretmanager.secrets.get' denied` for `RESEND_API_KEY`, stop and report the failure. Obtain separate human authorization before rerunning
+`op-firebase-setup friends-and-family-billing` or repairing the role on
+`firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`; the failed deployment does not authorize IAM changes.
+
+
+## Email Delivery (Resend)
+
+Invoice and dispute resolution emails are sent server-side via [Resend](https://resend.com) through the `processMailQueue` Cloud Function.
+
+### Sending Domain
+
+- **Domain:** `mail.nathanpayne.com` (subdomain of `nathanpayne.com`)
+- **Sender:** `Friends & Family Billing <billing@mail.nathanpayne.com>`
+- **DNS records:** SPF (TXT), DKIM (TXT), MX — configured in Squarespace DNS, verified in Resend dashboard
+- **Resend account:** `nathanpayne` at resend.com
+
+### Architecture
+
+```
+Client (EmailInvoiceDialog / DisputeDetailDialog / InvoicingTab / Charge + Refund notices)
+  → queueEmail() writes to Firestore: mailQueue/{docId}
+    → { to, subject, body, uid, status: 'pending', createdAt }  (rules reject any other field)
+  → Client listens to the document for status changes
+
+Cloud Functions (share-page notifications)
+  → queueEmailFromFunction() writes mailQueue/{docId} via the Admin SDK
+    → same fields plus origin: 'server' (a field clients can never set)
+
+processMailQueue Cloud Function (Firestore trigger)
+  → Fires on mailQueue/{docId} creation, claims it (pending → processing)
+  → Validates fields and uid
+  → Client-enqueued mail only (no origin: 'server'):
+      → sender's Firebase Auth email must be verified
+      → recipient must be the sender's own email or a household member email
+        in the sender's users/{uid}/billingYears/* data
+      → per-uid rate limit (transactional counter in mailRateLimits/{uid})
+  → simpleMarkdownToHtml() converts body to HTML (always server-side)
+  → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
+  → wrapEmailHtml() wraps in responsive email template
+  → Resend API sends HTML + plain-text fallback (markdownToPlainText(body): markdown syntax and escapes stripped)
+  → Updates document: { status: 'sent' } or { status: 'error' }
+```
+
+Queue documents cannot carry pre-rendered HTML or a reply-to address; the HTML body is always rendered server-side from the markdown `body`.
+
+### Cloud Function: `processMailQueue`
+
+- **Type:** Firestore-triggered function (`onDocumentCreated`) — no HTTP endpoint, no Cloud Run invoker policy needed
+- **Trigger:** New document in `mailQueue/{docId}`
+- **Auth:** Firestore security rules enforce that only authenticated users can create queue documents, only for their own `uid`, and only with the plain-field allowlist below. For client-enqueued mail the function additionally requires a verified sender email, restricts the recipient to the sender or their household members, and rate-limits per uid (`mailRateLimits/{uid}`, server-only).
+- **Secret:** `RESEND_API_KEY` (Firebase Functions secret via `defineSecret`)
+- **Document schema (input):** `{ to: string, subject: string, body: string, uid: string, status: 'pending', createdAt: Timestamp }` (Admin SDK writers also set `origin: 'server'`)
+- **Document schema (output):** Updated with `{ status: 'sent', resendId: string, processedAt: Timestamp }` or `{ status: 'error', error: string, processedAt: Timestamp }`
+- **Client helper:** `queueEmail()` in `src/lib/mail.js` — writes the document and listens for status changes via `onSnapshot`. Times out after 30 seconds.
+
+### Deploying Functions
+
+Use the exact-revision, explicit `functions` target above. Do not combine it with Hosting/rules or fall back to service-account keys, browser login or a `gcloud` access token. A failure stops the attempt for diagnosis; it does not authorize another authentication source.
+
+### Resend Free Tier Limits
+
+| Limit | Value |
+|-------|-------|
+| Emails per month | 3,000 |
+| Emails per day | 100 |
+
+### Rotating the Resend API Key
+
+1. Generate a new key in Resend dashboard → API Keys (scope: "Sending access")
+2. Update 1Password item `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`), field `credential`
+3. Set the new secret: `op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY`
+4. Redeploy the separately approved attested Functions revision through `./scripts/deploy-artifact.sh --sha <full-main-revision> --target functions`.
+5. Revoke the old key in Resend dashboard
+
+
 ## New Machine Setup
 
-Run these steps on any new or temporary machine. Tell your AI agent:
+These are development-machine setup steps, not a production artifact build or deployment. Local bootstrap/build output is never deployment material. Run these steps on any new or temporary machine. Tell your AI agent:
 
 > "Set up this machine for development. Run the new machine setup from DEPLOYMENT.md."
 
@@ -13,7 +230,8 @@ Run these steps on any new or temporary machine. Tell your AI agent:
 brew install --cask 1password-cli
 
 # Firebase CLI
-npm install -g firebase-tools
+brew install node@24
+npm install -g firebase-tools@15.34.2
 
 # Google Cloud SDK
 brew install google-cloud-sdk
@@ -36,7 +254,7 @@ gh auth login
 # if op is authenticated and the GCP ADC item exists in 1Password)
 ```
 
-### 3. Install deploy scripts
+### 3. Install trusted canonical helpers
 
 ```bash
 # Clone the template repo if not already present
@@ -52,6 +270,8 @@ chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-fir
 # Ensure PATH includes ~/.local/bin
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
+
+The artifact consumer verifies the reviewed canonical deploy-helper hash before use; reinstalling a newer helper requires a separately reviewed pin update.
 
 ### 4. Clone and bootstrap all repos
 
@@ -128,17 +348,10 @@ If both machines modified the same 1Password item:
 
 ---
 
-## Prerequisites
-
-- [Firebase CLI](https://firebase.google.com/docs/cli) (`firebase-tools`) installed globally
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) installed
-- [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) installed and signed in
-- Local `gcloud` wrapper installed on PATH (see First-Time Setup below)
-- `op-firebase-deploy` and `op-firebase-setup` on PATH
-- Access to the project SA key in `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key` (preferred for CI/headless) or the shared 1Password source credential `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`, or another explicit `GOOGLE_APPLICATION_CREDENTIALS` file
-- Permission to impersonate `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` (skipped when using the project SA key directly)
 
 ## Machine User Setup (New Project)
+
+The current [REVIEW_POLICY.md](REVIEW_POLICY.md), registered identities and wrapper/preflight flow govern every review action; the project-bootstrap reference below does not override them or authorize gate bypasses. No review PAT belongs in the isolated artifact build.
 
 When creating a new repository from this template, complete these steps to enable the AI agent cross-review system. All steps are manual (human-only) unless noted.
 
@@ -194,57 +407,7 @@ the authoring agent's session.
 
 ### 4. Configure branch protection
 
-Go to the new repo → Settings → Branches → Add branch protection rule for `main`:
-
-1. **Require pull request reviews before merging:** Yes
-2. **Required number of approving reviews:** 1
-3. **Dismiss stale pull request approvals when new commits are pushed:** Yes
-4. **Require status checks to pass before merging:** Yes
-   - Add `Self-Review Required`
-   - Add `Label Gate`
-5. **Do not allow bypassing the above settings:** Disabled (so Nathan can force-merge in emergencies)
-
-Or use the CLI:
-
-```bash
-gh api --method PUT "repos/{owner}/{repo}/branches/main/protection" \
-  --input - <<'EOF'
-{
-  "required_status_checks": {
-    "strict": true,
-    "checks": [
-      {"context": "Self-Review Required"},
-      {"context": "Label Gate"}
-    ]
-  },
-  "enforce_admins": false,
-  "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true,
-    "required_approving_review_count": 1
-  },
-  "restrictions": null
-}
-EOF
-```
-
-**Note:** Branch protection requires the repo to be public, or requires GitHub Pro/Team for private repos.
-
-**Known issue (as of 2026-03-25):** The `Self-Review Required` and `Label Gate`
-status checks are configured as required but never report. The CI workflows that
-should post these statuses (`pr-review-policy.yml`) fail silently when repository
-secrets (PATs) are missing or misconfigured. This blocks all merges — every PR
-requires either:
-- Fixing the CI secrets so status checks report, **or**
-- Using the GitHub web UI "Merge without waiting for requirements" bypass checkbox
-
-The `--admin` flag on `gh pr merge` does **not** bypass required status checks
-when "Do not allow bypassing the above settings" is partially enabled for checks.
-The break-glass hook (`BREAK_GLASS_ADMIN=1`) only bypasses the PreToolUse guard
-in Claude Code — it cannot override GitHub's branch protection API.
-
-**To fix:** Ensure all repository secrets listed in step 3 are correctly populated
-and that the CI workflow files reference them correctly. Verify by checking
-Actions → recent workflow runs for `pr-review-policy.yml` errors.
+Configure the new project's branch protection and required checks from its current `REVIEW_POLICY.md` and `.github/review-policy.yml`. Do not reuse obsolete status names or bypass missing checks; diagnose their workflow/credential failure through the owning review policy.
 
 ### 5. Create required labels
 
@@ -334,8 +497,7 @@ GH_TOKEN="$(op read 'op://Private/etak327mpz4drd4byxszfex4vm/token')" \
 
 ### Token rotation (as needed)
 
-The current PATs are set to never expire. If you ever need to rotate
-a reviewer identity PAT (`nathanpayne-claude`, `nathanpayne-codex`,
+If you need to rotate a reviewer identity PAT (`nathanpayne-claude`, `nathanpayne-codex`,
 `nathanpayne-cursor`):
 
 1. Generate a new **classic** PAT with `repo` scope for the machine user account
@@ -354,103 +516,6 @@ call on every repo after rotating the 1Password item.
 
 ---
 
-## Environments
-
-| Environment | Firebase Project | URL |
-|-------------|-----------------|-----|
-| Production | `friends-and-family-billing` | https://friends-and-family-billing.web.app |
-
-There is no staging environment. All deploys go directly to production.
-
-## Build Process
-
-Firebase Hosting deploys the `app/` directory (`"public": "app"` in `firebase.json`). The React SPA is the sole client at `/`.
-
-| Step | Build command | Output | Served at |
-|------|---------------|--------|-----------|
-| 1. React SPA | `npm run build:react` | `app/` directory (Vite) | `/` |
-| 2. Assemble | `npm run build:assemble` | generates the config bridge, copies shared assets → `app/` | `/` |
-
-```bash
-# Build all (two-step pipeline)
-npm run build
-```
-
-`npm run build` runs `build:react` (Vite) then `build:assemble` (assembly script).
-
-### Firebase config (required before build or deploy)
-
-The React app reads Firebase config from `firebase-config.local.js` (gitignored), which
-sets `window.__FIREBASE_CONFIG__`. This file **must exist in the repo root** before
-building or deploying. Create it from the template:
-
-```bash
-cp firebase-config.local.example.js firebase-config.local.js
-# Then fill in the real values from Firebase Console → Project Settings → Web app
-```
-
-The React app also supports `.env.local` with `VITE_FIREBASE_*` variables (used by
-Vite at build time), and the runtime config bridge uses `window.__FIREBASE_CONFIG__`.
-
-### Predeploy hook caveat
-
-The `firebase.json` predeploy hook (`npm run build && node stamp-version.js`) can
-fail under `op-firebase-deploy` in the non-interactive deploy environment.
-**Workaround:** build locally first, then deploy with the predeploy hook stripped:
-
-```bash
-npm run build && node stamp-version.js
-# Then temporarily remove predeploy from firebase.json, deploy, restore it.
-# Or use the pattern in the deploy steps below.
-```
-
-## Deployment Steps
-
-All deploys use `op-firebase-deploy` for keyless, non-interactive service account impersonation. Never run `firebase deploy` directly.
-
-```bash
-# Full deploy (hosting + Firestore rules + Storage rules)
-op-firebase-deploy
-
-# Hosting only
-op-firebase-deploy --only hosting
-
-# Rules only
-op-firebase-deploy --only firestore:rules,storage
-```
-
-### If predeploy fails under op-firebase-deploy
-
-The predeploy hook can fail in the non-interactive deploy environment.
-Build locally first, then deploy without predeploy:
-
-```bash
-npm run build && node stamp-version.js
-
-# Strip predeploy, deploy, restore
-cp firebase.json firebase.json.bak
-python3 -c "
-import json
-with open('firebase.json') as f: c = json.load(f)
-del c['hosting']['predeploy']
-with open('firebase.json', 'w') as f: json.dump(c, f, indent=2); f.write('\n')
-"
-op-firebase-deploy friends-and-family-billing --only hosting
-mv firebase.json.bak firebase.json
-```
-
-The script:
-1. Uses the Firebase project ID from `firebase.json` or the `--project` flag (`.firebaserc` is gitignored and not present in this repo)
-2. Reads source credentials from `GOOGLE_APPLICATION_CREDENTIALS`, then the project SA key from `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key`, then `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`, then `~/.config/gcloud/application_default_credentials.json`
-3. If the source credential is a `service_account` key matching the target deployer SA, uses it directly (no impersonation needed, faster). Otherwise generates a temporary `impersonated_service_account` credential file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`
-4. Sets `GOOGLE_APPLICATION_CREDENTIALS` to that temp file and runs `firebase deploy --non-interactive`
-5. Cleans up credentials on exit
-
-No browser prompt is needed for routine use once `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` exists and the 1Password CLI is unlocked.
-
-This 1Password-first source-credential model is a deliberate project decision. Do not replace it with ADC-first day-to-day docs, routine browser-login steps, `firebase login`, or long-lived deploy keys unless a human explicitly asks for that change.
-
-The local `gcloud` wrapper uses the same source-credential precedence, then resolves quota attribution in this order: explicit `--billing-project`, explicit `--project`, the nearest repo `.firebaserc` project, then the active `gcloud` config.
 
 ## First-Time Setup
 
@@ -465,13 +530,13 @@ chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-fir
 hash -r
 ```
 
-Then bootstrap project impersonation:
+This is a separately authorized, human-owned setup operation: it changes project APIs/IAM. It is not run by the artifact builder or deploy adapter. Then bootstrap project impersonation:
 
 ```bash
 op-firebase-setup friends-and-family-billing
 ```
 
-If `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed it once by running `gcloud auth application-default login`, then copy the resulting `~/.config/gcloud/application_default_credentials.json` into the 1Password item `Private/GCP ADC`, field `credential`.
+Only when the source credential itself needs initial creation or explicit rotation (not as routine deploy login): if `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed it once by running `gcloud auth application-default login`, then copy the resulting `~/.config/gcloud/application_default_credentials.json` into the 1Password item `Private/GCP ADC`, field `credential`.
 
 `op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
 1. Enables the IAM Credentials API
@@ -486,195 +551,6 @@ If `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed
 4. Grants your current principal `roles/iam.serviceAccountTokenCreator` on the deployer
 5. Creates or updates a dedicated `gcloud` configuration named `friends-and-family-billing`, including `billing/quota_project=friends-and-family-billing`
 
-## Rollback Procedure
-
-Firebase Hosting supports instant rollback:
-
-```bash
-# List recent releases
-firebase hosting:releases:list
-
-# Roll back via CLI
-firebase hosting:channel:deploy live --release-id <VERSION_ID>
-```
-
-Or use Firebase Console → Hosting → Release History → Roll back.
-
-## Post-Deployment Verification
-
-Verify the app after each deploy:
-
-### React app
-
-1. Open https://friends-and-family-billing.web.app/ in an incognito window
-2. Sign in — confirm the dashboard loads with KPIs and settlement board
-3. Verify data populates (settlement board, members, bills)
-4. Check browser DevTools → Console for errors
-
-### Common deploy issues
-- **Blank React app**: `firebase-config.local.js` was not deployed. Ensure it
-  exists in the repo root before deploying. It is gitignored so it won't
-  appear in `git status`.
-- **Predeploy fails**: See "If predeploy fails" section above.
-
-## CI/CD Integration
-
-The repo has GitHub Actions workflows for testing (`test.yml`), review policy enforcement (`pr-review-policy.yml`, `agent-review.yml`), PR auditing (`pr-audit.yml`), and repo linting (`repo_lint.yml`). Deploys are manual via `op-firebase-deploy`.
-
-When connecting CI, prefer Workload Identity Federation or another `external_account` credential as the source credential. If CI already exposes `GOOGLE_APPLICATION_CREDENTIALS` pointing at an `external_account` file, `op-firebase-deploy` can reuse it to impersonate the deployer service account.
-
-### CI/CD & Headless Deploy
-
-For headless environments (Claude Code cloud tasks, GitHub Actions, etc.) where
-1Password biometric auth is unavailable, use the project SA key directly:
-
-```bash
-# Pull the SA key from 1Password (one-time, requires biometric)
-op document get "friends-and-family-billing — Firebase Deployer SA Key" \
-  --vault Firebase --out-file ~/firebase-keys/friends-and-family-billing-sa-key.json
-
-# Deploy with the SA key
-GOOGLE_APPLICATION_CREDENTIALS=~/firebase-keys/friends-and-family-billing-sa-key.json op-firebase-deploy friends-and-family-billing --only hosting
-```
-
-The SA key (`op://Firebase/friends-and-family-billing — Firebase Deployer SA Key`, item ID `edzuvkafretsjow5g6a26m6tza`) is a `service_account` credential for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`. When `op-firebase-deploy` detects that the source credential already matches the target deployer SA, it skips impersonation and uses direct auth (faster).
-
-For Claude Code cloud scheduled tasks:
-1. Retrieve the key: `op document get "friends-and-family-billing — Firebase Deployer SA Key" --vault Firebase`
-2. Copy the JSON contents
-3. In the task's cloud environment, add: `FIREBASE_SA_KEY=<paste JSON>`
-4. Add a setup script:
-   ```bash
-   echo "$FIREBASE_SA_KEY" > /tmp/sa-key.json
-   export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
-   ```
-
-## Secrets Management
-
-- No API keys or secrets are committed to this repository.
-- Deploy auth uses short-lived impersonated credentials derived from a 1Password-backed GCP ADC source credential, another explicit `GOOGLE_APPLICATION_CREDENTIALS` file, or CI-provided external-account credentials.
-- For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
-
-### Cloud Functions Secrets
-
-| Secret | Purpose | 1Password Item | `op://` Reference |
-|--------|---------|----------------|-------------------|
-| `RESEND_API_KEY` | Resend email delivery API key | `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`) | `op://Private/kjkuytr4u24wwlkstwmsm5237i/credential` |
-
-Cloud Functions secrets are managed via Firebase:
-
-```bash
-# Set or rotate the Resend API key
-op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY
-
-# Verify the secret exists
-firebase functions:secrets:access RESEND_API_KEY
-```
-
-Secrets are accessed in Cloud Functions via `defineSecret()` (Firebase Functions v2 params) and are only loaded at runtime for functions that declare them.
-
-The deployer service account needs `roles/secretmanager.viewer` on this project
-so Firebase CLI can validate `defineSecret()` declarations during functions
-deploy analysis. If `op-firebase-deploy --only functions --dry-run` fails with
-`Permission 'secretmanager.secrets.get' denied` for `RESEND_API_KEY`, rerun the
-current `op-firebase-setup friends-and-family-billing` helper or grant that role
-to `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`.
-
-## Email Delivery (Resend)
-
-Invoice and dispute resolution emails are sent server-side via [Resend](https://resend.com) through the `sendEmail` Cloud Function.
-
-### Sending Domain
-
-- **Domain:** `mail.nathanpayne.com` (subdomain of `nathanpayne.com`)
-- **Sender:** `Friends & Family Billing <billing@mail.nathanpayne.com>`
-- **DNS records:** SPF (TXT), DKIM (TXT), MX — configured in Squarespace DNS, verified in Resend dashboard
-- **Resend account:** `nathanpayne` at resend.com
-
-### Architecture
-
-```
-Client (EmailInvoiceDialog / DisputeDetailDialog / InvoicingTab / Charge + Refund notices)
-  → queueEmail() writes to Firestore: mailQueue/{docId}
-    → { to, subject, body, uid, status: 'pending', createdAt }  (rules reject any other field)
-  → Client listens to the document for status changes
-
-Cloud Functions (share-page notifications)
-  → queueEmailFromFunction() writes mailQueue/{docId} via the Admin SDK
-    → same fields plus origin: 'server' (a field clients can never set)
-
-processMailQueue Cloud Function (Firestore trigger)
-  → Fires on mailQueue/{docId} creation, claims it (pending → processing)
-  → Validates fields and uid
-  → Client-enqueued mail only (no origin: 'server'):
-      → sender's Firebase Auth email must be verified
-      → recipient must be the sender's own email or a household member email
-        in the sender's users/{uid}/billingYears/* data
-      → per-uid rate limit (transactional counter in mailRateLimits/{uid})
-  → simpleMarkdownToHtml() converts body to HTML (always server-side)
-  → sanitizeHref() blocks non-http(s) protocols, escapes attribute context
-  → wrapEmailHtml() wraps in responsive email template
-  → Resend API sends HTML + plain-text fallback (markdownToPlainText(body): markdown syntax and escapes stripped)
-  → Updates document: { status: 'sent' } or { status: 'error' }
-```
-
-Queue documents cannot carry pre-rendered HTML or a reply-to address; the HTML body is always rendered server-side from the markdown `body`.
-
-### Cloud Function: `processMailQueue`
-
-- **Type:** Firestore-triggered function (`onDocumentCreated`) — no HTTP endpoint, no Cloud Run invoker policy needed
-- **Trigger:** New document in `mailQueue/{docId}`
-- **Auth:** Firestore security rules enforce that only authenticated users can create queue documents, only for their own `uid`, and only with the plain-field allowlist below. For client-enqueued mail the function additionally requires a verified sender email, restricts the recipient to the sender or their household members, and rate-limits per uid (`mailRateLimits/{uid}`, server-only).
-- **Secret:** `RESEND_API_KEY` (Firebase Functions secret via `defineSecret`)
-- **Document schema (input):** `{ to: string, subject: string, body: string, uid: string, status: 'pending', createdAt: Timestamp }` (Admin SDK writers also set `origin: 'server'`)
-- **Document schema (output):** Updated with `{ status: 'sent', resendId: string, processedAt: Timestamp }` or `{ status: 'error', error: string, processedAt: Timestamp }`
-- **Client helper:** `queueEmail()` in `src/lib/mail.js` — writes the document and listens for status changes via `onSnapshot`. Times out after 30 seconds.
-
-### Deploying Functions
-
-```bash
-# Deploy all functions (including sendEmail)
-op-firebase-deploy --only functions
-
-# Or deploy functions + hosting together
-op-firebase-deploy
-```
-
-If `op-firebase-deploy` fails, use the gcloud token workaround:
-
-```bash
-/opt/homebrew/bin/gcloud auth activate-service-account --key-file=/tmp/sa-key.json
-TOKEN=$(/opt/homebrew/bin/gcloud auth print-access-token)
-firebase deploy --only functions --project friends-and-family-billing --token "$TOKEN"
-```
-
-### Resend Free Tier Limits
-
-| Limit | Value |
-|-------|-------|
-| Emails per month | 3,000 |
-| Emails per day | 100 |
-
-### Rotating the Resend API Key
-
-1. Generate a new key in Resend dashboard → API Keys (scope: "Sending access")
-2. Update 1Password item `Resend API Key` (ID: `kjkuytr4u24wwlkstwmsm5237i`), field `credential`
-3. Set the new secret: `op read 'op://Private/kjkuytr4u24wwlkstwmsm5237i/credential' | firebase functions:secrets:set RESEND_API_KEY`
-4. Redeploy functions: `op-firebase-deploy --only functions`
-5. Revoke the old key in Resend dashboard
-
 ## Auth Maintenance
 
-For interactive (biometric) environments, ensure the 1Password CLI is signed in and `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` is readable. For headless environments, the project SA key in `op://Firebase/friends-and-family-billing — Firebase Deployer SA Key` is the primary credential source — set `GOOGLE_APPLICATION_CREDENTIALS` to point at the exported key file.
-
-If deploy impersonation breaks because IAM bindings or `gcloud` config drifted, rerun:
-
-```bash
-op-firebase-setup friends-and-family-billing
-```
-
-If the shared source credential itself needs rotation, refresh it once with `gcloud auth application-default login`, overwrite the `Private/GCP ADC` item with the new `application_default_credentials.json`, and, if desired, align its own quota project with:
-
-```bash
-gcloud auth application-default set-quota-project friends-and-family-billing
-```
+Routine deployment uses the existing 1Password source through the verified consumer, without browser login or caller GAC. The first-time setup section retains the separately authorized initial/rotation process and existing IAM roles. If source authentication or impersonation fails, stop and report the concrete failure; credential rotation or IAM repair requires its own authorization and is not an automatic deployment fallback.
