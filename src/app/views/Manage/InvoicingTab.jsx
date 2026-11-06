@@ -25,6 +25,7 @@ import { BLOCK_TOKENS } from '../../components/BlockTokenNode.js';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
 import { syncPaymentMethodsToShares } from '../../../lib/paymentMethodsSync.js';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
+import Dialog from '../../components/Dialog.jsx';
 
 /** All tokens for the unified chip bar. */
 const ALL_TOKEN_FIELDS = [
@@ -370,84 +371,84 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
 
             {/* ── Modals ── */}
             {paymentMethodsModal && (
-                <div className="dialog-overlay" onClick={() => setPaymentMethodsModal(false)}>
-                    <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Payment Methods</div>
-                        <p className="invoicing-hint invoicing-hint--dialog">
-                            Changes here update the payment methods block used in invoice emails.
-                        </p>
-                        <div className="dialog-body-padded">
-                            <PaymentMethodsManager
-                                settings={settings}
-                                readOnly={readOnly}
-                                onUpdate={methods => {
-                                    service.updateSettings({ paymentMethods: methods });
-                                    // Same share sync as the Settings page: publicShares
-                                    // paymentMethods + publicQrCodes for the signed-in owner.
-                                    syncPaymentMethodsToShares(userId || null, methods);
-                                }}
-                            />
-                        </div>
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-ink" onClick={() => setPaymentMethodsModal(false)}>Done</button>
-                        </div>
+                <Dialog
+                    onClose={() => setPaymentMethodsModal(false)}
+                    wide
+                    title="Payment Methods"
+                    footer={<button className="btn btn-sm btn-ink" onClick={() => setPaymentMethodsModal(false)}>Done</button>}
+                >
+                    <p className="invoicing-hint invoicing-hint--dialog">
+                        Changes here update the payment methods block used in invoice emails.
+                    </p>
+                    <div className="dialog-body-padded">
+                        <PaymentMethodsManager
+                            settings={settings}
+                            readOnly={readOnly}
+                            onUpdate={methods => {
+                                service.updateSettings({ paymentMethods: methods });
+                                // Same share sync as the Settings page: publicShares
+                                // paymentMethods + publicQrCodes for the signed-in owner.
+                                syncPaymentMethodsToShares(userId || null, methods);
+                            }}
+                        />
                     </div>
-                </div>
+                </Dialog>
             )}
 
             {testEmailOpen && previewCtx && (
-                <div className="dialog-overlay" onClick={() => setTestEmailOpen(false)}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Send Test Email</div>
-                        <form onSubmit={async e => {
-                            e.preventDefault();
-                            if (!testEmailTo.trim()) return;
-                            setTestEmailSending(true);
-                            try {
-                                const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
-                                const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
-                                // Only the markdown body is queued; the mail function renders
-                                // HTML server-side (queue docs cannot carry raw HTML).
-                                await queueEmail({
-                                    to: testEmailTo.trim(),
-                                    subject,
-                                    body: payload.markdown,
-                                    uid: userId
-                                });
-                                setTestEmailOpen(false);
-                                showToast('Test email sent to ' + testEmailTo.trim());
-                            } catch (err) {
-                                setTestEmailOpen(false);
-                                showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-                            } finally {
-                                setTestEmailSending(false);
-                            }
-                        }}>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor="test-email-to">Send to</label>
-                                    <input
-                                        id="test-email-to"
-                                        className="composer-input"
-                                        type="email"
-                                        value={testEmailTo}
-                                        onChange={e => setTestEmailTo(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                            </div>
-                            <p className="invoicing-hint invoicing-hint--dialog">
-                                Sends the current preview (including unsaved edits) with [Test] in the subject.
-                            </p>
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink" disabled={testEmailSending || !testEmailTo.trim()}>
-                                    {testEmailSending ? 'Sending\u2026' : 'Send'}
-                                </button>
-                            </div>
-                        </form>
+                <Dialog
+                    onClose={() => setTestEmailOpen(false)}
+                    title="Send Test Email"
+                    onSubmit={async e => {
+                        e.preventDefault();
+                        if (!testEmailTo.trim()) return;
+                        setTestEmailSending(true);
+                        try {
+                            const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
+                            const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
+                            // Only the markdown body is queued; the mail function renders
+                            // HTML server-side (queue docs cannot carry raw HTML).
+                            await queueEmail({
+                                to: testEmailTo.trim(),
+                                subject,
+                                body: payload.markdown,
+                                uid: userId
+                            });
+                            setTestEmailOpen(false);
+                            showToast('Test email sent to ' + testEmailTo.trim());
+                        } catch (err) {
+                            setTestEmailOpen(false);
+                            showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+                        } finally {
+                            setTestEmailSending(false);
+                        }
+                    }}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink" disabled={testEmailSending || !testEmailTo.trim()}>
+                                {testEmailSending ? 'Sending\u2026' : 'Send'}
+                            </button>
+                        </>
+                    )}
+                >
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor="test-email-to">Send to</label>
+                            <input
+                                id="test-email-to"
+                                className="composer-input"
+                                type="email"
+                                value={testEmailTo}
+                                onChange={e => setTestEmailTo(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
                     </div>
-                </div>
+                    <p className="invoicing-hint invoicing-hint--dialog">
+                        Sends the current preview (including unsaved edits) with [Test] in the subject.
+                    </p>
+                </Dialog>
             )}
 
             {shareLinkDialog && previewMember && (

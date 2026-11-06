@@ -12,6 +12,7 @@ Covers shared, reusable UI components and contexts used across the application: 
 - `tests/react/components/BillAuditHistoryDialog.test.jsx`
 - `tests/react/components/BillingYearSelector.test.jsx`
 - `tests/react/components/ConfirmDialog.test.jsx`
+- `tests/react/components/Dialog.test.jsx`
 - `tests/react/components/EmptyState.test.jsx`
 - `tests/react/components/NavBar.test.jsx`
 - `tests/react/components/PaymentHistoryDialog.test.jsx`
@@ -67,6 +68,17 @@ Covers shared, reusable UI components and contexts used across the application: 
 - Calls `onConfirm` on confirm button click.
 - Calls `onCancel` on Cancel click, Escape key, or overlay click.
 - Supports destructive styling via `destructive` prop and primary styling by default.
+
+### Dialog
+
+- The one modal primitive (#527, RD-14); every dialog in `src/app/` renders through it and none keeps its own overlay markup.
+- Renders nothing when `open` is false; otherwise portals an overlay and a `role="dialog"` card with `aria-modal="true"` into `document.body`, labelled by its title (or `ariaLabel` when there is no title).
+- The title and footer (`footer`) stay fixed while the body scrolls; with `onSubmit`, body and footer are wrapped in one form.
+- On open, focus moves to `initialFocusRef`, else an `autoFocus` child, else the first focusable control; Tab and Shift+Tab are trapped inside the topmost dialog; on close, focus returns to the control that opened it.
+- Escape and an overlay click close only the topmost dialog (each can be turned off with `closeOnEscape` / `closeOnOverlayClick`); a click inside a stacked child never closes its parent.
+- A dialog opened from a dialog (Edit Payment or Reverse Payment over Payment History) paints above it.
+- Page scroll is locked while any dialog is open and restored when the last one closes.
+- Desktop and tablet: a centred card, 440 px or 600 px (`wide`). At 600 px and below: a bottom sheet with a grab handle, full-width 44 px footer buttons with the primary action last, and a footer that stays visible while the content scrolls.
 
 ### EmptyState
 

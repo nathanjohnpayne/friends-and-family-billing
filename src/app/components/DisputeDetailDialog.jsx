@@ -13,6 +13,7 @@ import { DISPUTE_STATUS_LABELS } from '../../lib/constants.js';
 import { disputeStatusClass, formatFileSize } from '../../lib/formatting.js';
 import { openSmsComposer } from '../../lib/sms.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import Dialog from './Dialog.jsx';
 
 /**
  * Look up an active share token with disputes:read scope for a member in a billing year.
@@ -205,200 +206,197 @@ export default function DisputeDetailDialog({ open, dispute, onUpdate, onStatusC
     const evidenceCount = (dispute.evidence || []).length;
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide dispute-detail-dialog" onClick={e => e.stopPropagation()}>
-                <div className="dispute-detail-header">
-                    <div className="dispute-detail-title">
-                        <strong>{dispute.billName || 'Unknown Bill'}</strong>
-                        <span className={'dispute-status-badge ' + statusCls}>{statusLabel}</span>
-                    </div>
+        <Dialog
+            onClose={onClose}
+            wide
+            className="dispute-detail-dialog"
+            title={dispute.billName || 'Unknown Bill'}
+            titleAside={(
+                <>
+                    <span className={'dispute-status-badge ' + statusCls}>{statusLabel}</span>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>&times;</button>
-                </div>
-
-                <div className="dispute-detail-meta">
-                    <span>From {dispute.memberName || 'Unknown'}</span>
-                    <span>&middot;</span>
-                    <span>{formatDate(dispute.createdAt)}</span>
-                    {dispute.resolvedAt && <span>&middot; Resolved {formatDate(dispute.resolvedAt)}</span>}
-                    {dispute.rejectedAt && <span>&middot; Rejected {formatDate(dispute.rejectedAt)}</span>}
-                </div>
-
-                <div className="dispute-detail-section">
-                    <div className="dispute-detail-label">Message</div>
-                    <p className="dispute-detail-message">{dispute.message || 'No message provided.'}</p>
-                </div>
-
-                {dispute.proposedCorrection && (
-                    <div className="dispute-detail-section">
-                        <div className="dispute-detail-label">Proposed Correction</div>
-                        <p className="dispute-detail-correction">{dispute.proposedCorrection}</p>
-                    </div>
-                )}
-
-                <div className="dispute-detail-section">
-                    <div className="dispute-detail-label">Resolution Note</div>
-                    <textarea
-                        ref={noteRef}
-                        className={'composer-input' + (noteError ? ' input-error' : '')}
-                        rows={3}
-                        placeholder="Add a resolution note..."
-                        value={resolutionNote}
-                        onChange={e => { setResolutionNote(e.target.value); setNoteError(''); }}
-                        disabled={terminal}
-                    />
-                    {noteError && <p className="composer-error">{noteError}</p>}
-                </div>
-
-                <div className="dispute-detail-section">
-                    <div className="dispute-detail-label">Evidence ({evidenceCount} file{evidenceCount !== 1 ? 's' : ''})</div>
-                    {evidenceCount > 0 && (
-                        <div className="evidence-list">
-                            {dispute.evidence.map((item, i) => (
-                                <EvidenceItem
-                                    key={i}
-                                    item={item}
-                                    index={i}
-                                    terminal={terminal}
-                                    onRemove={handleRemoveEvidence}
-                                />
-                            ))}
-                        </div>
-                    )}
-                    {!terminal && evidenceCount < 10 && (
-                        <div className="evidence-upload">
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="application/pdf,image/png,image/jpeg"
-                                onChange={handleUploadEvidence}
-                                style={{ display: 'none' }}
-                            />
-                            <button
-                                className="btn btn-sm btn-secondary"
-                                onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                                disabled={uploading}
-                            >
-                                {uploading ? 'Uploading...' : 'Upload Evidence'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {!terminal && (
-                    <div className="dispute-detail-section">
-                        <div className="checkbox-item">
-                            <input
-                                type="checkbox"
-                                id="dispute-user-review"
-                                checked={userReviewState === 'requested'}
-                                onChange={e => toggleUserReview(e.target.checked)}
-                            />
-                            <label htmlFor="dispute-user-review">Request user approval before finalizing</label>
-                        </div>
-                    </div>
-                )}
-
-                {terminal && userReviewState && (
-                    <div className="dispute-detail-section">
-                        <div className="dispute-detail-label">User Decision</div>
-                        <p className="dispute-detail-message">
-                            {userReviewState === 'approved_by_user' ? 'Approved by user'
-                                : userReviewState === 'rejected_by_user' ? 'Rejected by user'
-                                : userReviewState}
-                            {dispute.userReview && dispute.userReview.rejectionNote
-                                ? '\u2014' + dispute.userReview.rejectionNote
-                                : ''}
-                        </p>
-                    </div>
-                )}
-
-                {!terminal && (
-                    <div className="dispute-detail-actions">
-                        {dispute.status === 'open' && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => doAction('in_review')}>
-                                Mark In Review
-                            </button>
-                        )}
-                        <button className="btn btn-sm btn-ink" onClick={() => handleActionClick('resolved')}>
-                            Resolve
+                </>
+            )}
+            footerClassName={terminal ? undefined : 'dispute-detail-actions'}
+            footer={terminal ? (
+                <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+            ) : (
+                <>
+                    {dispute.status === 'open' && (
+                        <button className="btn btn-sm btn-secondary" onClick={() => doAction('in_review')}>
+                            Mark In Review
                         </button>
-                        <button className="btn btn-sm btn-destructive" onClick={() => handleActionClick('rejected')}>
-                            Reject
-                        </button>
-                    </div>
-                )}
-
-                {terminal && dispute.resolutionNote && (() => {
-                    const member = (familyMembers || []).find(m => m.id === dispute.memberId);
-                    const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
-                    const statusWord = dispute.status === 'resolved' ? 'resolved' : 'rejected';
-                    const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
-                    const notifiedAt = dispute.resolutionNotificationSentAt;
-                    const notifiedDate = notifiedAt ? new Date(notifiedAt).toLocaleDateString() : null;
-
-                    // Build email content with share URL lookup at send time
-                    async function buildAndSendResolutionEmail() {
-                        let shareUrl = null;
-                        if (reviewRequested && user && activeYear) {
-                            shareUrl = await findMemberShareUrl(user.uid, activeYear.id, dispute.memberId);
-                        }
-                        const { subject, body } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, shareUrl);
-                        return { subject, body };
-                    }
-
-                    // Plain text version (no share URL) for SMS/clipboard
-                    const { body: resBodyText } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, null);
-
-                    return (
-                        <div className="dispute-share-actions">
-                            <span className="dispute-share-label">Share Resolution:</span>
-                            {member && member.email && (
-                                <button className="btn btn-sm btn-secondary" onClick={async () => {
-                                    try {
-                                        const { subject, body } = await buildAndSendResolutionEmail();
-                                        await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
-                                        if (showToast) showToast('Resolution emailed to ' + member.email);
-                                    } catch (err) {
-                                        if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-                                    }
-                                }}>{notifiedAt ? 'Re-send Email' : 'Email'}</button>
-                            )}
-                            {notifiedDate && <span className="dispute-notified-hint">Auto-notified {notifiedDate}</span>}
-                            {member && member.phone && (
-                                <button className="btn btn-sm btn-secondary" onClick={() => {
-                                    openSmsComposer(member.phone, resBodyText, () => {
-                                        if (showToast) showToast('Resolution copied\u2014paste into your messaging app');
-                                    });
-                                }}>Text</button>
-                            )}
-                            <button className="btn btn-sm btn-secondary" onClick={() => {
-                                navigator.clipboard.writeText(resBodyText).then(() => {
-                                    if (showToast) showToast('Resolution copied');
-                                });
-                            }}>Copy</button>
-                        </div>
-                    );
-                })()}
-
-                {terminal && (
-                    <div className="dialog-buttons">
-                        <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    </div>
-                )}
-
-                <ConfirmDialog
-                    open={actionConfirm !== null}
-                    title={actionConfirm === 'resolved' ? 'Resolve Dispute' : 'Reject Dispute'}
-                    message={actionConfirm === 'resolved'
-                        ? 'Mark this dispute as resolved? The member will be notified.'
-                        : 'Reject this dispute? The member will be notified.'}
-                    confirmLabel={actionConfirm === 'resolved' ? 'Resolve' : 'Reject'}
-                    destructive={actionConfirm === 'rejected'}
-                    onConfirm={() => doAction(actionConfirm)}
-                    onCancel={() => setActionConfirm(null)}
-                />
+                    )}
+                    <button className="btn btn-sm btn-ink" onClick={() => handleActionClick('resolved')}>
+                        Resolve
+                    </button>
+                    <button className="btn btn-sm btn-destructive" onClick={() => handleActionClick('rejected')}>
+                        Reject
+                    </button>
+                </>
+            )}
+        >
+            <div className="dispute-detail-meta">
+                <span>From {dispute.memberName || 'Unknown'}</span>
+                <span>&middot;</span>
+                <span>{formatDate(dispute.createdAt)}</span>
+                {dispute.resolvedAt && <span>&middot; Resolved {formatDate(dispute.resolvedAt)}</span>}
+                {dispute.rejectedAt && <span>&middot; Rejected {formatDate(dispute.rejectedAt)}</span>}
             </div>
-        </div>
+
+            <div className="dispute-detail-section">
+                <div className="dispute-detail-label">Message</div>
+                <p className="dispute-detail-message">{dispute.message || 'No message provided.'}</p>
+            </div>
+
+            {dispute.proposedCorrection && (
+                <div className="dispute-detail-section">
+                    <div className="dispute-detail-label">Proposed Correction</div>
+                    <p className="dispute-detail-correction">{dispute.proposedCorrection}</p>
+                </div>
+            )}
+
+            <div className="dispute-detail-section">
+                <div className="dispute-detail-label">Resolution Note</div>
+                <textarea
+                    ref={noteRef}
+                    className={'composer-input' + (noteError ? ' input-error' : '')}
+                    rows={3}
+                    placeholder="Add a resolution note..."
+                    value={resolutionNote}
+                    onChange={e => { setResolutionNote(e.target.value); setNoteError(''); }}
+                    disabled={terminal}
+                />
+                {noteError && <p className="composer-error">{noteError}</p>}
+            </div>
+
+            <div className="dispute-detail-section">
+                <div className="dispute-detail-label">Evidence ({evidenceCount} file{evidenceCount !== 1 ? 's' : ''})</div>
+                {evidenceCount > 0 && (
+                    <div className="evidence-list">
+                        {dispute.evidence.map((item, i) => (
+                            <EvidenceItem
+                                key={i}
+                                item={item}
+                                index={i}
+                                terminal={terminal}
+                                onRemove={handleRemoveEvidence}
+                            />
+                        ))}
+                    </div>
+                )}
+                {!terminal && evidenceCount < 10 && (
+                    <div className="evidence-upload">
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="application/pdf,image/png,image/jpeg"
+                            onChange={handleUploadEvidence}
+                            style={{ display: 'none' }}
+                        />
+                        <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                            disabled={uploading}
+                        >
+                            {uploading ? 'Uploading...' : 'Upload Evidence'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {!terminal && (
+                <div className="dispute-detail-section">
+                    <div className="checkbox-item">
+                        <input
+                            type="checkbox"
+                            id="dispute-user-review"
+                            checked={userReviewState === 'requested'}
+                            onChange={e => toggleUserReview(e.target.checked)}
+                        />
+                        <label htmlFor="dispute-user-review">Request user approval before finalizing</label>
+                    </div>
+                </div>
+            )}
+
+            {terminal && userReviewState && (
+                <div className="dispute-detail-section">
+                    <div className="dispute-detail-label">User Decision</div>
+                    <p className="dispute-detail-message">
+                        {userReviewState === 'approved_by_user' ? 'Approved by user'
+                            : userReviewState === 'rejected_by_user' ? 'Rejected by user'
+                            : userReviewState}
+                        {dispute.userReview && dispute.userReview.rejectionNote
+                            ? '\u2014' + dispute.userReview.rejectionNote
+                            : ''}
+                    </p>
+                </div>
+            )}
+
+            {terminal && dispute.resolutionNote && (() => {
+                const member = (familyMembers || []).find(m => m.id === dispute.memberId);
+                const yearLabel = activeYear ? (activeYear.label || activeYear.id) : '';
+                const statusWord = dispute.status === 'resolved' ? 'resolved' : 'rejected';
+                const reviewRequested = dispute.userReview && dispute.userReview.state === 'requested';
+                const notifiedAt = dispute.resolutionNotificationSentAt;
+                const notifiedDate = notifiedAt ? new Date(notifiedAt).toLocaleDateString() : null;
+
+                // Build email content with share URL lookup at send time
+                async function buildAndSendResolutionEmail() {
+                    let shareUrl = null;
+                    if (reviewRequested && user && activeYear) {
+                        shareUrl = await findMemberShareUrl(user.uid, activeYear.id, dispute.memberId);
+                    }
+                    const { subject, body } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, shareUrl);
+                    return { subject, body };
+                }
+
+                // Plain text version (no share URL) for SMS/clipboard
+                const { body: resBodyText } = buildMemberNotificationEmail(dispute, member || {}, statusWord, dispute.resolutionNote, yearLabel, reviewRequested, null);
+
+                return (
+                    <div className="dispute-share-actions">
+                        <span className="dispute-share-label">Share Resolution:</span>
+                        {member && member.email && (
+                            <button className="btn btn-sm btn-secondary" onClick={async () => {
+                                try {
+                                    const { subject, body } = await buildAndSendResolutionEmail();
+                                    await queueEmail({ to: member.email, subject, body, uid: user ? user.uid : '' });
+                                    if (showToast) showToast('Resolution emailed to ' + member.email);
+                                } catch (err) {
+                                    if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+                                }
+                            }}>{notifiedAt ? 'Re-send Email' : 'Email'}</button>
+                        )}
+                        {notifiedDate && <span className="dispute-notified-hint">Auto-notified {notifiedDate}</span>}
+                        {member && member.phone && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => {
+                                openSmsComposer(member.phone, resBodyText, () => {
+                                    if (showToast) showToast('Resolution copied\u2014paste into your messaging app');
+                                });
+                            }}>Text</button>
+                        )}
+                        <button className="btn btn-sm btn-secondary" onClick={() => {
+                            navigator.clipboard.writeText(resBodyText).then(() => {
+                                if (showToast) showToast('Resolution copied');
+                            });
+                        }}>Copy</button>
+                    </div>
+                );
+            })()}
+
+            <ConfirmDialog
+                open={actionConfirm !== null}
+                title={actionConfirm === 'resolved' ? 'Resolve Dispute' : 'Reject Dispute'}
+                message={actionConfirm === 'resolved'
+                    ? 'Mark this dispute as resolved? The member will be notified.'
+                    : 'Reject this dispute? The member will be notified.'}
+                confirmLabel={actionConfirm === 'resolved' ? 'Resolve' : 'Reject'}
+                destructive={actionConfirm === 'rejected'}
+                onConfirm={() => doAction(actionConfirm)}
+                onCancel={() => setActionConfirm(null)}
+            />
+        </Dialog>
     );
 }
 

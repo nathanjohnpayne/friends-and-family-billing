@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { selectBillableCharges, monthRange, summarizeChargePreview } from '../../lib/chargeNotice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{
@@ -34,12 +35,6 @@ export default function ChargeNoticeDialog({ open, memberName, charges, now, onC
         }
     }, [open]);
 
-    useEffect(() => {
-        if (!open) return;
-        function handleKey(e) { if (e.key === 'Escape') onClose(); }
-        document.addEventListener('keydown', handleKey);
-        return () => document.removeEventListener('keydown', handleKey);
-    }, [open, onClose]);
 
     const candidates = useMemo(() => charges || [], [charges]);
 
@@ -74,75 +69,72 @@ export default function ChargeNoticeDialog({ open, memberName, charges, now, onC
         }
     }
 
-    function handleOverlayClick(e) {
-        if (e.target === e.currentTarget) onClose();
-    }
-
     return (
-        <div className="dialog-overlay visible" onClick={handleOverlayClick} role="presentation">
-            <div className="dialog" role="dialog" aria-modal="true" aria-label="Bill Charges">
-                <div className="dialog-title">Bill Charges</div>
-                <form onSubmit={handleConfirm}>
-                    <p className="payment-dialog-for">
-                        For: <strong>{memberName}</strong>
-                    </p>
-                    <p className="share-hint">
-                        Billing sends a Charge Notice and moves these charges to owed-now. The member
-                        pays it like a normal bill, or can request a review.
-                    </p>
+        <Dialog
+            onClose={onClose}
+            title="Bill Charges"
+            onSubmit={handleConfirm}
+            footer={(
+                <>
+                    <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
+                    <button type="submit" className="btn btn-sm btn-ink" disabled={preview.count === 0}>
+                        Bill &amp; Notify
+                    </button>
+                </>
+            )}
+        >
+            <p className="payment-dialog-for">
+                For: <strong>{memberName}</strong>
+            </p>
+            <p className="share-hint">
+                Billing sends a Charge Notice and moves these charges to owed-now. The member
+                pays it like a normal bill, or can request a review.
+            </p>
 
-                    <div className="charge-notice-period" role="group" aria-label="Period">
-                        <label className="charge-notice-period-option">
-                            <input
-                                type="radio"
-                                name="charge-notice-period"
-                                value="all"
-                                checked={period === 'all'}
-                                onChange={() => setPeriod('all')}
-                            />
-                            All deferred
-                        </label>
-                        <label className="charge-notice-period-option">
-                            <input
-                                type="radio"
-                                name="charge-notice-period"
-                                value="month"
-                                checked={period === 'month'}
-                                onChange={() => setPeriod('month')}
-                            />
-                            This month
-                        </label>
-                    </div>
-
-                    <div className="charge-notice-preview">
-                        {preview.count === 0 ? (
-                            <p className="charge-notice-empty">No deferred charges in this period.</p>
-                        ) : (
-                            <ul className="charge-notice-list">
-                                {preview.charges.map(c => (
-                                    <li key={c.id} className="charge-notice-line">
-                                        <span className="charge-notice-line-desc">{c.description}</span>
-                                        <span className="charge-notice-line-date">{c.incurredDate}</span>
-                                        <span className="charge-notice-line-amt">{formatAnnualSummaryCurrency(c.amount)}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                        <div className="charge-notice-total">
-                            <span>Total to bill</span>
-                            <strong>{formatAnnualSummaryCurrency(preview.total)}</strong>
-                        </div>
-                    </div>
-
-                    {error && <p className="composer-error">{error}</p>}
-                    <div className="dialog-buttons">
-                        <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-ink" disabled={preview.count === 0}>
-                            Bill &amp; Notify
-                        </button>
-                    </div>
-                </form>
+            <div className="charge-notice-period" role="group" aria-label="Period">
+                <label className="charge-notice-period-option">
+                    <input
+                        type="radio"
+                        name="charge-notice-period"
+                        value="all"
+                        checked={period === 'all'}
+                        onChange={() => setPeriod('all')}
+                    />
+                    All deferred
+                </label>
+                <label className="charge-notice-period-option">
+                    <input
+                        type="radio"
+                        name="charge-notice-period"
+                        value="month"
+                        checked={period === 'month'}
+                        onChange={() => setPeriod('month')}
+                    />
+                    This month
+                </label>
             </div>
-        </div>
+
+            <div className="charge-notice-preview">
+                {preview.count === 0 ? (
+                    <p className="charge-notice-empty">No deferred charges in this period.</p>
+                ) : (
+                    <ul className="charge-notice-list">
+                        {preview.charges.map(c => (
+                            <li key={c.id} className="charge-notice-line">
+                                <span className="charge-notice-line-desc">{c.description}</span>
+                                <span className="charge-notice-line-date">{c.incurredDate}</span>
+                                <span className="charge-notice-line-amt">{formatAnnualSummaryCurrency(c.amount)}</span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                <div className="charge-notice-total">
+                    <span>Total to bill</span>
+                    <strong>{formatAnnualSummaryCurrency(preview.total)}</strong>
+                </div>
+            </div>
+
+            {error && <p className="composer-error">{error}</p>}
+        </Dialog>
     );
 }

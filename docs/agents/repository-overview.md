@@ -38,7 +38,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │   │   ├── AppShell.jsx       # Authenticated layout shell (NavBar + content)
 │   │   │   ├── BillAuditHistoryDialog.jsx  # Per-bill event timeline dialog
 │   │   │   ├── BillingYearSelector.jsx     # Year dropdown with lifecycle controls
-│   │   │   ├── ConfirmDialog.jsx  # Modal confirmation dialog
+│   │   │   ├── ConfirmDialog.jsx  # Modal confirmation dialog (on Dialog)
+│   │   │   ├── Dialog.jsx         # The one modal primitive: card, phone bottom sheet, focus trap, stacking
 │   │   │   ├── DisputeDetailDialog.jsx     # Dispute detail with evidence, resolution
 │   │   │   ├── EmailInvoiceDialog.jsx      # Email invoice composer with variants
 │   │   │   ├── EmptyState.jsx     # Empty list placeholder
@@ -435,7 +436,7 @@ Design tokens are defined in `design-tokens.css` and consumed by `src/app/shell.
 - **Core components:** `.card`, `.btn` pills (`.btn-primary` = Ember fill with Ink text, never white; `.btn-secondary`, `.btn-tertiary`, `.btn-ink`, `.btn-destructive`), `.member-card`, `.bill-card`
 - **Radii and shadows:** `--radius-card` 12 px, `--radius-input` 8 px, `--radius-alert` 8 px, `--radius-button` pill; `--shadow-card` / `--shadow-menu` / `--shadow-dialog` / `--shadow-toast` are Ink-tinted and whisper-light. `tests/react/shellPrimitives.test.js` pins these and the no-white-on-Ember rule.
 - **Settlement components:** `.settlement-board`, `.settlement-card`, `.settlement-filter-chip` (the `.filter-chip` primitive), `.balance-indicator`
-- **Dialog components:** `.dialog-overlay`, `.dialog-content`, `.confirm-dialog`
+- **Dialog components:** every dialog renders through `src/app/components/Dialog.jsx` (`.dialog-overlay` > `.dialog` > `.dialog-title`, scrolling `.dialog-content`, fixed `.dialog-buttons` footer). At 600 px and below the same markup is a bottom sheet with a `.dialog-grab` handle and full-width 44 px footer buttons (RD-14). No component keeps its own overlay markup.
 - **Shared components:** `.action-menu`, `.status-badge`, `.empty-state`, `.inline-alert` (`--error/--success/--warning/--info`), `.change-toast` (`--failure`)
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`
 - **Avatar size:** 48x48px circle (32x32px in invoices)

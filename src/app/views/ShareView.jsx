@@ -11,6 +11,7 @@ import { hashToken } from '../../lib/validation.js';
 import { isShareTokenStale } from '../../lib/share.js';
 import { getPaymentMethodIcon, getPaymentMethodLabel } from '../../lib/formatting.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
+import Dialog from '../components/Dialog.jsx';
 
 const STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
 
@@ -703,23 +704,21 @@ function PaymentMethodsSection({ methods, ownerId, canDispute, paymentSummary })
             )}
 
             {qrModal && (
-                <div className="dialog-overlay" onClick={() => setQrModal(null)}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">QR Code — {qrModal.label}</div>
-                        {qrModal.src ? (
-                            <div className="dialog-body-padded">
-                                <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />
-                            </div>
-                        ) : (
-                            <p className="dialog-body-padded" style={{ color: 'var(--color-text-secondary)' }}>
-                                No QR code available for this payment method.
-                            </p>
-                        )}
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-header-secondary" onClick={() => setQrModal(null)}>Close</button>
+                <Dialog
+                    onClose={() => setQrModal(null)}
+                    title={<>QR Code — {qrModal.label}</>}
+                    footer={<button className="btn btn-sm btn-header-secondary" onClick={() => setQrModal(null)}>Close</button>}
+                >
+                    {qrModal.src ? (
+                        <div className="dialog-body-padded">
+                            <img src={qrModal.src} alt={'QR Code for ' + qrModal.label} style={{ maxWidth: '250px', margin: '0 auto', display: 'block' }} />
                         </div>
-                    </div>
-                </div>
+                    ) : (
+                        <p className="dialog-body-padded" style={{ color: 'var(--color-text-secondary)' }}>
+                            No QR code available for this payment method.
+                        </p>
+                    )}
+                </Dialog>
             )}
         </div>
     );
@@ -1064,52 +1063,51 @@ function DisputeFormOverlay({ bill, shareCtx, onClose }) {
     }
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                {success ? (
-                    <>
-                        <div className="dialog-title">Question Submitted</div>
-                        <p>The account owner will be notified of your request.</p>
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-ink" onClick={onClose}>Close</button>
+        <Dialog
+            onClose={onClose}
+            wide
+            title={success ? 'Question Submitted' : 'Question This Charge'}
+            footer={success ? (
+                <button className="btn btn-sm btn-ink" onClick={onClose}>Close</button>
+            ) : (
+                <>
+                    <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
+                    <button className="btn btn-sm btn-ink" onClick={handleSubmit} disabled={submitting}>
+                        {submitting ? 'Submitting...' : 'Submit'}
+                    </button>
+                </>
+            )}
+        >
+            {success ? (
+                <p>The account owner will be notified of your request.</p>
+            ) : (
+                <>
+                    <p className="share-hint">Flagging <strong>{bill.name}</strong> for review.</p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label>What looks wrong?</label>
+                            <textarea
+                                className={'composer-input' + (msgError ? ' input-error' : '')}
+                                rows={4}
+                                placeholder="Describe the issue..."
+                                value={message}
+                                onChange={e => { setMessage(e.target.value); setMsgError(false); }}
+                                maxLength={2000}
+                            />
                         </div>
-                    </>
-                ) : (
-                    <>
-                        <div className="dialog-title">Question This Charge</div>
-                        <p className="share-hint">Flagging <strong>{bill.name}</strong> for review.</p>
-                        <div className="payment-dialog-fields">
-                            <div className="payment-field-group">
-                                <label>What looks wrong?</label>
-                                <textarea
-                                    className={'composer-input' + (msgError ? ' input-error' : '')}
-                                    rows={4}
-                                    placeholder="Describe the issue..."
-                                    value={message}
-                                    onChange={e => { setMessage(e.target.value); setMsgError(false); }}
-                                    maxLength={2000}
-                                />
-                            </div>
-                            <div className="payment-field-group">
-                                <label>Suggested correction (optional)</label>
-                                <input
-                                    className="composer-input"
-                                    placeholder="e.g. Should be $45/mo instead of $60"
-                                    value={correction}
-                                    onChange={e => setCorrection(e.target.value)}
-                                    maxLength={500}
-                                />
-                            </div>
+                        <div className="payment-field-group">
+                            <label>Suggested correction (optional)</label>
+                            <input
+                                className="composer-input"
+                                placeholder="e.g. Should be $45/mo instead of $60"
+                                value={correction}
+                                onChange={e => setCorrection(e.target.value)}
+                                maxLength={500}
+                            />
                         </div>
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                            <button className="btn btn-sm btn-ink" onClick={handleSubmit} disabled={submitting}>
-                                {submitting ? 'Submitting...' : 'Submit'}
-                            </button>
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
+                    </div>
+                </>
+            )}
+        </Dialog>
     );
 }

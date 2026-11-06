@@ -8,6 +8,7 @@ import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../
 import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
+import Dialog from './Dialog.jsx';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
 function MemberAvatar({ member }) {
@@ -577,141 +578,143 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
             )}
 
             {paymentOpen && (
-                <div className="dialog-overlay" onClick={cancelPayment}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Record Payment</div>
-                        <form onSubmit={handleRecordPayment}>
-                            <p className="payment-dialog-for">
-                                For: <strong>{member.name}</strong>
-                                {balance > CREDIT_EPSILON && (
-                                    <span className="payment-dialog-balance">
-                                        {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
-                                    </span>
-                                )}
-                            </p>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-amount-' + member.id}>Amount ($)</label>
-                                    <input
-                                        id={'pay-amount-' + member.id}
-                                        className="composer-input"
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        placeholder="0.00"
-                                        value={paymentAmount}
-                                        onChange={e => setPaymentAmount(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-method-' + member.id}>Method</label>
-                                    <select
-                                        id={'pay-method-' + member.id}
-                                        className="composer-input"
-                                        value={paymentMethod}
-                                        onChange={e => setPaymentMethod(e.target.value)}
-                                    >
-                                        {PAYMENT_METHODS.map(m => (
-                                            <option key={m.value} value={m.value}>{m.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-note-' + member.id}>Note (optional)</label>
-                                    <input
-                                        id={'pay-note-' + member.id}
-                                        className="composer-input"
-                                        type="text"
-                                        placeholder="e.g., Q1 payment"
-                                        value={paymentNote}
-                                        onChange={e => setPaymentNote(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                            {hasLinked && (
-                                <div className="checkbox-item payment-distribute-option">
-                                    <input
-                                        type="checkbox"
-                                        id={'pay-distribute-' + member.id}
-                                        checked={distribute}
-                                        onChange={e => setDistribute(e.target.checked)}
-                                    />
-                                    <label htmlFor={'pay-distribute-' + member.id}>
-                                        Distribute across household proportionally
-                                    </label>
-                                </div>
-                            )}
-                            {paymentError && <p className="composer-error">{paymentError}</p>}
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink">Save Payment</button>
-                            </div>
-                        </form>
+                <Dialog
+                    onClose={cancelPayment}
+                    title="Record Payment"
+                    onSubmit={handleRecordPayment}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink">Save Payment</button>
+                        </>
+                    )}
+                >
+                    <p className="payment-dialog-for">
+                        For: <strong>{member.name}</strong>
+                        {balance > CREDIT_EPSILON && (
+                            <span className="payment-dialog-balance">
+                                {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
+                            </span>
+                        )}
+                    </p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-amount-' + member.id}>Amount ($)</label>
+                            <input
+                                id={'pay-amount-' + member.id}
+                                className="composer-input"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                placeholder="0.00"
+                                value={paymentAmount}
+                                onChange={e => setPaymentAmount(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-method-' + member.id}>Method</label>
+                            <select
+                                id={'pay-method-' + member.id}
+                                className="composer-input"
+                                value={paymentMethod}
+                                onChange={e => setPaymentMethod(e.target.value)}
+                            >
+                                {PAYMENT_METHODS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-note-' + member.id}>Note (optional)</label>
+                            <input
+                                id={'pay-note-' + member.id}
+                                className="composer-input"
+                                type="text"
+                                placeholder="e.g., Q1 payment"
+                                value={paymentNote}
+                                onChange={e => setPaymentNote(e.target.value)}
+                            />
+                        </div>
                     </div>
-                </div>
+                    {hasLinked && (
+                        <div className="checkbox-item payment-distribute-option">
+                            <input
+                                type="checkbox"
+                                id={'pay-distribute-' + member.id}
+                                checked={distribute}
+                                onChange={e => setDistribute(e.target.checked)}
+                            />
+                            <label htmlFor={'pay-distribute-' + member.id}>
+                                Distribute across household proportionally
+                            </label>
+                        </div>
+                    )}
+                    {paymentError && <p className="composer-error">{paymentError}</p>}
+                </Dialog>
             )}
 
             {refundOpen && (
-                <div className="dialog-overlay" onClick={cancelRefund}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Issue Refund</div>
-                        <form onSubmit={handleIssueRefund}>
-                            <p className="payment-dialog-for">
-                                For: <strong>{member.name}</strong>
-                                <span className="payment-dialog-balance">
-                                    {' '}(Credit: {formatAnnualSummaryCurrency(credit)})
-                                </span>
-                            </p>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-amount-' + member.id}>Refund amount ($)</label>
-                                    <input
-                                        id={'refund-amount-' + member.id}
-                                        className="composer-input"
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        max={credit.toFixed(2)}
-                                        placeholder="0.00"
-                                        value={refundAmount}
-                                        onChange={e => setRefundAmount(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-method-' + member.id}>Method</label>
-                                    <select
-                                        id={'refund-method-' + member.id}
-                                        className="composer-input"
-                                        value={refundMethod}
-                                        onChange={e => setRefundMethod(e.target.value)}
-                                    >
-                                        {PAYMENT_METHODS.map(m => (
-                                            <option key={m.value} value={m.value}>{m.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-reason-' + member.id}>Reason</label>
-                                    <input
-                                        id={'refund-reason-' + member.id}
-                                        className="composer-input"
-                                        type="text"
-                                        placeholder="e.g., Returned Q1 overpayment"
-                                        value={refundReason}
-                                        onChange={e => setRefundReason(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                            {refundError && <p className="composer-error">{refundError}</p>}
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelRefund}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink">Save Refund</button>
-                            </div>
-                        </form>
+                <Dialog
+                    onClose={cancelRefund}
+                    title="Issue Refund"
+                    onSubmit={handleIssueRefund}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelRefund}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink">Save Refund</button>
+                        </>
+                    )}
+                >
+                    <p className="payment-dialog-for">
+                        For: <strong>{member.name}</strong>
+                        <span className="payment-dialog-balance">
+                            {' '}(Credit: {formatAnnualSummaryCurrency(credit)})
+                        </span>
+                    </p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-amount-' + member.id}>Refund amount ($)</label>
+                            <input
+                                id={'refund-amount-' + member.id}
+                                className="composer-input"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                max={credit.toFixed(2)}
+                                placeholder="0.00"
+                                value={refundAmount}
+                                onChange={e => setRefundAmount(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-method-' + member.id}>Method</label>
+                            <select
+                                id={'refund-method-' + member.id}
+                                className="composer-input"
+                                value={refundMethod}
+                                onChange={e => setRefundMethod(e.target.value)}
+                            >
+                                {PAYMENT_METHODS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-reason-' + member.id}>Reason</label>
+                            <input
+                                id={'refund-reason-' + member.id}
+                                className="composer-input"
+                                type="text"
+                                placeholder="e.g., Returned Q1 overpayment"
+                                value={refundReason}
+                                onChange={e => setRefundReason(e.target.value)}
+                            />
+                        </div>
                     </div>
-                </div>
+                    {refundError && <p className="composer-error">{refundError}</p>}
+                </Dialog>
             )}
         </div>
     );

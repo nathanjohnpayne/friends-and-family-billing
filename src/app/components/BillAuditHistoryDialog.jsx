@@ -3,6 +3,7 @@
  * Port of showBillAuditHistory() from main.js:1473.
  */
 import { BILLING_EVENT_LABELS } from '../../lib/formatting.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{ open: boolean, billId: number, billName: string, billingEvents: Array, onClose: function }} props
@@ -41,36 +42,33 @@ export default function BillAuditHistoryDialog({ open, billId, billName, billing
     }
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">History: {billName}</div>
-
-                {events.length === 0 ? (
-                    <p className="audit-empty">No history recorded yet</p>
-                ) : (
-                    <div className="audit-event-list">
-                        {events.map(evt => {
-                            const date = new Date(evt.timestamp).toLocaleString();
-                            const label = BILLING_EVENT_LABELS[evt.eventType] || evt.eventType;
-                            const detail = getDetail(evt);
-                            return (
-                                <div key={evt.id} className="audit-event-item">
-                                    <div className="audit-event-header">
-                                        <span className="audit-event-label">{label}</span>
-                                        <span className="audit-event-date">{date}</span>
-                                    </div>
-                                    {detail && <div className="audit-event-detail">{detail}</div>}
-                                    {evt.note && <div className="audit-event-note">{evt.note}</div>}
+        <Dialog
+            onClose={onClose}
+            wide
+            title={<>History: {billName}</>}
+            footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}
+        >
+            {events.length === 0 ? (
+                <p className="audit-empty">No history recorded yet</p>
+            ) : (
+                <div className="audit-event-list">
+                    {events.map(evt => {
+                        const date = new Date(evt.timestamp).toLocaleString();
+                        const label = BILLING_EVENT_LABELS[evt.eventType] || evt.eventType;
+                        const detail = getDetail(evt);
+                        return (
+                            <div key={evt.id} className="audit-event-item">
+                                <div className="audit-event-header">
+                                    <span className="audit-event-label">{label}</span>
+                                    <span className="audit-event-date">{date}</span>
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
-
-                <div className="dialog-buttons">
-                    <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+                                {detail && <div className="audit-event-detail">{detail}</div>}
+                                {evt.note && <div className="audit-event-note">{evt.note}</div>}
+                            </div>
+                        );
+                    })}
                 </div>
-            </div>
-        </div>
+            )}
+        </Dialog>
     );
 }

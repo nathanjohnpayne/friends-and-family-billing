@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { localDateString } from '../../lib/validation.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{
@@ -31,15 +32,6 @@ export default function UsageChargeDialog({ open, memberName, onSubmit, onClose 
         }
     }, [open]);
 
-    // Close on Escape.
-    useEffect(() => {
-        if (!open) return;
-        function handleKey(e) {
-            if (e.key === 'Escape') onClose();
-        }
-        document.addEventListener('keydown', handleKey);
-        return () => document.removeEventListener('keydown', handleKey);
-    }, [open, onClose]);
 
     if (!open) return null;
 
@@ -67,66 +59,63 @@ export default function UsageChargeDialog({ open, memberName, onSubmit, onClose 
         }
     }
 
-    function handleOverlayClick(e) {
-        if (e.target === e.currentTarget) onClose();
-    }
-
     return (
-        <div className="dialog-overlay visible" onClick={handleOverlayClick} role="presentation">
-            <div className="dialog" role="dialog" aria-modal="true" aria-label="Add Usage Charge">
-                <div className="dialog-title">Add Usage Charge</div>
-                <form onSubmit={handleSubmit}>
-                    <p className="payment-dialog-for">
-                        For: <strong>{memberName}</strong>
-                    </p>
-                    <p className="share-hint">
-                        Recorded as a pending (deferred) charge. It is not billed yet and does not change
-                        the current balance.
-                    </p>
-                    <div className="payment-dialog-fields">
-                        <div className="payment-field-group">
-                            <label htmlFor="usage-charge-amount">Amount ($)</label>
-                            <input
-                                id="usage-charge-amount"
-                                className="composer-input"
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                placeholder="0.00"
-                                value={amount}
-                                onChange={e => setAmount(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="usage-charge-description">Description</label>
-                            <input
-                                id="usage-charge-description"
-                                className="composer-input"
-                                type="text"
-                                placeholder="e.g. Roaming overage"
-                                value={description}
-                                onChange={e => setDescription(e.target.value)}
-                            />
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="usage-charge-date">Incurred date</label>
-                            <input
-                                id="usage-charge-date"
-                                className="composer-input"
-                                type="date"
-                                value={incurredDate}
-                                onChange={e => setIncurredDate(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    {error && <p className="composer-error">{error}</p>}
-                    <div className="dialog-buttons">
-                        <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-ink">Save Charge</button>
-                    </div>
-                </form>
+        <Dialog
+            onClose={onClose}
+            title="Add Usage Charge"
+            onSubmit={handleSubmit}
+            footer={(
+                <>
+                    <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Save Charge</button>
+                </>
+            )}
+        >
+            <p className="payment-dialog-for">
+                For: <strong>{memberName}</strong>
+            </p>
+            <p className="share-hint">
+                Recorded as a pending (deferred) charge. It is not billed yet and does not change
+                the current balance.
+            </p>
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label htmlFor="usage-charge-amount">Amount ($)</label>
+                    <input
+                        id="usage-charge-amount"
+                        className="composer-input"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        autoFocus
+                    />
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="usage-charge-description">Description</label>
+                    <input
+                        id="usage-charge-description"
+                        className="composer-input"
+                        type="text"
+                        placeholder="e.g. Roaming overage"
+                        value={description}
+                        onChange={e => setDescription(e.target.value)}
+                    />
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="usage-charge-date">Incurred date</label>
+                    <input
+                        id="usage-charge-date"
+                        className="composer-input"
+                        type="date"
+                        value={incurredDate}
+                        onChange={e => setIncurredDate(e.target.value)}
+                    />
+                </div>
             </div>
-        </div>
+            {error && <p className="composer-error">{error}</p>}
+        </Dialog>
     );
 }

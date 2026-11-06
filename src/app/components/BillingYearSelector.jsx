@@ -6,6 +6,7 @@ import { useBillingData } from '../hooks/useBillingData.js';
 import { useRefundNotices } from '../hooks/useRefundNotices.js';
 import { useToast } from '../contexts/ToastContext.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import Dialog from './Dialog.jsx';
 
 /**
  * BillingYearSelector — switch years, manage lifecycle transitions.
@@ -143,29 +144,31 @@ export default function BillingYearSelector() {
 
             {/* New year label prompt */}
             {newYearOpen && (
-                <div className="dialog-overlay" onClick={() => setNewYearOpen(false)}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title type-display">Start New Billing Year</div>
-                        <div className="payment-dialog-fields">
-                            <div className="payment-field-group">
-                                <label htmlFor="new-year-label">Billing year label</label>
-                                <input
-                                    id="new-year-label"
-                                    className="composer-input"
-                                    value={newYearLabel}
-                                    onChange={e => { setNewYearLabel(e.target.value); setNewYearError(''); }}
-                                    onKeyDown={e => { if (e.key === 'Enter') executeNewYear(); }}
-                                    autoFocus
-                                />
-                            </div>
-                        </div>
-                        {newYearError && <p className="composer-error">{newYearError}</p>}
-                        <div className="dialog-buttons">
+                <Dialog
+                    onClose={() => setNewYearOpen(false)}
+                    title="Start New Billing Year"
+                    footer={(
+                        <>
                             <button className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
                             <button className="btn btn-sm btn-ink" onClick={executeNewYear}>Create Year</button>
+                        </>
+                    )}
+                >
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor="new-year-label">Billing year label</label>
+                            <input
+                                id="new-year-label"
+                                className="composer-input"
+                                value={newYearLabel}
+                                onChange={e => { setNewYearLabel(e.target.value); setNewYearError(''); }}
+                                onKeyDown={e => { if (e.key === 'Enter') executeNewYear(); }}
+                                autoFocus
+                            />
                         </div>
                     </div>
-                </div>
+                    {newYearError && <p className="composer-error">{newYearError}</p>}
+                </Dialog>
             )}
         </div>
     );

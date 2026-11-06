@@ -11,6 +11,7 @@ import { getInitials } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
+import Dialog from '../../components/Dialog.jsx';
 
 export default function MembersTab() {
     const { familyMembers, activeYear, loading, service } = useBillingData();
@@ -210,36 +211,38 @@ export default function MembersTab() {
             />
 
             {linkTarget && (
-                <div className="dialog-overlay" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Manage Household for {linkTarget.name}</div>
-                        <p className="link-manager-hint">
-                            Select members to link as part of {linkTarget.name}&apos;s household.
-                            Members can only belong to one household.
-                        </p>
-                        <div className="link-manager-list">
-                            {getAvailableForLinking(linkTarget.id).length === 0 ? (
-                                <p className="link-manager-empty">No available members to link. Members can only be linked to one parent.</p>
-                            ) : (
-                                getAvailableForLinking(linkTarget.id).map(m => (
-                                    <div key={m.id} className="checkbox-item">
-                                        <input
-                                            type="checkbox"
-                                            id={'link-' + linkTarget.id + '-' + m.id}
-                                            checked={linkSelections.includes(m.id)}
-                                            onChange={() => toggleLinkSelection(m.id)}
-                                        />
-                                        <label htmlFor={'link-' + linkTarget.id + '-' + m.id}>{m.name}</label>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        <div className="dialog-buttons">
+                <Dialog
+                    onClose={() => { setLinkTarget(null); setLinkSelections([]); }}
+                    title={<>Manage Household for {linkTarget.name}</>}
+                    footer={(
+                        <>
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setLinkTarget(null); setLinkSelections([]); }}>Cancel</button>
                             <button className="btn btn-sm btn-ink" onClick={saveLinkSelections}>Save Household</button>
-                        </div>
+                        </>
+                    )}
+                >
+                    <p className="link-manager-hint">
+                        Select members to link as part of {linkTarget.name}&apos;s household.
+                        Members can only belong to one household.
+                    </p>
+                    <div className="link-manager-list">
+                        {getAvailableForLinking(linkTarget.id).length === 0 ? (
+                            <p className="link-manager-empty">No available members to link. Members can only be linked to one parent.</p>
+                        ) : (
+                            getAvailableForLinking(linkTarget.id).map(m => (
+                                <div key={m.id} className="checkbox-item">
+                                    <input
+                                        type="checkbox"
+                                        id={'link-' + linkTarget.id + '-' + m.id}
+                                        checked={linkSelections.includes(m.id)}
+                                        onChange={() => toggleLinkSelection(m.id)}
+                                    />
+                                    <label htmlFor={'link-' + linkTarget.id + '-' + m.id}>{m.name}</label>
+                                </div>
+                            ))
+                        )}
                     </div>
-                </div>
+                </Dialog>
             )}
         </div>
     );

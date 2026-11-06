@@ -12,6 +12,7 @@ import { queueEmail } from '../../lib/mail.js';
 import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from '../../lib/invoice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, showToast?: function, onClose: function }} props
@@ -150,49 +151,12 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
     }
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Email Invoice for {ctx.member.name}</div>
-
-                <div className="invoice-summary-meta">
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{recipientEmail || 'Not provided'}</span></div>
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
-                    {ctx.payment > 0 && (
-                        <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
-                    )}
-                    {generatedShareUrl && (
-                        <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{generatedShareUrl}</span></div>
-                    )}
-                </div>
-
-                <div className="invoice-variant-selector">
-                    <label className="invoice-variant-option">
-                        <input type="radio" name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
-                        Text only
-                    </label>
-                    <label className="invoice-variant-option">
-                        <input type="radio" name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
-                        Text + link
-                    </label>
-                    <label className="invoice-variant-option">
-                        <input type="radio" name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
-                        Full invoice
-                    </label>
-                </div>
-
-                <div className="payment-dialog-fields">
-                    <div className="payment-field-group">
-                        <label>Subject</label>
-                        <input className="composer-input" value={subject} onChange={e => setSubject(e.target.value)} />
-                    </div>
-                    <div className="payment-field-group">
-                        <label>Message</label>
-                        <textarea className="composer-input invoice-body-textarea" rows={10} value={body} onChange={handleBodyChange} />
-                    </div>
-                </div>
-
-                <div className="dialog-buttons">
+        <Dialog
+            onClose={onClose}
+            wide
+            title={<>Email Invoice for {ctx.member.name}</>}
+            footer={(
+                <>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
                     <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={sending}>
                         {copied ? 'Copied!' : 'Copy'}
@@ -207,8 +171,46 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
                     >
                         {sending ? 'Sending\u2026' : 'Send Email'}
                     </button>
+                </>
+            )}
+        >
+            <div className="invoice-summary-meta">
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{recipientEmail || 'Not provided'}</span></div>
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.payment > 0 && (
+                    <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
+                )}
+                {generatedShareUrl && (
+                    <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{generatedShareUrl}</span></div>
+                )}
+            </div>
+
+            <div className="invoice-variant-selector">
+                <label className="invoice-variant-option">
+                    <input type="radio" name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    Text only
+                </label>
+                <label className="invoice-variant-option">
+                    <input type="radio" name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    Text + link
+                </label>
+                <label className="invoice-variant-option">
+                    <input type="radio" name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
+                    Full invoice
+                </label>
+            </div>
+
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label>Subject</label>
+                    <input className="composer-input" value={subject} onChange={e => setSubject(e.target.value)} />
+                </div>
+                <div className="payment-field-group">
+                    <label>Message</label>
+                    <textarea className="composer-input invoice-body-textarea" rows={10} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
-        </div>
+        </Dialog>
     );
 }

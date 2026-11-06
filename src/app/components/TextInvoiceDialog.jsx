@@ -10,6 +10,7 @@ import { getInvoiceSummaryContext, buildInvoiceBody } from '../../lib/invoice.js
 import { openSmsComposer } from '../../lib/sms.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, onClose: function, showToast?: function }} props
@@ -119,41 +120,12 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
     }
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Text Invoice for {ctx.member.name}</div>
-
-                <div className="invoice-summary-meta">
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Phone</span><span>{ctx.member.phone || 'Not provided'}</span></div>
-                    <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
-                    {ctx.payment > 0 && (
-                        <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
-                    )}
-                    {generatedShareUrl && (
-                        <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{generatedShareUrl}</span></div>
-                    )}
-                </div>
-
-                <div className="invoice-variant-selector">
-                    <label className="invoice-variant-option">
-                        <input type="radio" name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
-                        Text only
-                    </label>
-                    <label className="invoice-variant-option">
-                        <input type="radio" name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
-                        Text + link
-                    </label>
-                </div>
-
-                <div className="payment-dialog-fields">
-                    <div className="payment-field-group">
-                        <label>Message</label>
-                        <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={handleBodyChange} />
-                    </div>
-                </div>
-
-                <div className="dialog-buttons">
+        <Dialog
+            onClose={onClose}
+            wide
+            title={<>Text Invoice for {ctx.member.name}</>}
+            footer={(
+                <>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
                     <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={generating}>
                         {copied ? 'Copied!' : 'Copy Message'}
@@ -161,8 +133,38 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                     <button className="btn btn-sm btn-ink" onClick={handleOpenMessages} disabled={generating}>
                         {generating ? 'Generating link\u2026' : 'Open Messages'}
                     </button>
+                </>
+            )}
+        >
+            <div className="invoice-summary-meta">
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Phone</span><span>{ctx.member.phone || 'Not provided'}</span></div>
+                <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.payment > 0 && (
+                    <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
+                )}
+                {generatedShareUrl && (
+                    <div className="invoice-meta-row"><span className="invoice-meta-label">Share Link</span><span className="invoice-share-url">{generatedShareUrl}</span></div>
+                )}
+            </div>
+
+            <div className="invoice-variant-selector">
+                <label className="invoice-variant-option">
+                    <input type="radio" name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    Text only
+                </label>
+                <label className="invoice-variant-option">
+                    <input type="radio" name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    Text + link
+                </label>
+            </div>
+
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label>Message</label>
+                    <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
-        </div>
+        </Dialog>
     );
 }
