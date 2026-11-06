@@ -136,7 +136,9 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 
 The unused money entrypoints prove source interoperability only. `money.js` and
 `money.mjs` are not yet registered in the deployment artifact allowlists; that
-registration and its packaging/security tests are required before activation.
+registration and its packaging/security tests are tracked in
+[#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638),
+after M2a and before M4 Functions activation.
 
 ### Application Routes
 
