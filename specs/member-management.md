@@ -40,7 +40,7 @@ Covers the members tab UI for adding, editing, linking, and removing family memb
 - Share links stay with the member they were minted for. After a contact change, the active links of the previous and the new contact have their cached `publicShares` documents rebuilt to match a fresh `buildPublicShareData`. Other members' links are untouched, and Refund Notices keep their `memberId`. A failed rebuild leaves the saved change in place; the cache then self-heals within the hour.
 - A contact change appends a `HOUSEHOLD_CONTACT_CHANGED` billing event.
 - If the billing-year write fails, the household change is rolled back (only its own fields and event), no share document is rebuilt, and the call rejects with "The household change could not be saved: …".
-- Household operations run one at a time, bound to the year they were requested in. While one is pending, link-graph edits (`updateMember` with `linkedMembers`, `removeMember`) are refused with "A household change is still being saved. Try again in a moment."
+- Household operations run one at a time, bound to the year they were requested in. While one is pending, link-graph edits (`updateMember` with `linkedMembers`, `removeMember`) and mutations that read the household to assign a ledger row (`issueRefund`, a distributed `recordPayment`) are refused with "A household change is still being saved. Try again in a moment."
 
 ### ManageView Tab Navigation
 

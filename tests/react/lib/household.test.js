@@ -593,6 +593,49 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('compensates a queued write for the edited year when the year is switched and the save then fails', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        const other = [m(1, 'Erik Lindqvist'), m(2, 'Anna Lindqvist', [1, 3]), m(3, 'Maja Lindqvist')];
+        setDoc.mockImplementationOnce(async () => {
+            // A 2026 payment is queued behind the household write (holding the
+            // optimistic household), then the year switches, then the write fails.
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            svc._setState({ activeYear: { id: '2027', label: '2027', status: 'open' }, familyMembers: other, billingEvents: [] });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        const persisted = mockStore['users/user-1/billingYears/2026'];
+        expect(persisted.familyMembers.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2, 3], householdName: 'Lake House' });
+        expect(persisted.familyMembers.find(x => x.id === 2).linkedMembers).toEqual([]);
+        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
+        expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        // The current (2027) state is untouched and never written.
+        expect(svc.getState().familyMembers).toBe(other);
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+        errSpy.mockRestore();
+    });
+
+    it('refuses a Refund and a distributed payment while a household change is pending', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        setDoc.mockImplementationOnce(async (ref, data, options) => { await held; return original(ref, data, options); });
+        const svc = createService();
+        const pending = svc.changeHouseholdContact(2);
+        await vi.waitFor(() => expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]));
+        expect(() => svc.issueRefund({ memberId: 2, amount: 5, method: 'cash', reason: 'over' })).toThrow('A household change is still being saved.');
+        expect(() => svc.recordPayment({ memberId: 2, amount: 30, method: 'cash', distribute: true })).toThrow('A household change is still being saved.');
+        svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' }); // an individual payment is still allowed
+        release();
+        await pending;
+        expect(svc.getState().payments.filter(p => p.memberId === 4 && p.amount === 10)).toHaveLength(1);
+        expect(svc.getState().creditAdjustments).toHaveLength(1); // only the fixture refund
+    });
+
     it('serializes overlapping contact changes so the later rebuild wins', async () => {
         token('h-erik', 1);
         token('h-anna', 2);

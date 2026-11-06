@@ -104,6 +104,9 @@ export class BillingYearService {
         this._householdChain = Promise.resolve();
         /** @private Household operations requested and not yet settled. */
         this._householdPending = 0;
+        /** @private Latest year-document snapshot enqueued, per year id, with a sequence number. */
+        this._queuedYearSnapshots = new Map();
+        this._yearSnapshotSeq = 0;
 
         /** @type {Set<() => void>} */
         this._listeners = new Set();
@@ -307,6 +310,12 @@ export class BillingYearService {
     /** @private The write function save() enqueues, over a snapshot of the state. */
     _yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments) {
         const uid = this._user.uid;
+        this._yearSnapshotSeq += 1;
+        this._queuedYearSnapshots.set(activeYear.id, {
+            seq: this._yearSnapshotSeq,
+            uid,
+            args: [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]
+        });
         return async () => {
             const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
@@ -718,7 +727,10 @@ export class BillingYearService {
     /**
      * @private While a household operation is pending, other edits to the household
      * link graph are refused (#528): a failed operation rolls back its own links, and
-     * that is only safe when nothing else changed the graph meanwhile.
+     * that is only safe when nothing else changed the graph meanwhile. Mutations that
+     * read the household to decide who a ledger row belongs to (a Refund, a payment
+     * distributed across a household) are refused too, so no row is built from a
+     * household that is then rolled back.
      */
     _guardHouseholdGraph() {
         if (this._householdPending > 0) {
@@ -787,8 +799,12 @@ export class BillingYearService {
         // before awaiting persistence, so a year switch while the write is pending
         // cannot point the rebuild at another year's links.
         const shareInputs = this._shareRebuildInputs();
+        // _saveConfirmed builds its write synchronously, so the snapshot sequence read
+        // right after the call is this edit's own write.
+        const confirmed = this._saveConfirmed();
+        const ownSeq = this._yearSnapshotSeq;
         try {
-            await this._saveConfirmed();
+            await confirmed;
         } catch (err) {
             // Do not publish share documents for a household that was not persisted.
             // Undo only this edit: put back the household fields (linkedMembers,
@@ -800,10 +816,15 @@ export class BillingYearService {
             // Bound to the edited year: if the administrator switched years while the
             // write was pending, the current state belongs to another year, so it is
             // neither rolled back nor re-saved (member ids survive Start New Year and
-            // would otherwise match unrelated records).
+            // would otherwise match unrelated records). A write for the edited year
+            // that was enqueued behind ours still holds the rejected household, so it
+            // is compensated from its own snapshot instead.
             const message = 'The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error');
             const currentYearId = this._state.activeYear ? this._state.activeYear.id : null;
-            if (currentYearId !== editedYearId) throw new Error(message);
+            if (currentYearId !== editedYearId) {
+                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId);
+                throw new Error(message);
+            }
             const rollback = {};
             const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
             if (restoredMembers) rollback.familyMembers = restoredMembers;
@@ -828,6 +849,26 @@ export class BillingYearService {
             householdName: plan.householdName,
             shareDocsRebuilt
         };
+    }
+
+    /**
+     * @private After a failed household write, when the active year has changed:
+     * if a later write for the edited year was enqueued behind it, enqueue one more
+     * write of that later snapshot with this edit's household fields and event
+     * reverted. It keeps every other mutation in that snapshot and never writes the
+     * current (other) year's state into the edited year's document.
+     */
+    _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
+        const latest = this._queuedYearSnapshots.get(yearId);
+        if (!latest || latest.seq <= ownSeq || !this._user || latest.uid !== this._user.uid) return;
+        const [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments] = latest.args;
+        const restoredMembers = revertHouseholdFields(familyMembers, plannedMembers, previousMembers);
+        const events = billingEvents || [];
+        const restoredEvents = addedEventId && events.some(e => e.id === addedEventId)
+            ? events.filter(e => e.id !== addedEventId)
+            : null;
+        if (!restoredMembers && !restoredEvents) return;
+        this._saveQueue.enqueue(this._yearDocWrite(activeYear, restoredMembers || familyMembers, bills, payments, restoredEvents || events, settings, creditAdjustments, owedAdjustments));
     }
 
     /**
@@ -1085,6 +1126,7 @@ export class BillingYearService {
         }
 
         if (data.distribute && member.linkedMembers && member.linkedMembers.length > 0) {
+            this._guardHouseholdGraph();
             const summary = calculateAnnualSummary(familyMembers, bills);
             let combinedTotal = summary[data.memberId] ? summary[data.memberId].total : 0;
             member.linkedMembers.forEach(id => {
@@ -1534,6 +1576,7 @@ export class BillingYearService {
      */
     issueRefund(data) {
         this._guardReadOnly();
+        this._guardHouseholdGraph();
         const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = this._state;
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
