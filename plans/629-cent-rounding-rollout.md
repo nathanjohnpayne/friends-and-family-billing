@@ -2,7 +2,7 @@
 
 [ADR 0010](../docs/adr/0010-household-cent-projection.md) is the approved contract. This documentation-only prerequisite performs no implementation, production read/write, deployment or migration. #629 retains its existing size-M documentation/prerequisite route, `openai=gpt-6.1-sol/high`; it remains open through its implementation/release gates, and this documentation PR uses `Refs #629`. #603 / draft #628 remains held, preserving its carried-items work.
 
-The complete fix is larger than M; deliver six implementation PRs across the five subsystem stages below, rather than relabeling the entire fix M. No conversion of #629 to an L tracker is required. File implementation issues with their own Inputs / Outputs / Acceptance criteria / Validation and the high-stakes routes `anthropic=opus-5.5/high openai=gpt-6.1-sol/high`. Use native serial dependencies M2a → M1, M2b → M2a, M3 → M2b, M4 → M3, M5 → M4; the final implementation/release gate blocks #629, and #629 blocks #603. Do **not** make implementation issues depend on #629 closing: their documentary prerequisite is the merged ADR/spec PR, so that would create a cycle. The final release evidence must cover every series PR.
+The complete fix is larger than M; deliver six financial implementation PRs across the five subsystem stages below plus the artifact admission prerequisite [#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638), for seven PRs in total, rather than relabeling the entire fix M. No conversion of #629 to an L tracker is required. File implementation issues with their own Inputs / Outputs / Acceptance criteria / Validation and the high-stakes routes `anthropic=opus-5.5/high openai=gpt-6.1-sol/high`. Use native serial dependencies M2a → M1, M2b → M2a, M3 → M2b, M4 → M3, M5 → M4; the final implementation/release gate blocks #629, and #629 blocks #603. Do **not** make implementation issues depend on #629 closing: their documentary prerequisite is the merged ADR/spec PR, so that would create a cycle. The final release evidence must cover every series PR, including #638.
 
 The read-only financial callgraph inventory spans at least eleven methods across five integration files; that evidence does not certify the combined authority/adaptation/activation work as M. Stage 2 therefore has two PRs: an unused domain adapter and one coherent activation. Each proposed M scope below names its seam, exclusions and acceptance tests. Before claiming a child, enumerate its actual call sites against then-current main. If evidence makes a scope exceed M, record that evidence and split it at an unused/inactive seam before coding; no partially active financial release and no mechanical file-per-PR decomposition.
 
@@ -30,6 +30,12 @@ Inputs: approved proposal and four owner conditions linked in ADR 0010. Output: 
 
 **Validation:** the complete ADR 0010 source/six-component fixture matrix, candidate aggregate cap boundary tests, reversal cancellation, carry chains and hierarchy properties, legacy binary residue and infeasible-target integrity holds, plus client/Functions domain vectors. Size rationale: one unused source-domain adapter tested independently of orchestration, financial decision activation and UI/public integration. Gate: exact-head human financial review and normal review/CI. May merge unused; no deploy.
 
+## Artifact admission prerequisite: #638 (after M2a, before M4)
+
+[#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638) depends on M2a (#633), when the required Functions source modules are known, and blocks M4 (#636) alongside its M3 prerequisite (#635). M1 and M2a prove source interoperability only: their new modules are not in the current deployment artifact allowlists.
+
+This separate PR registers the complete required module set in both the artifact producer and verified consumer. Validate that the artifact contains every required Functions module, that admission remains closed to unexpected files, and that security checks and compatibility with retained artifacts are preserved. Normal review/CI and explicit human review remain required. This prerequisite authorizes no deployment and does not permit a partial financial release; M1 does not change artifact or security tooling.
+
 ## M2b: coherent activation of existing financial gates (after M2a)
 
 **Inputs:** tested unused adapter and the verified financial callgraph.
@@ -50,7 +56,7 @@ Inputs: approved proposal and four owner conditions linked in ADR 0010. Output: 
 
 **Validation:** targeted component/invoice tests for all changed money states plus desktop/phone visual evidence where visible states change. Size rationale: display adaptation to one already-tested authority, without new financial formulas, public writers or persistence changes. Gate: exact-head human financial review and normal review/CI; no deploy before the complete set.
 
-## M4: both public writers and money-version consumer (after M3)
+## M4: both public writers and money-version consumer (after M3 and #638)
 
 **Inputs:** canonical components/allocations and M3 invoice scope.
 
