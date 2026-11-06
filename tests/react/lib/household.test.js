@@ -593,6 +593,48 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('refuses a household change while a status change or Start New Year is running', async () => {
+        const { setDoc, writeBatch } = await import('firebase/firestore');
+        const svc = createService();
+        const before = structuredClone(svc.getState().familyMembers);
+
+        // Status change first: its write is held open.
+        const originalSet = setDoc.getMockImplementation();
+        let releaseStatus;
+        const statusHeld = new Promise(resolve => { releaseStatus = resolve; });
+        setDoc.mockImplementationOnce(async (ref, data, options) => { await statusHeld; return originalSet(ref, data, options); });
+        const status = svc.setYearStatus('settling');
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The billing year is being updated.');
+        await expect(svc.saveHousehold({ contactId: 2, memberIds: [1, 2, 3] })).rejects.toThrow('The billing year is being updated.');
+        releaseStatus();
+        await status;
+        expect(svc.getState().familyMembers).toEqual(before);
+        expect(svc.getState().billingEvents.map(e => e.eventType)).toEqual(['YEAR_STATUS_CHANGED']);
+        expect(mockStore['users/user-1/billingYears/2026'].status).toBe('settling');
+
+        // Start New Year next: the rollover batch is held open.
+        const originalBatch = writeBatch.getMockImplementation();
+        let releaseRollover;
+        const rolloverHeld = new Promise(resolve => { releaseRollover = resolve; });
+        writeBatch.mockImplementationOnce(() => {
+            const batch = originalBatch();
+            const commit = batch.commit;
+            batch.commit = async () => { await rolloverHeld; return commit(); };
+            return batch;
+        });
+        const rollover = svc.createYear('2027');
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The billing year is being updated.');
+        releaseRollover();
+        await rollover;
+        // Both year documents keep the original household.
+        expect(mockStore['users/user-1/billingYears/2027'].familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect(svc.getState().familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect((mockStore['users/user-1/billingYears/2026'].billingEvents || []).some(e => e.eventType === 'HOUSEHOLD_CONTACT_CHANGED')).toBe(false);
+        // Once the year operation has settled, household changes are accepted again.
+        await svc.changeHouseholdContact(2);
+        expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]);
+    });
+
     it('compensates a queued write for the edited year when the year is switched and the save then fails', async () => {
         const { setDoc } = await import('firebase/firestore');
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

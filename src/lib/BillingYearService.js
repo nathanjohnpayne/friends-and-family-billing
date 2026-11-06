@@ -104,6 +104,7 @@ export class BillingYearService {
         this._householdChain = Promise.resolve();
         /** @private Household operations requested and not yet settled. */
         this._householdPending = 0;
+        this._yearOpPending = 0;
         /** @private Latest year-document snapshot enqueued, per year id, with a sequence number. */
         this._queuedYearSnapshots = new Map();
         this._yearSnapshotSeq = 0;
@@ -360,6 +361,11 @@ export class BillingYearService {
         // Its write carries the in-memory billing events, and closing the year would
         // stop a failed household change's compensating save (#528).
         this._guardHouseholdGraph();
+        return this._runYearOperation(() => this._setYearStatusNow(newStatus));
+    }
+
+    /** @private setYearStatus's body; always called through _runYearOperation. */
+    async _setYearStatusNow(newStatus) {
         const { activeYear, billingYears, billingEvents } = this._state;
         if (!activeYear || activeYear.status === newStatus) return;
 
@@ -442,6 +448,26 @@ export class BillingYearService {
         // carry marking; a household change still being saved could be rolled back
         // after that snapshot (#528).
         this._guardHouseholdGraph();
+        return this._runYearOperation(() => this._createYearNow(yearId, options));
+    }
+
+    /**
+     * @private While a year-level operation (Start New Year including its switch into
+     * the new year, or a status change) is running, household operations are refused
+     * (#528): they would snapshot a year whose status, events or carry markings are
+     * about to change, and their write could overwrite the operation's.
+     */
+    async _runYearOperation(operation) {
+        this._yearOpPending += 1;
+        try {
+            return await operation();
+        } finally {
+            this._yearOpPending -= 1;
+        }
+    }
+
+    /** @private createYear's body; always called through _runYearOperation. */
+    async _createYearNow(yearId, options) {
         const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {
@@ -761,6 +787,9 @@ export class BillingYearService {
      * operation does not block the next.
      */
     _serializeHousehold(operation) {
+        if (this._yearOpPending > 0) {
+            return Promise.reject(new Error('The billing year is being updated. Try the household change again in a moment.'));
+        }
         // Bind the operation to the user and year it was requested in. If either has
         // changed by the time its turn comes (e.g. the administrator switched years
         // while an earlier operation was running), it is rejected rather than applied
