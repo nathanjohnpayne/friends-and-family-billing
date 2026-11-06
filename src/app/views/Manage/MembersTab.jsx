@@ -7,6 +7,7 @@ import { useBillingData } from '../../hooks/useBillingData.js';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { isYearReadOnly } from '../../../lib/validation.js';
 import { isLinkedToAnyone } from '../../../lib/calculations.js';
+import { getHouseholdName } from '../../../lib/household.js';
 import { getInitials } from '../../../lib/formatting.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ActionMenu, { ActionMenuItem } from '../../components/ActionMenu.jsx';
@@ -86,13 +87,28 @@ export default function MembersTab() {
 
     function executeDelete() {
         if (!deleteTarget) return;
-        service.removeMember(deleteTarget.id);
-        showToast('Member removed: ' + deleteTarget.name);
+        try {
+            service.removeMember(deleteTarget.id);
+            showToast('Member removed: ' + deleteTarget.name);
+        } catch (err) {
+            showToast(err.message, { kind: 'failure' });
+        }
         setDeleteTarget(null);
     }
 
+    async function makeHouseholdContact(member) {
+        try {
+            const result = await service.changeHouseholdContact(member.id);
+            showToast(result.shareDocsRebuilt === null
+                ? member.name + ' is now the household contact. Share links will refresh within the hour.'
+                : member.name + ' is now the household contact');
+        } catch (err) {
+            showToast(err.message, { kind: 'failure' });
+        }
+    }
+
     function openLinkManager(member) {
-        // Available: non-parents who aren't linked to someone else (except already linked to this member)
+        // Available: individuals, plus members already in this member's household
         setLinkTarget(member);
         setLinkSelections([...(member.linkedMembers || [])]);
     }
@@ -117,13 +133,13 @@ export default function MembersTab() {
         setLinkSelections([]);
     }
 
-    function getAvailableForLinking(parentId) {
-        // Mirrors legacy manageLinkMembers (main.js:1028):
-        // Include members already linked to THIS parent, plus unlinked non-parents
+    function getAvailableForLinking(contactId) {
+        // Mirrors legacy manageLinkMembers (main.js:1028): members already in THIS
+        // contact's household, plus individuals (no household of their own, not in one).
         return familyMembers.filter(m =>
-            m.id !== parentId &&
+            m.id !== contactId &&
             (m.linkedMembers || []).length === 0 &&
-            (!isLinkedToAnyone(familyMembers, m.id) || (familyMembers.find(p => p.id === parentId)?.linkedMembers || []).includes(m.id))
+            (!isLinkedToAnyone(familyMembers, m.id) || (familyMembers.find(p => p.id === contactId)?.linkedMembers || []).includes(m.id))
         );
     }
 
@@ -193,6 +209,7 @@ export default function MembersTab() {
                             onEditKeyDown={handleEditKeyDown}
                             onDelete={confirmDelete}
                             onLinkHousehold={openLinkManager}
+                            onMakeContact={makeHouseholdContact}
                         />
                     ))}
                 </div>
@@ -222,12 +239,12 @@ export default function MembersTab() {
                     )}
                 >
                     <p className="link-manager-hint">
-                        Select members to link as part of {linkTarget.name}&apos;s household.
-                        Members can only belong to one household.
+                        Choose who shares a household with {linkTarget.name}.
+                        Each member can belong to one household.
                     </p>
                     <div className="link-manager-list">
                         {getAvailableForLinking(linkTarget.id).length === 0 ? (
-                            <p className="link-manager-empty">No available members to link. Members can only be linked to one parent.</p>
+                            <p className="link-manager-empty">No one else is available. Each member can belong to one household.</p>
                         ) : (
                             getAvailableForLinking(linkTarget.id).map(m => (
                                 <div key={m.id} className="checkbox-item">
@@ -252,13 +269,14 @@ function MemberCard({
     member, familyMembers, readOnly,
     editingId, editField, editValue, setEditValue,
     onStartEdit, onSaveEdit, onCancelEdit: _onCancelEdit, onEditKeyDown,
-    onDelete, onLinkHousehold
+    onDelete, onLinkHousehold, onMakeContact
 }) {
     const isChild = isLinkedToAnyone(familyMembers, member.id);
     const linkedNames = (member.linkedMembers || [])
         .map(id => familyMembers.find(m => m.id === id))
         .filter(Boolean)
         .map(m => m.name);
+    const householdName = linkedNames.length > 0 ? getHouseholdName(member, familyMembers) : '';
 
     function renderField(field, value, placeholder) {
         if (editingId === member.id && editField === field) {
@@ -303,7 +321,10 @@ function MemberCard({
                 <div className="member-phone">{renderField('phone', member.phone, 'Phone not provided')}</div>
                 {linkedNames.length > 0 && (
                     <div className="linked-member-group">
-                        <span className="linked-member-group-label">Household</span>
+                        <span className="linked-member-group-label">
+                            {householdName ? householdName + ' household' : 'Household'}
+                        </span>
+                        <span className="household-contact-tag">Household contact</span>
                         <div className="linked-member-pill-list">
                             {linkedNames.map(n => (
                                 <span key={n} className="linked-member-pill">{n}</span>
@@ -318,6 +339,11 @@ function MemberCard({
                         {!isChild && (
                             <ActionMenuItem onClick={() => onLinkHousehold(member)}>
                                 {(member.linkedMembers || []).length > 0 ? 'Edit Household' : 'Link Household'}
+                            </ActionMenuItem>
+                        )}
+                        {isChild && onMakeContact && (
+                            <ActionMenuItem onClick={() => onMakeContact(member)}>
+                                Make household contact
                             </ActionMenuItem>
                         )}
                         <ActionMenuItem onClick={() => onDelete(member)} danger>

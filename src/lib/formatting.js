@@ -26,7 +26,8 @@ export const BILLING_EVENT_LABELS = {
     PAYMENT_RECORDED: 'Payment recorded',
     PAYMENT_REVERSED: 'Payment reversed',
     PAYMENT_UPDATED: 'Payment updated',
-    YEAR_STATUS_CHANGED: 'Year status changed'
+    YEAR_STATUS_CHANGED: 'Year status changed',
+    HOUSEHOLD_CONTACT_CHANGED: 'Household contact changed'
 };
 
 export const PAYMENT_METHOD_TYPES = {

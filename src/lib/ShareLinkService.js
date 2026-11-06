@@ -2,7 +2,7 @@
  * ShareLinkService — side-effectful share link operations.
  * Imports Firestore; keeps share.js pure.
  *
- * Exports a single function: createAndPruneShareLink()
+ * Exports createAndPruneShareLink() and rebuildMemberShareDocs().
  * Used by EmailInvoiceDialog, TextInvoiceDialog, and ShareLinkDialog.
  */
 import { doc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
@@ -115,4 +115,76 @@ export async function createAndPruneShareLink({
 
     const url = buildShareUrl(window.location.origin, rawToken);
     return { url, tokenHash, rawToken };
+}
+
+/**
+ * Rebuild the cached publicShares documents for some members' active share links
+ * from the current billing-year state (#528).
+ *
+ * Share tokens and their cached documents are keyed by member id, so a link always
+ * belongs to the member it was minted for. When a household's contact changes, the
+ * old contact's link stops showing the household (it becomes that member's own
+ * link) and the new contact's link starts showing it; this rewrites both cached
+ * documents in one batch so neither serves the old household shape. Each document
+ * is rebuilt exactly as createAndPruneShareLink would build it for that token's
+ * scopes, keeping the token's expiry.
+ *
+ * @param {Object} opts
+ * @param {string} opts.userId
+ * @param {string} opts.billingYearId
+ * @param {Array}  opts.memberIds  members whose active links to rebuild
+ * @param {Array}  opts.familyMembers
+ * @param {Array}  opts.bills
+ * @param {Array}  opts.payments
+ * @param {Array}  [opts.owedAdjustments]
+ * @param {Object} opts.activeYear
+ * @param {Object} opts.settings
+ * @returns {Promise<number>} how many cached documents were rewritten
+ */
+export async function rebuildMemberShareDocs({
+    userId,
+    billingYearId,
+    memberIds,
+    familyMembers,
+    bills,
+    payments,
+    owedAdjustments,
+    activeYear,
+    settings,
+}) {
+    if (!userId || !billingYearId) return 0;
+    const ids = Array.from(new Set(memberIds || []));
+    if (ids.length === 0) return 0;
+
+    // One query per member, on the same (ownerId, memberId, billingYearId, revoked)
+    // shape createAndPruneShareLink already uses, so no new composite index is needed.
+    const snaps = await Promise.all(ids.map(memberId => getDocs(query(
+        collection(db, 'shareTokens'),
+        where('ownerId', '==', userId),
+        where('memberId', '==', memberId),
+        where('billingYearId', '==', billingYearId),
+        where('revoked', '==', false)
+    ))));
+
+    const batch = writeBatch(db);
+    let written = 0;
+    snaps.forEach(snap => {
+        snap.docs.forEach(tokenDoc => {
+            const token = tokenDoc.data();
+            const scopes = Array.isArray(token.scopes) ? token.scopes : DEFAULT_SCOPES;
+            const publicData = buildPublicShareData(
+                familyMembers, bills, payments, token.memberId, scopes, userId, activeYear, settings, owedAdjustments
+            );
+            if (!publicData) return;
+            batch.set(doc(db, 'publicShares', tokenDoc.id), {
+                ...publicData,
+                expiresAt: token.expiresAt || null,
+                revoked: false,
+                updatedAt: serverTimestamp(),
+            });
+            written += 1;
+        });
+    });
+    if (written > 0) await batch.commit();
+    return written;
 }

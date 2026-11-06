@@ -17,6 +17,8 @@ import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, apply
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
 import { selectBillableCharges } from './chargeNotice.js';
+import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds } from './household.js';
+import { rebuildMemberShareDocs } from './ShareLinkService.js';
 import { SaveQueue } from './SaveQueue.js';
 import { splitCents } from './year-end-review.js';
 
@@ -564,38 +566,43 @@ export class BillingYearService {
             fields = { ...fields, phone };
         }
 
-        // One-parent household invariant (mirrors main.js:1028–1031)
-        // A member can only be linked to ONE parent, and parents can't be children.
+        // One-household invariant (mirrors main.js:1028–1031): a member belongs to at
+        // most one household, and only a household contact (the stored primary) lists
+        // members. Copy is neutral — households are peers (#528, ADR 0011).
         if (fields.linkedMembers !== undefined) {
             const member = familyMembers[idx];
-            for (const childId of fields.linkedMembers) {
-                if (childId === memberId) {
-                    throw new Error('A member cannot be linked to themselves.');
+            for (const otherId of fields.linkedMembers) {
+                if (otherId === memberId) {
+                    throw new Error('A member cannot be added to their own household twice.');
                 }
-                const child = familyMembers.find(m => m.id === childId);
-                if (!child) {
-                    throw new Error('Linked member not found.');
+                const other = familyMembers.find(m => m.id === otherId);
+                if (!other) {
+                    throw new Error('Household member not found.');
                 }
-                // Child must not be a parent (has its own linked members)
-                if (child.linkedMembers && child.linkedMembers.length > 0) {
-                    throw new Error(child.name + ' is a parent and cannot be linked as a child.');
+                // The member must not be the contact of a household of their own
+                if (other.linkedMembers && other.linkedMembers.length > 0) {
+                    throw new Error(other.name + ' already has a household of their own.');
                 }
-                // Child must not already be linked to a DIFFERENT parent
-                const existingParent = familyMembers.find(m =>
-                    m.id !== memberId && m.linkedMembers.includes(childId)
+                // The member must not already be in a DIFFERENT household
+                const existingContact = familyMembers.find(m =>
+                    m.id !== memberId && m.linkedMembers.includes(otherId)
                 );
-                if (existingParent) {
-                    throw new Error(child.name + ' is already linked to ' + existingParent.name + '.');
+                if (existingContact) {
+                    throw new Error(other.name + ' is already in ' + existingContact.name + '\u2019s household.');
                 }
             }
-            // The parent being updated must not themselves be a child of someone else
+            // The member being updated must not already be in someone else's household
             if (fields.linkedMembers.length > 0 && isLinkedToAnyone(familyMembers, memberId)) {
-                throw new Error(member.name + ' is linked as a child and cannot have their own linked members.');
+                throw new Error(member.name + ' is already in another household.');
             }
         }
 
         const updated = [...familyMembers];
         updated[idx] = { ...updated[idx], ...fields };
+        // A dissolved household keeps no name (the name lives on the contact's record).
+        if (fields.linkedMembers !== undefined && fields.linkedMembers.length === 0) {
+            delete updated[idx].householdName;
+        }
         this._setState({ familyMembers: updated });
         this.save();
     }
@@ -608,6 +615,13 @@ export class BillingYearService {
     removeMember(memberId) {
         this._guardReadOnly();
         const { familyMembers, bills, payments } = this._state;
+
+        // The household contact cannot leave a household without a replacement
+        // (#528): choose a new contact first, then remove the member.
+        const target = familyMembers.find(m => m.id === memberId);
+        if (target && (target.linkedMembers || []).length > 0) {
+            throw new Error('Choose a new household contact for ' + target.name + '\u2019s household before removing them.');
+        }
 
         // Unlink from other members
         const updatedMembers = familyMembers
@@ -632,6 +646,103 @@ export class BillingYearService {
             payments: updatedPayments
         });
         this.save();
+    }
+
+    /**
+     * Create, edit or dissolve a household, and choose its contact (#528, ADR 0011).
+     *
+     * The contact becomes the stored primary and every other member becomes its
+     * linked member. Members may come from the household being edited or be
+     * individuals; members left out become individuals. Every payment, charge and
+     * credit stays on the member it was recorded for, and household figures sum the
+     * whole member set, so the household's totals are unchanged by a contact change.
+     * The optional household name is stored on the contact's record.
+     *
+     * After saving, the cached share documents of the previous and the new contact
+     * are rebuilt so both members' links show their current shape.
+     *
+     * @param {{ contactId: *, memberIds: Array, householdName?: string }} edit
+     *   memberIds: every member of the household, contact included.
+     *   householdName: a string sets it ('' clears it); omit to keep the current name.
+     * @returns {Promise<{ contactId: *, previousContactId: *, memberIds: Array,
+     *   released: Array, householdName: string, shareDocsRebuilt: number|null }>}
+     *   shareDocsRebuilt is null when the share rebuild failed (the household change
+     *   itself is saved either way).
+     */
+    async saveHousehold(edit) {
+        this._guardReadOnly();
+        const plan = planHouseholdEdit(this._state.familyMembers, edit || {});
+
+        let billingEvents = this._state.billingEvents || [];
+        if (plan.previousContactId !== plan.contactId) {
+            const byId = new Map(this._state.familyMembers.map(m => [m.id, m]));
+            billingEvents = this._emitEvent('HOUSEHOLD_CONTACT_CHANGED', {
+                previousContactId: plan.previousContactId,
+                previousContactName: byId.get(plan.previousContactId)?.name || '',
+                contactId: plan.contactId,
+                contactName: byId.get(plan.contactId)?.name || '',
+                memberIds: plan.memberIds
+            });
+        }
+
+        this._setState({ familyMembers: plan.familyMembers, billingEvents });
+        await this.save();
+        const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds);
+
+        return {
+            contactId: plan.contactId,
+            previousContactId: plan.previousContactId,
+            memberIds: plan.memberIds,
+            released: plan.released,
+            householdName: plan.householdName,
+            shareDocsRebuilt
+        };
+    }
+
+    /**
+     * Make a member the contact of the household they are in (#528). Membership and
+     * the household name are unchanged.
+     * @param {*} memberId  the new household contact
+     * @returns {Promise<Object>} saveHousehold's result
+     */
+    changeHouseholdContact(memberId) {
+        this._guardReadOnly();
+        const { familyMembers } = this._state;
+        const currentContactId = findHouseholdContactId(familyMembers, memberId);
+        if (currentContactId === null) throw new Error('Member not found.');
+        const currentContact = familyMembers.find(m => m.id === currentContactId);
+        if ((currentContact.linkedMembers || []).length === 0) {
+            throw new Error(currentContact.name + ' is not in a household.');
+        }
+        return this.saveHousehold({
+            contactId: memberId,
+            memberIds: getHouseholdMemberIds(currentContact)
+        });
+    }
+
+    /**
+     * @private Rebuild the cached share documents for these members' active links.
+     * Returns the number rewritten, or null when the rebuild failed.
+     */
+    async _rebuildShareDocs(memberIds) {
+        if (this._e2eMode || !this._user || !this._state.activeYear) return 0;
+        const { activeYear, familyMembers, bills, payments, owedAdjustments, settings } = this._state;
+        try {
+            return await rebuildMemberShareDocs({
+                userId: this._user.uid,
+                billingYearId: activeYear.id,
+                memberIds,
+                familyMembers,
+                bills,
+                payments,
+                owedAdjustments: owedAdjustments || [],
+                activeYear,
+                settings: settings || {}
+            });
+        } catch (err) {
+            console.error('Error rebuilding share documents after a household change:', err);
+            return null;
+        }
     }
 
     // ── Bills ──
@@ -1279,7 +1390,7 @@ export class BillingYearService {
         if (!member) throw new Error('Member not found.');
         // A Refund is a household disposition (ADR 0001) — issued to the primary member.
         if (isLinkedToAnyone(familyMembers, member.id)) {
-            throw new Error('Refunds are issued to the household primary member.');
+            throw new Error('Refunds are issued to the household contact.');
         }
 
         const amount = Math.round((parseFloat(data.amount) || 0) * 100) / 100;

@@ -1,6 +1,8 @@
 // Persistence helpers — save payload construction and data normalization.
 // No DOM, no Firestore, no module-scoped state.
 
+import { normalizeHouseholdName } from './household.js';
+
 /**
  * Build the Firestore save payload from current state.
  * Does NOT include FieldValue.serverTimestamp() — caller adds createdAt fallback and updatedAt.
@@ -41,6 +43,9 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
         // setDoc merge). It MUST be threaded through this allowlist or the next
         // full-document save (setDoc without merge) silently erases it. See ADR 0008.
         closedAt: currentBillingYear.closedAt || null,
+        // Member records are saved whole, so per-member fields — including the
+        // optional householdName on a household contact's record (#528, ADR 0011) —
+        // round-trip without a separate allowlist entry.
         familyMembers: familyMembers,
         bills: bills,
         payments: payments,
@@ -74,6 +79,13 @@ export function normalizeYearData(yearData, yearId) {
         if (!m.avatar) m.avatar = '';
         if (m.paymentReceived === undefined) m.paymentReceived = 0;
         if (!m.linkedMembers) m.linkedMembers = [];
+        // Optional household name on a contact's record (#528, ADR 0011). Keep a
+        // trimmed non-empty string; drop anything else.
+        if (m.householdName !== undefined) {
+            const name = normalizeHouseholdName(m.householdName);
+            if (name) m.householdName = name;
+            else delete m.householdName;
+        }
         return m;
     });
 

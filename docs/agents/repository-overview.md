@@ -86,6 +86,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
 │       ├── formatting.js          # Number/date/currency formatting
+│       ├── household.js           # Household contact/name helpers and the household edit plan (ADR 0011)
 │       ├── invoice.js             # Invoice text/HTML generation
 │       ├── persistence.js         # Firestore read/write operations
 │       ├── share.js               # Share token, public share data
@@ -363,11 +364,12 @@ Central service owning all billing state. React subscribes via `useSyncExternalS
 - Parents cannot be children of other members
 
 #### ShareLinkService (src/lib/ShareLinkService.js)
-Manages the full share link lifecycle: create, revoke, update scopes, refresh public share data. Coordinates between `shareTokens` and `publicShares` Firestore collections.
+Manages the full share link lifecycle: create, revoke, update scopes, refresh public share data. Coordinates between `shareTokens` and `publicShares` Firestore collections. `rebuildMemberShareDocs()` rewrites the cached `publicShares` documents of given members' active links from current state (used after a household contact change, ADR 0011).
 
 #### Business Logic (src/lib/)
 - `calculations.js` — `calculateAnnualSummary()`, `calculateSettlementMetrics()`, `getPaymentTotalForMember()`, `getBillAnnualAmount()`, `getBillMonthlyAmount()`
 - `validation.js` — `isValidE164()`, `isYearReadOnly()`, `yearReadOnlyMessage()`
+- `household.js` — `planHouseholdEdit()`, `findHouseholdContactId()`, `getHouseholdMemberIds()`, `getHouseholdName()`, `defaultHouseholdName()`; the mutation is `BillingYearService.saveHousehold()` / `changeHouseholdContact()` (ADR 0011)
 - `share.js` — `generateRawToken()`, `hashToken()`, `buildPublicShareData()`, `refreshPublicShares()`
 - `invoice.js` — `buildInvoiceSubject()`, `buildInvoiceBody()`, `buildFullInvoiceText()`, `getInvoiceSummaryContext()`, `renderInvoiceTemplate()`, `buildInvoiceTemplateEmailPayload()`; `renderInvoiceTemplate()` is the canonical HTML path for Invoicing preview and template-generated email output
 - `sms.js` — `buildSmsDeepLink()`, `openSmsComposer()`

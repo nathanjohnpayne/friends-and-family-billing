@@ -1,0 +1,182 @@
+/**
+ * Households of peers (#528, ADR 0011).
+ *
+ * A household is still computed, not stored as its own entity: one member's record
+ * carries `linkedMembers`, and the household is that member plus everyone listed.
+ * That member is the **Household contact** — the UI name of the stored Primary
+ * Member (CONTEXT.md). The contact is where the household's shared settings live
+ * (the optional `householdName`) and who receives household-level actions such as a
+ * Refund; it carries no other precedence. Every member keeps their own ledger rows
+ * (payments, charges, credits) under their own id, and household figures always sum
+ * across the whole member set, so changing the contact never moves money.
+ *
+ * Pure helpers only; the mutation is BillingYearService.saveHousehold().
+ */
+
+/** Longest household name accepted (characters, after trimming). */
+export const HOUSEHOLD_NAME_MAX_LENGTH = 60;
+
+/**
+ * The id of the household contact for a member: the member themselves when they
+ * are a contact or an individual, otherwise the member whose `linkedMembers`
+ * lists them.
+ * @param {Array} familyMembers
+ * @param {*} memberId
+ * @returns {*} contact id, or null when the member does not exist
+ */
+export function findHouseholdContactId(familyMembers, memberId) {
+    const members = familyMembers || [];
+    if (!members.some(m => m.id === memberId)) return null;
+    const contact = members.find(m => (m.linkedMembers || []).includes(memberId));
+    return contact ? contact.id : memberId;
+}
+
+/**
+ * Every member id in a contact's household, contact first.
+ * @param {{ id: *, linkedMembers?: Array }} contact
+ * @returns {Array}
+ */
+export function getHouseholdMemberIds(contact) {
+    if (!contact) return [];
+    return [contact.id, ...(contact.linkedMembers || [])];
+}
+
+/** The last whitespace-separated word of a name ("Erik Lindqvist" → "Lindqvist"). */
+function surnameOf(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return parts.length > 1 ? parts[parts.length - 1] : '';
+}
+
+/**
+ * The default household name: the surname the members share, or — when they do not
+ * share one — the contact's surname. Empty when no surname can be derived.
+ * @param {Array<{ name: string }>} members  contact first
+ * @returns {string}
+ */
+export function defaultHouseholdName(members) {
+    const list = (members || []).filter(Boolean);
+    if (list.length === 0) return '';
+    // When the members share a surname the contact's surname is that shared one; when
+    // they do not, the contact's surname is the fallback. Either way it is the first
+    // member's (members are passed contact first).
+    return surnameOf(list[0].name);
+}
+
+/**
+ * The household name to show: the stored `householdName` on the contact, else the
+ * default derived from the members' names.
+ * @param {{ id: *, linkedMembers?: Array, householdName?: string }} contact
+ * @param {Array} familyMembers
+ * @returns {string}
+ */
+export function getHouseholdName(contact, familyMembers) {
+    if (!contact) return '';
+    const stored = normalizeHouseholdName(contact.householdName);
+    if (stored) return stored;
+    const members = getHouseholdMemberIds(contact)
+        .map(id => (familyMembers || []).find(m => m.id === id))
+        .filter(Boolean);
+    return defaultHouseholdName(members);
+}
+
+/**
+ * Trim and collapse whitespace in a household name. Returns '' for a blank or
+ * non-string value.
+ * @param {*} name
+ * @returns {string}
+ */
+export function normalizeHouseholdName(name) {
+    if (typeof name !== 'string') return '';
+    return name.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Plan a household edit without mutating anything: who ends up where, and which
+ * contacts' share documents need rebuilding.
+ *
+ * Rules (ADR 0011):
+ * - `contactId` must be in `memberIds`; it becomes the stored primary and every
+ *   other id becomes its linked member.
+ * - Every other member must be an individual or already belong to the household
+ *   being edited — a member cannot be taken from another household.
+ * - Members of the edited household left out of `memberIds` become individuals.
+ * - `memberIds` of just the contact dissolves the household.
+ * - The stored `householdName` lives on the contact's record: it moves to the new
+ *   contact and is removed from any member who stops being the contact.
+ *
+ * @param {Array} familyMembers
+ * @param {{ contactId: *, memberIds: Array, householdName?: string|null }} edit
+ *   householdName: a string sets it ('' clears it); undefined keeps the household's
+ *   current stored name.
+ * @returns {{ familyMembers: Array, contactId: *, previousContactId: *, memberIds: Array,
+ *   released: Array, householdName: string, affectedContactIds: Array }}
+ */
+export function planHouseholdEdit(familyMembers, edit) {
+    const members = familyMembers || [];
+    const byId = new Map(members.map(m => [m.id, m]));
+    const contactId = edit.contactId;
+    if (!byId.has(contactId)) throw new Error('Household contact not found.');
+
+    const memberIds = [];
+    for (const id of (edit.memberIds || [])) {
+        if (!byId.has(id)) throw new Error('Household member not found.');
+        if (!memberIds.includes(id)) memberIds.push(id);
+    }
+    if (!memberIds.includes(contactId)) {
+        throw new Error('Choose a household contact from the household’s members.');
+    }
+
+    // The household being edited is the one the chosen contact is in now.
+    const previousContactId = findHouseholdContactId(members, contactId);
+    const previousContact = byId.get(previousContactId);
+    const previousIds = getHouseholdMemberIds(previousContact);
+
+    for (const id of memberIds) {
+        if (previousIds.includes(id)) continue;
+        const other = byId.get(id);
+        const otherContactId = findHouseholdContactId(members, id);
+        if (otherContactId !== id || (other.linkedMembers || []).length > 0) {
+            const otherContact = byId.get(otherContactId);
+            throw new Error(other.name + ' is already in ' + otherContact.name + '’s household.');
+        }
+    }
+
+    const nameInput = edit.householdName === undefined
+        ? normalizeHouseholdName(previousContact.householdName)
+        : normalizeHouseholdName(edit.householdName);
+    if (nameInput.length > HOUSEHOLD_NAME_MAX_LENGTH) {
+        throw new Error('Household name must be ' + HOUSEHOLD_NAME_MAX_LENGTH + ' characters or fewer.');
+    }
+
+    const linked = memberIds.filter(id => id !== contactId);
+    const touched = new Set([...previousIds, ...memberIds]);
+    const released = previousIds.filter(id => !memberIds.includes(id));
+
+    const updated = members.map(m => {
+        if (!touched.has(m.id)) return m;
+        const next = { ...m };
+        if (m.id === contactId) {
+            next.linkedMembers = linked;
+            if (nameInput && linked.length > 0) next.householdName = nameInput;
+            else delete next.householdName;
+        } else {
+            next.linkedMembers = [];
+            delete next.householdName;
+        }
+        return next;
+    });
+
+    const affectedContactIds = previousContactId === contactId
+        ? [contactId]
+        : [previousContactId, contactId];
+
+    return {
+        familyMembers: updated,
+        contactId,
+        previousContactId,
+        memberIds,
+        released,
+        householdName: linked.length > 0 ? nameInput : '',
+        affectedContactIds
+    };
+}
