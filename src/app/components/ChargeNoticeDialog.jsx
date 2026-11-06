@@ -12,21 +12,27 @@ import { useEffect, useMemo, useState } from 'react';
 import { selectBillableCharges, monthRange, summarizeChargePreview } from '../../lib/chargeNotice.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /**
  * @param {{
  *   open: boolean,
  *   memberName: string,
+ *   memberId?: number,
+ *   getAvailability?: () => { available: boolean }, // private live household reader
  *   charges: Array,                // candidate deferred charges { id, description, amount, incurredDate }
  *   now?: Date,                    // injectable "today" for the This-month preset (tests)
  *   onConfirm: (chargeIds: string[]) => void,
  *   onClose: () => void
  * }} props
  */
-export default function ChargeNoticeDialog({ open, memberName, charges, now, onConfirm, onClose }) {
+export default function ChargeNoticeDialog({ open, memberId, memberName, getAvailability, charges, now, onConfirm, onClose }) {
     // 'all' = every deferred charge; 'month' = only those incurred this calendar month.
     const [period, setPeriod] = useState('all');
     const [error, setError] = useState('');
+    const access = useFinancialAccess(() => getAvailability ? getAvailability() : { available: true },
+        memberId ?? memberName, open);
 
     useEffect(() => {
         if (open) {
@@ -42,20 +48,27 @@ export default function ChargeNoticeDialog({ open, memberName, charges, now, onC
     // ignores status here — these are already the member's deferred charges — and
     // just applies the incurred-date range + chronological sort).
     const selected = useMemo(() => {
+        if (!access.available) return [];
         const range = period === 'month' ? monthRange(now || new Date()) : {};
         return selectBillableCharges(
             candidates.map(c => ({ ...c, kind: 'usage_charge', status: 'deferred', memberId: '__preview__' })),
             '__preview__',
             range
         );
-    }, [candidates, period, now]);
+    }, [candidates, period, now, access.available]);
 
     const preview = useMemo(() => summarizeChargePreview(selected), [selected]);
 
     if (!open) return null;
+    if (!access.available) return <Dialog onClose={onClose} title="Bill Charges"
+        footer={<button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
+        <FinancialUnavailable />
+    </Dialog>;
 
+    /** Recheck the live household before handing selected ids to the caller's writer. */
     function handleConfirm(e) {
         e.preventDefault();
+        if (access.begin() === null) return;
         setError('');
         if (preview.count === 0) {
             setError('No deferred charges to bill for the selected period.');

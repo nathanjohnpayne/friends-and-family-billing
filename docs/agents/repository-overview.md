@@ -83,6 +83,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── billing-year.js        # Year lifecycle utilities
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
+│       ├── financial-availability.js # Private inactive hold-consumer bridge over legacy financial results
 │       ├── household-money.js     # Unused source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
@@ -138,6 +139,12 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── CONTRIBUTING.md                # Contribution guidelines
 └── .ai_context.md                 # Supplemental AI agent context
 ```
+
+The private `financial-availability.js` bridge reads only the existing legacy
+`getHouseholdFinancials` seam and strips money/source evidence from availability
+passed to UI guards. The active producer does not emit holds yet; tests supply
+the future private signal. It adds no source validation or money activation.
+See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
 
 The unused money and household-money entrypoints prove source interoperability
 only. Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that

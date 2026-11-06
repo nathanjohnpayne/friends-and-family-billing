@@ -15,6 +15,9 @@ import {
 import { getPaymentMethodLabel, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { FINANCIAL_UNAVAILABLE } from '../../lib/financial-availability.js';
+import { findHouseholdContactId } from '../../lib/household.js';
 
 /** Payment method options matching SettlementBoard.jsx */
 const PAYMENT_METHODS = [
@@ -44,13 +47,16 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     const memberTotal = summary[memberId] ? summary[memberId].total : 0;
     const balance = memberTotal - totalPaid;
 
-    // Reversal-after-refund warning (#331, ADR 0003). PaymentHistoryDialog is opened
-    // for the household primary (SettlementBoard wires onViewHistory(member.id)), so
-    // its linkedMembers give the whole household. If the household carries an active
+    // Reversal-after-refund warning (#331, ADR 0003). History stays member-bound,
+    // but its current household contact may change while the dialog is open
+    // (ADR 0011). Resolve the contact for household availability and warnings;
+    // the member's audit ledger and reversal targets remain unchanged. If the
+    // household carries an active
     // recorded Refund, reversing a payment is an informed action: it lowers Net
     // Contribution → the household flips to Outstanding, while the refund stays on the
     // books (never auto-clawed-back). We warn, but never block — pure display.
-    const household = familyMembers.find(m => m.id === memberId);
+    const householdContactId = findHouseholdContactId(familyMembers, memberId);
+    const household = familyMembers.find(m => m.id === householdContactId);
     const recordedRefund = getHouseholdRecordedRefund(household, creditAdjustments);
 
     /**
@@ -68,6 +74,10 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
         );
     }
 
+    const financials = householdOwedAndContribution();
+    const available = financials.ok !== false;
+
+    /** Preserve audit correction access even when projected household money is unavailable. */
     function handleReverse() {
         if (!reverseTarget || !onReverse) return;
         onReverse(reverseTarget.id);
@@ -80,10 +90,15 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
         const amountLabel = formatAnnualSummaryCurrency(reverseTarget.amount);
         const dateLabel = new Date(reverseTarget.receivedAt).toLocaleDateString();
         if (recordedRefund.has) {
-            const refundLabel = formatAnnualSummaryCurrency(recordedRefund.total);
             // The resulting Outstanding and the household's state BEFORE the reversal,
             // from the same financials the settlement board shows.
-            const { owed, netContribution } = householdOwedAndContribution();
+            if (financials.ok === false) {
+                return 'This household has a recorded refund. ' + FINANCIAL_UNAVAILABLE
+                    + '. The refund is not automatically clawed back. Reversing the ' + amountLabel
+                    + ' payment from ' + dateLabel + ' creates a reversal entry in the audit trail. Reverse anyway?';
+            }
+            const refundLabel = formatAnnualSummaryCurrency(recordedRefund.total);
+            const { owed, netContribution } = financials;
             const beforeOutstanding = owed - netContribution;
             const resulting = Math.max(0, beforeOutstanding + Math.abs(reverseTarget.amount));
             const resultingLabel = formatAnnualSummaryCurrency(resulting);
@@ -114,7 +129,7 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
             title={'Payment History for ' + memberName}
             footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}
         >
-            <div className="payment-history-summary">
+            {!available ? <FinancialUnavailable /> : <div className="payment-history-summary">
                 <div className="payment-history-stat">
                     <span className="payment-history-stat-label">Total Paid</span>
                     <span className="payment-history-stat-value">{formatAnnualSummaryCurrency(totalPaid)}</span>
@@ -125,7 +140,7 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
                         {balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}
                     </span>
                 </div>
-            </div>
+            </div>}
 
             {memberPayments.length === 0 ? (
                 <p className="payment-history-empty">No payments recorded yet.</p>
