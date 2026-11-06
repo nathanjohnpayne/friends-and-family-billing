@@ -83,6 +83,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── billing-year.js        # Year lifecycle utilities
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
+│       ├── household-money.js     # Unused source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
@@ -101,6 +102,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   ├── index.js                   # Cloud Functions v2 entry point (sendEmail, resolveShareToken, submitDispute, etc.)
 │   ├── money.mjs                  # Unused ADR 0010 exact rational math and generic cent allocator
 │   ├── money.js                   # Node 24 CJS entry for money.mjs (no top-level await)
+│   ├── household-money.mjs        # Unused exact household sources, holds, carry and review money edges
+│   ├── household-money.js         # Node 24 CJS entry for household-money.mjs
 │   ├── billing.js                 # Shared billing utilities for Cloud Functions
 │   └── package.json               # Cloud Functions dependencies (firebase-admin, firebase-functions, resend)
 ├── tests/react/                   # Vitest + React Testing Library test suite
@@ -135,8 +138,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 └── .ai_context.md                 # Supplemental AI agent context
 ```
 
-The unused money entrypoints prove source interoperability only. `money.js` and
-`money.mjs` are not yet registered in the deployment artifact allowlists; that
+The unused money and household-money entrypoints prove source interoperability
+only. Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
 registration and its packaging/security tests are tracked in
 [#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638),
 after M2a and before M4 Functions activation.

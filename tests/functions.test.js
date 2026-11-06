@@ -1151,3 +1151,4 @@ describe('resolveShareToken — household rounding and writer/cache parity (#620
 
 // Exercise the source CommonJS entry with the same frontend vectors.
 require('./money-vectors.cjs')(require('../functions/money.js'), { describe, it, assert });
+require('./household-money-vectors.cjs')(require('../functions/household-money.js'), { describe, it, assert });
