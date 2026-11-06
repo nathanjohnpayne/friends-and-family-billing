@@ -262,18 +262,24 @@ export function isValidHouseholdGraph(familyMembers) {
  */
 export function householdGraphViolations(familyMembers) {
     const ids = new Set((familyMembers || []).map(m => m.id));
-    const linkCount = new Map();
+    const linkers = new Map(); // linked id -> ids of the contacts linking it, one per link
     const out = new Set();
     for (const member of familyMembers || []) {
         for (const id of member.linkedMembers || []) {
             if (id === member.id) out.add('self:' + id);
             else if (!ids.has(id)) out.add('missing:' + member.id + ':' + id);
-            linkCount.set(id, (linkCount.get(id) || 0) + 1);
+            if (!linkers.has(id)) linkers.set(id, []);
+            linkers.get(id).push(member.id);
         }
     }
-    for (const [id, count] of linkCount) if (count > 1) out.add('multi:' + id);
+    // A member linked more than once. The key names the contacts involved, so an
+    // existing duplicate (A links B twice) cannot mask a new household joining it
+    // (C also links B): that is a different key.
+    for (const [id, by] of linkers) {
+        if (by.length > 1) out.add('multi:' + id + ':' + [...new Set(by.map(String))].sort().join(','));
+    }
     for (const member of familyMembers || []) {
-        if ((member.linkedMembers || []).length > 0 && linkCount.has(member.id)) out.add('contact-linked:' + member.id);
+        if ((member.linkedMembers || []).length > 0 && linkers.has(member.id)) out.add('contact-linked:' + member.id);
     }
     return out;
 }

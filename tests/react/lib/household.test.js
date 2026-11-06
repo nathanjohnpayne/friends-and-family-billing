@@ -244,6 +244,15 @@ describe('planHouseholdEdit', () => {
         expect(dirtyRestored.find(x => x.id === 1).linkedMembers).toEqual([2]);
         expect(dirtyRestored.find(x => x.id === 2).linkedMembers).toEqual([]);
         expect(dirtyRestored.find(x => x.id === 4).linkedMembers).toEqual([5, 5]);
+        // A pre-existing duplicate on the released member cannot mask a new household
+        // linking them: A links C twice, the edit releases C, another client links C
+        // to D; restoring A would leave C in two households.
+        const dup = [m(1, 'A', [2, 3, 3]), m(2, 'B'), m(3, 'C'), m(4, 'D')];
+        const dupPlan = planHouseholdEdit(dup, { contactId: 1, memberIds: [1, 2] });
+        const dupRelinked = dupPlan.familyMembers.map(x => x.id === 4 ? { ...x, linkedMembers: [3] } : x);
+        let dupConflict = null;
+        try { revertHouseholdFields(dupRelinked, dupPlan.familyMembers, dup); } catch (err) { dupConflict = err; }
+        expect(dupConflict && dupConflict.code).toBe('household-revert-conflict');
         // A member that already holds its previous fields is fine; the rest revert.
         const partial = plan.familyMembers.map(x => x.id === 1 ? { ...x, linkedMembers: [2] } : x);
         const restored = revertHouseholdFields(partial, plan.familyMembers, previous);
