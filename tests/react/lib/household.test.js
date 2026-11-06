@@ -356,7 +356,7 @@ describe('BillingYearService.saveHousehold — contact change', () => {
 
     it('rejects a member who is not in a household', async () => {
         const svc = createService();
-        expect(() => svc.changeHouseholdContact(4)).toThrow('Kwame Osei is not in a household.');
+        await expect(svc.changeHouseholdContact(4)).rejects.toThrow('Kwame Osei is not in a household.');
     });
 
     it('is blocked on a read-only year', async () => {
@@ -565,6 +565,40 @@ describe('share documents after a contact change', () => {
         }
         expect(mockStore['users/user-1/billingYears/2026'].billingEvents).toEqual([]);
         errSpy.mockRestore();
+    });
+
+    it('leaves another year alone when the year is switched and the save then fails', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        const other = [m(1, 'Erik Lindqvist'), m(2, 'Anna Lindqvist', [1, 3], { householdName: 'Lake House' }), m(3, 'Maja Lindqvist')];
+        setDoc.mockImplementationOnce(async () => {
+            svc._setState({ activeYear: { id: '2027', label: '2027', status: 'open' }, familyMembers: other, billingEvents: [] });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        expect(svc.getState().familyMembers).toBe(other);
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+        errSpy.mockRestore();
+    });
+
+    it('serializes overlapping contact changes so the later rebuild wins', async () => {
+        token('h-erik', 1);
+        token('h-anna', 2);
+        token('h-maja', 3);
+        const svc = createService();
+        const first = svc.changeHouseholdContact(2);   // Erik -> Anna
+        const second = svc.changeHouseholdContact(3);  // then Anna -> Maja, planned after the first finishes
+        const [a, b] = await Promise.all([first, second]);
+        expect(a).toMatchObject({ previousContactId: 1, contactId: 2 });
+        expect(b).toMatchObject({ previousContactId: 2, contactId: 3 });
+        const members = svc.getState().familyMembers;
+        expect(members.find(x => x.id === 3).linkedMembers).toEqual([2, 1]);
+        // Anna is no longer the contact, so her link is individual-only; Maja shows the household.
+        expect(mockStore['publicShares/h-anna'].linkedMembers).toEqual([]);
+        expect(mockStore['publicShares/h-maja'].linkedMembers.map(x => x.memberId).sort()).toEqual([1, 2]);
+        expect(mockStore['publicShares/h-erik'].linkedMembers).toEqual([]);
     });
 
     it('rebuilds the edited year even if the year is switched while the save is pending', async () => {

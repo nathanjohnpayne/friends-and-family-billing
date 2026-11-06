@@ -100,6 +100,8 @@ export class BillingYearService {
         };
 
         this._saveQueue = new SaveQueue();
+        /** @private Serializes household operations (save + share rebuild), #528. */
+        this._householdChain = Promise.resolve();
 
         /** @type {Set<() => void>} */
         this._listeners = new Set();
@@ -702,8 +704,26 @@ export class BillingYearService {
      * @throws when the billing-year write fails; the change is then rolled back and no
      *   share document is rebuilt.
      */
-    async saveHousehold(edit) {
+    saveHousehold(edit) {
+        return this._serializeHousehold(() => this._saveHouseholdNow(edit));
+    }
+
+    /**
+     * @private Run household operations one at a time. Each operation's save AND
+     * share rebuild finish before the next one plans against the then-current state,
+     * so an older rebuild can never overwrite the cache a newer edit wrote. A failed
+     * operation does not block the next.
+     */
+    _serializeHousehold(operation) {
+        const run = this._householdChain.then(operation, operation);
+        this._householdChain = run.catch(() => {});
+        return run;
+    }
+
+    /** @private saveHousehold's body; always called through _serializeHousehold. */
+    async _saveHouseholdNow(edit) {
         this._guardReadOnly();
+        const editedYearId = this._state.activeYear ? this._state.activeYear.id : null;
         const plan = planHouseholdEdit(this._state.familyMembers, edit || {});
 
         let billingEvents = this._state.billingEvents || [];
@@ -735,6 +755,14 @@ export class BillingYearService {
             // event it appended. A mutation that landed while the write was pending —
             // a member's name or email edit, a payment and its PAYMENT_RECORDED event —
             // is kept. Then report the failure.
+            //
+            // Bound to the edited year: if the administrator switched years while the
+            // write was pending, the current state belongs to another year, so it is
+            // neither rolled back nor re-saved (member ids survive Start New Year and
+            // would otherwise match unrelated records).
+            const message = 'The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error');
+            const currentYearId = this._state.activeYear ? this._state.activeYear.id : null;
+            if (currentYearId !== editedYearId) throw new Error(message);
             const rollback = {};
             const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
             if (restoredMembers) rollback.familyMembers = restoredMembers;
@@ -745,10 +773,9 @@ export class BillingYearService {
             // A write enqueued while ours was pending (e.g. recordPayment's save) holds
             // a snapshot with the rolled-back household and would persist it. Enqueue a
             // compensating write of the rolled-back state behind it; it keeps every
-            // intervening mutation because it saves the current state. (When the year
-            // was switched meanwhile, this is an ordinary save of the selected year.)
+            // intervening mutation because it saves the current state.
             if (rollback.familyMembers || rollback.billingEvents) this.save();
-            throw new Error('The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
+            throw new Error(message);
         }
         const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds, shareInputs);
 
@@ -769,17 +796,21 @@ export class BillingYearService {
      * @returns {Promise<Object>} saveHousehold's result
      */
     changeHouseholdContact(memberId) {
-        this._guardReadOnly();
-        const { familyMembers } = this._state;
-        const currentContactId = findHouseholdContactId(familyMembers, memberId);
-        if (currentContactId === null) throw new Error('Member not found.');
-        const currentContact = familyMembers.find(m => m.id === currentContactId);
-        if ((currentContact.linkedMembers || []).length === 0) {
-            throw new Error(currentContact.name + ' is not in a household.');
-        }
-        return this.saveHousehold({
-            contactId: memberId,
-            memberIds: getHouseholdMemberIds(currentContact)
+        // The household is read when the operation runs (after any pending household
+        // operation), not when it is requested.
+        return this._serializeHousehold(() => {
+            this._guardReadOnly();
+            const { familyMembers } = this._state;
+            const currentContactId = findHouseholdContactId(familyMembers, memberId);
+            if (currentContactId === null) throw new Error('Member not found.');
+            const currentContact = familyMembers.find(m => m.id === currentContactId);
+            if ((currentContact.linkedMembers || []).length === 0) {
+                throw new Error(currentContact.name + ' is not in a household.');
+            }
+            return this._saveHouseholdNow({
+                contactId: memberId,
+                memberIds: getHouseholdMemberIds(currentContact)
+            });
         });
     }
 
