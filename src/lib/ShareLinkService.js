@@ -5,7 +5,7 @@
  * Exports createAndPruneShareLink() and rebuildMemberShareDocs().
  * Used by EmailInvoiceDialog, TextInvoiceDialog, and ShareLinkDialog.
  */
-import { doc, getDocs, collection, query, where, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, getDocs, collection, query, where, writeBatch, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { generateRawToken, hashToken } from './validation.js';
 import { buildShareTokenDoc, buildShareUrl, buildPublicShareData, computeExpiryDate, buildShareScopes } from './share.js';
@@ -125,9 +125,9 @@ export async function createAndPruneShareLink({
  * belongs to the member it was minted for. When a household's contact changes, the
  * old contact's link stops showing the household (it becomes that member's own
  * link) and the new contact's link starts showing it; this rewrites both cached
- * documents in one batch so neither serves the old household shape. Each document
- * is rebuilt exactly as createAndPruneShareLink would build it for that token's
- * scopes, keeping the token's expiry.
+ * documents in one transaction so neither serves the old household shape. Each
+ * document is rebuilt exactly as createAndPruneShareLink would build it for that
+ * token's scopes, keeping the token's expiry and the link's view metrics.
  *
  * @param {Object} opts
  * @param {string} opts.userId
@@ -156,8 +156,10 @@ export async function rebuildMemberShareDocs({
     const ids = Array.from(new Set(memberIds || []));
     if (ids.length === 0) return 0;
 
-    // One query per member, on the same (ownerId, memberId, billingYearId, revoked)
-    // shape createAndPruneShareLink already uses, so no new composite index is needed.
+    // Candidate links: one query per member, on the same (ownerId, memberId,
+    // billingYearId, revoked) shape createAndPruneShareLink already uses, so no new
+    // composite index is needed. Queries cannot run inside a client transaction, so
+    // the transaction below re-checks each token before writing.
     const snaps = await Promise.all(ids.map(memberId => getDocs(query(
         collection(db, 'shareTokens'),
         where('ownerId', '==', userId),
@@ -165,26 +167,46 @@ export async function rebuildMemberShareDocs({
         where('billingYearId', '==', billingYearId),
         where('revoked', '==', false)
     ))));
+    const hashes = snaps.flatMap(snap => snap.docs.map(d => d.id));
+    if (hashes.length === 0) return 0;
 
-    const batch = writeBatch(db);
-    let written = 0;
-    snaps.forEach(snap => {
-        snap.docs.forEach(tokenDoc => {
-            const token = tokenDoc.data();
+    // Read each token and its cached document inside one transaction, and write only
+    // for tokens that are still active. A revocation that lands first is seen here; one
+    // that lands after the reads changes a document this transaction read, so Firestore
+    // retries it and the retry sees the token revoked. Either way a revoked link's cache
+    // is never recreated. The view metrics on the existing cached document
+    // (accessCount, lastAccessedAt — written by ShareView, read by ShareLinkDialog) are
+    // carried over; every billing field is rebuilt, so a stale optional field is dropped.
+    return runTransaction(db, async tx => {
+        const reads = [];
+        for (const hash of hashes) {
+            const tokenSnap = await tx.get(doc(db, 'shareTokens', hash));
+            const cacheSnap = await tx.get(doc(db, 'publicShares', hash));
+            reads.push({ hash, tokenSnap, cacheSnap });
+        }
+        let written = 0;
+        for (const { hash, tokenSnap, cacheSnap } of reads) {
+            if (!tokenSnap.exists()) continue;
+            const token = tokenSnap.data();
+            if (token.revoked || token.ownerId !== userId || token.billingYearId !== billingYearId) continue;
             const scopes = Array.isArray(token.scopes) ? token.scopes : DEFAULT_SCOPES;
             const publicData = buildPublicShareData(
                 familyMembers, bills, payments, token.memberId, scopes, userId, activeYear, settings, owedAdjustments
             );
-            if (!publicData) return;
-            batch.set(doc(db, 'publicShares', tokenDoc.id), {
+            if (!publicData) continue;
+            const cached = cacheSnap.exists() ? cacheSnap.data() : {};
+            const metrics = {};
+            if (cached.accessCount !== undefined) metrics.accessCount = cached.accessCount;
+            if (cached.lastAccessedAt !== undefined) metrics.lastAccessedAt = cached.lastAccessedAt;
+            tx.set(doc(db, 'publicShares', hash), {
                 ...publicData,
+                ...metrics,
                 expiresAt: token.expiresAt || null,
                 revoked: false,
                 updatedAt: serverTimestamp(),
             });
             written += 1;
-        });
+        }
+        return written;
     });
-    if (written > 0) await batch.commit();
-    return written;
 }

@@ -51,6 +51,19 @@ vi.mock('firebase/firestore', () => {
                 }
             };
         }),
+        runTransaction: vi.fn(async (_db, fn) => {
+            const writes = [];
+            const tx = {
+                get: async (ref) => {
+                    const data = mockStore[ref.path];
+                    return { exists: () => !!data, data: () => data || null };
+                },
+                set: (ref, data) => { writes.push({ path: ref.path, data }); return tx; }
+            };
+            const result = await fn(tx);
+            for (const w of writes) mockStore[w.path] = w.data;
+            return result;
+        }),
         serverTimestamp: vi.fn(() => '__SERVER_TIMESTAMP__')
     };
 });
@@ -435,6 +448,63 @@ describe('share documents after a contact change', () => {
         // Tokens stay keyed to the member they were minted for.
         expect(mockStore['shareTokens/h-erik'].memberId).toBe(1);
         expect(mockStore['shareTokens/h-anna'].memberId).toBe(2);
+    });
+
+    it('keeps the links view metrics and drops stale billing fields', async () => {
+        token('h-anna', 2);
+        mockStore['publicShares/h-anna'] = {
+            memberId: 2, accessCount: 7, lastAccessedAt: '2026-10-01T00:00:00Z', serviceCredits: { total: 99, items: [] }
+        };
+        const svc = createService();
+        svc._setState({ owedAdjustments: [] }); // no Service Credit any more
+        await svc.changeHouseholdContact(2);
+        const cached = mockStore['publicShares/h-anna'];
+        expect(cached.accessCount).toBe(7);
+        expect(cached.lastAccessedAt).toBe('2026-10-01T00:00:00Z');
+        expect('serviceCredits' in cached).toBe(false);
+    });
+
+    it('never recreates the cache of a link revoked while the rebuild runs', async () => {
+        token('h-erik', 1);
+        token('h-anna', 2);
+        const { getDocs } = await import('firebase/firestore');
+        const original = getDocs.getMockImplementation();
+        let calls = 0;
+        getDocs.mockImplementation(async (ref) => {
+            const result = await original(ref);
+            // After the candidate queries, another tab revokes Anna's link (token
+            // first, then the cache), as ShareLinkDialog.handleRevoke does.
+            if (ref.path === 'shareTokens' && ++calls === 2) {
+                mockStore['shareTokens/h-anna'] = { ...mockStore['shareTokens/h-anna'], revoked: true };
+                delete mockStore['publicShares/h-anna'];
+            }
+            return result;
+        });
+        try {
+            const svc = createService();
+            const result = await svc.changeHouseholdContact(2);
+            expect(result.shareDocsRebuilt).toBe(1);
+            expect(mockStore['publicShares/h-anna']).toBeUndefined();
+            expect(mockStore['publicShares/h-erik'].revoked).toBe(false);
+        } finally {
+            getDocs.mockImplementation(original);
+        }
+    });
+
+    it('does not rebuild share docs, and rolls back, when the household save fails', async () => {
+        token('h-erik', 1);
+        token('h-anna', 2);
+        const { setDoc } = await import('firebase/firestore');
+        setDoc.mockRejectedValueOnce(new Error('permission-denied'));
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        const before = svc.getState().familyMembers;
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The household change could not be saved: permission-denied');
+        expect(svc.getState().familyMembers).toBe(before);
+        expect(svc.getState().billingEvents).toEqual([]);
+        expect(mockStore['publicShares/h-erik']).toEqual({ stale: true, memberId: 1 });
+        expect(mockStore['publicShares/h-anna']).toEqual({ stale: true, memberId: 2 });
+        errSpy.mockRestore();
     });
 
     it('reports a failed rebuild without undoing the saved change', async () => {

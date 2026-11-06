@@ -297,13 +297,44 @@ export class BillingYearService {
             return Promise.resolve();
         }
 
-        return this._saveQueue.enqueue(async () => {
-            const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+        return this._saveQueue.enqueue(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+    }
+
+    /** @private The write function save() enqueues, over a snapshot of the state. */
+    _yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments) {
+        const uid = this._user.uid;
+        return async () => {
+            const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
             if (!payload.createdAt) payload.createdAt = serverTimestamp();
             payload.updatedAt = serverTimestamp();
             await setDoc(yearDocRef, payload);
+        };
+    }
+
+    /**
+     * @private Like save(), but rejects when this write fails. The SaveQueue keeps its
+     * chain alive by swallowing write errors (after logging them and notifying
+     * subscribers), so a caller that must not continue after a failed write — one
+     * that then publishes share documents from the new state — observes the outcome
+     * here. Resolves without writing in the same cases save() does (E2E, no user or
+     * year, closed or archived year).
+     */
+    async _saveConfirmed() {
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        if (this._e2eMode || !this._user || !activeYear) return;
+        if (activeYear.status === 'closed' || activeYear.status === 'archived') return;
+        const write = this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
+        let failure = null;
+        await this._saveQueue.enqueue(async () => {
+            try {
+                await write();
+            } catch (err) {
+                failure = err;
+                throw err; // the queue still logs it and notifies save:error subscribers
+            }
         });
+        if (failure) throw failure;
     }
 
     /**
@@ -668,6 +699,8 @@ export class BillingYearService {
      *   released: Array, householdName: string, shareDocsRebuilt: number|null }>}
      *   shareDocsRebuilt is null when the share rebuild failed (the household change
      *   itself is saved either way).
+     * @throws when the billing-year write fails; the change is then rolled back and no
+     *   share document is rebuilt.
      */
     async saveHousehold(edit) {
         this._guardReadOnly();
@@ -685,8 +718,17 @@ export class BillingYearService {
             });
         }
 
+        const previous = { familyMembers: this._state.familyMembers, billingEvents: this._state.billingEvents };
         this._setState({ familyMembers: plan.familyMembers, billingEvents });
-        await this.save();
+        try {
+            await this._saveConfirmed();
+        } catch (err) {
+            // Do not publish share documents for a household that was not persisted.
+            // Roll back the optimistic change unless something else has replaced the
+            // member list since, then report the failure.
+            if (this._state.familyMembers === plan.familyMembers) this._setState(previous);
+            throw new Error('The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
+        }
         const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds);
 
         return {
