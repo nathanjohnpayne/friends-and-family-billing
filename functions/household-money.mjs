@@ -188,19 +188,28 @@ function projectPayments(records) {
     uniqueRows(rows, 'P');
     const byId = new Map(rows.map(row => [row.id, row]));
     const pairs = new Map();
-    const invalid = row => fail('INVALID_REVERSAL', row.record.id, 'P',
-        'reversesPaymentId', row.record.reversesPaymentId, 'Malformed or unmatched reversal');
+    const invalid = (row, field = 'reversesPaymentId') => fail('INVALID_REVERSAL', row.record.id, 'P',
+        field, row.record[field], 'Malformed or unmatched reversal');
     rows.forEach(row => {
         const record = row.record;
+        // Legacy public writers treat truthy markers as a reversal claim. A
+        // non-boolean truthy marker cannot silently hide an unpaired payment.
+        if (record.reversed && record.reversed !== true) invalid(row, 'reversed');
         if (record.type !== 'reversal' && record.reversesPaymentId === undefined) return;
         if (record.type !== 'reversal') invalid(row);
-        const original = byId.get(key(record.reversesPaymentId, 'P', 'reversesPaymentId'));
+        let originalId;
+        try { originalId = key(record.reversesPaymentId, 'P', 'reversesPaymentId'); }
+        catch (error) {
+            if (!(error instanceof MoneyIntegrityError)) throw error;
+            invalid(row);
+        }
+        const original = byId.get(originalId);
         if (!original || original === row || original.record.type === 'reversal'
             || original.record.reversed !== true || original.record.memberId !== record.memberId
             || pairs.has(original.id) || sum([original.value, row.value]).numerator !== 0n) invalid(row);
         pairs.set(original.id, row);
     });
-    rows.forEach(row => { if (row.record.reversed === true && !pairs.has(row.id)) invalid(row); });
+    rows.forEach(row => { if (row.record.reversed === true && !pairs.has(row.id)) invalid(row, 'reversed'); });
     const paired = new Map();
     pairs.forEach((reversal, originalId) => {
         const original = byId.get(originalId);
@@ -340,6 +349,11 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
         try {
             const member = source.familyMembers.find(row => row.id === projection.householdId);
             const ids = idsFor(member);
+            const admitted = admit(source, member, null);
+            // Component ids are unique within the already-validated household;
+            // unrelated households/kinds must never supply snapshot metadata.
+            const deferredById = new Map(admitted.deferred.map(record => [String(record.id), record]));
+            const serviceById = new Map(admitted.S.map(record => [String(record.id), record]));
             const unused = carryUnusedOpeningCredit ? projection.U : 0;
             // ADR 0010 preserves the carry seam's positive aggregate feed gate.
             // A zero monetary contribution is not a malformed-source exclusion.
@@ -350,14 +364,13 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
             const openingBalanceCents = integerSum(projection.deferredCents, -projection.credit, -unused);
             const billName = row => row.billName ?? source.bills?.find(bill => bill.id === row.billId)?.name ?? null;
             const items = projection.rows.deferred.map(row => {
-                const record = source.owedAdjustments.find(item => String(item.id) === row.id);
+                const record = deferredById.get(row.id);
                 return { sourceId: record.id, kind: 'usage_charge', basis: record.basis || 'member',
                     memberId: record.memberId, billName: billName(record), description: record.description || '',
                     amount: snapshotDollars(row.cents, record.id), incurredDate: record.incurredDate || null,
                     ...(record.calc ? { calc: clone(record.calc) } : {}) };
             });
-            const openingSeedIds = (source.owedAdjustments || []).filter(row => row
-                && row.kind === 'carry_opening' && row.status !== 'voided' && ids.includes(row.memberId)).map(row => row.id);
+            const openingSeedIds = admitted.O.map(row => row.id);
             const totalCredit = integerSum(projection.credit, unused);
             if (totalCredit > 0) {
                 const reviewIds = new Set(reviewServiceCredits.filter(row => row && row.kind === 'service_credit'
@@ -369,7 +382,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                         'Review credit must belong to the admitted source snapshot');
                 }
                 const detail = serviceRows.filter(row => reviewIds.has(row.id)).map(row => {
-                    const record = source.owedAdjustments.find(item => String(item.id) === row.id);
+                    const record = serviceById.get(row.id);
                     return { sourceId: record.id, basis: record.basis ?? null, memberId: record.memberId,
                         billName: billName(record), description: record.reason || '', amount: snapshotDollars(-row.cents, record.id) };
                 });
@@ -383,10 +396,9 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                     description: "Your household's " + fromYearLabel + ' credit',
                     amount: snapshotDollars(-totalCredit, member.id), detail });
             }
-            const creditAdjustmentIds = (source.creditAdjustments || []).filter(row => row && ids.includes(row.memberId)
-                && row.status !== 'cancelled' && !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
+            const creditAdjustmentIds = admitted.R.filter(row => !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
             return { ...projection, creditAdjustmentIds, openingSeedIds, unusedOpeningCreditCents: unused,
-                deferredChargeIds: projection.rows.deferred.map(row => source.owedAdjustments.find(item => String(item.id) === row.id).id),
+                deferredChargeIds: projection.rows.deferred.map(row => deferredById.get(row.id).id),
                 openingBalanceCents, seed: items.length ? { id: 'coadj_' + fromYearLabel + '_' + member.id,
                     memberId: member.id, kind: 'carry_opening', status: 'carried_in', fromYear: fromYearLabel,
                     amount: snapshotDollars(openingBalanceCents, member.id), items } : null };

@@ -120,6 +120,27 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             }
         });
 
+        it('holds malformed truthy reversal claims and names the claiming source record', () => {
+            for (const reversed of ['false', 1, {}, []]) {
+                const source = state({ payments: [payment('claimed', 1, { reversed }), payment('sibling', 1, { memberId: 2 })] });
+                const results = all(source);
+                const [cause] = held(results[0], 'INVALID_REVERSAL');
+                assert.deepEqual([cause.householdId, cause.recordId, cause.component, cause.field, cause.observedType],
+                    [1, 'claimed', 'P', 'reversed', typeof reversed]);
+                assert.equal(results[1].P, 100);
+            }
+            for (const reversed of [undefined, false, 0, null, '']) {
+                const result = assess(state({ payments: [payment('live', 1, { reversed })] }));
+                assert.equal(result.rows.payments[0].publicVisible, true);
+            }
+            for (const target of [undefined, null, 'unknown']) {
+                const [cause] = held(project(state({ payments: [payment('reversal-source', -1,
+                    { type: 'reversal', reversesPaymentId: target })] }), member), 'INVALID_REVERSAL');
+                assert.deepEqual([cause.recordId, cause.component, cause.field, cause.observedType],
+                    ['reversal-source', 'P', 'reversesPaymentId', target === null ? 'null' : typeof target]);
+            }
+        });
+
         it('recomputes complete candidate aggregates for caps and permits overpayment', () => {
             const source = state({ payments: [payment('p', 0.01)], creditAdjustments: [refund('old', 0.012)] });
             const before = assess(source);
@@ -296,6 +317,39 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.deepEqual(source.owedAdjustments[0].calc.coveredBy, []);
             const projected = assess(state({ owedAdjustments: [h.seed] }));
             assert.equal(projected.O, 0);
+        });
+
+        it('reconstructs carry only from admitted records, ignoring null unadmitted entries', () => {
+            const deferred = { ...owed('d', 1, 'usage_charge', 'deferred'), description: 'One charge' };
+            const service = sc('s', 0.25, 'One credit');
+            const source = state({ payments: [payment('p', 1)], owedAdjustments: [null, deferred, service] });
+            const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [service] });
+            assert.equal(result.ok, true);
+            const h = result.households[0];
+            assert.deepEqual(h.deferredChargeIds, ['d']);
+            assert.equal(h.seed.items[0].description, 'One charge');
+            assert.equal(h.seed.items[1].detail[0].description, 'One credit');
+            assert.equal(assess(state({ owedAdjustments: [h.seed] })).O, h.openingBalanceCents);
+        });
+
+        it('binds carry metadata to the household and component when source ids collide elsewhere', () => {
+            const deferred = { ...owed('shared', 1, 'usage_charge', 'deferred'), description: 'One charge', calc: { household: 1 } };
+            const service = sc('shared', 0.25, 'One credit');
+            const otherDeferred = { ...deferred, memberId: 3, amount: 999, description: 'Other charge', calc: { household: 3 } };
+            const otherService = { ...service, memberId: 3, amount: 999, reason: 'Other credit' };
+            const source = state({ familyMembers: [member, { id: 3, linkedMembers: [] }], payments: [payment('p', 1)],
+                owedAdjustments: [otherDeferred, otherService, owed('shared', 0), service, deferred] });
+            const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [otherService, service] });
+            assert.equal(result.ok, true);
+            const h = result.households[0];
+            assert.deepEqual(h.deferredChargeIds, ['shared']);
+            const [charge, credit] = h.seed.items;
+            assert.deepEqual([charge.memberId, charge.amount, charge.description, charge.calc.household], [1, 1, 'One charge', 1]);
+            assert.deepEqual([credit.detail[0].memberId, credit.detail[0].amount, credit.detail[0].description], [1, -0.25, 'One credit']);
+            const next = assess(state({ owedAdjustments: [h.seed] }));
+            assert.equal(next.O, 0);
+            assert.equal(next.rows.opening[0].items.reduce((total, row) => total + row.cents, 0), h.openingBalanceCents);
+            assert.equal(source.owedAdjustments[0].description, 'Other charge');
         });
 
         it('retains positive aggregate carry eligibility without dropping signed audit rows', () => {
