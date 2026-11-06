@@ -883,8 +883,18 @@ export class BillingYearService {
             // a snapshot with the rolled-back household and would persist it. Enqueue a
             // compensating write of the rolled-back state behind it; it keeps every
             // intervening mutation because it saves the current state.
-            if (rollback.familyMembers || rollback.billingEvents) {
+            // When the local state still holds this edit, re-saving it (rolled back)
+            // is the compensation. When it does not — the year was reloaded while the
+            // write was pending, e.g. after another client closed it — or the year is
+            // now read-only (so save() would skip), compensate the latest write queued
+            // for this year from its own snapshot instead.
+            const year = this._state.activeYear;
+            const readOnly = !year || year.status === 'closed' || year.status === 'archived';
+            if ((rollback.familyMembers || rollback.billingEvents) && !readOnly) {
                 await this._compensateOrReport(message, () => this._saveConfirmed());
+            } else {
+                await this._compensateOrReport(message, () =>
+                    this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
             }
             throw new Error(message);
         }

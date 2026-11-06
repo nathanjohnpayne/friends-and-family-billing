@@ -544,6 +544,29 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('compensates a queued write when the year is reloaded as closed while the household save is pending', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        const original = structuredClone(svc.getState().familyMembers);
+        setDoc.mockImplementationOnce(async () => {
+            // A payment is queued behind the household write (holding the optimistic
+            // household); then another client closes the year and it is reloaded
+            // from storage (without the unsaved change); then the write fails.
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            svc._setState({ activeYear: { id: '2026', label: '2026', status: 'closed' }, familyMembers: structuredClone(original), billingEvents: [] });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        const persisted = mockStore['users/user-1/billingYears/2026'];
+        expect(persisted.familyMembers.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2, 3], householdName: 'Lake House' });
+        expect(persisted.familyMembers.find(x => x.id === 2).linkedMembers).toEqual([]);
+        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
+        expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        errSpy.mockRestore();
+    });
+
     it('reports when the compensating write after a failed household save also fails', async () => {
         const { setDoc } = await import('firebase/firestore');
         setDoc.mockRejectedValueOnce(new Error('unavailable')).mockRejectedValueOnce(new Error('offline'));
