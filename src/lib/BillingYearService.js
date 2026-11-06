@@ -736,7 +736,7 @@ export class BillingYearService {
      * link graph are refused (#528): a failed operation rolls back its own links, and
      * that is only safe when nothing else changed the graph meanwhile. Mutations that
      * read the household to decide who a ledger row belongs to (a Refund, a payment
-     * distributed across a household) are refused too, so no row is built from a
+     * distributed across a household, billing a household's deferred charges) are refused too, so no row is built from a
      * household that is then rolled back, and so are year-level operations that
      * snapshot the year (Start New Year, a status change).
      */
@@ -1519,6 +1519,8 @@ export class BillingYearService {
      */
     billDeferredCharges(data) {
         this._guardReadOnly();
+        // Selects charges at the household grain from the contact's links (#528).
+        this._guardHouseholdGraph();
         const { owedAdjustments, familyMembers } = this._state;
 
         const member = familyMembers.find(m => m.id === data.memberId);

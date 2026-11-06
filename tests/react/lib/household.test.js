@@ -629,6 +629,8 @@ describe('share documents after a contact change', () => {
         await vi.waitFor(() => expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]));
         expect(() => svc.issueRefund({ memberId: 2, amount: 5, method: 'cash', reason: 'over' })).toThrow('A household change is still being saved.');
         expect(() => svc.recordPayment({ memberId: 2, amount: 30, method: 'cash', distribute: true })).toThrow('A household change is still being saved.');
+        expect(() => svc.billDeferredCharges({ memberId: 2 })).toThrow('A household change is still being saved.');
+        expect(svc.getState().owedAdjustments.find(a => a.id === 'oadj_def').status).toBe('deferred');
         svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' }); // an individual payment is still allowed
         // Start New Year and a status change would snapshot the unconfirmed household.
         await expect(svc.createYear('2027')).rejects.toThrow('A household change is still being saved.');
