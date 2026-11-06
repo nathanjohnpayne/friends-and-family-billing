@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance } from '@/lib/calculations.js';
 import {
     buildShareScopes,
     buildShareTokenDoc,
@@ -556,4 +557,63 @@ describe('isShareTokenStale', () => {
             expiresAt: firestoreTimestamp
         }, now)).toBe(true);
     });
+});
+
+
+describe('buildPublicShareData — household rounding (#620)', () => {
+    const members = [
+        { id: 1, name: 'Ada', linkedMembers: [2] },
+        { id: 2, name: 'Kenji', linkedMembers: [] },
+        { id: 3, name: 'Other', linkedMembers: [] }, { id: 4, name: 'Fourth', linkedMembers: [] }, { id: 5, name: 'Fifth', linkedMembers: [] }
+    ];
+    const cents = amount => Math.round(amount * 100) / 100;
+
+    for (const { amount, billingFrequency, expected } of [
+        { amount: 100, billingFrequency: 'annual', expected: 66.67 },
+        { amount: 7.01, billingFrequency: 'monthly', expected: 33.65 }
+    ]) {
+        it(`aggregates raw ${billingFrequency} shares while preserving rounded member lines`, () => {
+            const bills = [{ id: 'bill', name: 'Subscription', amount, billingFrequency, members: billingFrequency === 'annual' ? [1, 2, 3] : [1, 2, 3, 4, 5] }];
+            const data = buildPublicShareData(members, bills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {});
+            const financials = getHouseholdFinancials(members[0], calculateAnnualSummary(members, bills), []);
+            expect(data.paymentSummary.combinedAnnualTotal).toBe(expected);
+            expect(data.paymentSummary.combinedAnnualTotal).toBe(cents(financials.grossOwed));
+            const memberTotal = cents((billingFrequency === 'annual' ? amount : amount * 12) / bills[0].members.length);
+            expect(data.summary.annualTotal).toBe(memberTotal);
+            expect(data.linkedMembers[0].annualTotal).toBe(memberTotal);
+            expect(data.summary.bills[0].annualShare).toBe(memberTotal);
+            expect(data.linkedMembers[0].bills[0].annualShare).toBe(memberTotal);
+        });
+    }
+
+    it('continues to skip bills without assigned members', () => {
+        const bills = [
+            { id: 'bill', name: 'Subscription', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] },
+            { id: 'missing', name: 'Unassigned', amount: 999 },
+            { id: 'empty', name: 'Unassigned', amount: 999, members: [] }
+        ];
+        const data = buildPublicShareData(members, bills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {});
+        expect(data.paymentSummary.combinedAnnualTotal).toBe(66.67);
+        expect(data.summary.bills).toHaveLength(1);
+        expect(data.linkedMembers[0].bills).toHaveLength(1);
+    });
+
+    for (const incoming of [-100, -20, 0.001]) {
+        it(`keeps raw household precision through credits and opening balance ${incoming}`, () => {
+            const bills = [{ id: 'bill', name: 'Subscription', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
+            const adjustments = [{ memberId: 1, kind: 'carry_opening', amount: incoming, status: 'carried_in' }];
+            if (incoming > 0) adjustments.push({ memberId: 2, kind: 'service_credit', amount: 0.004, status: 'active' });
+            const payments = incoming < 0 ? [] : [{ memberId: 2, amount: 0.001 }];
+            const data = buildPublicShareData(members, bills, payments, 1, ['summary:read'], 'owner', { id: '2027' }, {}, adjustments);
+            const financials = getHouseholdFinancials(members[0], calculateAnnualSummary(members, bills), payments,
+                [], null, adjustments, getHouseholdOpeningBalance(members[0], adjustments));
+            expect(data.paymentSummary).toEqual({
+                combinedAnnualTotal: cents(financials.owed),
+                combinedMonthlyTotal: cents(financials.owed / 12),
+                totalPaid: cents(financials.grossPaid),
+                balanceRemaining: cents(financials.owed - financials.grossPaid)
+            });
+            expect(data.paymentSummary.combinedAnnualTotal).toBe(incoming === -100 ? 0 : incoming === -20 ? 46.67 : 66.66);
+        });
+    }
 });
