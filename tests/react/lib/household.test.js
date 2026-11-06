@@ -507,6 +507,23 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('keeps a payment recorded while a failed household save was pending', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        setDoc.mockImplementationOnce(async () => {
+            // A payment lands while the household write is in flight; the write then fails.
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        const state = svc.getState();
+        expect(state.familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect(state.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
+        expect(state.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        errSpy.mockRestore();
+    });
+
     it('reports a failed rebuild without undoing the saved change', async () => {
         const { getDocs } = await import('firebase/firestore');
         getDocs.mockRejectedValueOnce(new Error('offline'));

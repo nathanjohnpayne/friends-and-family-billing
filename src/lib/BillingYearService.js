@@ -707,6 +707,7 @@ export class BillingYearService {
         const plan = planHouseholdEdit(this._state.familyMembers, edit || {});
 
         let billingEvents = this._state.billingEvents || [];
+        let addedEventId = null;
         if (plan.previousContactId !== plan.contactId) {
             const byId = new Map(this._state.familyMembers.map(m => [m.id, m]));
             billingEvents = this._emitEvent('HOUSEHOLD_CONTACT_CHANGED', {
@@ -716,17 +717,25 @@ export class BillingYearService {
                 contactName: byId.get(plan.contactId)?.name || '',
                 memberIds: plan.memberIds
             });
+            addedEventId = billingEvents[billingEvents.length - 1].id;
         }
 
-        const previous = { familyMembers: this._state.familyMembers, billingEvents: this._state.billingEvents };
+        const previousMembers = this._state.familyMembers;
         this._setState({ familyMembers: plan.familyMembers, billingEvents });
         try {
             await this._saveConfirmed();
         } catch (err) {
             // Do not publish share documents for a household that was not persisted.
-            // Roll back the optimistic change unless something else has replaced the
-            // member list since, then report the failure.
-            if (this._state.familyMembers === plan.familyMembers) this._setState(previous);
+            // Undo only this edit: restore the member list unless something else has
+            // replaced it since, and remove only the event this edit appended, so a
+            // mutation that landed while the write was pending (e.g. a payment and
+            // its PAYMENT_RECORDED event) is kept. Then report the failure.
+            const rollback = {};
+            if (this._state.familyMembers === plan.familyMembers) rollback.familyMembers = previousMembers;
+            if (addedEventId) {
+                rollback.billingEvents = (this._state.billingEvents || []).filter(e => e.id !== addedEventId);
+            }
+            this._setState(rollback);
             throw new Error('The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
         }
         const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds);
