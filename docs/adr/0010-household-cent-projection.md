@@ -1,0 +1,83 @@
+# Exact household components and integer-cent financial authority
+
+Accepted 2026-11-05 for [#629](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/629). The [approved proposal](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/629#issuecomment-6675576490) and [owner's four conditions](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/629#issuecomment-6675648119) authorize this bounded amendment before implementation. This ADR is the single rounding/allocation definition; [the rollout plan](../../plans/629-cent-rounding-rollout.md) separates implementation and release gates. Acceptance of the contract is not approval of any code head or production operation.
+
+## Boundary and exact inputs
+
+Stored bills, payments and reversals, adjustments, seeds and audit history retain their values, including legacy sub-cent values. There is no normalization, migration or backfill. Preserve annualization, bill/member splitting, household membership, eligibility, statuses, cancellation, and reopened-refund rules. In particular, retain the current bill denominator and treatment of assigned member ids; this amendment does not repair unrelated data or change membership rules.
+
+Interpret each eligible finite numeric **source field** by its decimal `Number.toString()` representation (including exponent notation); carry exact decimal coefficients/rational denominators through multiplication, division and aggregation. For bills, annualize the stored price and divide by assigned-member count exactly, then sum the household's eligible member shares. Never reconstruct exact inputs from an already accumulated floating-point summary, monthly display value, or rounded member line. Raw calculations remain available for audit/comparison.
+
+Define `q(x)` as exact dollars → integer cents, nearest cent with exact half-cent ties away from zero; normalize signed zero to integer `0`. No binary epsilon is added. All six components aggregate their exact eligible raw rows **before one quantization per household/component**:
+
+| Cents | Exact source aggregate |
+| --- | --- |
+| `G` | Gross annual bill shares for the household |
+| `S` | Active Service Credits for its members |
+| `O` | Net signed opening balance from eligible `carry_opening` seed **amounts**, never their detail |
+| `P` | Gross payments including original and reversal entries |
+| `R` | Effective recorded credit dispositions under the caller's existing reopened-refund eligibility |
+| `B` | Billed Usage Charges |
+
+Compose only integer cents: `N = P − R`; `owed = max(0, G − S + O) + B`; `balance = owed − N`; `credit = max(0, N − owed)`. These cents govern household displays, payment/refund caps, settlement metrics, close gates and carry. A one-cent shortfall is outstanding; zero shortfall is settled subject to the existing Credit/Partial/status classification. A cap comparison uses integer cents, with no tolerance, and recomputes the affected component from the **proposed post-mutation raw ledger snapshot** under the existing cap rule. Never validate only `q(request)` or add independently rounded requests to an old component: retained sub-cent records can cross a cent boundary in aggregate (old `R = $0.012`, proposed refund `$0.004`: `q(request) = 0` but projected `R` rises from 1 to 2 cents). Preserve existing request validation and append-only writes; this is not input normalization. Deferred Usage Charges remain outside current owed. Existing invoice scope is preserved: the ordinary invoice/share bill total is `max(0, G − S + O)`; the separately billed Charge Notice path remains separate, with `B` included wherever current settlement already includes it.
+
+The previous promise to leave `calculations.js` unchanged is superseded **only** for this projection boundary and its consumers. `calculateAnnualSummary` may retain raw audit/member-display calculations; its raw accumulated output is not the exact component input. No annualization, eligibility or owed formula change beyond the authorized quantization boundary is permitted.
+
+## Incoming credit, carry and epsilon retirement
+
+In integer cents define `I = max(0, −O)`, `Q = max(0, O)`, `A = max(0, G − S + Q)`, and `U = max(0, I − A)`. `U` stays carry-only: it never enters `N`, never creates a new refund entitlement, and receives no `carry_forward` disposition. Service Credit excess is not money. Net opening is authoritative: +$10 and −$10 seeds net to zero before this calculation. #617 remains open.
+
+Carry's separately eligible deferred-charge aggregate is also exact and quantized once to cents; it is not a seventh current-owed component. Its projected rows conserve that target. The new seed cents equal deferred-charge cents minus payment-backed credit cents minus `U`; new seed/item/detail values are written as cents divided by 100 under the existing record model. Stored True-up and Service Credit amounts still use **`splitCents`**, which gives every member except the last `floor(totalCents/n)` and gives the last member the remainder. Do not replace that stored allocation with the display allocation below.
+
+All carry thresholds become exact comparisons (`U > 0`, credit/deferred cents `> 0`, zero net `== 0`). Invariant (a) becomes exact integer-cent equality: each projected seed's signed item cents sum to its seed cents; its non-additive credit detail cents sum to the credit-item cents. Conservation and old-year settlement invariants also compare integer cents exactly. A zero-net review seed may retain nonzero offsetting items as before. A chain without new bills/payments conserves the same carried cents. Reopened refunds remain excluded from carry under its existing null-reopened-set rule, and remain visible in source-year settlement under its active reopened set.
+
+`CREDIT_EPSILON` has **no residual role in projected financial decisions, caps, settlement, close, carry, allocation or these invariants**. During implementation it may remain only in explicitly legacy/raw audit-comparison code that cannot feed those outcomes; remove the constant when no such callers remain. It is not an integrity tolerance or a display exception. This retires ADR 0009's former epsilon invariant and carry threshold.
+
+## Projected rows: largest remainder, never stored reallocation
+
+Only rows that promise to sum to a projected component/parent use this allocation. For exact signed row values in cents `x_i` and integer parent target `T`, start each row at `floor(x_i)` (also for negative rows), then award `T − Σ floor(x_i)` one-cent increments in descending fractional remainder order. Equal fractions use **ascending ordinal lexicographic `String(record.id)`**, with case preserved, no locale collation, numeric sorting, date or input order. Allocation changes projection values only; raw source amounts stay inspectable in administrator audit paths and are not added to public payloads.
+
+Keep existing display group membership: for example, Service Credit rows still group by existing bill-id/reason rules; this does not infer an earlier record's business purpose or alter per-record review netting. A group's deterministic identity is the JSON encoding of its sorted constituent record-id strings; its tie-break key is its lexicographically smallest constituent record id. Disjoint groups have distinct keys. Bill rows use `String(bill.id)` and aggregate the household's exact shares for that bill. Allocations within a group use its constituent record ids. Missing/duplicate ambiguous ids or inconsistent provenance cause an integrity hold; never fall back to array order or invent a balancing record. Sorting a projection does not reorder a persisted member list for `splitCents`.
+
+Preserve exact original/reversal pairs **before** allocating other `P` rows: validate the existing `reversesPaymentId` link and exact equal-and-opposite raw amounts; project the original by `q`, its reversal as its negation, so the pair contributes zero. Allocate the remaining payment rows to the remaining `P` target. The public history continues to omit reversed originals and reversal entries; an administrator history that shows both uses the opposite projected values. A malformed/unmatched claimed reversal is an integrity hold, not a silently dropped or independently rounded payment. This does not delete or modify ledger records.
+
+For opening balance, validate provenance and parent/child conservation at the canonical cent boundary before allocation: `q(sum of exact signed raw item values) == q(stored seed amount)`, and `q(sum of exact signed raw detail values) == q(stored credit-item amount)`. This is not raw rational equality: a legacy parent `0.30000000000000004` and children `0.1`, `0.2` agree at 30 cents and are valid. No epsilon is used and no raw value is normalized. Legacy seeds with no items are valid opaque rows. Allocate `O` to seeds by seed id, each assigned seed target to its items by `sourceId`, then each credit-item target to its **non-additive** detail by provenance `sourceId`. Existing explanatory `unused`/`remainder`/`applied` detail without a record id uses a deterministic projection-only id from `[seed.id, creditItem.sourceId, detail.kind]`; each kind occurs at most once under that parent. A grouped detail uses the sorted constituent-id identity above. No new stored identifiers are required. Detail never contributes a second time to `O`. A provenance failure or parent/child mismatch that changes canonical cents produces an integrity hold with source ids for correction; no epsilon repair or fabricated rounding item is permitted. New carry records satisfy canonical cent conservation and exact projected equality.
+
+Recompute allocations for the current eligible snapshot. A projected sub-cent row can move by a cent as eligible records enter/leave, while the stored amount remains unchanged. Largest remainder applies separately to additive bill, Service Credit, payment, disposition, billed/deferred charge and carry rows at their declared parent; it never mixes components or offsets Service Credits against money. Existing independently rounded **per-member bill displays** from #620 remain: two $33.33 member lines may sit under a $66.67 household subtotal; those lines do not promise additive equality. No separate rounding row is introduced.
+
+## Public compatibility and release boundary
+
+Allocate with private source keys before stripping them for public payloads; do not expose tie keys or internal provenance. Both public writers (`src/lib/share.js` through its callers and `functions/billing.js` / `resolveShareToken`) must emit an explicit money-projection version with the same approved components/allocated amounts. The consuming client validates it on **both** cache and Function responses before rendering financial totals. Missing, old or unknown versions cannot be rendered as this contract: resolve via the compatible authoritative Function, and show a recoverable unavailable state if no compatible response arrives. `carriedItems` presence, cache age, expiry fields or a background refresh do not establish money compatibility.
+
+A pre-change tab can write an unversioned/old `publicShares` cache after deployment, even after Function self-healing. New consumers reject it again; they must not display it first and repair it later. Test that actual late-write/read/Function-response sequence and merge-based removal of stale optional fields. Keep scope/privacy, expiry/revocation checks and access counting unchanged. This money version is separate from billing-year `rev` and draft versioning.
+
+Every financial PR in the series needs explicit human financial review of its exact head as well as the repository review gates. Merge of unused primitives may precede callers; **no partial financial dependency set is released**. Complete and review the set, deploy and verify Functions before the consuming Hosting release, and record the old/new-client interval and reload behavior. #603 remains blocked until its prerequisites and deployment gates pass; #614/#616 owner acknowledgments and staged rules gates remain separate.
+
+Before Hosting, the owner must run or separately authorize a **read-only report over live billing years**, counting households whose settlement state **or displayed owed** differs between the current and proposed projections. Record the union count and each category (with overlap), years/households inspected, integrity holds/unassessable households, source snapshot time and compared revisions; the final release review considers this evidence. This approval does not authorize that production read, a migration, a financial-data write, a deploy or a future head. No live report has been authorized or run by adoption of this ADR.
+
+## Discriminating acceptance matrix
+
+These are obligations for later implementation tests, not claims that current main passes.
+
+| Fixture (household unless specified) | Required result |
+| --- | --- |
+| Annual $1.15 / 2, household one | `G = 58`; no opening/payments: owed $0.58 |
+| Same, opening +$0.01 / −$0.01 | Owed $0.59 / $0.57 |
+| Same, paid $0.58 / $0.57 | Balance $0.00, settled / $0.01, outstanding |
+| Annual $1.13 / 2 | `G = 57` (half away, not half even) |
+| Annual $0.01 and $1.14, each / 2 | Aggregate `G = 58`, not per-bill rounding before sum |
+| Monthly $0.01 / 8; opening +$0.01 | Annual `G = 2`; owed $0.03 |
+| Annual $100 / 3, household two; opening −$100 / −$20 | `G = 6667`; owed $0.00 and `U = 3333` / owed $46.67 |
+| #620: same bill/household, opening +$0.001, Service Credit $0.004, payments $0.002 total | Owed/balance $66.67; paid $0.00; member display contract retained |
+| Separate Service Credit groups ids `a`, `b`, $0.005 each; bills $1 | `S = 1`; rows $0.01 and $0.00 respectively; owed $0.99 |
+| Bills $100, Service Credits $200, opening +$10 and −$10 | `O = 0`; owed and `U` both zero |
+| Exact original/reversal, including legacy sub-cent amount | Net zero; opposite projected rows; public history omits both |
+| Components ±$0.005; signed zero; exponent-form numbers | ±1 cent; zero never displays −$0.00; exact decimal parsing |
+| Stored 1-cent True-up across three members | Stored shares 0, 0, 1 cent; zero shares produce no records |
+| Seed hierarchy, grouped detail, legacy seed, zero-net carry | Each declared parent conserves assigned cents; detail counted once |
+| Permuted rows, tied groups, positive/negative mixed opening | Same id-to-cent allocation and component targets |
+| Cancellation, reopened refund, cap boundary and closed-year carry | Existing eligibility; exact-cent caps; old-year settlement invariant |
+| Legacy parent $0.30000000000000004, children $0.1 and $0.2 | Valid 30-cent parent; allocated children sum to exactly 30 cents |
+| Post-mutation cap with old R $0.012 and proposed refund $0.004 | Recompute aggregate R as 2 cents; request q = 0 cannot bypass the cap |
+| Invalid parent/detail/reversal or ambiguous id | Integrity hold, no invented balancing row or ledger rewrite |
+| Old cache, old Function response, late pre-change cache writer | Reject incompatible money version; resolve compatible or withhold amounts |
