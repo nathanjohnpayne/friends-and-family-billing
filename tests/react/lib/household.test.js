@@ -70,7 +70,7 @@ vi.mock('firebase/firestore', () => {
 });
 
 import {
-    planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields,
+    planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields, isValidHouseholdGraph,
     defaultHouseholdName, getHouseholdName, normalizeHouseholdName, HOUSEHOLD_NAME_MAX_LENGTH
 } from '@/lib/household.js';
 import { BillingYearService } from '@/lib/BillingYearService.js';
@@ -226,6 +226,17 @@ describe('planHouseholdEdit', () => {
         let thrown = null;
         try { revertHouseholdFields(concurrent, plan.familyMembers, previous); } catch (err) { thrown = err; }
         expect(thrown && thrown.code).toBe('household-revert-conflict');
+        // A member the edit released, linked into another household meanwhile: the
+        // revert would put them in two households, so it is a conflict too.
+        const three = [m(1, 'A', [2, 3]), m(2, 'B'), m(3, 'C'), m(4, 'D')];
+        const release = planHouseholdEdit(three, { contactId: 1, memberIds: [1, 2] }); // releases C
+        const relinked = release.familyMembers.map(x => x.id === 4 ? { ...x, linkedMembers: [3] } : x);
+        let conflict = null;
+        try { revertHouseholdFields(relinked, release.familyMembers, three); } catch (err) { conflict = err; }
+        expect(conflict && conflict.code).toBe('household-revert-conflict');
+        expect(isValidHouseholdGraph(three)).toBe(true);
+        expect(isValidHouseholdGraph([m(1, 'A', [2]), m(2, 'B', [1])])).toBe(false);
+        expect(isValidHouseholdGraph([m(1, 'A', [3]), m(2, 'B', [3]), m(3, 'C')])).toBe(false);
         // A member that already holds its previous fields is fine; the rest revert.
         const partial = plan.familyMembers.map(x => x.id === 1 ? { ...x, linkedMembers: [2] } : x);
         const restored = revertHouseholdFields(partial, plan.familyMembers, previous);

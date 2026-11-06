@@ -220,7 +220,7 @@ export function revertHouseholdFields(current, planned, previous) {
         }
     }
     if (toRevert.size === 0) return null;
-    return current.map(cur => {
+    const restored = current.map(cur => {
         const previousMember = toRevert.get(cur.id);
         if (!previousMember) return cur;
         const next = { ...cur, linkedMembers: (previousMember.linkedMembers || []).slice() };
@@ -228,4 +228,35 @@ export function revertHouseholdFields(current, planned, previous) {
         else delete next.householdName;
         return next;
     });
+    // The restored households must still be valid against every member, including
+    // ones this edit did not touch (another client may have linked a member it
+    // released into a different household).
+    if (!isValidHouseholdGraph(restored)) {
+        const err = new Error('Another change to these households was saved meanwhile.');
+        err.code = 'household-revert-conflict';
+        throw err;
+    }
+    return restored;
+}
+
+/**
+ * Whether a member list forms valid households: every linked id is another
+ * existing member, no member is linked by more than one contact or more than once,
+ * and no contact is itself linked by someone else.
+ * @param {Array} familyMembers
+ * @returns {boolean}
+ */
+export function isValidHouseholdGraph(familyMembers) {
+    const ids = new Set((familyMembers || []).map(m => m.id));
+    const linkedBy = new Map();
+    for (const member of familyMembers || []) {
+        for (const id of member.linkedMembers || []) {
+            if (id === member.id || !ids.has(id) || linkedBy.has(id)) return false;
+            linkedBy.set(id, member.id);
+        }
+    }
+    for (const member of familyMembers || []) {
+        if ((member.linkedMembers || []).length > 0 && linkedBy.has(member.id)) return false;
+    }
+    return true;
 }
