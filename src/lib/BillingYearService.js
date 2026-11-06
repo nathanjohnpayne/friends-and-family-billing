@@ -338,7 +338,11 @@ export class BillingYearService {
         const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
         if (this._e2eMode || !this._user || !activeYear) return;
         if (activeYear.status === 'closed' || activeYear.status === 'archived') return;
-        const write = this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
+        await this._enqueueConfirmed(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+    }
+
+    /** @private Enqueue a write and reject when that write fails (see _saveConfirmed). */
+    async _enqueueConfirmed(write) {
         let failure = null;
         await this._saveQueue.enqueue(async () => {
             try {
@@ -770,6 +774,11 @@ export class BillingYearService {
         if (this._householdPending > 0) {
             throw new Error('A household change is still being saved. Try again in a moment.');
         }
+        // Start New Year snapshots the household and a status change rewrites the
+        // year; a link edit landing meanwhile would be lost or would overwrite them.
+        if (this._yearOpPending > 0) {
+            throw new Error('The billing year is being updated. Try again in a moment.');
+        }
     }
 
     /** @private The (user, year) a household operation was requested in. */
@@ -859,7 +868,8 @@ export class BillingYearService {
             const message = 'The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error');
             const currentYearId = this._state.activeYear ? this._state.activeYear.id : null;
             if (currentYearId !== editedYearId) {
-                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId);
+                await this._compensateOrReport(message, () =>
+                    this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
                 throw new Error(message);
             }
             const rollback = {};
@@ -873,7 +883,9 @@ export class BillingYearService {
             // a snapshot with the rolled-back household and would persist it. Enqueue a
             // compensating write of the rolled-back state behind it; it keeps every
             // intervening mutation because it saves the current state.
-            if (rollback.familyMembers || rollback.billingEvents) this.save();
+            if (rollback.familyMembers || rollback.billingEvents) {
+                await this._compensateOrReport(message, () => this._saveConfirmed());
+            }
             throw new Error(message);
         }
         const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds, shareInputs);
@@ -889,13 +901,28 @@ export class BillingYearService {
     }
 
     /**
+     * @private Run a failed household change's compensating write and wait for it.
+     * If it fails too, a write queued meanwhile may have persisted the rejected
+     * household, so the reported error says so and asks for a reload.
+     */
+    async _compensateOrReport(message, compensate) {
+        try {
+            await compensate();
+        } catch (err) {
+            throw new Error(message + '. Restoring the saved household also failed ('
+                + (err && err.message ? err.message : 'unknown error')
+                + '); reload before making further changes.');
+        }
+    }
+
+    /**
      * @private After a failed household write, when the active year has changed:
      * if a later write for the edited year was enqueued behind it, enqueue one more
      * write of that later snapshot with this edit's household fields and event
      * reverted. It keeps every other mutation in that snapshot and never writes the
      * current (other) year's state into the edited year's document.
      */
-    _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
+    async _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
         const latest = this._queuedYearSnapshots.get(yearId);
         if (!latest || latest.seq <= ownSeq || !this._user || latest.uid !== this._user.uid) return;
         const [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments] = latest.args;
@@ -905,7 +932,7 @@ export class BillingYearService {
             ? events.filter(e => e.id !== addedEventId)
             : null;
         if (!restoredMembers && !restoredEvents) return;
-        this._saveQueue.enqueue(this._yearDocWrite(activeYear, restoredMembers || familyMembers, bills, payments, restoredEvents || events, settings, creditAdjustments, owedAdjustments));
+        await this._enqueueConfirmed(this._yearDocWrite(activeYear, restoredMembers || familyMembers, bills, payments, restoredEvents || events, settings, creditAdjustments, owedAdjustments));
     }
 
     /**
@@ -1162,8 +1189,10 @@ export class BillingYearService {
             };
         }
 
+        // Guard every distribution request: a pending contact change may have cleared
+        // this member's links, which would record the payment unsplit.
+        if (data.distribute) this._guardHouseholdGraph();
         if (data.distribute && member.linkedMembers && member.linkedMembers.length > 0) {
-            this._guardHouseholdGraph();
             const summary = calculateAnnualSummary(familyMembers, bills);
             let combinedTotal = summary[data.memberId] ? summary[data.memberId].total : 0;
             member.linkedMembers.forEach(id => {

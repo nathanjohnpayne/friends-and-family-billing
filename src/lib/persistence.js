@@ -79,14 +79,18 @@ export function normalizeYearData(yearData, yearId) {
         if (!m.avatar) m.avatar = '';
         if (m.paymentReceived === undefined) m.paymentReceived = 0;
         if (!m.linkedMembers) m.linkedMembers = [];
-        // Optional household name on a contact's record (#528, ADR 0011). Keep a
-        // trimmed non-empty string; drop anything else.
-        if (m.householdName !== undefined) {
-            const name = normalizeHouseholdName(m.householdName);
-            if (name) m.householdName = name;
-            else delete m.householdName;
-        }
         return m;
+    });
+    // Optional household name, kept only on a household contact's record (#528,
+    // ADR 0011): a member with links who is not linked by anyone. Keep a trimmed
+    // non-empty string; drop anything else, and drop a name on any other member.
+    const linkedIds = new Set(members.flatMap(m => m.linkedMembers || []));
+    members.forEach(m => {
+        if (m.householdName === undefined) return;
+        const isContact = m.linkedMembers.length > 0 && !linkedIds.has(m.id);
+        const name = isContact ? normalizeHouseholdName(m.householdName) : '';
+        if (name) m.householdName = name;
+        else delete m.householdName;
     });
 
     const bills = (yearData.bills || []).map(b => {

@@ -420,6 +420,18 @@ describe('household name persistence', () => {
         expect('householdName' in loaded.members.find(x => x.id === 3)).toBe(false);
     });
 
+    it('drops a non-empty household name stored on a member who is not a contact', () => {
+        const state = richState();
+        state.familyMembers[1] = { ...state.familyMembers[1], householdName: 'Stray' };   // Anna, a household member
+        state.familyMembers[3] = { ...state.familyMembers[3], householdName: 'Alone' };   // Kwame, an individual
+        const payload = buildSavePayload(state.activeYear, state.familyMembers, state.bills, state.payments,
+            state.billingEvents, state.settings, state.creditAdjustments, state.owedAdjustments);
+        const loaded = normalizeYearData(structuredClone(payload), '2026');
+        expect(loaded.members.find(x => x.id === 1).householdName).toBe('Lake House');
+        expect('householdName' in loaded.members.find(x => x.id === 2)).toBe(false);
+        expect('householdName' in loaded.members.find(x => x.id === 4)).toBe(false);
+    });
+
     it('is cloned by Start New Year onto the contact only', () => {
         const state = richState();
         state.familyMembers[3] = { ...state.familyMembers[3], householdName: 'Stray' }; // not a contact
@@ -532,6 +544,17 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('reports when the compensating write after a failed household save also fails', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        setDoc.mockRejectedValueOnce(new Error('unavailable')).mockRejectedValueOnce(new Error('offline'));
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(
+            'The household change could not be saved: unavailable. Restoring the saved household also failed (offline); reload before making further changes.');
+        expect(svc.getState().familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        errSpy.mockRestore();
+    });
+
     it('keeps a payment recorded while a failed household save was pending', async () => {
         const { setDoc } = await import('firebase/firestore');
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -624,6 +647,8 @@ describe('share documents after a contact change', () => {
         });
         const rollover = svc.createYear('2027');
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The billing year is being updated.');
+        expect(() => svc.updateMember(1, { linkedMembers: [2, 3, 4] })).toThrow('The billing year is being updated.');
+        expect(() => svc.removeMember(4)).toThrow('The billing year is being updated.');
         releaseRollover();
         await rollover;
         // Both year documents keep the original household.
@@ -672,6 +697,8 @@ describe('share documents after a contact change', () => {
         expect(() => svc.issueRefund({ memberId: 2, amount: 5, method: 'cash', reason: 'over' })).toThrow('A household change is still being saved.');
         expect(() => svc.recordPayment({ memberId: 2, amount: 30, method: 'cash', distribute: true })).toThrow('A household change is still being saved.');
         expect(() => svc.billDeferredCharges({ memberId: 2 })).toThrow('A household change is still being saved.');
+        // Erik's links were cleared by the pending change; a distribution request is still refused.
+        expect(() => svc.recordPayment({ memberId: 1, amount: 30, method: 'cash', distribute: true })).toThrow('A household change is still being saved.');
         expect(svc.getState().owedAdjustments.find(a => a.id === 'oadj_def').status).toBe('deferred');
         svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' }); // an individual payment is still allowed
         // Start New Year and a status change would snapshot the unconfirmed household.
