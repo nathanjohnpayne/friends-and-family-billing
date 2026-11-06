@@ -212,11 +212,25 @@ describe('planHouseholdEdit', () => {
         expect(restored.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2], householdName: 'Lake', email: 'e@x.com' });
         expect(restored.find(x => x.id === 2).linkedMembers).toEqual([]);
         expect(restored.find(x => x.id === 3)).toBe(current.find(x => x.id === 3));
-        // A later household edit on member 2 is left alone.
-        const later = plan.familyMembers.map(x => x.id === 2 ? { ...x, linkedMembers: [1, 3] } : x);
-        expect(revertHouseholdFields(later, plan.familyMembers, previous).find(x => x.id === 2).linkedMembers).toEqual([1, 3]);
         // Nothing to restore returns null.
         expect(revertHouseholdFields(previous, plan.familyMembers, previous)).toBeNull();
+    });
+
+    it('reverts all changed members or none, so a concurrent edit cannot leave a cycle', () => {
+        // A links B; the edit promotes B (A=[], B=[A]); another client then adds C
+        // to B's household (B=[A, C]). Reverting only A would make A and B link
+        // each other, so nothing is reverted and a conflict is reported.
+        const previous = [m(1, 'A', [2]), m(2, 'B'), m(3, 'C')];
+        const plan = planHouseholdEdit(previous, { contactId: 2, memberIds: [1, 2] });
+        const concurrent = plan.familyMembers.map(x => x.id === 2 ? { ...x, linkedMembers: [1, 3] } : x);
+        let thrown = null;
+        try { revertHouseholdFields(concurrent, plan.familyMembers, previous); } catch (err) { thrown = err; }
+        expect(thrown && thrown.code).toBe('household-revert-conflict');
+        // A member that already holds its previous fields is fine; the rest revert.
+        const partial = plan.familyMembers.map(x => x.id === 1 ? { ...x, linkedMembers: [2] } : x);
+        const restored = revertHouseholdFields(partial, plan.familyMembers, previous);
+        expect(restored.find(x => x.id === 1).linkedMembers).toEqual([2]);
+        expect(restored.find(x => x.id === 2).linkedMembers).toEqual([]);
     });
 
     it('does not mutate its input', () => {
@@ -585,11 +599,39 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
-    it('reports when the compensating write after a failed household save also fails', async () => {
+    it('keeps a queued payment when the open year is reloaded before it lands and the household save then fails', async () => {
         const { setDoc } = await import('firebase/firestore');
-        setDoc.mockRejectedValueOnce(new Error('unavailable')).mockRejectedValueOnce(new Error('offline'));
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const svc = createService();
+        const loaded = structuredClone({ familyMembers: svc.getState().familyMembers, payments: svc.getState().payments });
+        setDoc.mockImplementationOnce(async () => {
+            // A payment is queued behind the household write; the (still open) year is
+            // reloaded before that payment write lands, so local state has neither the
+            // household change nor the payment; then the household write fails.
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            svc._setState({ familyMembers: structuredClone(loaded.familyMembers), payments: structuredClone(loaded.payments), billingEvents: [] });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        const persisted = mockStore['users/user-1/billingYears/2026'];
+        // The payment the queued write persisted survives; only the household reverts.
+        expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        expect(persisted.familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
+        errSpy.mockRestore();
+    });
+
+    it('reports when the compensating write after a failed household save also fails', async () => {
+        const { setDoc, runTransaction } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        setDoc.mockImplementationOnce(async () => {
+            // A payment is queued behind the failing write, so the stored year needs compensating.
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            throw new Error('unavailable');
+        });
+        runTransaction.mockRejectedValueOnce(new Error('offline'));
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow(
             'The household change could not be saved: unavailable. Restoring the saved household also failed (offline); reload before making further changes.');
         expect(svc.getState().familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);

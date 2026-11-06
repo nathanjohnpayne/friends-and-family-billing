@@ -853,48 +853,43 @@ export class BillingYearService {
             await confirmed;
         } catch (err) {
             // Do not publish share documents for a household that was not persisted.
-            // Undo only this edit: put back the household fields (linkedMembers,
-            // householdName) this edit changed, member by member, and remove only the
-            // event it appended. A mutation that landed while the write was pending —
-            // a member's name or email edit, a payment and its PAYMENT_RECORDED event —
-            // is kept. Then report the failure.
+            // Undo only this edit, in two places, then report the failure:
             //
-            // Bound to the edited year: if the administrator switched years while the
-            // write was pending, the current state belongs to another year, so it is
-            // neither rolled back nor re-saved (member ids survive Start New Year and
-            // would otherwise match unrelated records). A write for the edited year
-            // that was enqueued behind ours still holds the rejected household, so it
-            // is compensated from its own snapshot instead.
+            // 1. Local state, if it is still the edited year: put back the household
+            //    fields this edit changed (all of them or none, see
+            //    revertHouseholdFields) and remove only the event it appended. A
+            //    mutation that landed meanwhile — a member's name or email edit, a
+            //    payment and its PAYMENT_RECORDED event — is kept. After a year switch
+            //    the state belongs to another year (member ids survive Start New Year)
+            //    and is left alone; after a reload it no longer holds the edit.
+            //
+            // 2. The stored year document: a write enqueued behind ours (e.g.
+            //    recordPayment's save) holds the rejected household and will persist
+            //    it. _compensateQueuedYearWrite waits for it and then reverts only the
+            //    household fields and the event in the stored document, leaving
+            //    everything else (including another client's changes) as stored.
             const message = 'The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error');
             const currentYearId = this._state.activeYear ? this._state.activeYear.id : null;
-            if (currentYearId !== editedYearId) {
-                await this._compensateOrReport(message, () =>
-                    this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
-                throw new Error(message);
+            let localConflict = false;
+            if (currentYearId === editedYearId) {
+                const rollback = {};
+                try {
+                    const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
+                    if (restoredMembers) rollback.familyMembers = restoredMembers;
+                } catch (revertErr) {
+                    if (revertErr.code !== 'household-revert-conflict') throw revertErr;
+                    localConflict = true;
+                }
+                const events = this._state.billingEvents || [];
+                if (addedEventId && events.some(e => e.id === addedEventId)) {
+                    rollback.billingEvents = events.filter(e => e.id !== addedEventId);
+                }
+                if (rollback.familyMembers || rollback.billingEvents) this._setState(rollback);
             }
-            const rollback = {};
-            const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
-            if (restoredMembers) rollback.familyMembers = restoredMembers;
-            if (addedEventId) {
-                rollback.billingEvents = (this._state.billingEvents || []).filter(e => e.id !== addedEventId);
-            }
-            this._setState(rollback);
-            // A write enqueued while ours was pending (e.g. recordPayment's save) holds
-            // a snapshot with the rolled-back household and would persist it. Enqueue a
-            // compensating write of the rolled-back state behind it; it keeps every
-            // intervening mutation because it saves the current state.
-            // When the local state still holds this edit, re-saving it (rolled back)
-            // is the compensation. When it does not — the year was reloaded while the
-            // write was pending, e.g. after another client closed it — or the year is
-            // now read-only (so save() would skip), compensate the latest write queued
-            // for this year from its own snapshot instead.
-            const year = this._state.activeYear;
-            const readOnly = !year || year.status === 'closed' || year.status === 'archived';
-            if ((rollback.familyMembers || rollback.billingEvents) && !readOnly) {
-                await this._compensateOrReport(message, () => this._saveConfirmed());
-            } else {
-                await this._compensateOrReport(message, () =>
-                    this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
+            await this._compensateOrReport(message, () =>
+                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
+            if (localConflict) {
+                throw new Error(message + '. The household could not be restored here because it changed meanwhile; reload before making further changes.');
             }
             throw new Error(message);
         }

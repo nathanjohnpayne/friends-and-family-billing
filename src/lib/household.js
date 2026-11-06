@@ -188,32 +188,44 @@ function sameIds(a, b) {
 }
 
 /**
- * Undo a household edit's household fields on the current member list, keeping
- * every other change made since (#528). For each member the edit changed
- * (`planned` differs from `previous`), `linkedMembers` and `householdName` go back
- * to their previous values — but only while they still hold what the edit set, so
- * a later household edit is never clobbered. Members removed since are skipped.
+ * Undo a household edit's household fields on a member list, keeping every other
+ * change made since (#528). The members the edit changed (`planned` differs from
+ * `previous`) are restored together or not at all: each must still hold either
+ * what the edit set (it is then put back) or what it had before (left as is). If
+ * any of them holds something else — another household change was saved
+ * meanwhile, or the member is gone — reverting only some of them could leave two
+ * contacts linking each other, so nothing is reverted and a conflict is thrown.
+ * Every other field (name, email, phone, …) is kept.
  *
  * @param {Array} current   the member list now
  * @param {Array} planned   planHouseholdEdit(...).familyMembers
  * @param {Array} previous  the member list the edit was planned from
  * @returns {Array|null} the restored list, or null when nothing needed restoring
+ * @throws {Error} with code 'household-revert-conflict' when the households changed since
  */
 export function revertHouseholdFields(current, planned, previous) {
     const plannedById = new Map((planned || []).map(m => [m.id, m]));
-    const previousById = new Map((previous || []).map(m => [m.id, m]));
-    let changed = false;
-    const restored = (current || []).map(cur => {
-        const plannedMember = plannedById.get(cur.id);
-        const previousMember = previousById.get(cur.id);
-        if (!plannedMember || !previousMember || plannedMember === previousMember) return cur;
-        if (!sameIds(cur.linkedMembers, plannedMember.linkedMembers)) return cur;
-        if (cur.householdName !== plannedMember.householdName) return cur;
-        changed = true;
+    const currentById = new Map((current || []).map(m => [m.id, m]));
+    const holds = (cur, ref) => sameIds(cur.linkedMembers, ref.linkedMembers) && cur.householdName === ref.householdName;
+    const toRevert = new Map();
+    for (const previousMember of previous || []) {
+        const plannedMember = plannedById.get(previousMember.id);
+        if (!plannedMember || plannedMember === previousMember) continue;
+        const cur = currentById.get(previousMember.id);
+        if (cur && holds(cur, plannedMember)) toRevert.set(cur.id, previousMember);
+        else if (!(cur && holds(cur, previousMember))) {
+            const err = new Error('Another change to these households was saved meanwhile.');
+            err.code = 'household-revert-conflict';
+            throw err;
+        }
+    }
+    if (toRevert.size === 0) return null;
+    return current.map(cur => {
+        const previousMember = toRevert.get(cur.id);
+        if (!previousMember) return cur;
         const next = { ...cur, linkedMembers: (previousMember.linkedMembers || []).slice() };
         if (previousMember.householdName !== undefined) next.householdName = previousMember.householdName;
         else delete next.householdName;
         return next;
     });
-    return changed ? restored : null;
 }
