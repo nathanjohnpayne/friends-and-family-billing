@@ -10,6 +10,7 @@ import { doc, setDoc, getDoc, getDocs, collection, query, where, deleteDoc } fro
 import { db } from '../../lib/firebase.js';
 import { buildShareScopes, buildShareUrl, isShareTokenStale } from '../../lib/share.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
+import Dialog from './Dialog.jsx';
 
 function formatLastViewed(timestamp) {
     if (!timestamp) return '';
@@ -152,106 +153,106 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
     ];
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Share Links for {memberName}</div>
+        <Dialog
+            onClose={onClose}
+            wide
+            title={<>Share Links for {memberName}</>}
+            footer={tab === 'generate' ? (
+                <>
+                    <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+                    <button className="btn btn-sm btn-ink" onClick={handleGenerate} disabled={generating}>
+                        {generating ? 'Generating...' : 'Generate & Copy Link'}
+                    </button>
+                </>
+            ) : (
+                <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+            )}
+        >
+            <div className="share-link-tabs">
+                <button
+                    className={'settlement-filter-chip' + (tab === 'generate' ? ' active' : '')}
+                    onClick={() => setTab('generate')}
+                >New Link</button>
+                <button
+                    className={'settlement-filter-chip' + (tab === 'manage' ? ' active' : '')}
+                    onClick={() => setTab('manage')}
+                >Manage Links</button>
+            </div>
 
-                <div className="share-link-tabs">
-                    <button
-                        className={'settlement-filter-chip' + (tab === 'generate' ? ' active' : '')}
-                        onClick={() => setTab('generate')}
-                    >New Link</button>
-                    <button
-                        className={'settlement-filter-chip' + (tab === 'manage' ? ' active' : '')}
-                        onClick={() => setTab('manage')}
-                    >Manage Links</button>
-                </div>
-
-                {tab === 'generate' && (
-                    <div className="share-link-generate">
-                        <p className="link-manager-hint">
-                            Generate a shareable billing summary link for {memberName} ({yearLabel}).
-                        </p>
-                        <div className="payment-dialog-fields">
-                            <div className="payment-field-group">
-                                <label>Link Expiry</label>
-                                <select className="composer-input" value={expiryDays} onChange={e => setExpiryDays(Number(e.target.value))}>
-                                    {expiryOptions.map(o => (
-                                        <option key={o.value} value={o.value}>{o.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="checkbox-item">
-                                <input type="checkbox" id="allow-dispute" checked={allowDispute} onChange={e => setAllowDispute(e.target.checked)} />
-                                <label htmlFor="allow-dispute">Allow member to request bill reviews</label>
-                            </div>
-                            <div className="checkbox-item">
-                                <input type="checkbox" id="allow-dispute-read" checked={allowDisputeRead} onChange={e => setAllowDisputeRead(e.target.checked)} />
-                                <label htmlFor="allow-dispute-read">Allow member to view review requests &amp; evidence</label>
-                            </div>
+            {tab === 'generate' && (
+                <div className="share-link-generate">
+                    <p className="link-manager-hint">
+                        Generate a shareable billing summary link for {memberName} ({yearLabel}).
+                    </p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label>Link Expiry</label>
+                            <select className="composer-input" value={expiryDays} onChange={e => setExpiryDays(Number(e.target.value))}>
+                                {expiryOptions.map(o => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
                         </div>
+                        <div className="checkbox-item">
+                            <input type="checkbox" id="allow-dispute" checked={allowDispute} onChange={e => setAllowDispute(e.target.checked)} />
+                            <label htmlFor="allow-dispute">Allow member to request bill reviews</label>
+                        </div>
+                        <div className="checkbox-item">
+                            <input type="checkbox" id="allow-dispute-read" checked={allowDisputeRead} onChange={e => setAllowDisputeRead(e.target.checked)} />
+                            <label htmlFor="allow-dispute-read">Allow member to view review requests &amp; evidence</label>
+                        </div>
+                    </div>
 
-                        {generatedUrl && (
-                            <div className="share-link-result">
-                                <span className="share-link-url">{generatedUrl}</span>
-                                <button className="btn btn-sm btn-secondary" onClick={() => handleCopy(generatedUrl, 'generated')}>
-                                    {copied === 'generated' ? 'Copied!' : 'Copy'}
-                                </button>
-                            </div>
-                        )}
-
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                            <button className="btn btn-sm btn-ink" onClick={handleGenerate} disabled={generating}>
-                                {generating ? 'Generating...' : 'Generate & Copy Link'}
+                    {generatedUrl && (
+                        <div className="share-link-result">
+                            <span className="share-link-url">{generatedUrl}</span>
+                            <button className="btn btn-sm btn-secondary" onClick={() => handleCopy(generatedUrl, 'generated')}>
+                                {copied === 'generated' ? 'Copied!' : 'Copy'}
                             </button>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
+            )}
 
-                {tab === 'manage' && (
-                    <div className="share-link-manage">
-                        {loadingLinks ? (
-                            <p className="link-manager-hint">Loading share links...</p>
-                        ) : links.length === 0 ? (
-                            <p className="link-manager-empty">No share links generated yet for this member.</p>
-                        ) : (
-                            <div className="share-link-list">
-                                {links.map(link => (
-                                    <div key={link.id} className="share-link-item">
-                                        <div className="share-link-item-header">
-                                            <span className="share-link-year">{yearLabel}</span>
-                                            <span className="share-link-date">{link.createdAt}</span>
-                                            <span className={'share-link-status share-link-status--' + link.status}>{link.status}</span>
-                                        </div>
-                                        {link.url && (
-                                            <div className="share-link-url-row">
-                                                <span className="share-link-url share-link-url-truncated">{link.url}</span>
-                                                <button className="btn btn-sm btn-tertiary" onClick={() => handleCopy(link.url, link.id)}>
-                                                    {copied === link.id ? 'Copied!' : 'Copy'}
-                                                </button>
-                                                {link.status === 'active' && (
-                                                    <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRevoke(link.id)}>
-                                                        Revoke
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                        <div className="share-link-meta">
-                                            {link.accessCount > 0
-                                                ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '') + ', last ' + formatLastViewed(link.lastAccessedAt)
-                                                : 'Never viewed'}
-                                        </div>
+            {tab === 'manage' && (
+                <div className="share-link-manage">
+                    {loadingLinks ? (
+                        <p className="link-manager-hint">Loading share links...</p>
+                    ) : links.length === 0 ? (
+                        <p className="link-manager-empty">No share links generated yet for this member.</p>
+                    ) : (
+                        <div className="share-link-list">
+                            {links.map(link => (
+                                <div key={link.id} className="share-link-item">
+                                    <div className="share-link-item-header">
+                                        <span className="share-link-year">{yearLabel}</span>
+                                        <span className="share-link-date">{link.createdAt}</span>
+                                        <span className={'share-link-status share-link-status--' + link.status}>{link.status}</span>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+                                    {link.url && (
+                                        <div className="share-link-url-row">
+                                            <span className="share-link-url share-link-url-truncated">{link.url}</span>
+                                            <button className="btn btn-sm btn-tertiary" onClick={() => handleCopy(link.url, link.id)}>
+                                                {copied === link.id ? 'Copied!' : 'Copy'}
+                                            </button>
+                                            {link.status === 'active' && (
+                                                <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRevoke(link.id)}>
+                                                    Revoke
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="share-link-meta">
+                                        {link.accessCount > 0
+                                            ? link.accessCount + ' view' + (link.accessCount !== 1 ? 's' : '') + ', last ' + formatLastViewed(link.lastAccessedAt)
+                                            : 'Never viewed'}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    )}
+                </div>
+            )}
+        </Dialog>
     );
 }

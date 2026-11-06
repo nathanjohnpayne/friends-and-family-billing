@@ -14,6 +14,7 @@ import {
 } from '../../lib/calculations.js';
 import { getPaymentMethodLabel, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import Dialog from './Dialog.jsx';
 
 /** Payment method options matching SettlementBoard.jsx */
 const PAYMENT_METHODS = [
@@ -107,99 +108,96 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     }
 
     return (
-        <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Payment History for {memberName}</div>
-
-                <div className="payment-history-summary">
-                    <div className="payment-history-stat">
-                        <span className="payment-history-stat-label">Total Paid</span>
-                        <span className="payment-history-stat-value">{formatAnnualSummaryCurrency(totalPaid)}</span>
-                    </div>
-                    <div className="payment-history-stat">
-                        <span className="payment-history-stat-label">Remaining Balance</span>
-                        <span className={'payment-history-stat-value' + (balance > 0 ? ' balance-owed' : ' settled-zero')}>
-                            {balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}
-                        </span>
-                    </div>
+        <Dialog
+            onClose={onClose}
+            wide
+            title={'Payment History for ' + memberName}
+            footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}
+        >
+            <div className="payment-history-summary">
+                <div className="payment-history-stat">
+                    <span className="payment-history-stat-label">Total Paid</span>
+                    <span className="payment-history-stat-value">{formatAnnualSummaryCurrency(totalPaid)}</span>
                 </div>
-
-                {memberPayments.length === 0 ? (
-                    <p className="payment-history-empty">No payments recorded yet.</p>
-                ) : (
-                    <div className="payment-history-list">
-                        {memberPayments.map(p => {
-                            const isReversal = p.type === 'reversal';
-                            const isReversed = p.reversed === true;
-                            const date = p.receivedAt ? new Date(p.receivedAt).toLocaleDateString() : '';
-                            const canReverse = !readOnly && !isReversed && !isReversal;
-
-                            return (
-                                <div key={p.id} className={'payment-history-item' + (isReversed ? ' payment-reversed' : '') + (isReversal ? ' payment-reversal' : '')}>
-                                    <div className="payment-history-item-main">
-                                        <div className="payment-history-item-left">
-                                            <span className="payment-history-date">{date}</span>
-                                            <span className={'payment-history-amount' + (isReversal ? ' reversal-amount' : '')}>
-                                                {isReversal ? '-' : ''}{formatAnnualSummaryCurrency(Math.abs(p.amount))}
-                                            </span>
-                                        </div>
-                                        <div className="payment-history-item-right">
-                                            <span className="payment-history-method">{getPaymentMethodLabel(p.method)}</span>
-                                            {isReversed && <span className="payment-history-tag tag-reversed">Reversed</span>}
-                                            {isReversal && <span className="payment-history-tag tag-reversal">Reversal</span>}
-                                            {canReverse && (
-                                                <>
-                                                    <button
-                                                        className="btn btn-sm btn-tertiary"
-                                                        onClick={() => setEditTarget({ ...p })}
-                                                        title="Edit payment method or note"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        className="btn btn-sm btn-destructive-outline payment-reverse-btn"
-                                                        onClick={() => setReverseTarget(p)}
-                                                        title="Reverse this payment"
-                                                    >
-                                                        &times;
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {p.note && <div className="payment-history-note">{p.note}</div>}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-
-                <div className="dialog-buttons">
-                    <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
+                <div className="payment-history-stat">
+                    <span className="payment-history-stat-label">Remaining Balance</span>
+                    <span className={'payment-history-stat-value' + (balance > 0 ? ' balance-owed' : ' settled-zero')}>
+                        {balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}
+                    </span>
                 </div>
-
-                <ConfirmDialog
-                    open={reverseTarget !== null}
-                    title={recordedRefund.has ? 'Reverse Payment — Refund on Record' : 'Reverse Payment'}
-                    message={reverseConfirmMessage()}
-                    confirmLabel="Reverse"
-                    destructive
-                    onConfirm={handleReverse}
-                    onCancel={() => setReverseTarget(null)}
-                />
-
-                {editTarget && (
-                    <PaymentEditDialog
-                        payment={editTarget}
-                        onSave={updated => {
-                            if (onEditPayment) onEditPayment(updated.id, { method: updated.method, note: updated.note });
-                            setEditTarget(null);
-                        }}
-                        onCancel={() => setEditTarget(null)}
-                    />
-                )}
             </div>
-        </div>
+
+            {memberPayments.length === 0 ? (
+                <p className="payment-history-empty">No payments recorded yet.</p>
+            ) : (
+                <div className="payment-history-list">
+                    {memberPayments.map(p => {
+                        const isReversal = p.type === 'reversal';
+                        const isReversed = p.reversed === true;
+                        const date = p.receivedAt ? new Date(p.receivedAt).toLocaleDateString() : '';
+                        const canReverse = !readOnly && !isReversed && !isReversal;
+
+                        return (
+                            <div key={p.id} className={'payment-history-item' + (isReversed ? ' payment-reversed' : '') + (isReversal ? ' payment-reversal' : '')}>
+                                <div className="payment-history-item-main">
+                                    <div className="payment-history-item-left">
+                                        <span className="payment-history-date">{date}</span>
+                                        <span className={'payment-history-amount' + (isReversal ? ' reversal-amount' : '')}>
+                                            {isReversal ? '-' : ''}{formatAnnualSummaryCurrency(Math.abs(p.amount))}
+                                        </span>
+                                    </div>
+                                    <div className="payment-history-item-right">
+                                        <span className="payment-history-method">{getPaymentMethodLabel(p.method)}</span>
+                                        {isReversed && <span className="payment-history-tag tag-reversed">Reversed</span>}
+                                        {isReversal && <span className="payment-history-tag tag-reversal">Reversal</span>}
+                                        {canReverse && (
+                                            <>
+                                                <button
+                                                    className="btn btn-sm btn-tertiary"
+                                                    onClick={() => setEditTarget({ ...p })}
+                                                    title="Edit payment method or note"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    className="btn btn-sm btn-destructive-outline payment-reverse-btn"
+                                                    onClick={() => setReverseTarget(p)}
+                                                    title="Reverse this payment"
+                                                >
+                                                    &times;
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                                {p.note && <div className="payment-history-note">{p.note}</div>}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            <ConfirmDialog
+                open={reverseTarget !== null}
+                title={recordedRefund.has ? 'Reverse Payment — Refund on Record' : 'Reverse Payment'}
+                message={reverseConfirmMessage()}
+                confirmLabel="Reverse"
+                destructive
+                onConfirm={handleReverse}
+                onCancel={() => setReverseTarget(null)}
+            />
+
+            {editTarget && (
+                <PaymentEditDialog
+                    payment={editTarget}
+                    onSave={updated => {
+                        if (onEditPayment) onEditPayment(updated.id, { method: updated.method, note: updated.note });
+                        setEditTarget(null);
+                    }}
+                    onCancel={() => setEditTarget(null)}
+                />
+            )}
+        </Dialog>
     );
 }
 
@@ -214,51 +212,52 @@ function PaymentEditDialog({ payment, onSave, onCancel }) {
     }
 
     return (
-        <div className="dialog-overlay" onClick={onCancel}>
-            <div className="dialog" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title">Edit Payment</div>
-                <form onSubmit={handleSave}>
-                    <div className="payment-dialog-fields">
-                        <div className="payment-field-group">
-                            <label>Amount</label>
-                            <input
-                                className="composer-input"
-                                type="text"
-                                value={formatAnnualSummaryCurrency(payment.amount)}
-                                disabled
-                            />
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="edit-pay-method">Method</label>
-                            <select
-                                id="edit-pay-method"
-                                className="composer-input"
-                                value={method}
-                                onChange={e => setMethod(e.target.value)}
-                            >
-                                {PAYMENT_METHODS.map(m => (
-                                    <option key={m.value} value={m.value}>{m.label}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="edit-pay-note">Note</label>
-                            <input
-                                id="edit-pay-note"
-                                className="composer-input"
-                                type="text"
-                                placeholder="e.g., Q1 payment"
-                                value={note}
-                                onChange={e => setNote(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    <div className="dialog-buttons">
-                        <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-ink">Save</button>
-                    </div>
-                </form>
+        <Dialog
+            onClose={onCancel}
+            title="Edit Payment"
+            onSubmit={handleSave}
+            footer={(
+                <>
+                    <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Save</button>
+                </>
+            )}
+        >
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label>Amount</label>
+                    <input
+                        className="composer-input"
+                        type="text"
+                        value={formatAnnualSummaryCurrency(payment.amount)}
+                        disabled
+                    />
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="edit-pay-method">Method</label>
+                    <select
+                        id="edit-pay-method"
+                        className="composer-input"
+                        value={method}
+                        onChange={e => setMethod(e.target.value)}
+                    >
+                        {PAYMENT_METHODS.map(m => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="edit-pay-note">Note</label>
+                    <input
+                        id="edit-pay-note"
+                        className="composer-input"
+                        type="text"
+                        placeholder="e.g., Q1 payment"
+                        value={note}
+                        onChange={e => setNote(e.target.value)}
+                    />
+                </div>
             </div>
-        </div>
+        </Dialog>
     );
 }

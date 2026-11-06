@@ -14,6 +14,7 @@ import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import BillAuditHistoryDialog from '../../components/BillAuditHistoryDialog.jsx';
 import ServiceCreditDialog from '../../components/ServiceCreditDialog.jsx';
 import CompanyLogo from '../../components/CompanyLogo.jsx';
+import Dialog from '../../components/Dialog.jsx';
 
 export default function BillsTab() {
     const { bills, familyMembers, activeYear, loading, service, billingEvents } = useBillingData();
@@ -298,30 +299,32 @@ export default function BillsTab() {
             })()}
 
             {websiteTarget && (
-                <div className="dialog-overlay" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Edit Website for {websiteTarget.name}</div>
-                        <div className="payment-dialog-fields">
-                            <div className="payment-field-group">
-                                <label htmlFor={'website-edit-' + websiteTarget.id}>Website URL</label>
-                                <input
-                                    id={'website-edit-' + websiteTarget.id}
-                                    className="composer-input"
-                                    type="url"
-                                    placeholder="https://example.com"
-                                    value={websiteValue}
-                                    onChange={e => setWebsiteValue(e.target.value)}
-                                    autoFocus
-                                />
-                            </div>
-                        </div>
-                        {websiteError && <p className="composer-error">{websiteError}</p>}
-                        <div className="dialog-buttons">
+                <Dialog
+                    onClose={() => { setWebsiteTarget(null); setWebsiteError(''); }}
+                    title={<>Edit Website for {websiteTarget.name}</>}
+                    footer={(
+                        <>
                             <button className="btn btn-sm btn-header-secondary" onClick={() => { setWebsiteTarget(null); setWebsiteError(''); }}>Cancel</button>
                             <button className="btn btn-sm btn-ink" onClick={saveWebsite}>Save Website</button>
+                        </>
+                    )}
+                >
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor={'website-edit-' + websiteTarget.id}>Website URL</label>
+                            <input
+                                id={'website-edit-' + websiteTarget.id}
+                                className="composer-input"
+                                type="url"
+                                placeholder="https://example.com"
+                                value={websiteValue}
+                                onChange={e => setWebsiteValue(e.target.value)}
+                                autoFocus
+                            />
                         </div>
                     </div>
-                </div>
+                    {websiteError && <p className="composer-error">{websiteError}</p>}
+                </Dialog>
             )}
 
             {historyTarget && (
