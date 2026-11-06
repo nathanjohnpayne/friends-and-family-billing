@@ -72,9 +72,9 @@ describe('SettlementBoard', () => {
         expect(chipLabels.some(t => t.includes('Settled'))).toBe(true);
     });
 
-    it('shows only parent/independent members as top-level cards', () => {
+    it('shows one top-level card per household or individual', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        const cards = screen.getAllByText(/Individual|Household/);
+        const cards = screen.getAllByText(/^Individual$|· contact /);
         expect(cards.length).toBe(2);
     });
 
@@ -98,8 +98,9 @@ describe('SettlementBoard', () => {
     it('expands card to show bill breakdown', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        // Household members show "Primary Member Calculation" instead of "Bill breakdown for..."
-        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
+        // The household contact's breakdown is labelled with their name and a neutral tag
+        expect(screen.getByText('Bill Breakdown for Alice')).toBeInTheDocument();
+        expect(screen.getByText('Household contact')).toBeInTheDocument();
         expect(screen.getByText('Internet')).toBeInTheDocument();
     });
 
@@ -141,9 +142,22 @@ describe('SettlementBoard', () => {
         expect(screen.getByText('No households match this filter.')).toBeInTheDocument();
     });
 
-    it('shows household label with linked member count', () => {
+    it('shows the household label with its member count and contact', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        expect(screen.getByText(/Household includes 1 linked member/)).toBeInTheDocument();
+        expect(screen.getByText('Household · 2 members · contact Alice')).toBeInTheDocument();
+    });
+
+    it('names the household from its stored name or shared surname', () => {
+        const named = [
+            { id: 1, name: 'Erik Lindqvist', email: '', phone: '', avatar: '', linkedMembers: [3], paymentReceived: 0 },
+            { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+            { id: 3, name: 'Anna Lindqvist', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+        ];
+        const { rerender } = render(<SettlementBoard familyMembers={named} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.getByText('Lindqvist household · 2 members · contact Erik Lindqvist')).toBeInTheDocument();
+        const stored = named.map(m => m.id === 1 ? { ...m, householdName: 'Lake House' } : m);
+        rerender(<SettlementBoard familyMembers={stored} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.getByText('Lake House household · 2 members · contact Erik Lindqvist')).toBeInTheDocument();
     });
 
     it('shows Individual label for standalone members', () => {
@@ -301,25 +315,26 @@ describe('SettlementBoard', () => {
         expect(screen.getByText(/\$120\.00 \/ month × 12 ÷ 3 members = \$480\.00/)).toBeInTheDocument();
     });
 
-    it('shows "Primary Member Calculation" label for households', () => {
+    it('labels the household contact without hierarchy wording', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
+        expect(screen.getByText('Household contact')).toBeInTheDocument();
+        expect(screen.queryByText(/Primary Member|Linked Members|parent|child/i)).toBeNull();
     });
 
-    it('shows "Linked Members" section label for households', () => {
+    it('shows the "Other Household Members" section label for households', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        expect(screen.getByText('Linked Members')).toBeInTheDocument();
+        expect(screen.getByText('Other Household Members')).toBeInTheDocument();
     });
 
-    it('sections appear in order: Primary Member Calculation, Linked Members, Household Total', () => {
+    it('sections appear in order: contact breakdown, Other Household Members, Household Total', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
         const detail = document.querySelector('.settlement-card-detail');
         const html = detail.innerHTML;
-        const primaryIdx = html.indexOf('Primary Member Calculation');
-        const linkedIdx = html.indexOf('Linked Members');
+        const primaryIdx = html.indexOf('Bill Breakdown for Alice');
+        const linkedIdx = html.indexOf('Other Household Members');
         const totalIdx = html.indexOf('Household Total');
         expect(primaryIdx).toBeGreaterThan(-1);
         expect(linkedIdx).toBeGreaterThan(-1);
@@ -398,9 +413,9 @@ describe('SettlementBoard', () => {
         expect(annualLabels.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('shows Linked Groups count', () => {
+    it('shows the Households count', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        expect(screen.getByText(/Linked Groups 1/)).toBeInTheDocument();
+        expect(screen.getByText(/Households 1/)).toBeInTheDocument();
     });
 });
 

@@ -182,30 +182,30 @@ describe('BillingYearService — CRUD mutations', () => {
             expect(svc.getState().familyMembers.find(m => m.id === 1).linkedMembers).toContain(dave.id);
         });
 
-        it('rejects linking a member to themselves', () => {
+        it('rejects adding a member to their own household', () => {
             const svc = createService();
-            expect(() => svc.updateMember(1, { linkedMembers: [1] })).toThrow('cannot be linked to themselves');
+            expect(() => svc.updateMember(1, { linkedMembers: [1] })).toThrow('cannot be added to their own household');
         });
 
-        it('rejects linking a parent (member with children) as a child', () => {
+        it('rejects adding a household contact (member with a household) to another household', () => {
             const svc = createService();
             // Bob (2) has linkedMembers: [3] — he's a parent
-            expect(() => svc.updateMember(1, { linkedMembers: [2] })).toThrow('is a parent');
+            expect(() => svc.updateMember(1, { linkedMembers: [2] })).toThrow('already has a household of their own');
         });
 
-        it('rejects linking a member already linked to another parent', () => {
+        it('rejects adding a member who is already in another household', () => {
             const svc = createService();
             // Carol (3) is linked to Bob (2). Alice (1) can't also claim Carol.
-            expect(() => svc.updateMember(1, { linkedMembers: [3] })).toThrow('already linked to');
+            expect(() => svc.updateMember(1, { linkedMembers: [3] })).toThrow(/is already in .*household/);
         });
 
-        it('rejects making a child into a parent', () => {
+        it('rejects giving a household member a household of their own', () => {
             const svc = createService();
             // Carol (3) is linked to Bob (2) — she's a child
-            expect(() => svc.updateMember(3, { linkedMembers: [1] })).toThrow('linked as a child');
+            expect(() => svc.updateMember(3, { linkedMembers: [1] })).toThrow('is already in another household');
         });
 
-        it('allows a parent to update their own linked members list', () => {
+        it('allows a household contact to update their household members', () => {
             const svc = createService();
             // Bob (2) currently has Carol (3). Add a new member and re-link.
             svc.addMember({ name: 'Dave' });

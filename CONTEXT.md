@@ -18,10 +18,18 @@ The canonical money record is always per individual member.
 _Avoid_: User, payer, family member
 
 **Primary Member**:
-The member at the head of a household—the one other members link to.
+The stored member record that carries a household's `linkedMembers`—the one
+other members link to. Shown in the UI as the **Household contact**.
 Settlement and the close-gate count primary and independent members, never
 individuals within a household.
 _Avoid_: Parent member, head of household
+
+**Household contact**:
+The UI name of the Primary Member: the household's point of contact, where its
+optional name is stored and to whom household-level actions (a Refund) go. It is
+a label, not a rank—any member of the household can be made the contact, and
+doing so moves no money (ADR 0011).
+_Avoid_: Head of household, owner, parent
 
 **Linked Member**:
 A member attached to a primary member's household via the primary's
@@ -32,13 +40,15 @@ _Avoid_: Child member, sub-member, dependent
 **Household**:
 A primary member plus their linked members, treated as one settlement unit.
 Not a stored entity—it is computed from a primary member and their
-`linkedMembers`. The unit that a credit is owned by and a refund clears.
+`linkedMembers`. The unit that a credit is owned by and a refund clears. It may
+carry an optional name, stored as `householdName` on the household contact's
+record; without one it is called by its members' shared surname (ADR 0011).
 _Avoid_: Group, family, linked group
 
 **Credit**:
 The net amount a household has overpaid—household paid minus household owed,
 when positive. Owned at the household level; internal imbalance between members
-is invisible to it (the primary member's concern, not the administrator's).
+is invisible to it (the household's concern, not the administrator's).
 _Avoid_: Overpayment (as the amount), negative balance
 
 **Refund**:
