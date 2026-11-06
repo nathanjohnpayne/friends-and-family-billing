@@ -81,6 +81,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── SaveQueue.js           # Serialized Firestore write queue
 │       ├── billing-year.js        # Year lifecycle utilities
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
+│       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
@@ -97,6 +98,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── app/                           # BUILD OUTPUT (gitignored) — Vite builds here
 ├── functions/
 │   ├── index.js                   # Cloud Functions v2 entry point (sendEmail, resolveShareToken, submitDispute, etc.)
+│   ├── money.mjs                  # Unused ADR 0010 exact rational math and generic cent allocator
+│   ├── money.js                   # Node 24 CJS entry for money.mjs (no top-level await)
 │   ├── billing.js                 # Shared billing utilities for Cloud Functions
 │   └── package.json               # Cloud Functions dependencies (firebase-admin, firebase-functions, resend)
 ├── tests/react/                   # Vitest + React Testing Library test suite
@@ -130,6 +133,10 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── CONTRIBUTING.md                # Contribution guidelines
 └── .ai_context.md                 # Supplemental AI agent context
 ```
+
+The unused money entrypoints prove source interoperability only. `money.js` and
+`money.mjs` are not yet registered in the deployment artifact allowlists; that
+registration and its packaging/security tests are required before activation.
 
 ### Application Routes
 
