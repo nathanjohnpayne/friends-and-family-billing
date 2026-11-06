@@ -34,6 +34,7 @@ vi.mock('@/lib/validation.js', () => ({
 }));
 
 vi.mock('@/lib/formatting.js', () => ({
+    sanitizeImageSrc: vi.fn(value => value || ''),
     getPaymentMethodIcon: vi.fn(() => '&#x1F4B3;'),
     getPaymentMethodLabel: vi.fn((m) => (m || 'other').charAt(0).toUpperCase() + (m || 'other').slice(1).replace(/_/g, ' ')),
     getInitials: vi.fn((name) => (name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')
@@ -46,6 +47,10 @@ vi.mock('@/lib/share.js', async () => {
 });
 
 import ShareView from '@/app/views/ShareView.jsx';
+import { buildPublicShareData } from '@/lib/share.js';
+import { buildCarriedItemsForShare as cfBuildCarriedItemsForShare } from '../../../functions/billing.js';
+import { carriedMembers, carriedBills, carriedSeeds } from '../helpers/carriedShareFixture.js';
+import preCarriedShareCache from '../helpers/preCarriedShareCache.json';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -126,6 +131,9 @@ function mockPublicSharesHit(data = sampleShareData) {
     });
     mockUpdateDoc.mockResolvedValue();
     mockDoc.mockReturnValue('doc-ref');
+    if ((data.scopes || []).includes('summary:read') && !data.carriedItems) {
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+    }
 }
 
 /** Helper: configure getDoc to return publicShares cache hit with expired token.
@@ -1709,6 +1717,19 @@ describe('ShareView', () => {
             expect(within(totalRow).getByText('$250.00')).toBeInTheDocument(); // reconciles 300 − 50
         });
 
+        it('does not expose floating-point dust as a zero not-applied row', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({
+                ...withServiceCredits,
+                summary: { ...withServiceCredits.summary, annualTotal: 300.12 },
+                serviceCredits: { items: [{ reason: 'Outage', amount: 50.1 }], total: 50.1 },
+                paymentSummary: { combinedAnnualTotal: 250.02, balanceRemaining: 250.02, totalPaid: 0 },
+            });
+            render(<ShareView />);
+            await screen.findByText('Bills subtotal');
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+        });
+
         it('does not render the reconciliation when there are no service credits', async () => {
             setToken('abc123');
             mockPublicSharesHit({ ...withServiceCredits, serviceCredits: undefined });
@@ -1720,5 +1741,146 @@ describe('ShareView', () => {
             });
             expect(screen.queryByText('Bills subtotal')).toBeNull();
         });
+    });
+});
+
+
+describe('Carried share details (#603)', () => {
+    const build = (members = carriedMembers, bills = carriedBills, records = carriedSeeds) => buildPublicShareData(members, bills, [], 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records);
+    beforeEach(() => { vi.clearAllMocks(); setToken('synthetic'); });
+
+    it('groups linked-member lines, household credit and explanatory detail once; both toggles control one panel', async () => {
+        const user = userEvent.setup();
+        mockPublicSharesHit(build());
+        render(<ShareView />);
+        const panel = await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(within(panel).getByText('Erik Lindqvist')).toBeVisible();
+        expect(within(panel).getByText('+$17.00')).toBeVisible();
+        expect(within(panel).getByText('Maja Lindqvist')).toBeVisible();
+        expect(within(panel).getByText('+$42.00')).toBeVisible();
+        expect(within(panel).getByText('Activation fee (Nov 3).')).toBeVisible();
+        expect(within(panel).getByText('Pinecone Vault ended in August (Erik Lindqvist)')).toBeVisible();
+        expect(within(panel).getByText('Carried total')).toBeVisible();
+        expect(within(screen.getByText('Household Total').closest('tr')).getByText('$723.00')).toBeVisible();
+        const rowToggle = screen.getByRole('button', { name: /^\+\$55\.00 Hide breakdown$/ });
+        const leadToggle = screen.getByRole('button', { name: '$55.00 carried from 2026' });
+        expect(screen.getByText(/\$668.00 of bills plus/)).toBeVisible();
+        expect(rowToggle).toHaveAttribute('aria-controls', panel.id);
+        expect(leadToggle).toHaveAttribute('aria-controls', panel.id);
+        expect(rowToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('Hide breakdown')).toBeVisible();
+        expect(screen.getByText('Household Total').compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(panel.compareDocumentPosition(screen.getByText('Annual Total')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        await user.click(rowToggle);
+        expect(panel).not.toBeVisible();
+        expect(leadToggle).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByText('Show breakdown')).toBeVisible();
+        leadToggle.focus();
+        await user.keyboard('{Enter}');
+        expect(panel).toBeVisible();
+        expect(rowToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(document.body.textContent).not.toMatch(/Other adjustments|True-up|carry_opening|adjustment/);
+    });
+
+    it('renders the cache and function carried payload identically', async () => {
+        const cached = build();
+        mockPublicSharesHit(cached);
+        const view = render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        const cacheText = view.container.textContent;
+        view.unmount();
+        const resolved = { ...cached, carriedItems: cfBuildCarriedItemsForShare(carriedMembers, carriedBills, carriedSeeds, 1, [2]) };
+        mockPublicSharesMissFetchOk(resolved);
+        const fallbackView = render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(fallbackView.container.textContent).toBe(cacheText);
+    });
+
+    it.each([-100, -20])('reconciles raw $100 / 3 shares for a two-member household with %s incoming', async amount => {
+        const members = carriedMembers;
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
+        const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        mockPublicSharesHit(build(members, bills, records));
+        render(<ShareView />);
+        const row = (await screen.findByText('Bills subtotal')).closest('tr');
+        expect(within(row).getByText('$66.67')).toBeVisible();
+        expect(within(screen.getByText('Household Total').closest('tr')).getByText(amount === -100 ? '$0.00' : '$46.67')).toBeVisible();
+        if (amount === -100) {
+            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$33.33')).toBeVisible();
+            expect(screen.getByText(/credit of \$100.00 covers this year; \$33.33 remains/)).toBeVisible();
+        }
+        expect(screen.queryByRole('region', { name: 'Carried from 2026' })).toBeNull();
+    });
+
+    it.each([[-20, 120, 20], [0, 100, 0]])('separates the floor remainder from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
+        const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
+        const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, items: [{ kind: 'usage_charge', memberId: 1, description: 'Activation fee', amount: amount === 0 ? 10 : 0 }, { kind: 'credit', memberId: null, description: 'Your household credit', amount: amount === 0 ? -10 : -20 }] }, { kind: 'service_credit', memberId: 1, amount: 200, status: 'active' }];
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        render(<ShareView />);
+        await screen.findByText('Not applied this year');
+        expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$' + notApplied.toFixed(2))).toBeVisible();
+        if (remaining) expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
+        else expect(screen.queryByText(/remains\./)).toBeNull();
+        expect(screen.getByRole('region', { name: 'Carried from 2026' })).toBeVisible();
+    });
+
+    it('omits the section and controls entirely when no carry exists', async () => {
+        mockPublicSharesHit(build(carriedMembers, carriedBills, []));
+        render(<ShareView />);
+        await screen.findByText(/Lindqvist Household/);
+        expect(screen.queryByText(/Carried from/)).toBeNull();
+        expect(screen.queryByText('Bills subtotal')).toBeNull();
+    });
+});
+
+
+describe('Pre-itemization cached summary compatibility (#603)', () => {
+    beforeEach(() => { vi.clearAllMocks(); setToken('pre603'); });
+    it.each(preCarriedShareCache.fixtures)('resolves the actual base-builder $name payload before rendering', async ({ payload, members, bills, records }) => {
+        expect(preCarriedShareCache.sourceCommit).toBe('c810739b8bf75bc162ced3d6e85458c6ebb591d9');
+        expect(payload).not.toHaveProperty('carriedItems');
+        mockPublicSharesHit(payload);
+        const resolved = { ...payload, carriedItems: cfBuildCarriedItemsForShare(members, bills, records, 1, []) };
+        let finishResolve;
+        global.fetch = vi.fn(() => new Promise(resolve => { finishResolve = resolve; }));
+        render(<ShareView />);
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.objectContaining({ body: JSON.stringify({ token: 'pre603' }) })));
+        expect(screen.queryByText('Household Total')).toBeNull();
+        expect(mockUpdateDoc).not.toHaveBeenCalled();
+        finishResolve({ ok: true, json: async () => resolved });
+        await screen.findByText('Carried from 2026');
+        expect(within(screen.getByText('Household Total').closest('tr')).getByText(payload.paymentSummary.combinedAnnualTotal === 0 ? '$0.00' : '$220.00')).toBeVisible();
+        if (payload.paymentSummary.combinedAnnualTotal === 0) {
+            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$120.00')).toBeVisible();
+            expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
+        } else expect(screen.getByText('−$30.00')).toBeVisible();
+    });
+
+    it('surfaces resolver failure instead of rendering stale summary numbers', async () => {
+        mockPublicSharesHit(preCarriedShareCache.fixtures[0].payload);
+        global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'This link is no longer valid.' }) });
+        render(<ShareView />);
+        expect(await screen.findByText('This link is no longer valid.')).toBeVisible();
+        expect(screen.queryByText('Household Total')).toBeNull();
+    });
+
+    it('accepts a fresh no-carry resolver result without adding a section', async () => {
+        const fixture = preCarriedShareCache.fixtures[0];
+        mockPublicSharesHit(fixture.payload);
+        const resolved = buildPublicShareData(fixture.members, fixture.bills, [], 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, []);
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => resolved });
+        render(<ShareView />);
+        expect(await screen.findByText('$300.00 due for 2027')).toBeVisible();
+        expect(screen.queryByText(/Carried from/)).toBeNull();
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps links without summary scope on the cache path', async () => {
+        mockPublicSharesHit({ ...preCarriedShareCache.fixtures[0].payload, scopes: ['paymentMethods:read'] });
+        global.fetch = vi.fn();
+        render(<ShareView />);
+        await screen.findByText(/Member Household/);
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(mockUpdateDoc).toHaveBeenCalledTimes(1);
     });
 });

@@ -9,11 +9,12 @@ import {
     buildPendingChargesForShare,
     buildServiceCreditsForShare,
     buildPaymentHistoryForShare,
-    buildPublicShareData
+    buildPublicShareData,
+    buildCarriedItemsForShare
 } from '@/lib/share.js';
 // CommonJS mirror used by the resolveShareToken Cloud Function — imported here so the
 // cache (React) and CF (fallback) builders can be asserted byte-for-byte identical (#356).
-import { buildPaymentHistoryForShare as cfBuildPaymentHistoryForShare } from '../../../functions/billing.js';
+import { buildPaymentHistoryForShare as cfBuildPaymentHistoryForShare, buildCarriedItemsForShare as cfBuildCarriedItemsForShare } from '../../../functions/billing.js';
 
 describe('buildPublicShareData — pendingCharges (#317 reachability)', () => {
     const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
@@ -616,4 +617,58 @@ describe('buildPublicShareData — household rounding (#620)', () => {
             expect(data.paymentSummary.combinedAnnualTotal).toBe(incoming === -100 ? 0 : incoming === -20 ? 46.67 : 66.66);
         });
     }
+});
+
+
+describe('carried share projection (#603)', () => {
+    const members = [{ id: 1, name: 'Erik', linkedMembers: [2] }, { id: 2, name: 'Maja' }, { id: 3, name: 'Other' }];
+    const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
+    const seed = (amount, items) => ({ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, ...(items === undefined ? {} : { items }) });
+    const project = (records, sourceBills = bills) => buildCarriedItemsForShare(members, sourceBills, records, 1, [2]);
+    const publicData = (records, scopes = ['summary:read']) => buildPublicShareData(members, bills, [], 1, scopes, 'owner', { id: '2027' }, {}, records);
+
+    it.each([-100, -20, 30, 0])('matches the deployed function and frozen household math for net %s', amount => {
+        const records = [seed(amount)];
+        const carried = project(records);
+        expect(carried).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+        expect(carried.total).toBe(getHouseholdOpeningBalance(members[0], records));
+        const annual = calculateAnnualSummary(members, bills);
+        expect(publicData(records).paymentSummary.combinedAnnualTotal).toBeCloseTo(getHouseholdFinancials(members[0], annual, [], [], null, records, carried.total).owed, 2);
+        expect(publicData(records).summary.annualTotal).toBe(33.33);
+        expect(publicData(records).linkedMembers[0].annualTotal).toBe(33.33);
+        if (amount === -100) expect(carried).toMatchObject({ notApplied: 33.33, remainingCredit: 33.33 });
+        if (amount === -20) expect(publicData(records).paymentSummary.combinedAnnualTotal).toBe(46.67);
+    });
+
+    it('distinguishes forfeited floor remainder from unused NET incoming money (10l/10n)', () => {
+        const sourceBills = [{ ...bills[0], members: [1] }];
+        const credit = { kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
+        for (const [opening, items, expected] of [[-20, undefined, 20], [0, [{ memberId: 1, amount: 10 }, { memberId: null, kind: 'credit', amount: -10 }], 0]]) {
+            const records = [seed(opening, items), credit];
+            const result = project(records, sourceBills);
+            expect(result).toMatchObject({ notApplied: opening === -20 ? 120 : 100, remainingCredit: expected });
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2]));
+        }
+    });
+
+    it('projects only safe household attribution and nested detail, preserving snapshot text', () => {
+        const records = [seed(12, [{ memberId: 2, kind: 'usage_charge', amount: 12, description: 'Activation fee', billName: 'Original name', id: 'private', note: 'private', detail: [{ memberId: 2, amount: -1, description: 'Safe', email: 'private' }, { memberId: 3, amount: -99, description: 'Other secret' }] }, { memberId: 3, amount: 99, description: 'Other secret' }]), { ...seed(999), memberId: 3 }, { ...seed(999), status: 'voided' }];
+        const result = project(records);
+        expect(result).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+        expect(result.total).toBe(12);
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]).toMatchObject({ memberName: 'Maja', description: 'Activation fee', billName: 'Original name' });
+        expect(result.items[0].detail).toHaveLength(1);
+        expect(JSON.stringify(result)).not.toMatch(/private|Other secret/);
+    });
+
+    it('gates carry with summary scope, omits absent carry, preserves zero-net itemization and legacy seeds', () => {
+        expect(publicData([seed(30)], [])).not.toHaveProperty('carriedItems');
+        expect(publicData([])).not.toHaveProperty('carriedItems');
+        expect(publicData([seed(0, [])])).not.toHaveProperty('carriedItems');
+        expect(publicData([seed(30)]).carriedItems.items).toEqual([{ kind: 'legacy', description: 'Carried from 2026', amount: 30 }]);
+        const records = [seed(0, [{ memberId: 1, amount: 10 }, { memberId: null, kind: 'credit', amount: -10 }])];
+        expect(publicData(records).carriedItems.items).toHaveLength(2);
+        expect(publicData(records).carriedItems).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+    });
 });
