@@ -73,6 +73,7 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     const financials = householdOwedAndContribution();
     const available = financials.ok !== false;
 
+    /** Preserve audit correction access even when projected household money is unavailable. */
     function handleReverse() {
         if (!reverseTarget || !onReverse) return;
         onReverse(reverseTarget.id);

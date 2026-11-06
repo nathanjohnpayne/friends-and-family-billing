@@ -21,6 +21,7 @@ vi.mock('@/app/hooks/useBillingData.js', () => ({ useBillingData: () => control.
 vi.mock('@/app/hooks/useDisputes.js', () => ({ useDisputes: () => ({ disputes: [] }) }));
 vi.mock('@/app/hooks/useRefundNotices.js', () => ({ useRefundNotices: () => ({ refundNotices: [] }) }));
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({ useAuth: () => ({ user: { uid: 'test-user', email: 'test@example.com' } }) }));
+vi.mock('@/lib/ChargeNoticeService.js', () => ({ issueChargeNotice: vi.fn(async () => ({})) }));
 vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(async () => ({})) }));
 vi.mock('@/lib/sms.js', () => ({ openSmsComposer: vi.fn() }));
 vi.mock('@/lib/ShareLinkService.js', () => ({ createAndPruneShareLink: vi.fn(async () => ({ url: 'https://example.com/share' })) }));
@@ -39,6 +40,7 @@ import PaymentHistoryDialog from '@/app/components/PaymentHistoryDialog.jsx';
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import { createAndPruneShareLink } from '@/lib/ShareLinkService.js';
 import { queueEmail } from '@/lib/mail.js';
+import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
 import { openSmsComposer } from '@/lib/sms.js';
 import { getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 
@@ -56,7 +58,7 @@ beforeEach(() => {
     control.held.clear();
     control.hashPromise = null;
     control.state = { ...structuredClone(base), loading: false,
-        service: { getState: () => control.state, updateSettings: vi.fn(), setYearStatus: vi.fn(), recordPayment: vi.fn() } };
+        service: { getState: () => control.state, updateSettings: vi.fn(), setYearStatus: vi.fn(), recordPayment: vi.fn(), billDeferredCharges: vi.fn(() => ({ chargeNoticeId: 'notice', charges: [] })) } };
 });
 
 describe('inactive held-state consumer contract', () => {
@@ -137,6 +139,76 @@ describe('inactive held-state consumer contract', () => {
         view.rerender(<SettlementBoard {...props} />);
         expect(screen.queryByRole('button', { name: 'Save Payment' })).not.toBeInTheDocument();
         expect(props.onRecordPayment).not.toHaveBeenCalled();
+    });
+
+    it('withholds an already-open Charge Notice preview and confirmation after a household hold', async () => {
+        const user = userEvent.setup();
+        control.state.owedAdjustments = [{ id: 'usage', kind: 'usage_charge', status: 'deferred', memberId: 1, amount: 12, incurredDate: '2026-01-01', description: 'Roaming' }];
+        const view = mount(<DashboardView />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'Bill Charges' }));
+        expect(within(screen.getByRole('dialog', { name: 'Bill Charges' })).getAllByText('$12.00')).toHaveLength(2);
+        control.held.add(1);
+        view.rerender(<MemoryRouter><ToastProvider><DashboardView /></ToastProvider></MemoryRouter>);
+        const dialog = within(screen.getByRole('dialog', { name: 'Bill Charges' }));
+        expect(dialog.getByRole('status')).toHaveTextContent('Financial data unavailable');
+        expect(dialog.queryByText(/\$/)).not.toBeInTheDocument();
+        expect(dialog.queryByRole('button', { name: 'Bill & Notify' })).not.toBeInTheDocument();
+        expect(dialog.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+        expect(control.state.service.billDeferredCharges).not.toHaveBeenCalled();
+        expect(issueChargeNotice).not.toHaveBeenCalled();
+        expect(createAndPruneShareLink).not.toHaveBeenCalled();
+        expect(queueEmail).not.toHaveBeenCalled();
+    });
+
+    it('rechecks a stale Charge Notice confirmation against live availability before billing', async () => {
+        const user = userEvent.setup();
+        control.state.owedAdjustments = [{ id: 'usage', kind: 'usage_charge', status: 'deferred', memberId: 1, amount: 12 }];
+        mount(<DashboardView />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'Bill Charges' }));
+        control.held.add(1); // Deliberately do not render: exercise the action-time reader.
+        await user.click(screen.getByRole('button', { name: 'Bill & Notify' }));
+        expect(control.state.service.billDeferredCharges).not.toHaveBeenCalled();
+        expect(issueChargeNotice).not.toHaveBeenCalled();
+    });
+
+    it('rechecks availability between valid charge billing and invoking the outbound notice writer', async () => {
+        const user = userEvent.setup();
+        control.state.owedAdjustments = [{ id: 'usage', kind: 'usage_charge', status: 'deferred', memberId: 1, amount: 12 }];
+        control.state.service.billDeferredCharges.mockImplementation(() => {
+            control.held.add(1);
+            return { chargeNoticeId: 'notice', charges: [] };
+        });
+        mount(<DashboardView />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'Bill Charges' }));
+        await user.click(screen.getByRole('button', { name: 'Bill & Notify' }));
+        expect(control.state.service.billDeferredCharges).toHaveBeenCalledOnce(); // Invoked while valid; never rolled back.
+        expect(issueChargeNotice).not.toHaveBeenCalled();
+        expect(queueEmail).not.toHaveBeenCalled();
+    });
+
+    it('closes a hidden test-email dialog on member changes and clears its previous recipient', async () => {
+        const user = userEvent.setup();
+        const view = mount(<InvoicingTab />);
+        await user.click(screen.getByRole('button', { name: 'Preview' }));
+        await user.click(screen.getByRole('button', { name: 'Send test email' }));
+        await user.clear(screen.getByLabelText('Send to'));
+        await user.type(screen.getByLabelText('Send to'), 'alice-only@example.com');
+        control.held.add(1);
+        view.rerender(<MemoryRouter><ToastProvider><InvoicingTab /></ToastProvider></MemoryRouter>);
+        expect(screen.queryByRole('dialog', { name: 'Send Test Email' })).not.toBeInTheDocument();
+        await user.selectOptions(screen.getByRole('combobox', { name: 'Preview member' }), '2');
+        expect(screen.queryByRole('dialog', { name: 'Send Test Email' })).not.toBeInTheDocument();
+        expect(queueEmail).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Send test email' }));
+        expect(screen.getByLabelText('Send to')).toHaveValue('test@example.com');
+        expect(queueEmail).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
     });
 
     it.each([

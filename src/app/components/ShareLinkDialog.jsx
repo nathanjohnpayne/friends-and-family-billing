@@ -53,6 +53,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
 
     if (!open) return null;
 
+    /** Listing and revocation context remain accessible during a financial hold. */
     async function loadLinks() {
         setLoadingLinks(true);
         try {
@@ -106,6 +107,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
         setLoadingLinks(false);
     }
 
+    /** Guard creation, then recheck before exposing/copying the returned link after an await. */
     async function handleGenerate() {
         const ticket = access.begin();
         if (ticket === null) return;
@@ -140,6 +142,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
         }
     }
 
+    /** Preserve revocation as an administrative action independent of projected money. */
     async function handleRevoke(tokenHash) {
         try {
             await setDoc(doc(db, 'shareTokens', tokenHash), { revoked: true }, { merge: true });
@@ -151,6 +154,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
         }
     }
 
+    /** Recheck live availability even for an existing URL already displayed in Manage Links. */
     function handleCopy(url, id) {
         if (access.begin() === null) return;
         navigator.clipboard.writeText(url).then(() => setCopied(id));

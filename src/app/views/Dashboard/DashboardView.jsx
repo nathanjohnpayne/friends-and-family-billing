@@ -8,7 +8,7 @@ import { useRefundNotices } from '../../hooks/useRefundNotices.js';
 import { issueRefundNotice } from '@/lib/RefundNoticeService.js';
 import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
 import { calculateSettlementMetrics, getHouseholdDeferredCharges, isLinkedToAnyone } from '@/lib/calculations.js';
-import { getYearFinancialAvailability, getHouseholdFinancialAvailability } from '@/lib/financial-availability.js';
+import { getYearFinancialAvailability, getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '@/lib/financial-availability.js';
 import { formatAnnualSummaryCurrency } from '@/lib/formatting.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
@@ -83,6 +83,7 @@ export default function DashboardView() {
     // and are never rendered; all households remain in the denominator.
     const metrics = { ...calculateSettlementMetrics(familyMembers.filter(member => !heldIds.has(member.id)),
         bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments), totalMembers: availability.households.length };
+    /** Preserve each caller's reopening context while reading live state at its action boundary. */
     const getAvailability = (memberId, reopenedAdjustmentIds = null) => getHouseholdFinancialAvailability(
         { ...financialSource, ...service.getState() }, memberId, { reopenedAdjustmentIds });
 
@@ -413,9 +414,14 @@ export default function DashboardView() {
                 return (
                     <ChargeNoticeDialog
                         open
+                        memberId={dialog.memberId}
+                        getAvailability={() => getAvailability(dialog.memberId)}
                         memberName={member ? member.name : ''}
                         charges={candidates}
                         onConfirm={chargeIds => {
+                            // A stale open dialog cannot authorize billing or a fresh
+                            // outbound notice after the household becomes held.
+                            if (!getAvailability(dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
                             // Bill the selected charges (deferred → billed; raises owed), then
                             // issue the outbound Charge Notice (email + share link).
                             const result = service.billDeferredCharges({ memberId: dialog.memberId, chargeIds });
@@ -424,6 +430,7 @@ export default function DashboardView() {
                             // would still mark them deferred and the minted share link would show
                             // the just-billed charges as pending/not-yet-due.
                             const freshState = service.getState();
+                            if (!getAvailability(dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
                             // Defer the success toast until the notice actually issues, and surface
                             // a failure to the admin rather than only console.error-ing it
                             // (PR #328 review r3447513511).

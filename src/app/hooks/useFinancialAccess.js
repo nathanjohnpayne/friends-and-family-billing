@@ -17,10 +17,12 @@ export function useFinancialAccess(readAvailability, identity, open = true) {
         state.open = open;
         return () => { state.open = false; state.epoch++; };
     }, [open]);
+    /** Acquire an action ticket only while the current dialog and household remain available. */
     function begin() {
         const state = live.current;
         return state.open && state.readAvailability().available ? state.epoch : null;
     }
+    /** Recheck live availability and dialog identity after awaits, before further side effects. */
     function canContinue(ticket) {
         const state = live.current;
         return ticket !== null && state.open && state.epoch === ticket && state.readAvailability().available;

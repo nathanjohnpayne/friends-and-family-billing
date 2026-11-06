@@ -36,6 +36,7 @@ const ALL_TOKEN_FIELDS = [
     ...BLOCK_TOKENS.map(t => ({ id: t.id, label: t.label, isBlock: true, description: t.description })),
 ];
 
+/** Keep template editing available while private household guards govern invoice output. */
 export default function InvoicingTab() {
     const { familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], activeYear, loading, service } = useBillingData();
     const { user } = useAuth();
@@ -82,6 +83,7 @@ function deriveBodyText(settings) {
 
 // ── Email Template Editor ───────────────────────────────────────────
 
+/** Keep template editing available while binding invoice actions to the selected household. */
 function EmailTemplateSection({ settings, familyMembers, bills, payments, creditAdjustments, owedAdjustments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
     const [activeTab, setActiveTab] = useState('edit');
     const [bodyDoc, setBodyDoc] = useState(() => deriveBodyDoc(settings));
@@ -96,13 +98,25 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
     const [generatingLink, setGeneratingLink] = useState(false);
     const [shareLinkDialog, setShareLinkDialog] = useState(false);
     const [testEmailOpen, setTestEmailOpen] = useState(false);
+    const [testEmailPreviewKey, setTestEmailPreviewKey] = useState(null);
     const [testEmailTo, setTestEmailTo] = useState('');
     const [testEmailSending, setTestEmailSending] = useState(false);
 
     const previewMember = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
+    /** Read service state at action time so stale previews cannot authorize financial output. */
     const getAvailability = () => getHouseholdFinancialAvailability(
         { familyMembers, bills, payments, creditAdjustments, owedAdjustments, ...service.getState() }, previewMember?.id);
-    const access = useFinancialAccess(getAvailability, String(billingYearId) + ':' + previewMember?.id);
+    const previewKey = String(billingYearId) + ':' + previewMember?.id;
+    const access = useFinancialAccess(getAvailability, previewKey);
+
+    // A hidden dialog must not reappear for a different household with an old
+    // recipient. Reopening starts explicitly with the administrator's address.
+    useEffect(() => {
+        setTestEmailOpen(false);
+        setTestEmailPreviewKey(null);
+        setTestEmailTo('');
+        setTestEmailSending(false);
+    }, [previewMember?.id, billingYearId, access.available]);
 
     // Editor refs
     const bodyEditorRef = useRef(null);
@@ -167,6 +181,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
         }).run();
     }, []);
 
+    /** Recheck after hashing and each write before invoking another writer or copying the link. */
     async function handleGeneratePreviewLink() {
         const ticket = access.begin();
         if (ticket === null) return;
@@ -200,6 +215,14 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
         }
     }
 
+    /** Bind an explicit send session to this preview and reset its recipient to the administrator. */
+    function openTestEmail() {
+        if (access.begin() === null) return;
+        setTestEmailTo(userEmail || '');
+        setTestEmailPreviewKey(previewKey);
+        setTestEmailOpen(true);
+    }
+
     // Build preview context for the selected member
     let previewCtx = null;
     let previewEmailPayload = null;
@@ -215,6 +238,41 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
     }
 
     const hasDuplicate = detectDuplicatePaymentText(bodyText);
+
+    /**
+     * Queue only the selected preview's explicitly opened send session. Recheck
+     * before the writer and after its await before changing the dialog; a prior
+     * request already queued while valid is not cancelled or allowed to update a different preview identity.
+     */
+    async function handleSendTestEmail(e) {
+        e.preventDefault();
+        const ticket = access.begin();
+        if (ticket === null) return;
+        if (!testEmailTo.trim()) return;
+        setTestEmailSending(true);
+        try {
+            const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
+            const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
+            // Only the markdown body is queued; the mail function renders
+            // HTML server-side (queue docs cannot carry raw HTML).
+            if (!access.canContinue(ticket)) return;
+            await queueEmail({
+                to: testEmailTo.trim(),
+                subject,
+                body: payload.markdown,
+                uid: userId
+            });
+            if (!access.canContinue(ticket)) return;
+            setTestEmailOpen(false);
+            showToast('Test email sent to ' + testEmailTo.trim());
+        } catch (err) {
+            if (!access.canContinue(ticket)) return;
+            setTestEmailOpen(false);
+            showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+        } finally {
+            if (access.canContinue(ticket)) setTestEmailSending(false);
+        }
+    }
 
     return (
         <div className="invoicing-section">
@@ -247,7 +305,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
                     {activeTab === 'preview' && access.available && (
                         <button
                             className="template-header-action-btn"
-                            onClick={() => { if (access.begin() === null) return; setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
+                            onClick={openTestEmail}
                         >
                             Send test email
                         </button>
@@ -411,37 +469,11 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
                 </Dialog>
             )}
 
-            {testEmailOpen && previewCtx && (
+            {testEmailOpen && testEmailPreviewKey === previewKey && previewCtx && (
                 <Dialog
                     onClose={() => setTestEmailOpen(false)}
                     title="Send Test Email"
-                    onSubmit={async e => {
-                        e.preventDefault();
-                        const ticket = access.begin();
-                        if (ticket === null) return;
-                        if (!testEmailTo.trim()) return;
-                        setTestEmailSending(true);
-                        try {
-                            const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
-                            const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
-                            // Only the markdown body is queued; the mail function renders
-                            // HTML server-side (queue docs cannot carry raw HTML).
-                            if (!access.canContinue(ticket)) return;
-                            await queueEmail({
-                                to: testEmailTo.trim(),
-                                subject,
-                                body: payload.markdown,
-                                uid: userId
-                            });
-                            setTestEmailOpen(false);
-                            showToast('Test email sent to ' + testEmailTo.trim());
-                        } catch (err) {
-                            setTestEmailOpen(false);
-                            showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-                        } finally {
-                            setTestEmailSending(false);
-                        }
-                    }}
+                    onSubmit={handleSendTestEmail}
                     footer={(
                         <>
                             <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>

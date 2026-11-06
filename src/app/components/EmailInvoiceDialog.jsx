@@ -114,6 +114,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         bodyEditedRef.current = true;
     }
 
+    /** Copy only after any awaited link generation still belongs to an available dialog. */
     async function handleCopy() {
         const ticket = access.begin();
         if (ticket === null) return;
@@ -128,6 +129,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
+    /** Recheck the action ticket before launching mail with a generated invoice body. */
     async function handleOpenMail() {
         const ticket = access.begin();
         if (ticket === null) return;
@@ -145,6 +147,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         window.location.href = mailto;
     }
 
+    /** Recheck after link generation and before queueing; an already queued email is not cancelled. */
     async function handleSendEmail() {
         const ticket = access.begin();
         if (ticket === null) return;

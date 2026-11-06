@@ -108,6 +108,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         bodyEditedRef.current = true;
     }
 
+    /** Keep a held or replaced dialog from copying an invoice after awaiting its link. */
     async function handleCopy() {
         const ticket = access.begin();
         if (ticket === null) return;
@@ -122,6 +123,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
+    /** Launch the SMS composer only while the original live household ticket remains valid. */
     async function handleOpenMessages() {
         const ticket = access.begin();
         if (ticket === null) return;

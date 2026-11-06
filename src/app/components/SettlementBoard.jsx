@@ -260,6 +260,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
+/** Keep held household context visible while withholding money and financial entry points. */
 function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
@@ -289,6 +290,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
     // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
     const showRefundAction = !readOnly && available && credit > CREDIT_EPSILON;
 
+    /** Prefill the existing credit; submission still rechecks live household availability. */
     function openRefund() {
         setRefundAmount(credit.toFixed(2));
         setRefundMethod('venmo');
@@ -304,6 +306,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
         setRefundError('');
     }
 
+    /** Guard the existing refund parser/cap without changing its amount or eligibility rules. */
     function handleIssueRefund(e) {
         e.preventDefault();
         if (access.begin() === null) return;
@@ -331,6 +334,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
         }
     }
 
+    /** Guard payment entry while preserving positive amounts and permitted overpayment. */
     function handleRecordPayment(e) {
         e.preventDefault();
         if (access.begin() === null) return;

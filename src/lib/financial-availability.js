@@ -32,6 +32,7 @@ export function getHouseholdFinancialAvailability(source, memberId, options = {}
     return read(member, source, calculateAnnualSummary(members, source.bills || []), options);
 }
 
+/** Refuse year-wide close/rollover before a queue entry or persistence side effect. */
 export function assertYearFinanciallyAvailable(source) {
     if (getYearFinancialAvailability(source).needsCorrectionCount) {
         throw new Error(FINANCIAL_UNAVAILABLE + '. ' + FINANCIAL_CORRECTION);
