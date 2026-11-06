@@ -17,7 +17,7 @@ import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, apply
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
 import { selectBillableCharges } from './chargeNotice.js';
-import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds } from './household.js';
+import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields } from './household.js';
 import { rebuildMemberShareDocs } from './ShareLinkService.js';
 import { SaveQueue } from './SaveQueue.js';
 import { splitCents } from './year-end-review.js';
@@ -730,12 +730,14 @@ export class BillingYearService {
             await this._saveConfirmed();
         } catch (err) {
             // Do not publish share documents for a household that was not persisted.
-            // Undo only this edit: restore the member list unless something else has
-            // replaced it since, and remove only the event this edit appended, so a
-            // mutation that landed while the write was pending (e.g. a payment and
-            // its PAYMENT_RECORDED event) is kept. Then report the failure.
+            // Undo only this edit: put back the household fields (linkedMembers,
+            // householdName) this edit changed, member by member, and remove only the
+            // event it appended. A mutation that landed while the write was pending —
+            // a member's name or email edit, a payment and its PAYMENT_RECORDED event —
+            // is kept. Then report the failure.
             const rollback = {};
-            if (this._state.familyMembers === plan.familyMembers) rollback.familyMembers = previousMembers;
+            const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
+            if (restoredMembers) rollback.familyMembers = restoredMembers;
             if (addedEventId) {
                 rollback.billingEvents = (this._state.billingEvents || []).filter(e => e.id !== addedEventId);
             }

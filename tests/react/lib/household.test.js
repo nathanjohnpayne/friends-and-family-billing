@@ -69,7 +69,7 @@ vi.mock('firebase/firestore', () => {
 });
 
 import {
-    planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds,
+    planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields,
     defaultHouseholdName, getHouseholdName, normalizeHouseholdName, HOUSEHOLD_NAME_MAX_LENGTH
 } from '@/lib/household.js';
 import { BillingYearService } from '@/lib/BillingYearService.js';
@@ -201,6 +201,21 @@ describe('planHouseholdEdit', () => {
         expect(() => planHouseholdEdit(members, {
             contactId: 1, memberIds: [1, 2], householdName: 'x'.repeat(HOUSEHOLD_NAME_MAX_LENGTH + 1)
         })).toThrow(/characters or fewer/);
+    });
+
+    it('reverts only household fields, and not over a later household edit', () => {
+        const previous = [m(1, 'Erik', [2], { householdName: 'Lake' }), m(2, 'Anna'), m(3, 'Kwame')];
+        const plan = planHouseholdEdit(previous, { contactId: 2, memberIds: [1, 2] });
+        const current = plan.familyMembers.map(x => x.id === 1 ? { ...x, email: 'e@x.com' } : x);
+        const restored = revertHouseholdFields(current, plan.familyMembers, previous);
+        expect(restored.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2], householdName: 'Lake', email: 'e@x.com' });
+        expect(restored.find(x => x.id === 2).linkedMembers).toEqual([]);
+        expect(restored.find(x => x.id === 3)).toBe(current.find(x => x.id === 3));
+        // A later household edit on member 2 is left alone.
+        const later = plan.familyMembers.map(x => x.id === 2 ? { ...x, linkedMembers: [1, 3] } : x);
+        expect(revertHouseholdFields(later, plan.familyMembers, previous).find(x => x.id === 2).linkedMembers).toEqual([1, 3]);
+        // Nothing to restore returns null.
+        expect(revertHouseholdFields(previous, plan.familyMembers, previous)).toBeNull();
     });
 
     it('does not mutate its input', () => {
@@ -498,9 +513,9 @@ describe('share documents after a contact change', () => {
         setDoc.mockRejectedValueOnce(new Error('permission-denied'));
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const svc = createService();
-        const before = svc.getState().familyMembers;
+        const before = structuredClone(svc.getState().familyMembers);
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The household change could not be saved: permission-denied');
-        expect(svc.getState().familyMembers).toBe(before);
+        expect(svc.getState().familyMembers).toEqual(before);
         expect(svc.getState().billingEvents).toEqual([]);
         expect(mockStore['publicShares/h-erik']).toEqual({ stale: true, memberId: 1 });
         expect(mockStore['publicShares/h-anna']).toEqual({ stale: true, memberId: 2 });
@@ -529,6 +544,26 @@ describe('share documents after a contact change', () => {
         expect(persisted.familyMembers.find(x => x.id === 2).linkedMembers).toEqual([]);
         expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
         expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        errSpy.mockRestore();
+    });
+
+    it('rolls back the household but keeps a member edit made while the save was pending', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        setDoc.mockImplementationOnce(async () => {
+            svc.updateMember(3, { name: 'Maja L.' });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        for (const members of [svc.getState().familyMembers, mockStore['users/user-1/billingYears/2026'].familyMembers]) {
+            expect(members.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2, 3], householdName: 'Lake House' });
+            expect(members.find(x => x.id === 2).linkedMembers).toEqual([]);
+            expect('householdName' in members.find(x => x.id === 2)).toBe(false);
+            expect(members.find(x => x.id === 3).name).toBe('Maja L.');
+        }
+        expect(mockStore['users/user-1/billingYears/2026'].billingEvents).toEqual([]);
         errSpy.mockRestore();
     });
 

@@ -180,3 +180,40 @@ export function planHouseholdEdit(familyMembers, edit) {
         affectedContactIds
     };
 }
+
+function sameIds(a, b) {
+    const x = a || [];
+    const y = b || [];
+    return x.length === y.length && x.every((id, i) => id === y[i]);
+}
+
+/**
+ * Undo a household edit's household fields on the current member list, keeping
+ * every other change made since (#528). For each member the edit changed
+ * (`planned` differs from `previous`), `linkedMembers` and `householdName` go back
+ * to their previous values — but only while they still hold what the edit set, so
+ * a later household edit is never clobbered. Members removed since are skipped.
+ *
+ * @param {Array} current   the member list now
+ * @param {Array} planned   planHouseholdEdit(...).familyMembers
+ * @param {Array} previous  the member list the edit was planned from
+ * @returns {Array|null} the restored list, or null when nothing needed restoring
+ */
+export function revertHouseholdFields(current, planned, previous) {
+    const plannedById = new Map((planned || []).map(m => [m.id, m]));
+    const previousById = new Map((previous || []).map(m => [m.id, m]));
+    let changed = false;
+    const restored = (current || []).map(cur => {
+        const plannedMember = plannedById.get(cur.id);
+        const previousMember = previousById.get(cur.id);
+        if (!plannedMember || !previousMember || plannedMember === previousMember) return cur;
+        if (!sameIds(cur.linkedMembers, plannedMember.linkedMembers)) return cur;
+        if (cur.householdName !== plannedMember.householdName) return cur;
+        changed = true;
+        const next = { ...cur, linkedMembers: (previousMember.linkedMembers || []).slice() };
+        if (previousMember.householdName !== undefined) next.householdName = previousMember.householdName;
+        else delete next.householdName;
+        return next;
+    });
+    return changed ? restored : null;
+}
