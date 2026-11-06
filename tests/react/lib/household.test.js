@@ -601,6 +601,26 @@ describe('share documents after a contact change', () => {
         expect(mockStore['publicShares/h-erik'].linkedMembers).toEqual([]);
     });
 
+    it('rejects a queued household change when the year is switched before it runs', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        setDoc.mockImplementationOnce(async (ref, data, options) => { await held; return original(ref, data, options); });
+        const svc = createService();
+        const other = [m(1, 'Erik Lindqvist', [2, 3]), m(2, 'Anna Lindqvist'), m(3, 'Maja Lindqvist')];
+        const first = svc.changeHouseholdContact(2);   // 2026; its save is held open
+        const queued = svc.changeHouseholdContact(3);  // requested in 2026, waits for the first
+        // While the first change is saving, the administrator switches to 2027.
+        await vi.waitFor(() => expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]));
+        svc._setState({ activeYear: { id: '2027', label: '2027', status: 'open' }, familyMembers: other, billingEvents: [] });
+        release();
+        await first;
+        await expect(queued).rejects.toThrow('The billing year changed before the household change ran; it was not applied.');
+        expect(svc.getState().familyMembers).toBe(other);
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+    });
+
     it('rebuilds the edited year even if the year is switched while the save is pending', async () => {
         token('h-erik', 1);
         token('h-anna', 2);

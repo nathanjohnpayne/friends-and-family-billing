@@ -708,6 +708,14 @@ export class BillingYearService {
         return this._serializeHousehold(() => this._saveHouseholdNow(edit));
     }
 
+    /** @private The (user, year) a household operation was requested in. */
+    _householdContext() {
+        return {
+            uid: this._user ? this._user.uid : null,
+            yearId: this._state.activeYear ? this._state.activeYear.id : null
+        };
+    }
+
     /**
      * @private Run household operations one at a time. Each operation's save AND
      * share rebuild finish before the next one plans against the then-current state,
@@ -715,7 +723,19 @@ export class BillingYearService {
      * operation does not block the next.
      */
     _serializeHousehold(operation) {
-        const run = this._householdChain.then(operation, operation);
+        // Bind the operation to the user and year it was requested in. If either has
+        // changed by the time its turn comes (e.g. the administrator switched years
+        // while an earlier operation was running), it is rejected rather than applied
+        // to another year's household — member ids survive Start New Year.
+        const requested = this._householdContext();
+        const guarded = () => {
+            const now = this._householdContext();
+            if (now.uid !== requested.uid || now.yearId !== requested.yearId) {
+                throw new Error('The billing year changed before the household change ran; it was not applied.');
+            }
+            return operation();
+        };
+        const run = this._householdChain.then(guarded, guarded);
         this._householdChain = run.catch(() => {});
         return run;
     }
