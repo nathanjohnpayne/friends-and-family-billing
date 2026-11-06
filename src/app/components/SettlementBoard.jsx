@@ -8,6 +8,7 @@ import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../
 import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
+import { getHouseholdName } from '../../lib/household.js';
 import Dialog from './Dialog.jsx';
 import FinancialUnavailable from './FinancialUnavailable.jsx';
 import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
@@ -124,9 +125,10 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
         const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
 
+        const householdName = linkedData.length > 0 ? getHouseholdName(member, familyMembers) : '';
         return available
-            ? { member, available, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview }
-            : { member, available, data, linkedData, status, pendingCharges: { count: pendingCharges.count }, openReview };
+            ? { member, available, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview, householdName }
+            : { member, available, data, linkedData, status, pendingCharges: { count: pendingCharges.count }, openReview, householdName };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
@@ -177,7 +179,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                     ))}
                     {needsCorrectionCount > 0 && <span className="settlement-filter-info">Needs correction {needsCorrectionCount}</span>}
                     {linkedGroupCount > 0 && (
-                        <span className="settlement-filter-info">Linked Groups {linkedGroupCount}</span>
+                        <span className="settlement-filter-info">Households {linkedGroupCount}</span>
                     )}
                 </div>
             </div>
@@ -280,7 +282,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, available, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview } = row;
+    const { member, available, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview, householdName } = row;
     const access = useFinancialAccess(getAvailability, member.id);
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
@@ -390,7 +392,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
                         </div>
                         <span className="settlement-card-meta">
                             {hasLinked
-                                ? 'Household includes ' + linkedData.length + ' linked member' + (linkedData.length > 1 ? 's' : '')
+                                ? (householdName ? householdName + ' household' : 'Household') + ' \u00b7 ' + (linkedData.length + 1) + ' members \u00b7 contact ' + member.name
                                 : 'Individual'}
                         </span>
                         {available && hasPendingCharges && (
@@ -438,10 +440,11 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
             {/* ── Expanded Detail ─────────────────────────────── */}
             {expanded && (
                 <div className="settlement-card-detail">
-                    {/* 1. Primary member bill breakdown — always first */}
+                    {/* 1. The household contact's bill breakdown — always first */}
                     {available && <div className="settlement-breakdown">
                         <div className="settlement-breakdown-header">
-                            {hasLinked ? 'Primary Member Calculation' : 'Bill Breakdown for ' + member.name}
+                            {'Bill Breakdown for ' + member.name}
+                            {hasLinked && <span className="household-contact-tag">Household contact</span>}
                         </div>
                         {data.bills.length === 0 ? (
                             <p className="settlement-breakdown-empty">No bills assigned</p>
@@ -458,10 +461,10 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
                         )}
                     </div>}
 
-                    {/* 2. Linked members — shown after primary breakdown */}
+                    {/* 2. The household's other members — shown after the contact's breakdown */}
                     {hasLinked && (
                         <div className="settlement-linked-section">
-                            <div className="settlement-section-label">Linked Members</div>
+                            <div className="settlement-section-label">Other Household Members</div>
                             {linkedData.map(ls => {
                                 const childPayment = getPaymentTotalForMember(payments, ls.member.id);
                                 const childBalance = ls.total - childPayment;

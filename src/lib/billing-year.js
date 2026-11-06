@@ -1,6 +1,7 @@
 // Billing year lifecycle helpers — no DOM, no Firestore, no module-scoped state.
 
 import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, getHouseholdOpeningBalance, buildCarryForward, CREDIT_EPSILON } from './calculations.js';
+import { normalizeHouseholdName } from './household.js';
 
 // Carry arithmetic uses integer cents, including symmetric signed rounding.
 const cents = amount => Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100);
@@ -332,15 +333,24 @@ export function isYearLabelDuplicate(billingYears, label) {
  * @returns {Object}
  */
 export function buildNewYearData(familyMembers, bills, settings, yearId, carry = null, fromYearLabel = null) {
-    const clonedMembers = familyMembers.map(m => ({
-        id: m.id,
-        name: m.name,
-        email: m.email,
-        phone: m.phone || '',
-        avatar: m.avatar,
-        paymentReceived: 0,
-        linkedMembers: m.linkedMembers ? m.linkedMembers.slice() : []
-    }));
+    const clonedMembers = familyMembers.map(m => {
+        const linkedMembers = m.linkedMembers ? m.linkedMembers.slice() : [];
+        const cloned = {
+            id: m.id,
+            name: m.name,
+            email: m.email,
+            phone: m.phone || '',
+            avatar: m.avatar,
+            paymentReceived: 0,
+            linkedMembers
+        };
+        // The household name lives on the contact's record (#528, ADR 0011); carry it
+        // so Start New Year does not lose it. Only a contact (a member with linked
+        // members) keeps one.
+        const householdName = normalizeHouseholdName(m.householdName);
+        if (householdName && linkedMembers.length > 0) cloned.householdName = householdName;
+        return cloned;
+    });
     const clonedBills = bills.map(b => ({
         id: b.id,
         name: b.name,

@@ -43,6 +43,7 @@ import { queueEmail } from '@/lib/mail.js';
 import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
 import { openSmsComposer } from '@/lib/sms.js';
 import { getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { planHouseholdEdit } from '@/lib/household.js';
 
 const members = ['Alice', 'Bob', 'Carol'].map((name, index) => ({
     id: index + 1, name, email: name.toLowerCase() + '@example.com', phone: '+15555550100', linkedMembers: [], avatar: ''
@@ -114,6 +115,73 @@ describe('inactive held-state consumer contract', () => {
         expect(confirm.queryByText(/Outstanding/)).not.toBeInTheDocument();
         await user.click(confirm.getByRole('button', { name: 'Reverse' }));
         expect(onReverse).toHaveBeenCalledWith('payment');
+    });
+
+    it('keeps the household name and follows a changed contact when an existing invoice becomes held', async () => {
+        const user = userEvent.setup();
+        control.state.familyMembers = [{ ...members[0], linkedMembers: [2], householdName: 'Cedar' }, members[1], members[2]];
+        control.state.payments = [];
+        const view = mount(<DashboardView />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'More actions for Alice' }));
+        await user.click(screen.getByRole('menuitem', { name: 'Email Invoice' }));
+        expect(screen.getByRole('dialog', { name: 'Email Invoice for Alice' })).toBeInTheDocument();
+        control.state.familyMembers = planHouseholdEdit(control.state.familyMembers,
+            { contactId: 2, memberIds: [1, 2] }).familyMembers;
+        control.held.add(2);
+        view.rerender(<MemoryRouter><ToastProvider><DashboardView /></ToastProvider></MemoryRouter>);
+        expect(screen.getByRole('dialog', { name: 'Financial data unavailable' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Send Email' })).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Close', exact: true }));
+        const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
+        expect(bob.getByText('Cedar household · 2 members · contact Bob')).toBeInTheDocument();
+        await user.click(bob.getByText('Bob'));
+        expect(bob.getByRole('status')).toHaveTextContent('Financial data unavailable');
+        expect(bob.queryByText(/\$/)).not.toBeInTheDocument();
+        expect(bob.queryByRole('button', { name: 'Text Invoice' })).not.toBeInTheDocument();
+        expect(queueEmail).not.toHaveBeenCalled();
+        expect(createAndPruneShareLink).not.toHaveBeenCalled();
+    });
+
+    it('keeps an open member history on hold after its household contact changes without restricting reversals', async () => {
+        const user = userEvent.setup();
+        const familyMembers = [{ ...members[0], linkedMembers: [2], householdName: 'Cedar' }, members[1], members[2]];
+        const onReverse = vi.fn();
+        const props = { ...dialogProps, familyMembers, readOnly: false, onReverse,
+            payments: [{ id: 'payment', memberId: 1, amount: 100, receivedAt: '2026-01-01', method: 'cash' }],
+            creditAdjustments: [{ id: 'refund', memberId: 1, type: 'refund', status: 'recorded', amount: 20 }] };
+        const view = render(<PaymentHistoryDialog {...props} />);
+        const changed = planHouseholdEdit(familyMembers, { contactId: 2, memberIds: [1, 2] }).familyMembers;
+        control.held.add(2);
+        view.rerender(<PaymentHistoryDialog {...props} familyMembers={changed} />);
+        expect(screen.getByRole('status')).toHaveTextContent('Financial data unavailable');
+        expect(screen.queryByText('Remaining Balance')).not.toBeInTheDocument();
+        await user.click(screen.getByTitle('Reverse this payment'));
+        const confirm = within(screen.getByRole('dialog', { name: 'Reverse Payment — Refund on Record' }));
+        expect(confirm.getByText(/This household has a recorded refund/)).toHaveTextContent('Financial data unavailable');
+        expect(confirm.queryByText(/Outstanding/)).not.toBeInTheDocument();
+        await user.click(confirm.getByRole('button', { name: 'Reverse' }));
+        expect(onReverse).toHaveBeenCalledWith('payment');
+    });
+
+    it('routes a valid named household invoice and member-bound link to its new contact', async () => {
+        const user = userEvent.setup();
+        control.state.familyMembers = planHouseholdEdit(
+            [{ ...members[0], linkedMembers: [2], householdName: 'Cedar' }, members[1], members[2]],
+            { contactId: 2, memberIds: [1, 2] }).familyMembers;
+        control.state.payments = [];
+        mount(<DashboardView />);
+        const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
+        expect(bob.getByText('Cedar household · 2 members · contact Bob')).toBeInTheDocument();
+        await user.click(bob.getByText('Bob'));
+        expect(bob.getByText('Household contact')).toBeInTheDocument();
+        await user.click(bob.getByRole('button', { name: 'More actions for Bob' }));
+        await user.click(screen.getByRole('menuitem', { name: 'Email Invoice' }));
+        expect(screen.getByRole('dialog', { name: 'Email Invoice for Bob' })).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Send Email' }));
+        expect(createAndPruneShareLink).toHaveBeenCalledWith(expect.objectContaining({ memberId: 2, memberName: 'Bob' }));
+        expect(queueEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'bob@example.com' }));
     });
 
     it('counts one valid paid, one valid unpaid and one held household without partial aggregate money', () => {

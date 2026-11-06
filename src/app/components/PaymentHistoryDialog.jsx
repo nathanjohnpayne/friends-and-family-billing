@@ -17,6 +17,7 @@ import ConfirmDialog from './ConfirmDialog.jsx';
 import Dialog from './Dialog.jsx';
 import FinancialUnavailable from './FinancialUnavailable.jsx';
 import { FINANCIAL_UNAVAILABLE } from '../../lib/financial-availability.js';
+import { findHouseholdContactId } from '../../lib/household.js';
 
 /** Payment method options matching SettlementBoard.jsx */
 const PAYMENT_METHODS = [
@@ -46,13 +47,16 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     const memberTotal = summary[memberId] ? summary[memberId].total : 0;
     const balance = memberTotal - totalPaid;
 
-    // Reversal-after-refund warning (#331, ADR 0003). PaymentHistoryDialog is opened
-    // for the household primary (SettlementBoard wires onViewHistory(member.id)), so
-    // its linkedMembers give the whole household. If the household carries an active
+    // Reversal-after-refund warning (#331, ADR 0003). History stays member-bound,
+    // but its current household contact may change while the dialog is open
+    // (ADR 0011). Resolve the contact for household availability and warnings;
+    // the member's audit ledger and reversal targets remain unchanged. If the
+    // household carries an active
     // recorded Refund, reversing a payment is an informed action: it lowers Net
     // Contribution → the household flips to Outstanding, while the refund stays on the
     // books (never auto-clawed-back). We warn, but never block — pure display.
-    const household = familyMembers.find(m => m.id === memberId);
+    const householdContactId = findHouseholdContactId(familyMembers, memberId);
+    const household = familyMembers.find(m => m.id === householdContactId);
     const recordedRefund = getHouseholdRecordedRefund(household, creditAdjustments);
 
     /**

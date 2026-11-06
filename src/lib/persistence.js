@@ -1,6 +1,8 @@
 // Persistence helpers — save payload construction and data normalization.
 // No DOM, no Firestore, no module-scoped state.
 
+import { normalizeHouseholdName } from './household.js';
+
 /**
  * Build the Firestore save payload from current state.
  * Does NOT include FieldValue.serverTimestamp() — caller adds createdAt fallback and updatedAt.
@@ -41,6 +43,9 @@ export function buildSavePayload(currentBillingYear, familyMembers, bills, payme
         // setDoc merge). It MUST be threaded through this allowlist or the next
         // full-document save (setDoc without merge) silently erases it. See ADR 0008.
         closedAt: currentBillingYear.closedAt || null,
+        // Member records are saved whole, so per-member fields — including the
+        // optional householdName on a household contact's record (#528, ADR 0011) —
+        // round-trip without a separate allowlist entry.
         familyMembers: familyMembers,
         bills: bills,
         payments: payments,
@@ -75,6 +80,17 @@ export function normalizeYearData(yearData, yearId) {
         if (m.paymentReceived === undefined) m.paymentReceived = 0;
         if (!m.linkedMembers) m.linkedMembers = [];
         return m;
+    });
+    // Optional household name, kept only on a household contact's record (#528,
+    // ADR 0011): a member with links who is not linked by anyone. Keep a trimmed
+    // non-empty string; drop anything else, and drop a name on any other member.
+    const linkedIds = new Set(members.flatMap(m => m.linkedMembers || []));
+    members.forEach(m => {
+        if (m.householdName === undefined) return;
+        const isContact = m.linkedMembers.length > 0 && !linkedIds.has(m.id);
+        const name = isContact ? normalizeHouseholdName(m.householdName) : '';
+        if (name) m.householdName = name;
+        else delete m.householdName;
     });
 
     const bills = (yearData.bills || []).map(b => {

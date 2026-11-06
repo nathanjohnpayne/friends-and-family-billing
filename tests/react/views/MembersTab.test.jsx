@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const mockService = {
     addMember: vi.fn(),
     updateMember: vi.fn(),
-    removeMember: vi.fn()
+    removeMember: vi.fn(),
+    changeHouseholdContact: vi.fn(async () => ({ shareDocsRebuilt: 1 }))
 };
 
 const mockState = {
@@ -61,10 +62,36 @@ describe('MembersTab', () => {
 
     it('shows household pills for linked members', () => {
         renderTab();
-        // Alice has Bob linked — Household label + Bob pill
+        // Alice has Bob linked — household label naming Alice as the contact + Bob pill
         expect(screen.getByText('Household')).toBeInTheDocument();
+        expect(screen.getByText('Household contact')).toBeInTheDocument();
         // Bob appears as a member card name AND as a linked pill inside Alice's card
         expect(screen.getAllByText('Bob').length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('lets a household member become the household contact', async () => {
+        renderTab();
+        fireEvent.click(screen.getByRole('button', { name: 'Actions for Bob' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Make household contact' }));
+        expect(mockService.changeHouseholdContact).toHaveBeenCalledWith(2);
+        await waitFor(() => expect(screen.getByText('Bob is now the household contact')).toBeInTheDocument());
+    });
+
+    it('offers Make household contact only to members of a household', () => {
+        renderTab();
+        fireEvent.click(screen.getByRole('button', { name: 'Actions for Alice' }));
+        expect(screen.queryByRole('menuitem', { name: 'Make household contact' })).toBeNull();
+    });
+
+    it('shows the service error when removing a household contact', () => {
+        mockService.removeMember.mockImplementationOnce(() => {
+            throw new Error('Choose a new household contact for Alice\u2019s household before removing them.');
+        });
+        renderTab();
+        fireEvent.click(screen.getByRole('button', { name: 'Actions for Alice' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Member' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+        expect(screen.getByText(/Choose a new household contact for Alice/)).toBeInTheDocument();
     });
 
     it('shows placeholder text for missing email', () => {

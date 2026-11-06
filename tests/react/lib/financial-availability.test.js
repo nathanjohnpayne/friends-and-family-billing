@@ -56,6 +56,7 @@ describe('private financial availability bridge', () => {
         const action = operation === 'close' ? service.setYearStatus('closed') : service.createYear('2027');
         await expect(action).rejects.toThrow('Financial data unavailable. Correct the affected record before settling this household.');
         expect(service.getState()).toEqual(before);
+        expect(service._yearOpPending).toBe(0);
         expect(enqueue).not.toHaveBeenCalled();
         expect(setDoc).not.toHaveBeenCalled();
         expect(writeBatch).not.toHaveBeenCalled();
