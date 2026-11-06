@@ -630,6 +630,11 @@ describe('share documents after a contact change', () => {
         expect(() => svc.issueRefund({ memberId: 2, amount: 5, method: 'cash', reason: 'over' })).toThrow('A household change is still being saved.');
         expect(() => svc.recordPayment({ memberId: 2, amount: 30, method: 'cash', distribute: true })).toThrow('A household change is still being saved.');
         svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' }); // an individual payment is still allowed
+        // Start New Year and a status change would snapshot the unconfirmed household.
+        await expect(svc.createYear('2027')).rejects.toThrow('A household change is still being saved.');
+        await expect(svc.setYearStatus('closed')).rejects.toThrow('A household change is still being saved.');
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+        expect(svc.getState().activeYear.status).toBe('open');
         release();
         await pending;
         expect(svc.getState().payments.filter(p => p.memberId === 4 && p.amount === 10)).toHaveLength(1);

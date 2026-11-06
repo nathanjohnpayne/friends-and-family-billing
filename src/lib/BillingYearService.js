@@ -357,6 +357,9 @@ export class BillingYearService {
      */
     async setYearStatus(newStatus) {
         if (!this._user) return;
+        // Its write carries the in-memory billing events, and closing the year would
+        // stop a failed household change's compensating save (#528).
+        this._guardHouseholdGraph();
         const { activeYear, billingYears, billingEvents } = this._state;
         if (!activeYear || activeYear.status === newStatus) return;
 
@@ -435,6 +438,10 @@ export class BillingYearService {
      */
     async createYear(yearId, options = {}) {
         if (!this._user) return;
+        // The rollover snapshots the household into the new year and the prior year's
+        // carry marking; a household change still being saved could be rolled back
+        // after that snapshot (#528).
+        this._guardHouseholdGraph();
         const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {
@@ -730,7 +737,8 @@ export class BillingYearService {
      * that is only safe when nothing else changed the graph meanwhile. Mutations that
      * read the household to decide who a ledger row belongs to (a Refund, a payment
      * distributed across a household) are refused too, so no row is built from a
-     * household that is then rolled back.
+     * household that is then rolled back, and so are year-level operations that
+     * snapshot the year (Start New Year, a status change).
      */
     _guardHouseholdGraph() {
         if (this._householdPending > 0) {
