@@ -40,7 +40,7 @@ Covers share link generation, token validation, the share link dialog, and the p
 ### ShareView (Public-Facing)
 
 - Shows "No share token provided" error when no token is in the URL.
-- On publicShares cache hit: renders member name heading, year pill, and bumps access count via updateDoc.
+- On publicShares cache hit: renders member name heading, year pill, and bumps access count via updateDoc. A `summary:read` cache without `carriedItems` resolves through the already-deployed Cloud Function before rendering, even when its timestamp is fresh: the old cache shape cannot distinguish no carry from incoming credit hidden by the owed floor. A failed resolution follows the normal error path without rendering the old summary. Until a future shared schema version distinguishes these shapes, uncarried summaries resolve once per visit; links without summary scope and itemized-carry caches retain the cache path.
 - On cache miss with successful Cloud Function response: renders data from the response and sends the correct POST payload to `/resolveShareToken`.
 - On cache miss with failed response: shows the server error message or a generic "invalid or has been removed" fallback.
 - On network/unexpected error: shows "Could not connect" message.

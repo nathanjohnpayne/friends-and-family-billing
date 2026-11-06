@@ -9,7 +9,7 @@ import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { isShareTokenStale } from '../../lib/share.js';
-import { getPaymentMethodIcon, getPaymentMethodLabel } from '../../lib/formatting.js';
+import { getPaymentMethodIcon, getPaymentMethodLabel, getInitials } from '../../lib/formatting.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 
 const STATUS_LABELS = { open: 'Open', in_review: 'In Review', resolved: 'Resolved', rejected: 'Rejected' };
@@ -215,6 +215,15 @@ export default function ShareView() {
             // and render no "Your Refunds" section. Only dedicated refund-confirm
             // links carry refunds:read, so this does not affect normal share links.
             if (cacheValid && publicDoc.exists() && (publicDoc.data().scopes || []).includes('refunds:read')) {
+                cacheValid = false;
+            }
+
+            // Pre-itemization caches cannot reveal whether a carry is absent or
+            // hidden by the owed floor. Resolve through the deployed projection
+            // before rendering; a fresh timestamp alone cannot establish parity.
+            // Uncarried summaries intentionally resolve once per visit until a
+            // future shared schema version can distinguish those old cache shapes.
+            if (cacheValid && (publicDoc.data().scopes || []).includes('summary:read') && !publicDoc.data().carriedItems) {
                 cacheValid = false;
             }
 
@@ -426,10 +435,10 @@ function signedCurrency(amount) {
     return (amount < 0 ? '−' : '+') + formatCurrency(Math.abs(amount));
 }
 
-function CarriedToggle({ expanded, panelId, onToggle, children }) {
+function CarriedToggle({ expanded, panelId, onToggle, children, showState = false }) {
     if (!children) return null;
     if (!panelId) return <span>{children}</span>;
-    return <button type="button" className="share-carried-toggle" aria-expanded={expanded} aria-controls={panelId} onClick={onToggle}>{children}</button>;
+    return <button type="button" className="share-carried-toggle" aria-expanded={expanded} aria-controls={panelId} onClick={onToggle}>{children}{showState && <> <span className="share-carried-toggle-state">{expanded ? 'Hide breakdown' : 'Show breakdown'}</span></>}</button>;
 }
 
 function CarriedItemsPanel({ carried, carriedToggle }) {
@@ -450,12 +459,12 @@ function CarriedItemsPanel({ carried, carriedToggle }) {
             <div className="share-carried-breakdown">
                 {Array.from(groups, ([id, group]) => (
                     <div className="share-carried-group" key={id}>
-                        <div className="share-carried-line share-carried-group-heading"><strong>{group.name}</strong><strong className="share-carried-amount">{signedCurrency(group.items.reduce((sum, item) => sum + item.amount, 0))}</strong></div>
+                        <div className="share-carried-line share-carried-group-heading"><strong className="share-carried-member-heading"><span className="share-carried-initials" aria-hidden="true">{getInitials(group.name)}</span>{group.name}</strong><strong className="share-carried-amount">{signedCurrency(group.items.reduce((sum, item) => sum + item.amount, 0))}</strong></div>
                         {group.items.map(line)}
                     </div>
                 ))}
                 {household.map((item, index) => <div className={'share-carried-group' + (item.amount < 0 ? ' share-carried-credit' : '')} key={index}>
-                    {line(item, index)}
+                    <div className="share-carried-line share-carried-group-heading"><strong>{item.kind === 'credit' && <svg className="share-carried-credit-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="9" /><path d="M7 12h10m-3-3 3 3-3 3" /></svg>}{item.description || item.billName}</strong><strong className="share-carried-amount">{signedCurrency(item.amount)}</strong></div>
                     {item.detail?.length > 0 && <div className="share-carried-detail">{item.detail.map((detail, i) => line({ ...detail, description: detail.description + (detail.memberName ? ' (' + detail.memberName + ')' : '') }, i))}</div>}
                 </div>)}
                 <div className="share-carried-line share-carried-total"><strong>Carried total</strong><strong className="share-carried-amount">{signedCurrency(carried.total)}</strong></div>
@@ -480,7 +489,7 @@ function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedI
                             <td className="share-cell-number">{'-' + formatCurrency(c.amount)}</td>
                         </tr>
                     ))}
-                    {carriedItems && <tr><td>Carried from {carriedItems.fromYear || 'previous year'}</td><td className="share-cell-number"><CarriedToggle {...carriedToggle}>{signedCurrency(carriedItems.total)}</CarriedToggle></td></tr>}
+                    {carriedItems && <tr><td>Carried from {carriedItems.fromYear || 'previous year'}</td><td className="share-cell-number"><CarriedToggle {...carriedToggle} showState>{signedCurrency(carriedItems.total)}</CarriedToggle></td></tr>}
                     {notApplied > 0 && <tr><td>Not applied this year</td><td className="share-cell-number">{signedCurrency(notApplied)}</td></tr>}
                     <tr className="share-total-row"><td>Household Total</td><td className="share-cell-number"><strong>{formatCurrency(netAnnual)}</strong></td></tr>
                 </tbody>
