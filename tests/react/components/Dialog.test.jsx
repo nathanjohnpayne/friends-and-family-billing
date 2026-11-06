@@ -120,6 +120,20 @@ describe('Dialog', () => {
         expect(onClose).toHaveBeenCalledOnce();
     });
 
+    it('does not close when a press starts inside the card and ends on the overlay', () => {
+        const onClose = vi.fn();
+        render(<Dialog onClose={onClose} title="Drag"><input aria-label="field" /></Dialog>);
+        const overlay = screen.getByRole('presentation');
+        // A text-selection drag: press in the input, release over the overlay.
+        fireEvent.mouseDown(screen.getByLabelText('field'));
+        fireEvent.click(overlay);
+        expect(onClose).not.toHaveBeenCalled();
+        // A press and release on the overlay itself still dismisses.
+        fireEvent.mouseDown(overlay);
+        fireEvent.click(overlay);
+        expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('can opt out of Escape and overlay dismissal', () => {
         const onClose = vi.fn();
         render(<Dialog onClose={onClose} title="Busy" closeOnEscape={false} closeOnOverlayClick={false}>body</Dialog>);

@@ -81,6 +81,11 @@ export default function Dialog({
     const dialogRef = useRef(null);
     const entryRef = useRef(null);
     const openerRef = useRef(null);
+    // Whether the current press began on the overlay itself. A drag that starts
+    // inside the card (selecting input text) and is released over the overlay
+    // fires click on the overlay, which must not dismiss. null = no press seen
+    // (a synthetic click), which keeps a bare overlay click dismissing.
+    const pressStartRef = useRef(null);
     // Latest handlers, read by the long-lived document listener.
     const latest = useRef({ onClose, closeOnEscape });
     latest.current = { onClose, closeOnEscape };
@@ -173,6 +178,9 @@ export default function Dialog({
         // target === currentTarget: a click inside a stacked (portalled) child dialog
         // bubbles through the React tree but never targets this overlay.
         if (e.target !== e.currentTarget) return;
+        const startedInsideCard = pressStartRef.current === false;
+        pressStartRef.current = null;
+        if (startedInsideCard) return;
         if (!closeOnOverlayClick || !isTop(entryRef.current)) return;
         onClose();
     }
@@ -201,7 +209,12 @@ export default function Dialog({
     const classes = ['dialog', wide ? 'dialog--wide' : '', className || ''].filter(Boolean).join(' ');
 
     return createPortal(
-        <div className="dialog-overlay" onClick={handleOverlayClick} role="presentation">
+        <div
+            className="dialog-overlay"
+            onMouseDown={e => { pressStartRef.current = e.target === e.currentTarget; }}
+            onClick={handleOverlayClick}
+            role="presentation"
+        >
             <div
                 ref={dialogRef}
                 className={classes}

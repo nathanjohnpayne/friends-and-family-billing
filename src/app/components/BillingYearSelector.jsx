@@ -147,10 +147,11 @@ export default function BillingYearSelector() {
                 <Dialog
                     onClose={() => setNewYearOpen(false)}
                     title="Start New Billing Year"
+                    onSubmit={e => { e.preventDefault(); executeNewYear(); }}
                     footer={(
                         <>
-                            <button className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
-                            <button className="btn btn-sm btn-ink" onClick={executeNewYear}>Create Year</button>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink">Create Year</button>
                         </>
                     )}
                 >
@@ -162,7 +163,6 @@ export default function BillingYearSelector() {
                                 className="composer-input"
                                 value={newYearLabel}
                                 onChange={e => { setNewYearLabel(e.target.value); setNewYearError(''); }}
-                                onKeyDown={e => { if (e.key === 'Enter') executeNewYear(); }}
                                 autoFocus
                             />
                         </div>
