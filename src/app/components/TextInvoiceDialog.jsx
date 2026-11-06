@@ -11,11 +11,14 @@ import { openSmsComposer } from '../../lib/sms.js';
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, onClose: function, showToast?: function }} props
  */
-export default function TextInvoiceDialog({ open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, onClose, showToast }) {
+export default function TextInvoiceDialog({ getAvailability, open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, onClose, showToast }) {
     const [variant, setVariant] = useState('text-link');
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
@@ -23,7 +26,10 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
     const [generating, setGenerating] = useState(false);
     const bodyEditedRef = useRef(false);
 
-    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const access = useFinancialAccess(() => getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, owedAdjustments }, memberId),
+        String(billingYearId) + ':' + memberId, open);
+    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
 
     // Reset state when dialog opens
     useEffect(() => {
@@ -40,9 +46,14 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
         setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'sms'));
         setCopied(false);
         bodyEditedRef.current = false;
-    }, [open, variant, memberId]);
+    }, [open, variant, memberId, access.available]);
 
-    if (!open || !ctx) return null;
+    if (!open) return null;
+    if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
+        footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
+        <FinancialUnavailable />
+    </Dialog>;
+    if (!ctx) return null;
 
     const needsLink = variant === 'text-link';
 
@@ -50,7 +61,8 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
      * Generate a share link at send time. Returns the URL or empty string.
      * Caches the result so repeated actions in the same dialog session reuse it.
      */
-    async function ensureShareLink() {
+    async function ensureShareLink(ticket) {
+        if (!access.canContinue(ticket)) return '';
         if (generatedShareUrl) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
         setGenerating(true);
@@ -67,6 +79,7 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
                 activeYear,
                 settings,
             });
+            if (!access.canContinue(ticket)) { setGenerating(false); return ''; }
             setGeneratedShareUrl(result.url);
             setGenerating(false);
             return result.url;
@@ -96,24 +109,30 @@ export default function TextInvoiceDialog({ open, memberId, familyMembers, bills
     }
 
     async function handleCopy() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         let finalBody = body;
         if (needsLink) {
-            const url = await ensureShareLink();
+            const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }
+        if (!access.canContinue(ticket)) return;
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
     async function handleOpenMessages() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         let finalBody = body;
         if (needsLink) {
-            const url = await ensureShareLink();
+            const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }
+        if (!access.canContinue(ticket)) return;
         openSmsComposer(ctx.member.phone, finalBody, () => {
             if (showToast) showToast('Message copied\u2014paste into your messaging app');
         });

@@ -9,6 +9,9 @@ import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
 function MemberAvatar({ member }) {
@@ -49,7 +52,7 @@ function isOpenReviewRequest(d) {
  *
  * @param {{ familyMembers: Array, bills: Array, payments: Array, disputes?: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges, getFinancialAvailability }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
@@ -108,10 +111,12 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // `combinedTotal` (above) stays the gross bill split ± the carried opening balance
         // for the displayed "Annual" figure; service credits and billed charges follow
         // Option B and surface only in the balance, not the bill's own amount.
-        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
+        const financials = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
+        const available = financials.ok !== false;
+        const { owed, netContribution, credit } = financials;
         const balance = owed - netContribution;
         const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
-        const status = getPaymentStatus(owed, netForStatus) || 'settled';
+        const status = available ? (getPaymentStatus(owed, netForStatus) || 'settled') : 'unavailable';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
@@ -119,7 +124,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
         const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
 
-        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview };
+        return available
+            ? { member, available, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview }
+            : { member, available, data, linkedData, status, pendingCharges: { count: pendingCharges.count }, openReview };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
@@ -137,6 +144,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
     // Count households with linked members
     const linkedGroupCount = rows.filter(r => r.linkedData.length > 0).length;
+    const needsCorrectionCount = rows.filter(r => !r.available).length;
 
     const filtered = filter === 'all' ? rows
         : filter === 'review' ? rows.filter(r => r.openReview)
@@ -167,6 +175,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             {f.label} <span className="settlement-filter-count">{counts[f.key] ?? 0}</span>
                         </button>
                     ))}
+                    {needsCorrectionCount > 0 && <span className="settlement-filter-info">Needs correction {needsCorrectionCount}</span>}
                     {linkedGroupCount > 0 && (
                         <span className="settlement-filter-info">Linked Groups {linkedGroupCount}</span>
                     )}
@@ -181,6 +190,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                         <HouseholdCard
                             key={row.member.id}
                             row={row}
+                            getAvailability={() => getFinancialAvailability
+                                ? getFinancialAvailability(row.member.id)
+                                : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, row.member.id, { reopenedAdjustmentIds })}
                             payments={payments}
                             readOnly={readOnly}
                             onRecordPayment={onRecordPayment}
@@ -248,7 +260,7 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -267,14 +279,15 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview } = row;
+    const { member, available, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview } = row;
+    const access = useFinancialAccess(getAvailability, member.id);
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
     // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
     // reads as settled, matching the status badge and the credit epsilon.
-    const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
+    const showPaymentAction = !readOnly && available && balance > CREDIT_EPSILON;
     // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
-    const showRefundAction = !readOnly && credit > CREDIT_EPSILON;
+    const showRefundAction = !readOnly && available && credit > CREDIT_EPSILON;
 
     function openRefund() {
         setRefundAmount(credit.toFixed(2));
@@ -293,6 +306,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
 
     function handleIssueRefund(e) {
         e.preventDefault();
+        if (access.begin() === null) return;
         setRefundError('');
         const amt = Math.round((parseFloat(refundAmount) || 0) * 100) / 100;
         if (!amt || amt <= 0) {
@@ -319,6 +333,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
 
     function handleRecordPayment(e) {
         e.preventDefault();
+        if (access.begin() === null) return;
         setPaymentError('');
         const amt = parseFloat(paymentAmount);
         if (!amt || amt <= 0) {
@@ -355,7 +370,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
     }
 
     return (
-        <div className={'settlement-card settlement-card--' + status}>
+        <div role="region" aria-label={'Settlement for ' + member.name} className={'settlement-card settlement-card--' + status}>
             {/* ── Card Header ─────────────────────────────────── */}
             <div className="settlement-card-main" onClick={() => setExpanded(!expanded)}>
                 <div className="settlement-card-left">
@@ -374,7 +389,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 ? 'Household includes ' + linkedData.length + ' linked member' + (linkedData.length > 1 ? 's' : '')
                                 : 'Individual'}
                         </span>
-                        {hasPendingCharges && (
+                        {available && hasPendingCharges && (
                             <span className="settlement-card-pending" title="Deferred usage charges — not yet billed">
                                 Pending charges: {formatAnnualSummaryCurrency(pendingCharges.total)}
                                 {' '}
@@ -387,7 +402,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                 </div>
                 <div className="settlement-card-right">
                     {/* Summary boxes */}
-                    <div className="settlement-summary-boxes">
+                    {!available ? <FinancialUnavailable /> : <div className="settlement-summary-boxes">
                         <div className="settlement-summary-box">
                             <span className="settlement-summary-label">Annual</span>
                             <span className="settlement-summary-value">{formatAnnualSummaryCurrency(combinedTotal)}</span>
@@ -407,8 +422,8 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 <span className={'settlement-summary-value' + (balance > CREDIT_EPSILON ? ' settlement-summary-balance' : ' settled-zero')}>{balance > CREDIT_EPSILON ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
                             </div>
                         )}
-                    </div>
-                    <StatusBadge status={status} />
+                    </div>}
+                    {available && <StatusBadge status={status} />}
                     {openReview && <StatusBadge status="review" />}
                     <span className="settlement-expand-toggle">
                         {expanded ? 'Hide details \u25B2' : 'Details \u25BC'}
@@ -420,7 +435,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
             {expanded && (
                 <div className="settlement-card-detail">
                     {/* 1. Primary member bill breakdown — always first */}
-                    <div className="settlement-breakdown">
+                    {available && <div className="settlement-breakdown">
                         <div className="settlement-breakdown-header">
                             {hasLinked ? 'Primary Member Calculation' : 'Bill Breakdown for ' + member.name}
                         </div>
@@ -437,7 +452,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 </div>
                             </>
                         )}
-                    </div>
+                    </div>}
 
                     {/* 2. Linked members — shown after primary breakdown */}
                     {hasLinked && (
@@ -461,12 +476,12 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                                 <MemberAvatar member={ls.member} />
                                             </div>
                                             <strong>{ls.member.name}</strong>
-                                            {childStatus && <StatusBadge status={childStatus} />}
+                                            {available && childStatus && <StatusBadge status={childStatus} />}
                                             <span className="settlement-linked-toggle-hint" aria-hidden="true">
                                                 {isLinkedExpanded ? '\u25B2' : '\u25BC'}
                                             </span>
                                         </div>
-                                        <div className="settlement-summary-boxes settlement-summary-boxes--linked">
+                                        {available && <div className="settlement-summary-boxes settlement-summary-boxes--linked">
                                             <div className="settlement-summary-box">
                                                 <span className="settlement-summary-label">Annual</span>
                                                 <span className="settlement-summary-value">{formatAnnualSummaryCurrency(ls.total)}</span>
@@ -479,8 +494,8 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                                 <span className="settlement-summary-label">Balance</span>
                                                 <span className={'settlement-summary-value' + (childBalance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{childBalance > 0 ? formatAnnualSummaryCurrency(childBalance) : 'Paid'}</span>
                                             </div>
-                                        </div>
-                                        {isLinkedExpanded && (
+                                        </div>}
+                                        {available && isLinkedExpanded && (
                                             <div className="settlement-linked-breakdown">
                                                 {sameBills ? (
                                                     <p className="settlement-same-bills-note">Same bills as {member.name}</p>
@@ -504,7 +519,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                     )}
 
                     {/* 3. Household / Individual Total */}
-                    {hasLinked && (
+                    {available && hasLinked && (
                         <div className="settlement-breakdown">
                             <div className="settlement-breakdown-row settlement-breakdown-grand-total">
                                 <span>Household Total</span>
@@ -545,7 +560,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 Add Charge
                             </button>
                         )}
-                        {!readOnly && onBillCharges && hasPendingCharges && (
+                        {available && !readOnly && onBillCharges && hasPendingCharges && (
                             <button
                                 className="btn btn-tertiary btn-sm"
                                 onClick={() => onBillCharges(member.id)}
@@ -554,7 +569,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 Bill Charges
                             </button>
                         )}
-                        {member.phone && (
+                        {available && member.phone && (
                             <button
                                 className="btn btn-tertiary btn-sm"
                                 onClick={() => onTextInvoice && onTextInvoice(member.id)}
@@ -563,12 +578,12 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                             </button>
                         )}
                         <ActionMenu label={'More actions for ' + member.name}>
-                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
+                            {available && <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
                                 Email Invoice
-                            </ActionMenuItem>
-                            <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
+                            </ActionMenuItem>}
+                            {available && <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
                                 Generate Share Link
-                            </ActionMenuItem>
+                            </ActionMenuItem>}
                             <ActionMenuItem onClick={() => onManageShareLinks && onManageShareLinks(member.id)}>
                                 Manage Share Links
                             </ActionMenuItem>
@@ -577,7 +592,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                 </div>
             )}
 
-            {paymentOpen && (
+            {paymentOpen && available && (
                 <Dialog
                     onClose={cancelPayment}
                     title="Record Payment"
@@ -654,7 +669,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                 </Dialog>
             )}
 
-            {refundOpen && (
+            {refundOpen && available && (
                 <Dialog
                     onClose={cancelRefund}
                     title="Issue Refund"

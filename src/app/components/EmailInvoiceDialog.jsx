@@ -13,11 +13,14 @@ import { getInvoiceSummaryContext, buildInvoiceSubject, buildInvoiceBody } from 
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, showToast?: function, onClose: function }} props
  */
-export default function EmailInvoiceDialog({ open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, showToast, onClose }) {
+export default function EmailInvoiceDialog({ getAvailability, open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, showToast, onClose }) {
     const { user } = useAuth();
     const [variant, setVariant] = useState('text-link');
     const [subject, setSubject] = useState('');
@@ -27,7 +30,10 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
 
-    const ctx = open ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const access = useFinancialAccess(() => getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, owedAdjustments }, memberId),
+        String(billingYearId) + ':' + memberId, open);
+    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
 
     // Reset state when dialog opens
     useEffect(() => {
@@ -45,9 +51,14 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
         setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'email'));
         setCopied(false);
         bodyEditedRef.current = false;
-    }, [open, variant, memberId]);
+    }, [open, variant, memberId, access.available]);
 
-    if (!open || !ctx) return null;
+    if (!open) return null;
+    if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
+        footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
+        <FinancialUnavailable />
+    </Dialog>;
+    if (!ctx) return null;
 
     const recipientEmail = ctx.member.email || '';
     const needsLink = variant === 'text-link' || variant === 'full';
@@ -56,7 +67,8 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
      * Generate a share link at send time. Returns the URL or empty string.
      * Caches the result so repeated sends in the same dialog session reuse it.
      */
-    async function ensureShareLink() {
+    async function ensureShareLink(ticket) {
+        if (!access.canContinue(ticket)) return '';
         if (generatedShareUrl) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
         try {
@@ -72,6 +84,7 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
                 activeYear,
                 settings,
             });
+            if (!access.canContinue(ticket)) return '';
             setGeneratedShareUrl(result.url);
             return result.url;
         } catch (err) {
@@ -102,24 +115,30 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
     }
 
     async function handleCopy() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         let finalBody = body;
         if (needsLink) {
-            const url = await ensureShareLink();
+            const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }
+        if (!access.canContinue(ticket)) return;
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
     async function handleOpenMail() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         let finalBody = body;
         if (needsLink) {
-            const url = await ensureShareLink();
+            const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             setBody(finalBody);
         }
+        if (!access.canContinue(ticket)) return;
         const mailto = 'mailto:' + encodeURIComponent(recipientEmail)
             + '?subject=' + encodeURIComponent(subject)
             + '&body=' + encodeURIComponent(finalBody);
@@ -127,6 +146,8 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
     }
 
     async function handleSendEmail() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         if (!recipientEmail) {
             if (showToast) showToast('No email address for this member.', { kind: 'failure' });
             return;
@@ -135,11 +156,12 @@ export default function EmailInvoiceDialog({ open, memberId, familyMembers, bill
         try {
             let finalBody = body;
             if (needsLink) {
-                const url = await ensureShareLink();
+                const url = await ensureShareLink(ticket);
                 if (!url) { setSending(false); return; } // abort — toast already shown
                 finalBody = rebuildBodyWithUrl(url);
                 setBody(finalBody);
             }
+            if (!access.canContinue(ticket)) return;
             await queueEmail({ to: recipientEmail, subject, body: finalBody, uid: user ? user.uid : '' });
             if (showToast) showToast('Invoice emailed to ' + recipientEmail);
             onClose();

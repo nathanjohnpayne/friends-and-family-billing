@@ -1,3 +1,4 @@
+import { assertYearFinanciallyAvailable } from './financial-availability.js';
 /**
  * BillingYearService — manages billing year lifecycle (list, load, switch,
  * create, archive) against Firestore.
@@ -313,6 +314,7 @@ export class BillingYearService {
         if (!this._user) return;
         const { activeYear, billingYears, billingEvents } = this._state;
         if (!activeYear || activeYear.status === newStatus) return;
+        if (newStatus === 'closed') assertYearFinanciallyAvailable(this._state);
 
         // Emit YEAR_STATUS_CHANGED event (mirrors legacy main.js:386)
         const previousStatus = activeYear.status;
@@ -389,6 +391,7 @@ export class BillingYearService {
      */
     async createYear(yearId, options = {}) {
         if (!this._user) return;
+        assertYearFinanciallyAvailable(this._state);
         const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {

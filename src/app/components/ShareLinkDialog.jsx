@@ -11,6 +11,9 @@ import { db } from '../../lib/firebase.js';
 import { buildShareScopes, buildShareUrl, isShareTokenStale } from '../../lib/share.js';
 import { createAndPruneShareLink } from '../../lib/ShareLinkService.js';
 import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 function formatLastViewed(timestamp) {
     if (!timestamp) return '';
@@ -21,7 +24,7 @@ function formatLastViewed(timestamp) {
 /**
  * @param {{ open: boolean, memberId: number, memberName: string, userId: string, billingYearId: string, yearLabel: string, initialTab?: string, familyMembers?: Array, bills?: Array, payments?: Array, activeYear?: Object, settings?: Object, onClose: function, showToast?: function, onLinkGenerated?: function }} props
  */
-export default function ShareLinkDialog({ open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, owedAdjustments, activeYear, settings, onClose, showToast, onLinkGenerated }) {
+export default function ShareLinkDialog({ getAvailability, open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, owedAdjustments, activeYear, settings, onClose, showToast, onLinkGenerated }) {
     const [tab, setTab] = useState(initialTab || 'generate');
     const [expiryDays, setExpiryDays] = useState(0);
     const [allowDispute, setAllowDispute] = useState(false);
@@ -31,6 +34,10 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
     const [links, setLinks] = useState([]);
     const [loadingLinks, setLoadingLinks] = useState(false);
     const [copied, setCopied] = useState('');
+
+    const access = useFinancialAccess(() => getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, owedAdjustments }, memberId),
+        String(billingYearId) + ':' + memberId, open);
 
     useEffect(() => {
         if (open) {
@@ -100,6 +107,8 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
     }
 
     async function handleGenerate() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         setGenerating(true);
         try {
             const scopes = buildShareScopes(allowDispute, allowDisputeRead);
@@ -118,6 +127,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                 settings,
             });
 
+            if (!access.canContinue(ticket)) return;
             setGeneratedUrl(result.url);
             try { await navigator.clipboard.writeText(result.url); } catch (_) { /* clipboard may be blocked */ }
             if (onLinkGenerated) onLinkGenerated(result.url);
@@ -125,8 +135,9 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
         } catch (err) {
             console.error('Failed to generate share link:', err);
             if (showToast) showToast('Failed to generate share link: ' + err.message, { kind: 'failure' });
+        } finally {
+            setGenerating(false);
         }
-        setGenerating(false);
     }
 
     async function handleRevoke(tokenHash) {
@@ -141,6 +152,7 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
     }
 
     function handleCopy(url, id) {
+        if (access.begin() === null) return;
         navigator.clipboard.writeText(url).then(() => setCopied(id));
     }
 
@@ -160,9 +172,9 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
             footer={tab === 'generate' ? (
                 <>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    <button className="btn btn-sm btn-ink" onClick={handleGenerate} disabled={generating}>
+                    {access.available && <button className="btn btn-sm btn-ink" onClick={handleGenerate} disabled={generating}>
                         {generating ? 'Generating...' : 'Generate & Copy Link'}
-                    </button>
+                    </button>}
                 </>
             ) : (
                 <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
@@ -179,7 +191,8 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                 >Manage Links</button>
             </div>
 
-            {tab === 'generate' && (
+            {!access.available && <FinancialUnavailable />}
+            {tab === 'generate' && access.available && (
                 <div className="share-link-generate">
                     <p className="link-manager-hint">
                         Generate a shareable billing summary link for {memberName} ({yearLabel}).
@@ -232,9 +245,9 @@ export default function ShareLinkDialog({ open, memberId, memberName, userId, bi
                                     {link.url && (
                                         <div className="share-link-url-row">
                                             <span className="share-link-url share-link-url-truncated">{link.url}</span>
-                                            <button className="btn btn-sm btn-tertiary" onClick={() => handleCopy(link.url, link.id)}>
+                                            {access.available && <button className="btn btn-sm btn-tertiary" onClick={() => handleCopy(link.url, link.id)}>
                                                 {copied === link.id ? 'Copied!' : 'Copy'}
-                                            </button>
+                                            </button>}
                                             {link.status === 'active' && (
                                                 <button className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => handleRevoke(link.id)}>
                                                     Revoke
