@@ -722,6 +722,10 @@ export class BillingYearService {
 
         const previousMembers = this._state.familyMembers;
         this._setState({ familyMembers: plan.familyMembers, billingEvents });
+        // Bind the share rebuild to the year being edited: capture its inputs now,
+        // before awaiting persistence, so a year switch while the write is pending
+        // cannot point the rebuild at another year's links.
+        const shareInputs = this._shareRebuildInputs();
         try {
             await this._saveConfirmed();
         } catch (err) {
@@ -736,9 +740,15 @@ export class BillingYearService {
                 rollback.billingEvents = (this._state.billingEvents || []).filter(e => e.id !== addedEventId);
             }
             this._setState(rollback);
+            // A write enqueued while ours was pending (e.g. recordPayment's save) holds
+            // a snapshot with the rolled-back household and would persist it. Enqueue a
+            // compensating write of the rolled-back state behind it; it keeps every
+            // intervening mutation because it saves the current state. (When the year
+            // was switched meanwhile, this is an ordinary save of the selected year.)
+            if (rollback.familyMembers || rollback.billingEvents) this.save();
             throw new Error('The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error'));
         }
-        const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds);
+        const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds, shareInputs);
 
         return {
             contactId: plan.contactId,
@@ -771,24 +781,38 @@ export class BillingYearService {
         });
     }
 
-    /**
-     * @private Rebuild the cached share documents for these members' active links.
-     * Returns the number rewritten, or null when the rebuild failed.
-     */
-    async _rebuildShareDocs(memberIds) {
-        if (this._e2eMode || !this._user || !this._state.activeYear) return 0;
+    /** @private Snapshot of the active year's state that a share rebuild reads. */
+    _shareRebuildInputs() {
         const { activeYear, familyMembers, bills, payments, owedAdjustments, settings } = this._state;
+        return {
+            userId: this._user ? this._user.uid : null,
+            activeYear,
+            familyMembers,
+            bills,
+            payments,
+            owedAdjustments: owedAdjustments || [],
+            settings: settings || {}
+        };
+    }
+
+    /**
+     * @private Rebuild the cached share documents for these members' active links,
+     * from the given snapshot (see _shareRebuildInputs). Returns the number
+     * rewritten, or null when the rebuild failed.
+     */
+    async _rebuildShareDocs(memberIds, inputs) {
+        if (this._e2eMode || !inputs || !inputs.userId || !inputs.activeYear) return 0;
         try {
             return await rebuildMemberShareDocs({
-                userId: this._user.uid,
-                billingYearId: activeYear.id,
+                userId: inputs.userId,
+                billingYearId: inputs.activeYear.id,
                 memberIds,
-                familyMembers,
-                bills,
-                payments,
-                owedAdjustments: owedAdjustments || [],
-                activeYear,
-                settings: settings || {}
+                familyMembers: inputs.familyMembers,
+                bills: inputs.bills,
+                payments: inputs.payments,
+                owedAdjustments: inputs.owedAdjustments,
+                activeYear: inputs.activeYear,
+                settings: inputs.settings
             });
         } catch (err) {
             console.error('Error rebuilding share documents after a household change:', err);

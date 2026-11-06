@@ -521,7 +521,37 @@ describe('share documents after a contact change', () => {
         expect(state.familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
         expect(state.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
         expect(state.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        // The payment's queued write held the rolled-back household; the compensating
+        // write that follows it persists the rolled-back household with the payment.
+        await svc._saveQueue._chain;
+        const persisted = mockStore['users/user-1/billingYears/2026'];
+        expect(persisted.familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect(persisted.familyMembers.find(x => x.id === 2).linkedMembers).toEqual([]);
+        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
+        expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
         errSpy.mockRestore();
+    });
+
+    it('rebuilds the edited year even if the year is switched while the save is pending', async () => {
+        token('h-erik', 1);
+        token('h-anna', 2);
+        const { setDoc } = await import('firebase/firestore');
+        const svc = createService();
+        const original = setDoc.getMockImplementation();
+        setDoc.mockImplementationOnce(async (ref, data, options) => {
+            // The administrator switches to another year mid-write.
+            svc._setState({
+                activeYear: { id: '2027', label: '2027', status: 'open' },
+                familyMembers: [m(1, 'Erik Lindqvist'), m(2, 'Anna Lindqvist')],
+                bills: [], payments: [], owedAdjustments: []
+            });
+            return original(ref, data, options);
+        });
+        const result = await svc.changeHouseholdContact(2);
+        expect(result.shareDocsRebuilt).toBe(2);
+        // Anna's 2026 link shows the 2026 household she now holds, not the 2027 state.
+        expect(mockStore['publicShares/h-anna'].billingYearId).toBe('2026');
+        expect(mockStore['publicShares/h-anna'].linkedMembers.map(x => x.memberId)).toEqual([1, 3]);
     });
 
     it('reports a failed rebuild without undoing the saved change', async () => {
