@@ -382,11 +382,114 @@ export function projectHouseholdMoney(source, member, { reopenedAdjustmentIds = 
     }
 }
 
-/** Independently assess each primary household; never return partial global totals. */
+/** Make private declaration evidence without copying group data or money values. */
+function declarationHold(declaration, householdId, index, message) {
+    return { householdId, code: 'INVALID_PROVENANCE', component: 'O', field: 'detailGroups',
+        recordId: declaration?.seedId, declaredSeedId: declaration?.seedId,
+        declaredItemSourceId: declaration?.itemSourceId, declarationIndex: index,
+        observedType: observedType(declaration), message };
+}
+
+/**
+ * Independently assess real primary households, in source order. Route private
+ * detail declarations by eligible seed ownership; ambiguous owners alone hold.
+ * Unowned/malformed declarations append kind:'declaration_error' results with
+ * householdId:null and no money. Consumers must withhold aggregate authority on
+ * these configuration errors, but must not count them as extra households.
+ */
 export function projectHouseholdsMoney(source, options = {}) {
-    return (source.familyMembers || []).filter(member => !(source.familyMembers || [])
-        .some(other => (other.linkedMembers || []).includes(member.id)))
-        .map(member => projectHouseholdMoney(source, member, options));
+    const members = (source.familyMembers || []).filter(member => !(source.familyMembers || [])
+        .some(other => (other.linkedMembers || []).includes(member.id)));
+    const owners = new Map();
+    const assigned = members.map(() => []);
+    const ownershipHolds = members.map(() => []);
+    const errors = [];
+    members.forEach((member, index) => {
+        admit(source, member, null).O.forEach(seed => {
+            let id;
+            try { id = key(seed.id, 'O'); }
+            catch (error) {
+                if (!(error instanceof MoneyIntegrityError)) throw error;
+                return; // Its actual household projection reports the bad source id.
+            }
+            if (!owners.has(id)) owners.set(id, new Set());
+            owners.get(id).add(index);
+        });
+    });
+    const input = options.detailGroups === undefined ? [] : options.detailGroups;
+    const declarations = Array.isArray(input) ? Array.from(input) : [input];
+    declarations.forEach((declaration, index) => {
+        let seedId;
+        let valid = !!declaration && typeof declaration === 'object' && !Array.isArray(declaration)
+            && Array.isArray(declaration.groups);
+        try {
+            seedId = key(declaration?.seedId, 'O');
+            key(declaration?.itemSourceId, 'O', 'sourceId');
+        } catch (error) {
+            if (!(error instanceof MoneyIntegrityError)) throw error;
+            valid = false;
+        }
+        const candidates = owners.get(seedId) || new Set();
+        if (candidates.size === 1 && valid) {
+            assigned[[...candidates][0]].push(declaration);
+            return;
+        }
+        const message = !valid ? 'Malformed private detail-group declaration'
+            : candidates.size ? 'Ambiguous eligible seed ownership' : 'No eligible seed owns this declaration';
+        if (!candidates.size) errors.push({ ok: false, kind: 'declaration_error', householdId: null,
+            holds: [declarationHold(declaration, null, index, message)] });
+        else candidates.forEach(owner => ownershipHolds[owner].push(
+            declarationHold(declaration, members[owner].id, index, message)));
+    });
+    const households = members.map((member, index) => {
+        const result = projectHouseholdMoney(source, member, { ...options, detailGroups: assigned[index] });
+        return ownershipHolds[index].length ? { ok: false, householdId: member.id,
+            holds: [...(result.holds || []), ...ownershipHolds[index]] } : result;
+    });
+    return [...households, ...errors];
+}
+
+/**
+ * Reproject the complete detached source ledger under the existing carry record
+ * and status-marking model. Half-away quantization is not translation-invariant
+ * across zero: an integer-cent disposition must actually leave the old balance
+ * max(0, prior balance). Existing open debt and active reopened refunds stay live.
+ * No source mutation, clock, alternative amount or additional disposition exists.
+ */
+function validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds) {
+    const carryId = 'cadj_carry_' + nextYearLabel + '_' + member.id;
+    const creditAdjustments = [...(source.creditAdjustments || [])];
+    if (projection.credit > 0) {
+        if (creditAdjustments.some(row => row && row.id === carryId)) {
+            fail('DUPLICATE_ID', carryId, 'carry', 'id', carryId, 'Carry disposition id already exists in source ledger');
+        }
+        creditAdjustments.push({ id: carryId, memberId: member.id, type: 'carry_forward', status: 'recorded',
+            amount: snapshotDollars(projection.credit, carryId), toYear: nextYearLabel,
+            reason: 'Carried forward to ' + (nextYearLabel || 'next year') });
+    }
+    const deferred = new Set(admitted.deferred);
+    const openings = new Set(unused > 0 ? admitted.O : []);
+    const proposed = { ...source, creditAdjustments,
+        owedAdjustments: (source.owedAdjustments || []).map(row => deferred.has(row)
+            ? { ...row, status: 'carried_forward', carriedForwardTo: nextYearLabel }
+            : openings.has(row) ? { ...row, carriedForwardTo: nextYearLabel } : row) };
+    const after = projectHouseholdMoney(proposed, member);
+    if (!after.ok) return after;
+    if (after.balance !== Math.max(0, projection.balance) || after.credit !== 0) {
+        fail('CARRY_INVARIANT', carryId, 'carry', 'creditAdjustments', creditAdjustments,
+            'Proposed carry disposition does not preserve source-year settlement');
+    }
+    if (reopenedAdjustmentIds?.size) {
+        const beforeActive = projectHouseholdMoney(source, member, { reopenedAdjustmentIds });
+        if (!beforeActive.ok) return beforeActive;
+        const afterActive = projectHouseholdMoney(proposed, member, { reopenedAdjustmentIds });
+        if (!afterActive.ok) return afterActive;
+        if (afterActive.balance > Math.max(0, beforeActive.balance)) {
+            fail('CARRY_INVARIANT', carryId, 'carry', 'creditAdjustments', creditAdjustments,
+                'Proposed carry creates or increases an active source-year shortfall');
+        }
+    }
+    return null;
 }
 
 /**
@@ -455,6 +558,8 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
             // seed. Deterministic credit ids may collide with legacy source ids;
             // hold instead of renaming them or publishing an invalid snapshot.
             if (seed) projectOpening([seed], ids, []);
+            const sourceHold = validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds);
+            if (sourceHold) return sourceHold;
             const creditAdjustmentIds = admitted.R.filter(row => !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
             return { ...projection, creditAdjustmentIds, openingSeedIds, unusedOpeningCreditCents: unused,
                 deferredChargeIds: projection.rows.deferred.map(row => deferredById.get(row.id).id),

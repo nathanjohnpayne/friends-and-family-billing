@@ -288,6 +288,49 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.equal('sourceIds' in source.owedAdjustments[0].items[0].detail[0], false);
         });
 
+        it('routes batch detail declarations only to their uniquely owning household', () => {
+            const source = state({ owedAdjustments: [seed('seed', -0.01, [item('credit', -0.01,
+                [{ sourceId: 'a', amount: -0.005 }, { sourceId: 'b', amount: -0.005 }])])] });
+            const options = freeze({ detailGroups: [{ seedId: 'seed', itemSourceId: 'credit', groups: [['a', 'b']] }] });
+            const results = all(source, options);
+            assert.equal(results.length, 2);
+            assert.equal(results.every(row => row.ok), true);
+            assert.equal(results[0].rows.opening[0].items[0].detail[0].id, '["a","b"]');
+            assert.deepEqual(results[1].rows.opening, []);
+            const wrongItem = all(source, { detailGroups: [{ seedId: 'seed', itemSourceId: 'missing', groups: [['a', 'b']] }] });
+            held(wrongItem[0], 'INVALID_PROVENANCE');
+            assert.equal(wrongItem[1].ok, true);
+        });
+
+        it('reports unowned/malformed declarations separately from ordered real households', () => {
+            for (const declaration of [{ seedId: 'unknown', itemSourceId: 'credit', groups: [['a']] }, null,
+                { seedId: '', itemSourceId: 'credit', groups: [['a']] }]) {
+                const results = all(state(), { detailGroups: [declaration] });
+                assert.deepEqual(results.slice(0, 2).map(row => [row.householdId, row.ok]), [[1, true], [2, true]]);
+                assert.equal(results.length, 3);
+                const config = results[2];
+                held(config, 'INVALID_PROVENANCE');
+                assert.equal(config.kind, 'declaration_error');
+                assert.equal(config.householdId, null);
+                assert.equal(config.holds[0].declaredSeedId, declaration?.seedId);
+                assert.equal(config.holds[0].declaredItemSourceId, declaration?.itemSourceId);
+            }
+            const wrongContainer = all(state(), { detailGroups: 'bad' });
+            assert.equal(wrongContainer.slice(0, 2).every(row => row.ok), true);
+            assert.equal(wrongContainer[2].kind, 'declaration_error');
+        });
+
+        it('holds ambiguous eligible seed owners without poisoning an unrelated third household', () => {
+            const first = seed('ambiguous', -0.01, [item('credit', -0.01,
+                [{ sourceId: 'a', amount: -0.005 }, { sourceId: 'b', amount: -0.005 }])]);
+            const source = state({ familyMembers: [member, { id: 2, linkedMembers: [] }, { id: 3, linkedMembers: [] }],
+                owedAdjustments: [first, { ...structuredClone(first), memberId: 2 }] });
+            const results = all(source, { detailGroups: [{ seedId: 'ambiguous', itemSourceId: 'credit', groups: [['a', 'b']] }] });
+            assert.equal(results.length, 3);
+            held(results[0], 'INVALID_PROVENANCE'); held(results[1], 'INVALID_PROVENANCE');
+            assert.equal(results[2].householdId, 3); assert.equal(results[2].ok, true);
+        });
+
         it('supports deterministic explanatory ids and holds missing/duplicate/foreign provenance', () => {
             const source = state({ owedAdjustments: [seed('s', -1, [item('c', -1,
                 [{ kind: 'unused', amount: -1 }])])] });
@@ -320,6 +363,61 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.equal(after.credit, 0); assert.equal(after.balance, 0);
             assert.equal(project({ ...source, creditAdjustments: [...source.creditAdjustments, refund('carry', 10)] }, member,
                 { reopenedAdjustmentIds: reopening }).credit, 3000);
+        });
+
+        it('holds impossible signed-disposition carry at half-away crossings without changing R admission', () => {
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027' };
+            for (const amount of [-0.005, -0.015, -0.025]) {
+                const source = state({ creditAdjustments: [refund('legacy-signed', amount)] });
+                const before = assess(source);
+                assert.equal(before.R, cents(amount));
+                assert.equal(before.credit, -cents(amount));
+                const result = carry(freeze(source), options);
+                assert.equal(result.ok, false);
+                const h = result.households[0];
+                held(h, 'CARRY_INVARIANT');
+                for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds', 'openingSeedIds']) assert.equal(field in h, false);
+                assert.equal(source.creditAdjustments.length, 1);
+            }
+            for (const amount of [-0.0050000000000001, -0.0149999999999999, -0.0150000000000001, -0.01]) {
+                const source = state({ creditAdjustments: [refund('legacy-signed', amount)] });
+                const h = carry(source, options).households[0];
+                assert.equal(h.ok, true);
+                const post = assess({ ...source, creditAdjustments: [...source.creditAdjustments,
+                    refund('cadj_carry_2027_1', h.credit / 100, { type: 'carry_forward' })] });
+                assert.equal(post.balance, 0);
+            }
+            const below = carry(state({ creditAdjustments: [refund('r', -0.0049999999999999)] }), options).households[0];
+            assert.equal(below.ok, true); assert.equal(below.seed, null);
+        });
+
+        it('does not create an active reopened shortfall or reuse a disposition id', () => {
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027' };
+            const source = state({ creditAdjustments: [refund('signed-reopened', -0.01)] });
+            assert.equal(carry(source, options).ok, true);
+            held(carry(source, { ...options, reopenedAdjustmentIds: new Set(['signed-reopened']) }).households[0], 'CARRY_INVARIANT');
+            const duplicate = state({ payments: [payment('p', 1)],
+                creditAdjustments: [refund('cadj_carry_2027_1', 1, { status: 'cancelled' })] });
+            held(carry(duplicate, options).households[0], 'DUPLICATE_ID');
+        });
+
+        it('validates proposed source ledger while retaining open debt and closed-year conservation', () => {
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027', carryUnusedOpeningCredit: true };
+            const deferred = owed('deferred', 1, 'usage_charge', 'deferred');
+            for (const source of [state({ status: 'open', bills: [bill(100, [1])], payments: [payment('p', 50)], owedAdjustments: [deferred] }),
+                state({ status: 'closed', bills: [bill(100, [1])], payments: [payment('p', 100)], owedAdjustments: [deferred, sc('s', 20)] }),
+                state({ payments: [payment('p', 0.02)], creditAdjustments: [refund('r', 0.005)] })]) {
+                const before = assess(source);
+                const result = carry(freeze(source), options);
+                const h = result.households[0];
+                assert.equal(h.ok, true);
+                const proposed = { ...source, owedAdjustments: source.owedAdjustments.map(row => row.kind === 'usage_charge'
+                    && row.status === 'deferred' ? { ...row, status: 'carried_forward' } : row),
+                    creditAdjustments: [...source.creditAdjustments, ...(h.credit > 0
+                        ? [refund('cadj_carry_2027_1', h.credit / 100, { type: 'carry_forward' })] : [])] };
+                assert.equal(assess(proposed).balance, Math.max(0, before.balance));
+                assert.equal(source.owedAdjustments.includes(deferred) ? deferred.status : 'deferred', 'deferred');
+            }
         });
 
         it('conserves U through empty-year chains, never disposing it or refunding service excess', () => {
