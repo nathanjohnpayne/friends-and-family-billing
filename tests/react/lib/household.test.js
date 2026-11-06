@@ -354,6 +354,16 @@ describe('BillingYearService.saveHousehold — contact change', () => {
         expect(svc.getState().familyMembers.find(x => x.id === 1).linkedMembers).toEqual([3]);
     });
 
+    it('drops the household name when removing the last other member dissolves it', () => {
+        const svc = createService();
+        svc.removeMember(2);
+        expect(svc.getState().familyMembers.find(x => x.id === 1).householdName).toBe('Lake House');
+        svc.removeMember(3);
+        const contact = svc.getState().familyMembers.find(x => x.id === 1);
+        expect(contact.linkedMembers).toEqual([]);
+        expect(contact).not.toHaveProperty('householdName');
+    });
+
     it('rejects a member who is not in a household', async () => {
         const svc = createService();
         await expect(svc.changeHouseholdContact(4)).rejects.toThrow('Kwame Osei is not in a household.');

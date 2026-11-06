@@ -663,10 +663,13 @@ export class BillingYearService {
         // Unlink from other members
         const updatedMembers = familyMembers
             .filter(m => m.id !== memberId)
-            .map(m => ({
-                ...m,
-                linkedMembers: m.linkedMembers.filter(id => id !== memberId)
-            }));
+            .map(m => {
+                const linkedMembers = m.linkedMembers.filter(id => id !== memberId);
+                const next = { ...m, linkedMembers };
+                // A dissolved household keeps no name (ADR 0011).
+                if (linkedMembers.length === 0) delete next.householdName;
+                return next;
+            });
 
         // Remove from all bills
         const updatedBills = bills.map(b => ({
