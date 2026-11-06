@@ -46,6 +46,24 @@ function computeMemberSummary(familyMembers, bills, targetMemberId) {
 }
 
 /**
+ * Raw household bill subtotal for share totals (#620). Mirrors the accumulation
+ * order of calculateAnnualSummary + getHouseholdFinancials: sum each member's raw
+ * bill shares, then the primary and linked members. Rounded computeMemberSummary
+ * totals remain display lines and must never feed household owed.
+ */
+function computeHouseholdBillTotal(familyMembers, bills, memberId, linkedIds) {
+  const totals = new Map(familyMembers.map((member) => [member.id, 0]));
+  bills.forEach((bill) => {
+    if (!bill.members?.length) return;
+    const share = getBillAnnualAmount(bill) / bill.members.length;
+    bill.members.forEach((id) => {
+      if (totals.has(id)) totals.set(id, totals.get(id) + share);
+    });
+  });
+  return [memberId, ...(linkedIds || [])].reduce((sum, id) => sum + (totals.get(id) || 0), 0);
+}
+
+/**
  * Build the member-facing "Pending charges" payload for a share view (#317).
  * Mirror of src/lib/share.js `buildPendingChargesForShare` for the Cloud Function
  * (CommonJS) side. Returns the token member's OWN *deferred* Usage Charges
@@ -351,4 +369,4 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   };
 }
 
-module.exports = { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, buildCarriedItemsForShare, CHARGE_NOTICE_KIND };
+module.exports = { computeMemberSummary, computeHouseholdBillTotal, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, buildCarriedItemsForShare, CHARGE_NOTICE_KIND };

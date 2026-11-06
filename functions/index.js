@@ -36,7 +36,7 @@ function setCors(req, res) {
   res.set("Access-Control-Max-Age", "3600");
 }
 
-const { computeMemberSummary, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, buildCarriedItemsForShare } = require("./billing");
+const { computeMemberSummary, computeHouseholdBillTotal, buildPendingChargesForShare, buildPaymentHistoryForShare, projectMemberDisputes, getServiceCreditTotalForMember, buildServiceCreditsForShare, getHouseholdOpeningBalance, buildCarriedItemsForShare } = require("./billing");
 
 const EVIDENCE_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -214,11 +214,10 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
     const paymentTotal = payments
       .filter((p) => p.memberId === tokenData.memberId)
       .reduce((sum, p) => sum + (p.amount || 0), 0);
-    let combinedAnnual = primarySummary.annualTotal;
+    let combinedAnnual = computeHouseholdBillTotal(familyMembers, billsData, tokenData.memberId, linkedIds);
     let combinedPayment = paymentTotal;
 
     linkedSummaries.forEach((ls) => {
-      combinedAnnual += ls.annualTotal;
       combinedPayment += payments
         .filter((p) => p.memberId === ls.memberId)
         .reduce((sum, p) => sum + (p.amount || 0), 0);

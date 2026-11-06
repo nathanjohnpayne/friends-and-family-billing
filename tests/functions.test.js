@@ -13,6 +13,7 @@ const path = require('node:path');
 
 const {
     computeMemberSummary,
+    computeHouseholdBillTotal,
     buildPendingChargesForShare,
     buildPaymentHistoryForShare,
     projectMemberDisputes,
@@ -170,7 +171,7 @@ describe('computeMemberSummary with billing frequency', () => {
 // (each share is a real per-member figure shown to that member), so the test pins
 // both the exactness of the raw split and the half-cent-per-member ceiling on the
 // rounded sum, so a future change that lets the rounded shares drift unbounded
-// (or that silently re-rounds the household total away from the parts) fails here.
+// fails here. Household totals independently aggregate raw shares (#620).
 
 describe('computeMemberSummary — sum-of-shares invariant (#366)', () => {
     const cents = (x) => Math.round(x * 100) / 100;
@@ -982,7 +983,7 @@ describe('markdownToPlainText (processMailQueue text alternative)', () => {
 });
 
 /** Exercise the exported HTTP function with Firestore mocked only at its SDK boundary. */
-async function resolveCarriedShare(t, { owedAdjustments, refreshOnly, scopes = ['summary:read'], cached = {} }) {
+async function resolveCarriedShare(t, { owedAdjustments, refreshOnly, scopes = ['summary:read'], cached = {}, yearOverrides = {} }) {
     const writes = [];
     const updates = [];
     const audit = [];
@@ -990,7 +991,7 @@ async function resolveCarriedShare(t, { owedAdjustments, refreshOnly, scopes = [
     const year = {
         label: '2027', familyMembers: [{ id: 1, name: 'Ada', linkedMembers: [2] }, { id: 2, name: 'Kenji', linkedMembers: [] }],
         bills: [{ id: 'next', name: 'Next subscription', amount: 100, billingFrequency: 'annual', members: [1, 2] }],
-        owedAdjustments, payments: [], settings: {}
+        owedAdjustments, payments: [], settings: {}, ...yearOverrides
     };
     const tokenData = { ownerId: 'owner', memberId: 1, billingYearId: '2027', scopes, accessCount: 4 };
     const collection = (parts) => ({
@@ -1085,4 +1086,65 @@ describe('resolveShareToken carried-items reconciliation (#602)', () => {
         assert.deepEqual(result.response.paymentLinks, []);
         assert.deepEqual(result.response.paymentMethods, []);
     });
+});
+
+
+describe('resolveShareToken — household rounding and writer/cache parity (#620)', () => {
+    for (const refreshOnly of [false, true]) {
+        for (const fixture of [
+            { name: 'annual thirds', amount: 100, billingFrequency: 'annual', incoming: 0, credit: 0, expected: 66.67 },
+            { name: 'unused incoming credit', amount: 100, billingFrequency: 'annual', incoming: -100, credit: 0, expected: 0 },
+            { name: 'partly used incoming credit', amount: 100, billingFrequency: 'annual', incoming: -20, credit: 0, expected: 46.67 },
+            { name: 'fractional monthly shares with adjustments', amount: 7.01, billingFrequency: 'monthly', incoming: 5.01, credit: 1.02, expected: 37.64 },
+            { name: 'sub-cent adjustments before rounding', amount: 100, billingFrequency: 'annual', incoming: 0.001, credit: 0.004, expected: 66.66 }
+        ]) {
+            it(`${fixture.name} agrees across client, ${refreshOnly ? 'refresh' : 'cache miss'}, and healed cache`, async (t) => {
+                const { buildPublicShareData } = await import('../src/lib/share.js');
+                const { calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance: clientOpening } = await import('../src/lib/calculations.js');
+                const members = [{ id: 1, name: 'Ada', linkedMembers: [2] },
+                    { id: 2, name: 'Kenji', linkedMembers: [] }, { id: 3, name: 'Other', linkedMembers: [] }, { id: 4, name: 'Fourth', linkedMembers: [] }, { id: 5, name: 'Fifth', linkedMembers: [] }];
+                const bills = [{ id: 'bill', name: 'Subscription', amount: fixture.amount,
+                    billingFrequency: fixture.billingFrequency, members: fixture.billingFrequency === 'annual' ? [1, 2, 3] : [1, 2, 3, 4, 5] }];
+                const owedAdjustments = [
+                    { memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: fixture.incoming },
+                    { memberId: 2, kind: 'service_credit', status: 'active', amount: fixture.credit },
+                    { memberId: 3, kind: 'service_credit', status: 'active', amount: 999 },
+                    { memberId: 1, kind: 'service_credit', status: 'voided', amount: 999 },
+                    { memberId: 2, kind: 'carry_opening', status: 'voided', amount: 999 }
+                ];
+                const payments = fixture.incoming < 0 ? []
+                    : [{ memberId: 1, amount: 0.001 }, { memberId: 2, amount: 0.001 }, { memberId: 3, amount: 999 }];
+                const client = buildPublicShareData(members, bills, payments, 1, ['summary:read'], 'owner', { id: '2027' }, {}, owedAdjustments);
+                const result = await resolveCarriedShare(t, { owedAdjustments, refreshOnly,
+                    yearOverrides: { familyMembers: members, bills, payments },
+                    cached: { paymentSummary: { combinedAnnualTotal: 999 }, unrelated: 'keep' } });
+                const cents = amount => Math.round(amount * 100) / 100;
+                const financials = getHouseholdFinancials(members[0], calculateAnnualSummary(members, bills), payments,
+                    [], null, owedAdjustments, clientOpening(members[0], owedAdjustments));
+                assert.equal(cents(computeHouseholdBillTotal(members, bills, 1, [2])), cents(financials.grossOwed));
+                assert.equal(result.response.paymentSummary.combinedAnnualTotal, fixture.expected);
+                assert.deepEqual(result.response.paymentSummary, {
+                    combinedAnnualTotal: cents(financials.owed), combinedMonthlyTotal: cents(financials.owed / 12),
+                    totalPaid: cents(financials.grossPaid), balanceRemaining: cents(financials.owed - financials.grossPaid)
+                });
+                assert.deepEqual(result.response.paymentSummary, client.paymentSummary);
+                assert.deepEqual(result.cache.paymentSummary, result.response.paymentSummary);
+                assert.equal(result.cache.unrelated, 'keep');
+                assert.equal(result.response.summary.annualTotal, client.summary.annualTotal);
+                assert.equal(result.response.linkedMembers[0].annualTotal, client.linkedMembers[0].annualTotal);
+                assert.deepEqual(result.cache.summary, result.response.summary);
+                assert.deepEqual(result.cache.linkedMembers, result.response.linkedMembers);
+                if (fixture.billingFrequency === 'annual') {
+                    assert.equal(result.response.summary.annualTotal, 33.33);
+                    assert.equal(result.response.linkedMembers[0].annualTotal, 33.33);
+                }
+                if (fixture.incoming === -100) {
+                    assert.equal(result.response.carriedItems.remainingCredit, 33.33);
+                    assert.equal(result.response.carriedItems.notApplied, 33.33);
+                    assert.equal(cents(financials.grossOwed) + result.response.carriedItems.total + result.response.carriedItems.notApplied, 0);
+                }
+                if (fixture.incoming < 0) assert.deepEqual(result.cache.carriedItems, result.response.carriedItems);
+            });
+        }
+    }
 });

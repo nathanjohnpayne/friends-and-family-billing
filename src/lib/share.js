@@ -1,5 +1,5 @@
 // Share link helpers — no DOM, no Firestore, no module-scoped state.
-import { getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember, getServiceCreditTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
+import { calculateAnnualSummary, getBillAnnualAmount, getBillMonthlyAmount, getPaymentTotalForMember, getServiceCreditTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
 import { sanitizeImageSrc } from './formatting.js';
 
 /**
@@ -163,10 +163,13 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         .filter(Boolean);
 
     const paymentTotal = getPaymentTotalForMember(payments, memberId);
-    let combinedAnnual = primarySummary.annualTotal;
+    // Member summaries are rounded display lines; household owed retains raw shares
+    // through adjustments and is rounded only in the public paymentSummary (#620).
+    const annualSummary = calculateAnnualSummary(familyMembers, bills.filter(bill => bill.members?.length));
+    let combinedAnnual = annualSummary[memberId].total;
     let combinedPayment = paymentTotal;
     linkedSummaries.forEach(ls => {
-        combinedAnnual += ls.annualTotal;
+        combinedAnnual += annualSummary[ls.memberId].total;
         combinedPayment += getPaymentTotalForMember(payments, ls.memberId);
     });
 
