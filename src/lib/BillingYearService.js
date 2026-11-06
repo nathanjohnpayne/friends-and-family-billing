@@ -102,6 +102,8 @@ export class BillingYearService {
         this._saveQueue = new SaveQueue();
         /** @private Serializes household operations (save + share rebuild), #528. */
         this._householdChain = Promise.resolve();
+        /** @private Household operations requested and not yet settled. */
+        this._householdPending = 0;
 
         /** @type {Set<() => void>} */
         this._listeners = new Set();
@@ -603,6 +605,7 @@ export class BillingYearService {
         // most one household, and only a household contact (the stored primary) lists
         // members. Copy is neutral — households are peers (#528, ADR 0011).
         if (fields.linkedMembers !== undefined) {
+            this._guardHouseholdGraph();
             const member = familyMembers[idx];
             for (const otherId of fields.linkedMembers) {
                 if (otherId === memberId) {
@@ -647,6 +650,7 @@ export class BillingYearService {
      */
     removeMember(memberId) {
         this._guardReadOnly();
+        this._guardHouseholdGraph();
         const { familyMembers, bills, payments } = this._state;
 
         // The household contact cannot leave a household without a replacement
@@ -708,6 +712,17 @@ export class BillingYearService {
         return this._serializeHousehold(() => this._saveHouseholdNow(edit));
     }
 
+    /**
+     * @private While a household operation is pending, other edits to the household
+     * link graph are refused (#528): a failed operation rolls back its own links, and
+     * that is only safe when nothing else changed the graph meanwhile.
+     */
+    _guardHouseholdGraph() {
+        if (this._householdPending > 0) {
+            throw new Error('A household change is still being saved. Try again in a moment.');
+        }
+    }
+
     /** @private The (user, year) a household operation was requested in. */
     _householdContext() {
         return {
@@ -735,7 +750,10 @@ export class BillingYearService {
             }
             return operation();
         };
+        this._householdPending += 1;
         const run = this._householdChain.then(guarded, guarded);
+        const settle = () => { this._householdPending -= 1; };
+        run.then(settle, settle);
         this._householdChain = run.catch(() => {});
         return run;
     }

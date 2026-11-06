@@ -22,6 +22,8 @@ A household has always been computed, not stored: one member's record carries `l
 
 **A contact change is audited** with a `HOUSEHOLD_CONTACT_CHANGED` billing event.
 
+**Household operations are confirmed, serialized and year-bound.** `saveHousehold` waits for its own billing-year write to succeed before rebuilding share documents. On failure it reverts only the household fields it changed, removes only its own event, enqueues a compensating save so a write queued meanwhile cannot persist the rejected change, and reports the error. Household operations run one at a time, each bound to the user and year it was requested in (rejected if either changed before its turn), with share-rebuild inputs snapshotted before the write. While one is pending, other link-graph edits (`updateMember` with `linkedMembers`, `removeMember`) are refused, so a rollback never has to merge a competing graph change.
+
 ## Consequences
 
 - Promotion is a pure link-graph edit with a provable invariant (household totals equal before and after), covered by `tests/react/lib/household.test.js`.

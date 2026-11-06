@@ -601,6 +601,24 @@ describe('share documents after a contact change', () => {
         expect(mockStore['publicShares/h-erik'].linkedMembers).toEqual([]);
     });
 
+    it('refuses other household-graph edits while a household change is pending', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
+        let release;
+        const held = new Promise(resolve => { release = resolve; });
+        setDoc.mockImplementationOnce(async (ref, data, options) => { await held; return original(ref, data, options); });
+        const svc = createService();
+        const pending = svc.changeHouseholdContact(2);
+        await vi.waitFor(() => expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]));
+        expect(() => svc.updateMember(2, { linkedMembers: [1, 3, 4] })).toThrow('A household change is still being saved.');
+        expect(() => svc.removeMember(4)).toThrow('A household change is still being saved.');
+        svc.updateMember(3, { name: 'Maja L.' }); // non-graph edits are still allowed
+        release();
+        await pending;
+        svc.updateMember(2, { linkedMembers: [1, 3, 4] }); // allowed again once settled
+        expect(svc.getState().familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3, 4]);
+    });
+
     it('rejects a queued household change when the year is switched before it runs', async () => {
         const { setDoc } = await import('firebase/firestore');
         const original = setDoc.getMockImplementation();
