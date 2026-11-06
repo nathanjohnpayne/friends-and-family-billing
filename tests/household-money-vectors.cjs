@@ -332,6 +332,27 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.equal(assess(state({ owedAdjustments: [h.seed] })).O, h.openingBalanceCents);
         });
 
+        it('validates generated seed provenance before returning a seed or marking ids', () => {
+            const source = state({ familyMembers: [member], payments: [payment('p', 1)],
+                owedAdjustments: [owed('cadj_carry_2027_1', 1, 'usage_charge', 'deferred')] });
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027' };
+            const result = carry(freeze(source), options);
+            assert.equal(result.ok, false);
+            const h = result.households[0];
+            held(h, 'DUPLICATE_ID');
+            for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds', 'openingSeedIds']) {
+                assert.equal(field in h, false);
+            }
+            assert.equal('totalOpeningBalanceCents' in result, false);
+            assert.equal(source.owedAdjustments[0].id, 'cadj_carry_2027_1');
+            const validSource = state({ payments: [payment('p', 1)],
+                owedAdjustments: [owed('ordinary-charge', 1, 'usage_charge', 'deferred')] });
+            const valid = carry(validSource, options).households[0];
+            assert.equal(valid.ok, true);
+            assert.equal(valid.seed.amount, 0);
+            assert.equal(assess(state({ owedAdjustments: [valid.seed] })).O, valid.openingBalanceCents);
+        });
+
         it('binds carry metadata to the household and component when source ids collide elsewhere', () => {
             const deferred = { ...owed('shared', 1, 'usage_charge', 'deferred'), description: 'One charge', calc: { household: 1 } };
             const service = sc('shared', 0.25, 'One credit');

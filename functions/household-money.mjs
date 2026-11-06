@@ -396,12 +396,17 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                     description: "Your household's " + fromYearLabel + ' credit',
                     amount: snapshotDollars(-totalCredit, member.id), detail });
             }
+            const seed = items.length ? { id: 'coadj_' + fromYearLabel + '_' + member.id,
+                memberId: member.id, kind: 'carry_opening', status: 'carried_in', fromYear: fromYearLabel,
+                amount: snapshotDollars(openingBalanceCents, member.id), items } : null;
+            // Generated provenance must satisfy the same contract as a source
+            // seed. Deterministic credit ids may collide with legacy source ids;
+            // hold instead of renaming them or publishing an invalid snapshot.
+            if (seed) projectOpening([seed], ids, []);
             const creditAdjustmentIds = admitted.R.filter(row => !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
             return { ...projection, creditAdjustmentIds, openingSeedIds, unusedOpeningCreditCents: unused,
                 deferredChargeIds: projection.rows.deferred.map(row => deferredById.get(row.id).id),
-                openingBalanceCents, seed: items.length ? { id: 'coadj_' + fromYearLabel + '_' + member.id,
-                    memberId: member.id, kind: 'carry_opening', status: 'carried_in', fromYear: fromYearLabel,
-                    amount: snapshotDollars(openingBalanceCents, member.id), items } : null };
+                openingBalanceCents, seed };
         } catch (error) {
             if (!(error instanceof MoneyIntegrityError)) throw error;
             return { ok: false, householdId: projection.householdId, holds: [{ code: error.code,
