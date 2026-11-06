@@ -181,6 +181,37 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             }
         });
 
+        it('retains containing seed and nested source provenance on every invalid amount hold', () => {
+            const source = state({ payments: [payment('sibling-payment', 1, { memberId: 2 })], owedAdjustments: [
+                { ...owed('current-seed', 0), items: [
+                    { sourceId: 'earlier-charge', kind: 'usage_charge', amount: 'bad' },
+                    { sourceId: 'earlier-credit', kind: 'credit', amount: -1, detail: [
+                        { sourceId: 'earlier-service-credit', kind: 'service_credit', amount: NaN },
+                        { kind: 'unused', amount: '1' }
+                    ] }
+                ] }
+            ] });
+            const results = all(freeze(source));
+            const holds = held(results[0], 'INVALID_NUMBER');
+            assert.equal(holds.length, 3);
+            assert.deepEqual(holds.map(row => ({ recordId: row.recordId, parentRecordId: row.parentRecordId,
+                parentItemSourceId: row.parentItemSourceId, sourcePath: row.sourcePath, sourceKind: row.sourceKind,
+                component: row.component, field: row.field, observedType: row.observedType })), [
+                { recordId: 'earlier-charge', parentRecordId: 'current-seed', parentItemSourceId: undefined,
+                    sourcePath: 'items[0].amount', sourceKind: 'usage_charge', component: 'O', field: 'amount', observedType: 'string' },
+                { recordId: 'earlier-service-credit', parentRecordId: 'current-seed', parentItemSourceId: 'earlier-credit',
+                    sourcePath: 'items[1].detail[0].amount', sourceKind: 'service_credit', component: 'O', field: 'amount', observedType: 'number' },
+                { recordId: 'earlier-credit.detail[1]', parentRecordId: 'current-seed', parentItemSourceId: 'earlier-credit',
+                    sourcePath: 'items[1].detail[1].amount', sourceKind: 'unused', component: 'O', field: 'amount', observedType: 'string' }
+            ]);
+            holds.forEach(row => {
+                assert.equal(row.householdId, 1);
+                assert.equal('value' in row || 'amount' in row, false);
+            });
+            assert.equal(results[1].ok, true);
+            assert.equal(results[1].P, 100);
+        });
+
         it('holds legacy S/B nonpositive silent drops but preserves signed and zero money elsewhere', () => {
             for (const amount of [-1, 0, -0]) {
                 for (const record of [sc('sc', amount), owed('b', amount, 'usage_charge', 'billed')]) {

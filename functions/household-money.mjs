@@ -11,16 +11,21 @@ const hundred = rational(100n);
 const exact = exactNumber;
 const sum = sumExact;
 const q = quantizeDollarsToCents;
+/** Detach nested snapshot metadata without sharing mutable source objects. */
 const clone = value => structuredClone(value);
+/** Retain the primary/linked id order used by existing household calculations. */
 const idsFor = member => [member.id, ...(member.linkedMembers || [])];
+/** Describe a private source type without copying the source money value. */
 const observedType = value => value === null ? 'null' : typeof value;
 
+/** Throw source-bound integrity evidence; never retain a raw money value. */
 function fail(code, recordId, component, field, value, message) {
     const error = new MoneyIntegrityError(code, message);
     error.source = { recordId, component, field, observedType: observedType(value) };
     throw error;
 }
 
+/** Canonicalize an immutable source id, preserving case; reject missing ids. */
 function key(value, component, field = 'id') {
     if (!((typeof value === 'string' && value.trim()) || Number.isSafeInteger(value))) {
         fail('INVALID_ID', value, component, field, value, 'Missing or ambiguous source id');
@@ -33,11 +38,13 @@ function integerSum(...values) {
     return q(rational(values.reduce((total, value) => total + BigInt(value), 0n), 100n));
 }
 
+/** Sum integer cents as bigint and floor at zero before safe Number conversion. */
 function nonnegativeSum(...values) {
     const total = values.reduce((value, next) => value + BigInt(next), 0n);
     return q(rational(total < 0n ? 0n : total, 100n));
 }
 
+/** Convert assigned cents to stored Number dollars only when cents round-trip. */
 function snapshotDollars(cents, recordId) {
     const value = cents / 100;
     if (toExactCents(value) !== cents) {
@@ -57,6 +64,11 @@ export function snapshotExactCredit(record) {
         createdAt: record.createdAt ?? null, status: record.status };
 }
 
+/**
+ * Select raw source records under the existing household/status/reopening rules.
+ * Retains private record references and bill assignment counts, without validating
+ * or converting amounts. Each component is later validated before arithmetic.
+ */
 function admit(source, member, reopened) {
     const ids = idsFor(member);
     const belongs = row => row && ids.includes(row.memberId);
@@ -81,12 +93,19 @@ function admit(source, member, reopened) {
         deferred: owed.filter(row => row.kind === 'usage_charge' && row.status === 'deferred') };
 }
 
+/**
+ * Collect all invalid admitted money fields and S/B domain guards before money
+ * projection. Nested O diagnostics retain both the earlier source id and the
+ * containing seed/path, allowing correction without publishing raw money values.
+ * @returns {Array<Object>} Private causes; no partial component authority.
+ */
 function sourceHolds(rows, householdId) {
     const holds = [];
-    const check = (row, component, field = 'amount', recordId = row?.id, positive = false) => {
+    /** Append one invalid-field cause, retaining only type and source provenance. */
+    const check = (row, component, field = 'amount', recordId = row?.id, positive = false, provenance = {}) => {
         const value = row?.[field];
         const finite = typeof value === 'number' && Number.isFinite(value);
-        if (!finite || (positive && value <= 0)) holds.push({ householdId, recordId,
+        if (!finite || (positive && value <= 0)) holds.push({ householdId, recordId, ...provenance,
             component, field, observedType: observedType(value),
             code: finite ? 'INVALID_DOMAIN' : 'INVALID_NUMBER',
             message: finite ? 'Non-positive source was silently dropped by the legacy guard'
@@ -99,15 +118,26 @@ function sourceHolds(rows, householdId) {
             if (component !== 'O') return;
             Array.from(Array.isArray(row.items) ? row.items : []).forEach((item, index) => {
                 const itemId = item?.sourceId ?? String(row.id) + '.items[' + index + ']';
-                check(item, 'O', 'amount', itemId);
+                const itemPath = 'items[' + index + ']';
+                check(item, 'O', 'amount', itemId, false, { parentRecordId: row.id,
+                    sourcePath: itemPath + '.amount',
+                    ...(typeof item?.kind === 'string' ? { sourceKind: item.kind } : {}) });
                 Array.from(Array.isArray(item?.detail) ? item.detail : []).forEach((detail, detailIndex) =>
-                    check(detail, 'O', 'amount', detail?.sourceId ?? itemId + '.detail[' + detailIndex + ']'));
+                    check(detail, 'O', 'amount', detail?.sourceId ?? itemId + '.detail[' + detailIndex + ']', false,
+                        { parentRecordId: row.id, parentItemSourceId: itemId,
+                            sourcePath: itemPath + '.detail[' + detailIndex + '].amount',
+                            ...(typeof detail?.kind === 'string' ? { sourceKind: detail.kind } : {}) }));
             });
         });
     }
     return holds;
 }
 
+/**
+ * Allocate rows of exact rational dollars to an inherited integer-cent target.
+ * Keep private metadata, never mutate source rows, and attach component/id evidence
+ * when the generic cent allocator rejects identities or feasibility.
+ */
 function allocate(rows, target, component) {
     try {
         const assigned = allocateCents(rows.map(row => ({ id: row.tieKey ?? row.id,
@@ -121,11 +151,13 @@ function allocate(rows, target, component) {
     }
 }
 
+/** Wrap admitted records as canonical ids and exact dollars, retaining provenance. */
 function rawRows(records, component, idField = 'id') {
     return records.map(record => ({ id: key(record[idField], component, idField),
         value: exact(record.amount), record }));
 }
 
+/** Reject canonical-id collisions within one declared component or parent. */
 function uniqueRows(rows, component) {
     const seen = new Set();
     rows.forEach(row => {
@@ -134,13 +166,18 @@ function uniqueRows(rows, component) {
     });
 }
 
+/** Sum exact record dollars, quantize the component once, then allocate its cents. */
 function projectRecords(records, component) {
     const rows = rawRows(records, component);
     const cents = q(sum(rows.map(row => row.value)));
     return { cents, rows: allocate(rows, cents, component) };
 }
 
-/** Private grouping: exact amounts come exclusively from validated child rows. */
+/**
+ * Group a complete disjoint cover of validated child ids under a cent target.
+ * Derive exact dollars, JSON identity and minimum-id ties from children; validate
+ * both group and inherited child feasibility without inventing stored group data.
+ */
 function groupRows(rows, groups, target, component) {
     uniqueRows(rows, component);
     const byId = new Map(rows.map(row => [row.id, row]));
@@ -169,6 +206,7 @@ function groupRows(rows, groups, target, component) {
         children: allocate(parent.children, parent.cents, component) }));
 }
 
+/** Preserve the existing bill/reason Service Credit groups and allocate S cents. */
 function projectGroups(records) {
     const rows = rawRows(records, 'S');
     const groups = new Map();
@@ -181,6 +219,11 @@ function projectGroups(records) {
     return { cents, rows: groupRows(rows, [...groups.values()], cents, 'S') };
 }
 
+/**
+ * Validate claimed reversals by source link and exact opposite dollar amounts.
+ * Preserve each pair's opposite projected cents before allocating remaining P;
+ * public visibility retains the legacy predicate after malformed-claim checks.
+ */
 function projectPayments(records) {
     const rows = rawRows(records, 'P');
     const cents = q(sum(rows.map(row => row.value)));
@@ -223,15 +266,23 @@ function projectPayments(records) {
         publicVisible: row.record.type !== 'reversal' && !row.record.reversed })) };
 }
 
+/**
+ * Validate and allocate O through seed -> item -> non-additive credit detail.
+ * Require canonical-cent conservation, exact inherited-target feasibility and
+ * household provenance; legacy seeds without items stay opaque. The same checks
+ * validate finalized generated seeds before any carry snapshot can be returned.
+ */
 function projectOpening(records, householdIds, detailGroups) {
     const seeds = rawRows(records, 'O');
     const cents = q(sum(seeds.map(row => row.value)));
+    /** Compare canonical cents, permitting legacy raw rational parent residue. */
     const ensureParent = (parent, children) => {
         if (q(sum(children.map(row => row.value))) !== q(parent.value)) {
             fail('PARENT_MISMATCH', parent.id, 'O', 'amount', parent.record.amount,
                 'Canonical-cent parent/child totals disagree');
         }
     };
+    /** Keep an attributed opening line within its declared household. */
     const attribution = (record, fallback) => {
         const id = record.memberId ?? fallback;
         if (id !== null && !householdIds.includes(id)) {
@@ -311,6 +362,7 @@ export function projectHouseholdMoney(source, member, { reopenedAdjustmentIds = 
         const A = nonnegativeSum(G, -S, Q);
         const U = nonnegativeSum(I, -A);
         // Rationals and record references are private and never escape this edge.
+        /** Strip exact rationals/raw references while retaining private keys/cents. */
         const clean = row => ({ id: row.id, cents: row.cents,
             ...(row.sourceIds ? { sourceIds: [...row.sourceIds] } : {}),
             ...(row.publicVisible !== undefined ? { publicVisible: row.publicVisible } : {}),
