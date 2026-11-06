@@ -58,10 +58,11 @@ vi.mock('firebase/firestore', () => {
                     const data = mockStore[ref.path];
                     return { exists: () => !!data, data: () => data || null };
                 },
-                set: (ref, data) => { writes.push({ path: ref.path, data }); return tx; }
+                set: (ref, data) => { writes.push({ path: ref.path, data }); return tx; },
+                update: (ref, data) => { writes.push({ path: ref.path, data, merge: true }); return tx; }
             };
             const result = await fn(tx);
-            for (const w of writes) mockStore[w.path] = w.data;
+            for (const w of writes) mockStore[w.path] = w.merge ? { ...(mockStore[w.path] || {}), ...w.data } : w.data;
             return result;
         }),
         serverTimestamp: vi.fn(() => '__SERVER_TIMESTAMP__')
@@ -546,24 +547,41 @@ describe('share documents after a contact change', () => {
 
     it('compensates a queued write when the year is reloaded as closed while the household save is pending', async () => {
         const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const svc = createService();
-        const original = structuredClone(svc.getState().familyMembers);
-        setDoc.mockImplementationOnce(async () => {
-            // A payment is queued behind the household write (holding the optimistic
-            // household); then another client closes the year and it is reloaded
-            // from storage (without the unsaved change); then the write fails.
-            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
-            svc._setState({ activeYear: { id: '2026', label: '2026', status: 'closed' }, familyMembers: structuredClone(original), billingEvents: [] });
-            throw new Error('unavailable');
-        });
+        const members = structuredClone(svc.getState().familyMembers);
+        const path = 'users/user-1/billingYears/2026';
+        setDoc
+            .mockImplementationOnce(async () => {
+                // A payment is queued behind the household write (holding the optimistic
+                // household); then the year is reloaded as closed (without the unsaved
+                // change); then the write fails.
+                svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+                svc._setState({ activeYear: { id: '2026', label: '2026', status: 'closed' }, familyMembers: structuredClone(members), billingEvents: [] });
+                throw new Error('unavailable');
+            })
+            .mockImplementationOnce(async (ref, data, options) => {
+                // The queued payment save lands; then another client closes the year,
+                // before the compensation runs.
+                await original(ref, data, options);
+                const stored = mockStore[path];
+                mockStore[path] = {
+                    ...stored,
+                    status: 'closed',
+                    billingEvents: [...stored.billingEvents, { id: 'evt_close', eventType: 'YEAR_STATUS_CHANGED', payload: { newStatus: 'closed' } }]
+                };
+            });
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
         await svc._saveQueue._chain;
-        const persisted = mockStore['users/user-1/billingYears/2026'];
+        const persisted = mockStore[path];
         expect(persisted.familyMembers.find(x => x.id === 1)).toMatchObject({ linkedMembers: [2, 3], householdName: 'Lake House' });
         expect(persisted.familyMembers.find(x => x.id === 2).linkedMembers).toEqual([]);
-        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED']);
         expect(persisted.payments.some(p => p.memberId === 4 && p.amount === 10)).toBe(true);
+        // Only the household fields and this edit's event were reverted: the other
+        // client's close and its event survive.
+        expect(persisted.status).toBe('closed');
+        expect(persisted.billingEvents.map(e => e.eventType)).toEqual(['PAYMENT_RECORDED', 'YEAR_STATUS_CHANGED']);
         errSpy.mockRestore();
     });
 

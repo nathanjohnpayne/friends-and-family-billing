@@ -8,7 +8,7 @@
  * Depends on: Firestore (modular SDK), SaveQueue, extracted pure helpers.
  */
 import {
-    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch
+    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
@@ -926,23 +926,34 @@ export class BillingYearService {
     }
 
     /**
-     * @private After a failed household write, when the active year has changed:
-     * if a later write for the edited year was enqueued behind it, enqueue one more
-     * write of that later snapshot with this edit's household fields and event
-     * reverted. It keeps every other mutation in that snapshot and never writes the
-     * current (other) year's state into the edited year's document.
+     * @private After a failed household write that the local state can no longer
+     * undo (the year was switched or reloaded meanwhile, or is now read-only): if a
+     * later write for the edited year was enqueued behind it, that write holds the
+     * rejected household. Once it has landed (this runs in the SaveQueue behind it),
+     * read the stored year document in a transaction and revert only this edit's
+     * household fields and event there. Every other field — status, lifecycle
+     * events, ledger rows, including changes another client made meanwhile — is left
+     * exactly as stored, and the current (other) year's state is never written.
      */
     async _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
         const latest = this._queuedYearSnapshots.get(yearId);
         if (!latest || latest.seq <= ownSeq || !this._user || latest.uid !== this._user.uid) return;
-        const [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments] = latest.args;
-        const restoredMembers = revertHouseholdFields(familyMembers, plannedMembers, previousMembers);
-        const events = billingEvents || [];
-        const restoredEvents = addedEventId && events.some(e => e.id === addedEventId)
-            ? events.filter(e => e.id !== addedEventId)
-            : null;
-        if (!restoredMembers && !restoredEvents) return;
-        await this._enqueueConfirmed(this._yearDocWrite(activeYear, restoredMembers || familyMembers, bills, payments, restoredEvents || events, settings, creditAdjustments, owedAdjustments));
+        const yearDocRef = doc(db, 'users', latest.uid, 'billingYears', yearId);
+        await this._enqueueConfirmed(() => runTransaction(db, async (tx) => {
+            const snap = await tx.get(yearDocRef);
+            if (!snap.exists()) return;
+            const stored = snap.data() || {};
+            const restoredMembers = revertHouseholdFields(stored.familyMembers || [], plannedMembers, previousMembers);
+            const events = stored.billingEvents || [];
+            const restoredEvents = addedEventId && events.some(e => e.id === addedEventId)
+                ? events.filter(e => e.id !== addedEventId)
+                : null;
+            if (!restoredMembers && !restoredEvents) return;
+            const patch = { updatedAt: serverTimestamp() };
+            if (restoredMembers) patch.familyMembers = restoredMembers;
+            if (restoredEvents) patch.billingEvents = restoredEvents;
+            tx.update(yearDocRef, patch);
+        }));
     }
 
     /**
