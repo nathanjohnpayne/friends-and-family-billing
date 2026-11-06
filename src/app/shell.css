@@ -4598,3 +4598,31 @@ img, svg { display: block; max-width: 100%; }
 .update-toast-short {
     display: none;
 }
+
+/* Itemized carry inherits the public share's paper, rules and numeric rhythm. */
+.share-carried-toggle {
+    border: 0;
+    padding: 4px 0;
+    background: transparent;
+    color: var(--color-ember-text);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.share-carried-toggle:hover { color: var(--color-ember-text-hover); }
+.share-carried-toggle:focus-visible { outline: 2px solid var(--color-ember-text); outline-offset: 3px; }
+.share-carried-panel { margin: var(--space-3) 0 var(--space-4); }
+.share-carried-heading { font-size: 1rem; margin: 0 0 var(--space-2); }
+.share-carried-breakdown { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card, 12px); padding: var(--space-3); }
+.share-carried-group + .share-carried-group { margin-top: var(--space-3); }
+.share-carried-line { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; }
+.share-carried-line > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.share-carried-amount { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.share-carried-group-heading { border-bottom: 1px solid var(--color-border-light); }
+.share-carried-credit { color: var(--color-status-credit-fg); }
+.share-carried-detail { padding-left: var(--space-3); font-size: 0.875rem; }
+.share-carried-total { border-top: 1px solid var(--color-border); margin-top: var(--space-2); }
+@media (max-width: 600px) {
+    .share-carried-line { flex-direction: column; align-items: flex-start; gap: var(--space-1); }
+}
