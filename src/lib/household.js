@@ -228,10 +228,13 @@ export function revertHouseholdFields(current, planned, previous) {
         else delete next.householdName;
         return next;
     });
-    // The restored households must still be valid against every member, including
-    // ones this edit did not touch (another client may have linked a member it
-    // released into a different household).
-    if (!isValidHouseholdGraph(restored)) {
+    // The restored households must not be invalid in any new way against every
+    // member, including ones this edit did not touch (another client may have linked
+    // a member it released into a different household). A problem already present
+    // before the edit or now (e.g. a duplicate link in old data) is not this
+    // revert's doing and does not block it.
+    const existing = new Set([...householdGraphViolations(current), ...householdGraphViolations(previous)]);
+    if ([...householdGraphViolations(restored)].some(v => !existing.has(v))) {
         const err = new Error('Another change to these households was saved meanwhile.');
         err.code = 'household-revert-conflict';
         throw err;
@@ -247,16 +250,30 @@ export function revertHouseholdFields(current, planned, previous) {
  * @returns {boolean}
  */
 export function isValidHouseholdGraph(familyMembers) {
+    return householdGraphViolations(familyMembers).size === 0;
+}
+
+/**
+ * The household-graph problems in a member list, as stable keys: a self link, a
+ * link to a missing member, a member linked more than once (by one contact or by
+ * several), and a contact who is itself linked.
+ * @param {Array} familyMembers
+ * @returns {Set<string>}
+ */
+export function householdGraphViolations(familyMembers) {
     const ids = new Set((familyMembers || []).map(m => m.id));
-    const linkedBy = new Map();
+    const linkCount = new Map();
+    const out = new Set();
     for (const member of familyMembers || []) {
         for (const id of member.linkedMembers || []) {
-            if (id === member.id || !ids.has(id) || linkedBy.has(id)) return false;
-            linkedBy.set(id, member.id);
+            if (id === member.id) out.add('self:' + id);
+            else if (!ids.has(id)) out.add('missing:' + member.id + ':' + id);
+            linkCount.set(id, (linkCount.get(id) || 0) + 1);
         }
     }
+    for (const [id, count] of linkCount) if (count > 1) out.add('multi:' + id);
     for (const member of familyMembers || []) {
-        if ((member.linkedMembers || []).length > 0 && linkedBy.has(member.id)) return false;
+        if ((member.linkedMembers || []).length > 0 && linkCount.has(member.id)) out.add('contact-linked:' + member.id);
     }
-    return true;
+    return out;
 }
