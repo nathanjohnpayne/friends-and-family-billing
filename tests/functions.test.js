@@ -1149,5 +1149,5 @@ describe('resolveShareToken — household rounding and writer/cache parity (#620
     }
 });
 
-// Exercise the deployed-package CJS entry with the same frontend vectors.
+// Exercise the source CommonJS entry with the same frontend vectors.
 require('./money-vectors.cjs')(require('../functions/money.js'), { describe, it, assert });
