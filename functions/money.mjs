@@ -19,6 +19,7 @@ function fail(code, message) {
     throw new MoneyIntegrityError(code, message);
 }
 
+/** Return a bigint magnitude without changing its unit or converting to Number. */
 function absolute(value) {
     return value < 0n ? -value : value;
 }
@@ -39,6 +40,11 @@ export function rational(numerator, denominator = 1n) {
     return Object.freeze({ numerator: numerator / a, denominator: denominator / a });
 }
 
+/**
+ * Guard bigint coefficients and a strictly positive denominator before arithmetic.
+ * Throws INVALID_EXACT for malformed values; does not normalize caller input.
+ * @param {Rational} value Unit-neutral exact value to validate.
+ */
 function validateExact(value) {
     if (!value || typeof value.numerator !== 'bigint'
         || typeof value.denominator !== 'bigint' || value.denominator <= 0n) {
@@ -60,18 +66,38 @@ export function exactNumber(value) {
         : rational(numerator * 10n ** BigInt(-scale));
 }
 
+/**
+ * Multiply exact values without rounding; operand units are the caller's concern.
+ * No implicit dollars/cents conversion occurs. Returns a reduced frozen rational.
+ * @param {Rational} left
+ * @param {Rational} right
+ * @returns {Rational}
+ */
 export function multiplyExact(left, right) {
     validateExact(left);
     validateExact(right);
     return rational(left.numerator * right.numerator, left.denominator * right.denominator);
 }
 
+/**
+ * Divide exact values without rounding or implicit unit conversion.
+ * A zero divisor throws DIVIDE_BY_ZERO; invalid operands throw INVALID_EXACT.
+ * @param {Rational} left
+ * @param {Rational} right
+ * @returns {Rational} Reduced frozen quotient.
+ */
 export function divideExact(left, right) {
     validateExact(left);
     validateExact(right);
     return rational(left.numerator * right.denominator, left.denominator * right.numerator);
 }
 
+/**
+ * Sum an array of exact values in a caller-chosen common unit before quantizing.
+ * Empty input returns exact zero; malformed entries throw INVALID_EXACT.
+ * @param {Rational[]} values
+ * @returns {Rational} Reduced frozen total, with no dollars/cents conversion.
+ */
 export function sumExact(values) {
     if (!Array.isArray(values)) fail('INVALID_EXACT', 'Expected an array of exact values');
     let total = rational(0n);
@@ -83,6 +109,12 @@ export function sumExact(values) {
     return total;
 }
 
+/**
+ * Convert bigint integer cents to Number only within its safe integer range.
+ * Throws UNSAFE_CENTS rather than losing precision; zero converts to positive 0.
+ * @param {bigint} value
+ * @returns {number}
+ */
 function safeCents(value) {
     if (absolute(value) > BigInt(Number.MAX_SAFE_INTEGER)) {
         fail('UNSAFE_CENTS', 'Integer cents exceed the safe Number range');
@@ -99,6 +131,13 @@ export function quantizeDollarsToCents(dollars) {
     return safeCents(dollars.numerator < 0n ? -cents : cents);
 }
 
+/**
+ * Canonicalize a nonblank string or safe integer id with String(id), preserving
+ * case for ordinal lexicographic comparison. Invalid ids throw INVALID_ID;
+ * allocateCents separately rejects collisions between canonical keys.
+ * @param {string | number} id
+ * @returns {string}
+ */
 function rowKey(id) {
     if ((typeof id !== 'string' || id.trim().length === 0)
         && (typeof id !== 'number' || !Number.isSafeInteger(id))) {
