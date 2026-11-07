@@ -508,7 +508,8 @@ describe('DashboardView', () => {
 
 
 describe('Dashboard aggregate integrity', () => {
-    it('withholds unsafe year totals without claiming valid households need correction', () => {
+    it('withholds unsafe year totals without claiming valid households need correction', async () => {
+        const user = userEvent.setup();
         renderDashboard({ activeYear: { id: '2026', label: '2026', status: 'settling' }, bills: [],
             payments: [{ id: 'large-a', memberId: 1, amount: 60000000000000 },
                 { id: 'large-b', memberId: 2, amount: 60000000000000 }] });
@@ -517,7 +518,7 @@ describe('Dashboard aggregate integrity', () => {
         expect(screen.queryByText(/households? needs? correction/)).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Close Year' })).toBeDisabled();
         const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
-        fireEvent.click(alice.getByText('Alice'));
+        await user.click(alice.getByText('Alice'));
         expect(alice.getByRole('button', { name: 'Issue Refund' })).toBeInTheDocument();
         expect(alice.queryByText('Financial data unavailable')).not.toBeInTheDocument();
     });
