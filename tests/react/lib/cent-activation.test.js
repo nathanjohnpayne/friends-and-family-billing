@@ -86,6 +86,19 @@ describe('activated complete-source boundary', () => {
 });
 
 describe('finalized whole-year carry plan', () => {
+    it('preserves unadmitted null ledger rows when applying an otherwise valid carry', () => {
+        const state = source({ payments: [payment('p', 1)], creditAdjustments: [null] });
+        const before = structuredClone(state);
+        const carry = plan(state);
+        expect(carry.ok).toBe(true);
+        const prior = applyCarryForwardToPriorYear(state.creditAdjustments, state.owedAdjustments, carry,
+            { nextYearLabel: '2027', now: 'fixed' });
+        expect(prior.creditAdjustments[0]).toBeNull();
+        expect(prior.carriedCreditRecords).toEqual([expect.objectContaining({ id: 'cadj_carry_2027_1', amount: 1, createdAt: 'fixed' })]);
+        expect(buildNewYearData(state.familyMembers, [], {}, '2027', carry, '2026').owedAdjustments[0].amount).toBe(-1);
+        expect(state).toEqual(before);
+    });
+
     it.each(['custom', 'default', 'cross-household', 'cancelled'])('holds an actual %s disposition id collision before marking or seeding', scenario => {
         const id = scenario === 'default' ? 'cadj_carry_2027_1' : 'actual-id';
         const state = source({ payments: [payment('p', 1)] });

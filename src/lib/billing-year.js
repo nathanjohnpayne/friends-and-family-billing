@@ -48,10 +48,10 @@ export function applyCarryForwardToPriorYear(_creditAdjustments, _owedAdjustment
     }
     const now = ctx.now || new Date().toISOString();
     const newIds = new Set(carry.carriedCreditRecords.map(row => row.id));
-    const creditAdjustments = carry.priorYear.creditAdjustments.map(row => newIds.has(row.id)
+    const creditAdjustments = carry.priorYear.creditAdjustments.map(row => row && newIds.has(row.id)
         ? { ...structuredClone(row), createdAt: row.createdAt || now } : structuredClone(row));
     return { creditAdjustments, owedAdjustments: structuredClone(carry.priorYear.owedAdjustments),
-        carriedCreditRecords: creditAdjustments.filter(row => newIds.has(row.id)) };
+        carriedCreditRecords: creditAdjustments.filter(row => row && newIds.has(row.id)) };
 }
 
 /**

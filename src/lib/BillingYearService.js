@@ -1496,11 +1496,12 @@ export class BillingYearService {
      *
      * Append-only: a credit is voided via a later status change, NEVER deleted
      * (mirrors recordUsageCharge / the payments-ledger discipline). Emits a
-     * SERVICE_CREDIT_RECORDED billing event. Does not touch recordPayment /
-     * reversePayment, the payments[] ledger, or the bill.
+     * SERVICE_CREDIT_RECORDED billing event. Zero split shares create no records;
+     * the event retains every target share, including zeros. Does not touch
+     * recordPayment / reversePayment, the payments[] ledger, or the bill.
      *
      * @param {{ billId: *, amount: number, reason: string, memberId?: *, incurredDate?: string }} data
-     * @returns {Array<Object>} the new owedAdjustments[] records (one per affected member)
+     * @returns {Array<Object>} the new owedAdjustments[] records (one per positive-share target)
      */
     recordServiceCredit(data) {
         this._guardReadOnly();
@@ -1539,8 +1540,10 @@ export class BillingYearService {
         const incurredDate = data.incurredDate || localDateString();
         const createdAt = new Date().toISOString();
 
+        const shares = splitCents(totalCents, targetIds);
         const records = [];
-        splitCents(totalCents, targetIds).forEach(({ memberId, cents: shareCents }) => {
+        shares.forEach(({ memberId, cents: shareCents }) => {
+            if (shareCents === 0) return;
             records.push({
                 id: generateUniqueAdjustmentId(),
                 memberId,
@@ -1561,7 +1564,8 @@ export class BillingYearService {
             reason,
             incurredDate,
             memberId: data.memberId !== undefined && data.memberId !== null ? data.memberId : null,
-            memberCount: records.length
+            memberCount: targetIds.length,
+            shares: shares.map(({ memberId, cents }) => ({ memberId, amount: cents / 100 }))
         });
 
         this._setState({

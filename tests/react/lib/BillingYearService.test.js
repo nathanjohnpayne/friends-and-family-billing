@@ -278,6 +278,24 @@ describe('BillingYearService', () => {
             };
         }
 
+        it('persists valid carry with an unadmitted null credit row and preserves the original raw ledger', async () => {
+            seedPriorYear();
+            const creditAdjustments = Object.freeze([null]);
+            const payment = Object.freeze({ id: 'one-dollar', memberId: 1, amount: 1, receivedAt: '2026-01-01', method: 'cash' });
+            svc._setState({ familyMembers: [svc.getState().familyMembers[0]], bills: [],
+                payments: [payment], creditAdjustments, owedAdjustments: [] });
+            await svc.createYear('2027');
+            const priorWrite = setDocCalls.find(call => call.path === 'users/user-1/billingYears/2026' && call.data.creditAdjustments);
+            const nextWrite = setDocCalls.find(call => call.path === 'users/user-1/billingYears/2027' && call.data.owedAdjustments);
+            expect(priorWrite.data.creditAdjustments[0]).toBeNull();
+            expect(priorWrite.data.creditAdjustments).toHaveLength(2);
+            expect(priorWrite.data.creditAdjustments[1]).toMatchObject({ memberId: 1, type: 'carry_forward', amount: 1 });
+            expect(nextWrite.data.owedAdjustments).toEqual([expect.objectContaining({ memberId: 1, kind: 'carry_opening', amount: -1 })]);
+            expect(svc.getState().activeYear.id).toBe('2027');
+            expect(creditAdjustments).toEqual([null]);
+            expect(payment).toEqual({ id: 'one-dollar', memberId: 1, amount: 1, receivedAt: '2026-01-01', method: 'cash' });
+        });
+
         it('seeds carry_opening records in the new year for each carrying household', async () => {
             seedPriorYear();
             await svc.createYear('2027');
