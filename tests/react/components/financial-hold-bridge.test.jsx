@@ -62,7 +62,7 @@ beforeEach(() => {
         service: { getState: () => control.state, updateSettings: vi.fn(), setYearStatus: vi.fn(), recordPayment: vi.fn(), billDeferredCharges: vi.fn(() => ({ chargeNoticeId: 'notice', charges: [] })) } };
 });
 
-describe('inactive held-state consumer contract', () => {
+describe('household integrity consumer contract', () => {
     it('keeps held audit access while withholding money, paid status and financial entry points', async () => {
         const user = userEvent.setup();
         control.held.add(1);
@@ -185,7 +185,7 @@ describe('inactive held-state consumer contract', () => {
     });
 
     it('counts one valid paid, one valid unpaid and one held household without partial aggregate money', () => {
-        control.held.add(1); // Legacy metrics would count Alice and Bob as paid.
+        control.state.payments[0].amount = '100'; // An actual admitted source string holds Alice only.
         mount(<DashboardView />);
         expect(screen.getByText('1 / 3')).toBeInTheDocument();
         expect(screen.getByText('1 household needs correction')).toBeInTheDocument();

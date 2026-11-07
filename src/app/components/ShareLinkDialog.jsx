@@ -24,7 +24,7 @@ function formatLastViewed(timestamp) {
 /**
  * @param {{ open: boolean, memberId: number, memberName: string, userId: string, billingYearId: string, yearLabel: string, initialTab?: string, familyMembers?: Array, bills?: Array, payments?: Array, activeYear?: Object, settings?: Object, onClose: function, showToast?: function, onLinkGenerated?: function }} props
  */
-export default function ShareLinkDialog({ getAvailability, open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, owedAdjustments, activeYear, settings, onClose, showToast, onLinkGenerated }) {
+export default function ShareLinkDialog({ getAvailability, open, memberId, memberName, userId, billingYearId, yearLabel, initialTab, familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], activeYear, settings, onClose, showToast, onLinkGenerated }) {
     const [tab, setTab] = useState(initialTab || 'generate');
     const [expiryDays, setExpiryDays] = useState(0);
     const [allowDispute, setAllowDispute] = useState(false);
@@ -36,7 +36,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
     const [copied, setCopied] = useState('');
 
     const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, owedAdjustments }, memberId),
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
         String(billingYearId) + ':' + memberId, open);
 
     useEffect(() => {

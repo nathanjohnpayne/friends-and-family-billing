@@ -1,21 +1,18 @@
 /** Pure Year-End Review math and draft validation (ADR 0009). No storage or IO. */
+import { MoneyIntegrityError } from './money.js';
 import { calculateAnnualSummary, isLinkedToAnyone } from './calculations.js';
+import { snapshotDollars, toExactCents, snapshotExactCredit, projectHouseholdPreviewMoney } from './household-money.js';
 
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const id = value => (typeof value === 'string' && value.length > 0) || (typeof value === 'number' && Number.isSafeInteger(value));
 const money = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
-const dollars = cents => cents / 100;
+const dollars = cents => snapshotDollars(cents, 'review');
 const currency = amount => '$' + amount.toFixed(2);
 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** Magnitudes use the existing service's rounding; signed values round symmetrically. */
-export function toCents(value) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Amount must be finite.');
-    const cents = Math.sign(value) * Math.round((Math.abs(value) + Number.EPSILON) * 100);
-    if (!Number.isSafeInteger(cents)) throw new Error('Amount is too large.');
-    return cents === 0 ? 0 : cents;
-}
+/** Exact decimal Number input; half-cent ties round away from zero. */
+export function toCents(value) { return toExactCents(value); }
 
 /**
  * Preserve order: floor for every member except the last, who receives the remainder.
@@ -63,12 +60,7 @@ function canonical(value) {
 const same = (a, b) => canonical(a) === canonical(b);
 
 /** The exact live record fields a stored answer must still match. */
-export function snapshotExistingCredit(record) {
-    return {
-        memberId: record.memberId, amountCents: toCents(record.amount), incurredDate: record.incurredDate ?? null,
-        reason: record.reason ?? null, createdAt: record.createdAt ?? null, status: record.status
-    };
-}
+export function snapshotExistingCredit(record) { return snapshotExactCredit(record); }
 
 /** Complete change identity, including inputs that can change without changing the delta. */
 export function existingCreditCoverage(result, memberId) {
@@ -284,25 +276,41 @@ export function deriveNextYearBills(sourceBills, reviewBills = {}, newBills = []
     return bills;
 }
 
-/** Consume finalized carry.households[].items from billing-year; never recompute carry. */
-export function buildHouseholdPreview({ familyMembers, sourceBills, nextBills, carry = { households: [] } }) {
-    const source = calculateAnnualSummary(familyMembers, sourceBills);
-    const next = calculateAnnualSummary(familyMembers, nextBills);
+/** Consume the finalized carry seed and propagate source/year holds before preview money. */
+export function buildHouseholdPreview({ familyMembers, sourceBills, nextBills, carry = { ok: true, households: [] } }) {
+    // These member lines remain legacy audit/display values. Invalid sibling
+    // money must reach its own hold without throwing during raw summary display.
+    const displayBills = bills => bills.filter(bill => Array.isArray(bill.members) && typeof bill.amount === 'number' && Number.isFinite(bill.amount));
+    const source = calculateAnnualSummary(familyMembers, displayBills(sourceBills));
+    const next = calculateAnnualSummary(familyMembers, displayBills(nextBills));
     return familyMembers.filter(member => !isLinkedToAnyone(familyMembers, member.id)).map(primary => {
         const members = [primary.id, ...(primary.linkedMembers || [])].filter(memberId => own(source, memberId)).map(memberId => ({
             memberId, sourceBillTotal: source[memberId].total, nextBillTotal: next[memberId].total
         }));
-        const seed = carry.households.find(household => household.primaryMemberId === primary.id);
-        const items = structuredClone(seed?.items || []);
-        const carriedCents = items.reduce((sum, item) => sum + toCents(item.amount), 0);
-        if (seed && toCents(seed.openingBalance) !== carriedCents) throw new Error('Carried items must sum to the opening balance.');
-        const sourceBillTotal = dollars(toCents(members.reduce((sum, member) => sum + member.sourceBillTotal, 0)));
-        const nextBillTotal = dollars(toCents(members.reduce((sum, member) => sum + member.nextBillTotal, 0)));
-        const carriedTotal = dollars(carriedCents);
-        const carriedCharges = dollars(items.reduce((sum, item) => sum + Math.max(0, toCents(item.amount)), 0));
-        return { primaryMemberId: primary.id, members, sourceBillTotal, nextBillTotal, subscriptionDelta: dollars(toCents(nextBillTotal - sourceBillTotal)),
-            items, carriedTotal, carriedCharges, carriedCredit: dollars(carriedCents - toCents(carriedCharges)),
-            firstInvoiceTotal: dollars(Math.max(0, toCents(nextBillTotal) + carriedCents)), remainingCredit: dollars(Math.max(0, -(toCents(nextBillTotal) + carriedCents))) };
+        const seed = carry.households.find(household => (household.primaryMemberId ?? household.householdId) === primary.id);
+        if (carry.ok === false) {
+            const holds = [...(seed?.holds || []), ...(carry.holds || [])];
+            if (holds.length || !seed?.ok) return { ok: false, householdId: primary.id, holds };
+        }
+        if (seed && !seed.seed && carry.ok !== false) return { ok: false, householdId: primary.id,
+            holds: [{ householdId: primary.id, code: 'INVALID_PROVENANCE', component: 'preview',
+                message: 'A finalized carry seed is required' }] };
+        const items = structuredClone(seed?.seed?.items || []);
+        const projected = projectHouseholdPreviewMoney({ familyMembers, bills: sourceBills }, primary, nextBills,
+            seed?.seed || null);
+        if (!projected.ok) return projected;
+        try {
+            const dollars = field => snapshotDollars(projected[field], primary.id);
+            return { ok: true, primaryMemberId: primary.id, members, items,
+                sourceBillTotal: dollars('sourceBillTotalCents'), nextBillTotal: dollars('nextBillTotalCents'),
+                subscriptionDelta: dollars('subscriptionDeltaCents'), carriedTotal: dollars('carriedTotalCents'),
+                carriedCharges: dollars('carriedChargesCents'), carriedCredit: dollars('carriedCreditCents'),
+                firstInvoiceTotal: dollars('firstInvoiceTotalCents'), remainingCredit: dollars('remainingCreditCents') };
+        } catch (error) {
+            if (!(error instanceof MoneyIntegrityError)) throw error;
+            return { ok: false, householdId: primary.id, holds: [{ householdId: primary.id, code: error.code,
+                component: 'preview', field: 'amount', message: error.message }] };
+        }
     });
 }
 

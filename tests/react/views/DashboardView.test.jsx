@@ -126,7 +126,7 @@ describe('DashboardView', () => {
     it('shows settling status with progress', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
-            payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
+            payments: [{ id: 'source-1', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
         });
         expect(screen.getByText('Settlement in progress')).toBeInTheDocument();
     });
@@ -135,8 +135,8 @@ describe('DashboardView', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-2', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-3', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         expect(screen.getByText('Settlement complete')).toBeInTheDocument();
@@ -153,8 +153,8 @@ describe('DashboardView', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-4', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-5', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         const btn = screen.getByRole('button', { name: 'Close Year' });
@@ -166,7 +166,7 @@ describe('DashboardView', () => {
     it('shows disabled Close Year button with hint when settling but not ready', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
-            payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
+            payments: [{ id: 'source-6', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
         });
         const btn = screen.getByRole('button', { name: 'Close Year' });
         expect(btn).toBeDisabled();
@@ -192,8 +192,8 @@ describe('DashboardView', () => {
     it('shows corrected headline when open and 100% settled', () => {
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-7', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-8', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         expect(screen.getByText('Ready to start settlement')).toBeInTheDocument();
@@ -220,8 +220,8 @@ describe('DashboardView', () => {
         // Annual bill 1200 split two ways → 600 owed each. Bob overpays to 668.98 → 68.98 credit.
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+                { id: 'source-9', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { id: 'source-10', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
             ]
         });
         // Scope to the KPI card so the assertion verifies the dashboard KPI path,
@@ -315,8 +315,8 @@ describe('DashboardView', () => {
             // BILLED charge → Outstanding should read $40, not "Paid".
             renderDashboard({
                 payments: [
-                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                    { id: 'source-11', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { id: 'source-12', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
                 ],
                 owedAdjustments: [
                     { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
@@ -364,8 +364,8 @@ describe('DashboardView', () => {
         it('a DEFERRED charge does NOT raise the dashboard Outstanding KPI', () => {
             renderDashboard({
                 payments: [
-                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                    { id: 'source-13', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { id: 'source-14', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
                 ],
                 owedAdjustments: [
                     { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
@@ -381,8 +381,8 @@ describe('DashboardView', () => {
         // Bob overpaid (668.98 of 600) and the 68.98 refund was recorded — the credit
         // is optimistically disposed, so with no member response nothing is owed.
         const payments = [
-            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            { id: 'source-15', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { id: 'source-16', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
         ];
         const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
 
@@ -407,8 +407,8 @@ describe('DashboardView', () => {
         // Same disposed refund, but the year is closed — a not_received arriving after
         // close is corrected forward and never reanimates the frozen credit.
         const payments = [
-            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            { id: 'source-17', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { id: 'source-18', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
         ];
         const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
         refundNoticesMock.value = {
@@ -428,8 +428,8 @@ describe('DashboardView', () => {
         // Bob (id 2) overpays → household carries a 68.98 credit, so "Issue Refund" appears.
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+                { id: 'source-19', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { id: 'source-20', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
             ]
         });
 

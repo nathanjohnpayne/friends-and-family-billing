@@ -489,7 +489,12 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             const otherService = { ...service, memberId: 3, amount: 999, reason: 'Other credit' };
             const source = state({ familyMembers: [member, { id: 3, linkedMembers: [] }], payments: [payment('p', 1)],
                 owedAdjustments: [otherDeferred, otherService, owed('shared', 0), service, deferred] });
-            const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [otherService, service] });
+            assert.equal(carry(source, { fromYearLabel: '2026', nextYearLabel: '2027' }).ok, false);
+            const unambiguous = { ...source, owedAdjustments: [
+                { ...otherDeferred, id: 'other-deferred' }, { ...otherService, id: 'other-service' },
+                { ...service, id: 'own-service' }, deferred
+            ] };
+            const result = carry(unambiguous, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [unambiguous.owedAdjustments[1], unambiguous.owedAdjustments[2]] });
             assert.equal(result.ok, true);
             const h = result.households[0];
             assert.deepEqual(h.deferredChargeIds, ['shared']);

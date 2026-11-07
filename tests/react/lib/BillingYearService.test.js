@@ -66,7 +66,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
-import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -894,8 +894,8 @@ describe('BillingYearService', () => {
             // lowers her owed to 640, so 200 is now owed back as a household Credit.
             svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 200, reason: 'Big credit' });
             const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
-            const summary = calculateAnnualSummary(familyMembers, bills);
-            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), summary, payments, creditAdjustments, null, owedAdjustments);
+
+            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: null });
             expect(f.owed).toBeCloseTo(640, 5); // 840 − 200
             expect(f.credit).toBeCloseTo(200, 5); // paid 840, owes 640 → 200 back
         });

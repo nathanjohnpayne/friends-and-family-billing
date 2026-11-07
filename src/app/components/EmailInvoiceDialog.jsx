@@ -20,7 +20,7 @@ import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 /**
  * @param {{ open: boolean, memberId: number, familyMembers: Array, bills: Array, payments: Array, activeYear: Object, settings: Object, userId?: string, billingYearId?: string, showToast?: function, onClose: function }} props
  */
-export default function EmailInvoiceDialog({ getAvailability, open, memberId, familyMembers, bills, payments, owedAdjustments, activeYear, settings, userId, billingYearId, showToast, onClose }) {
+export default function EmailInvoiceDialog({ getAvailability, open, memberId, familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], activeYear, settings, userId, billingYearId, showToast, onClose }) {
     const { user } = useAuth();
     const [variant, setVariant] = useState('text-link');
     const [subject, setSubject] = useState('');
@@ -31,7 +31,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     const bodyEditedRef = useRef(false);
 
     const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, owedAdjustments }, memberId),
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
         String(billingYearId) + ':' + memberId, open);
     const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
 

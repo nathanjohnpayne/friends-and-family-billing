@@ -34,7 +34,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
-import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -579,9 +579,9 @@ describe('BillingYearService — CRUD mutations', () => {
         }
 
         function householdCredit(svc, memberId) {
-            const { familyMembers, bills, payments, creditAdjustments } = svc.getState();
-            const summary = calculateAnnualSummary(familyMembers, bills);
-            return getHouseholdFinancials(familyMembers.find(m => m.id === memberId), summary, payments, creditAdjustments);
+            const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
+
+            return getHouseholdFinancials(familyMembers.find(m => m.id === memberId), { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: null });
         }
 
         it('records a refund to creditAdjustments and triggers save', () => {
@@ -643,6 +643,21 @@ describe('BillingYearService — CRUD mutations', () => {
             svc.issueRefund({ memberId: 1, amount: 60, method: 'venmo', reason: 'Partial' });
             expect(svc.getState().creditAdjustments).toHaveLength(1);
             expect(householdCredit(svc, 1).credit).toBeCloseTo(40, 5); // 100 − 60
+        });
+
+        it('caps the complete proposed R component instead of a rounded requested delta', () => {
+            const svc = withCredit(600.01);
+            svc._setState({ creditAdjustments: [{ id: 'past', memberId: 1, type: 'refund', status: 'recorded', amount: 0.004 }] });
+            // q(0.004 + 0.01) is 1 cent: the request is safe in the full candidate.
+            svc.issueRefund({ memberId: 1, amount: 0.01, reason: 'All available credit' });
+            expect(householdCredit(svc, 1).cents.balance).toBe(0);
+            const rejected = withCredit(600.01);
+            rejected._setState({ creditAdjustments: [{ id: 'past', memberId: 1, type: 'refund', status: 'recorded', amount: -0.005 }] });
+            // Before R=-1 cent => credit=2 cents; q(-0.005 + 0.02)=2 cents
+            // would over-dispose by a cent, so nominal credit is not a safe cap.
+            const before = structuredClone(rejected.getState());
+            expect(() => rejected.issueRefund({ memberId: 1, amount: 0.02, reason: 'Too much' })).toThrow(/exceed/);
+            expect(rejected.getState()).toEqual(before);
         });
 
         it('throws on a read-only year', () => {

@@ -199,3 +199,20 @@ describe('PaymentHistoryDialog — reversal-after-refund warning (#331)', () => 
         expect(message).toContain('not automatically clawed back');
     });
 });
+
+
+describe('activated reversal candidate warning', () => {
+    it('reprojects raw P after reversal across a subcent aggregate boundary and preserves audit access', async () => {
+        const user = userEvent.setup();
+        const onReverse = vi.fn();
+        render(<PaymentHistoryDialog {...baseProps} onReverse={onReverse}
+            bills={[{ id: 'cent', amount: 0.01, billingFrequency: 'annual', members: [1] }]}
+            payments={[{ id: 'other', memberId: 1, amount: 0.003, receivedAt: '2026-01-15T00:00:00Z' },
+                { id: 'target', memberId: 1, amount: 0.002, receivedAt: '2026-02-15T00:00:00Z' }]}
+            creditAdjustments={[{ id: 'refund', memberId: 1, type: 'refund', status: 'recorded', amount: 0.001 }]} />);
+        await user.click(screen.getAllByTitle('Reverse this payment')[0]);
+        expect(screen.getByText(/will make them Outstanding by \$0.01/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Reverse' }));
+        expect(onReverse).toHaveBeenCalledWith('target');
+    });
+});

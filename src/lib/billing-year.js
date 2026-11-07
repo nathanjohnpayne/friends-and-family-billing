@@ -1,261 +1,57 @@
 // Billing year lifecycle helpers — no DOM, no Firestore, no module-scoped state.
 
-import { calculateAnnualSummary, isLinkedToAnyone, getHouseholdFinancials, getHouseholdOpeningBalance, buildCarryForward, CREDIT_EPSILON } from './calculations.js';
+import { calculateSettlementMetrics, buildCarryForward } from './calculations.js';
+import { toExactCents } from './household-money.js';
+import { requireFinancialAvailability } from './financial-availability.js';
 import { normalizeHouseholdName } from './household.js';
 
 // Carry arithmetic uses integer cents, including symmetric signed rounding.
-const cents = amount => Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100);
+const cents = toExactCents;
 
 /**
- * Calculate total outstanding balance across all main (non-linked) households.
- * Used by closeCurrentYear to show the user how much is still unpaid. Mirrors
- * the per-household NET shortfall summed by calculateSettlementMetrics, so the
- * close path and the dashboard agree and recorded refunds/carry-forwards never
- * mask a real shortfall.
- *
- * owedAdjustments (#320/#321) flow through getHouseholdFinancials: a billed Usage
- * Charge (#320) RAISES owed, so an unpaid billed charge surfaces as outstanding
- * (ADR 0006) and blocks close on present-tense money, while a Service Credit (#321,
- * ADR 0005) LOWERS owed and can only shrink a shortfall, never inflate it. The
- * carried opening balance (#322) folds into owed via getHouseholdOpeningBalance —
- * a carried charge becomes collectable and a carried credit lowers what is owed —
- * keeping the Outstanding figure consistent with the board. Deferred Usage Charges
- * (#317) are ignored (pending, not owed). Both args default to empty/0, so existing
- * 4-arg callers are unaffected.
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Array} payments
- * @param {Array} [creditAdjustments]
- * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) lower owed, billed
- *   Usage Charges (+owed, #320) raise it, and the `carry_opening` seeds (#322) fold the
- *   carried opening balance in; deferred Usage Charges (#317) are ignored
- * @returns {number}
+ * Return the exact year outstanding alias after checking every household and the
+ * aggregate. Null reopening preserves the existing service close context.
  */
 export function calculateOutstandingBalance(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = []) {
-    const summary = calculateAnnualSummary(familyMembers, bills);
-    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
-    let total = 0;
-    mainMembers.forEach(member => {
-        // reopenedAdjustmentIds is null (5th arg): the close-gate outstanding figure
-        // does not re-open credits (#319), and a re-opened credit never creates a
-        // shortfall anyway. owedAdjustments is the 6th arg so billed Usage Charges
-        // (#320) raise owed and Service Credits (#321) lower it on this close path;
-        // openingBalance is the 7th arg so the carried balance (#322) folds in too.
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { owed, netContribution } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
-        const shortfall = owed - netContribution;
-        if (shortfall > CREDIT_EPSILON) total += shortfall;
-    });
-    return total;
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, null, owedAdjustments);
+    requireFinancialAvailability(metrics);
+    return metrics.totalOutstanding;
 }
 
 /**
- * The carry-forward summary for the close/rollover path (#322). Thin wrapper over
- * the shared seam `buildCarryForward` (ADR 0005) so the billing-year lifecycle
- * code has one named entry point. Returns the per-household carried opening
- * balances plus an aggregate total and member count for the confirmation copy.
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Array} payments
- * @param {Array} [creditAdjustments]
- * @param {Array} [owedAdjustments]
- * The review-only `carryUnusedOpeningCredit` option also preserves incoming money
- * hidden by the owed floor (ADR 0009; specs/year-end-review.md § Itemized carry).
- * It never turns excess Service Credits into money or changes `credit`: only
- * payment-backed credit receives a disposition in the source year.
- * @param {{ reopenedAdjustmentIds?: Set, carryUnusedOpeningCredit?: boolean }} [options]
- * @returns {{ households: Array, totalOpeningBalance: number, memberCount: number }}
+ * Finalize carry once, including actual ids, candidate ledgers and stored seeds.
+ * Options bind destination/source labels, actual creditDispositionIds, itemized
+ * review detail, carry-only U and the caller's marking reopening context.
  */
 export function buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], options = {}) {
-    const carry = buildCarryForward(familyMembers, bills, payments, creditAdjustments, owedAdjustments, options);
-    if (!options.carryUnusedOpeningCredit) return carry;
-
-    const summary = calculateAnnualSummary(familyMembers, bills);
-    const households = new Map(carry.households.map(h => [h.primaryMemberId, h]));
-    familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id)).forEach(member => {
-        const priorOpeningBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { grossOwed, serviceCreditTotal } = getHouseholdFinancials(
-            member, summary, payments, creditAdjustments, null, owedAdjustments, priorOpeningBalance
-        );
-        const incomingCents = cents(priorOpeningBalance);
-        const chargesCents = Math.max(0, cents(grossOwed) - cents(serviceCreditTotal) + Math.max(0, incomingCents));
-        const unusedCents = Math.max(0, -incomingCents - chargesCents);
-        if (unusedCents / 100 <= CREDIT_EPSILON) return;
-
-        const memberIds = [member.id, ...(member.linkedMembers || [])];
-        const household = households.get(member.id) || {
-            primaryMemberId: member.id,
-            credit: 0,
-            deferredChargeTotal: 0,
-            deferredChargeIds: [],
-            creditAdjustmentIds: (creditAdjustments || [])
-                .filter(a => a && a.status !== 'cancelled' && !options.reopenedAdjustmentIds?.has(a.id) && memberIds.includes(a.memberId))
-                .map(a => a.id),
-            openingBalance: 0
-        };
-        households.set(member.id, {
-            ...household,
-            unusedOpeningCredit: unusedCents / 100,
-            openingSeedIds: (owedAdjustments || [])
-                .filter(a => a && a.kind === 'carry_opening' && a.status !== 'voided' && memberIds.includes(a.memberId))
-                .map(a => a.id),
-            openingBalance: (cents(household.openingBalance) - unusedCents) / 100
-        });
-    });
-
-    // Keep source-member order even when the legacy seam omitted a household.
-    const result = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id))
-        .flatMap(m => households.has(m.id) ? [households.get(m.id)] : []);
-    return {
-        households: result,
-        totalOpeningBalance: result.reduce((total, h) => total + h.openingBalance, 0),
-        memberCount: result.length
-    };
+    return buildCarryForward(familyMembers, bills, payments, creditAdjustments, owedAdjustments, options);
 }
 
 /**
- * Snapshot one household's carried lines (ADR 0009). The caller attaches the
- * returned array as `household.items` before calling buildNewYearData. This is
- * the review seam; legacy callers do not build items.
- *
- * Only ctx.reviewServiceCredits supplies credit-detail provenance; earlier
- * Service Credits in owedAdjustments belong in the remainder. Detail reconciles
- * the single household credit item and is never added to the opening balance.
- * No source record or nested calc is shared with the returned snapshot.
- * @param {Object} household  entry from buildCarryForwardSummary
- * @param {{ familyMembers: Array, bills: Array, owedAdjustments: Array,
- *   reviewServiceCredits?: Array, fromYearLabel: string, nextYearLabel: string }} ctx
- * @returns {Array} signed carried items; optional calc on Usage Charges
+ * Clone already allocated items from a finalized household plan. Context is
+ * retained for call-site compatibility; it cannot change ids, money or detail.
  */
-export function buildCarryOpeningItems(household, ctx) {
-    const member = ctx.familyMembers.find(m => m.id === household.primaryMemberId);
-    const memberIds = [household.primaryMemberId, ...(member?.linkedMembers || [])];
-    const billName = a => a.billName ?? ctx.bills.find(b => b.id === a.billId)?.name ?? null;
-    const chargeIds = new Set(household.deferredChargeIds || []);
-    const items = (ctx.owedAdjustments || []).filter(a => a && chargeIds.has(a.id)).map(a => ({
-        sourceId: a.id,
-        kind: 'usage_charge',
-        basis: a.basis || 'member',
-        memberId: a.memberId,
-        billName: billName(a),
-        description: a.description || '',
-        amount: cents(a.amount) / 100,
-        incurredDate: a.incurredDate || null,
-        ...(a.calc ? { calc: structuredClone(a.calc) } : {})
-    }));
+export function buildCarryOpeningItems(household, _ctx) {
+    if (!household.ok || !household.seed) throw new Error('A finalized carry plan is required.');
+    return structuredClone(household.seed.items);
+}
 
-    const creditCents = cents(household.credit || 0);
-    const unusedCents = cents(household.unusedOpeningCredit || 0);
-    if (creditCents + unusedCents > 0) {
-        const detail = (ctx.reviewServiceCredits || [])
-            .filter(a => a.kind === 'service_credit' && a.status === 'active' && memberIds.includes(a.memberId))
-            .map(a => ({
-                sourceId: a.id,
-                basis: a.basis ?? null,
-                memberId: a.memberId,
-                billName: billName(a),
-                description: a.reason || '',
-                amount: -cents(a.amount) / 100
-            }));
-        if (unusedCents > 0) {
-            detail.push({ kind: 'unused', description: 'Unused ' + ctx.fromYearLabel + ' credit', amount: -unusedCents / 100 });
-        }
-        const remainderCents = -(creditCents + unusedCents) - detail.reduce((sum, d) => sum + cents(d.amount), 0);
-        if (remainderCents !== 0) {
-            detail.push({
-                kind: remainderCents < 0 ? 'remainder' : 'applied',
-                description: remainderCents < 0
-                    ? 'Other ' + ctx.fromYearLabel + ' overpayment'
-                    : 'Part applied to your ' + ctx.fromYearLabel + ' balance',
-                amount: remainderCents / 100
-            });
-        }
-        items.push({
-            sourceId: creditCents > 0
-                ? 'cadj_carry_' + ctx.nextYearLabel + '_' + household.primaryMemberId
-                : household.openingSeedIds[0],
-            kind: 'credit',
-            basis: 'credit',
-            memberId: household.primaryMemberId,
-            billName: null,
-            description: "Your household's " + ctx.fromYearLabel + ' credit',
-            amount: -(creditCents + unusedCents) / 100,
-            detail
-        });
+/**
+ * Consume the detached prior-year arrays from the validated whole-year plan.
+ * No ids or monetary amounts are generated here. A caller may supply the clock
+ * for createdAt; late idFactory/destination changes are rejected before writes.
+ */
+export function applyCarryForwardToPriorYear(_creditAdjustments, _owedAdjustments, carry, ctx = {}) {
+    requireFinancialAvailability(carry);
+    if (ctx.idFactory || (ctx.nextYearLabel && ctx.nextYearLabel !== carry.nextYearLabel)) {
+        throw new Error('Carry ids and destination must be finalized before validation.');
     }
-    return items;
-}
-
-/**
- * Mark a closing year's undisposed items as carried-forward, APPEND-ONLY (#322,
- * ADR 0006/0007). Given the prior year's `creditAdjustments`/`owedAdjustments`
- * and a carry summary, returns NEW arrays where:
- *
- *   - each carrying household gets one `creditAdjustments[]` record of
- *     `type: 'carry_forward'` (status `recorded`) for its carried credit — this
- *     disposes the credit on the old year exactly like a refund (it subtracts
- *     from Net Contribution via getHouseholdFinancials), so the old year stops
- *     reading it as undisposed and the gate no longer sees it; and
- *   - source carry_opening seeds for unused incoming credit are stamped with
- *     `carriedForwardTo` without changing their status or creating a disposition;
- *   - each still-deferred Usage Charge that carried has its `status` transitioned
- *     `deferred` → `carried_forward` (stamped `carriedForwardTo`) IN PLACE — the
- *     record is preserved, never deleted (append-only via status, mirroring the
- *     payments-ledger discipline). It drops out of the deferred/pending total.
- *
- * Pure: returns fresh arrays and record copies; does not mutate the inputs.
- * @param {Array} creditAdjustments  the prior year's credit adjustments
- * @param {Array} owedAdjustments    the prior year's owed adjustments
- * @param {{ households: Array<{ primaryMemberId: *, credit: number, deferredChargeIds: Array }> }} carry
- * @param {{ nextYearLabel: string, userId?: string|null, idFactory?: function, now?: string }} ctx
- * @returns {{ creditAdjustments: Array, owedAdjustments: Array, carriedCreditRecords: Array }}
- */
-export function applyCarryForwardToPriorYear(creditAdjustments, owedAdjustments, carry, ctx = {}) {
-    const nextYearLabel = ctx.nextYearLabel || null;
     const now = ctx.now || new Date().toISOString();
-    const households = (carry && carry.households) || [];
-
-    // Set of deferred-charge ids that carried, for the in-place status transition.
-    const carriedChargeIds = new Set();
-    households.forEach(h => (h.deferredChargeIds || []).forEach(id => carriedChargeIds.add(id)));
-    const openingSeedIds = new Set();
-    households.filter(h => h.unusedOpeningCredit > CREDIT_EPSILON)
-        .forEach(h => (h.openingSeedIds || []).forEach(id => openingSeedIds.add(id)));
-
-    const updatedOwed = (owedAdjustments || []).map(a => {
-        if (a && carriedChargeIds.has(a.id)) {
-            return { ...a, status: 'carried_forward', carriedForwardTo: nextYearLabel };
-        }
-        if (a && openingSeedIds.has(a.id)) {
-            return { ...a, carriedForwardTo: nextYearLabel };
-        }
-        return a;
-    });
-
-    // One carry_forward credit record per household carrying a credit.
-    const carriedCreditRecords = [];
-    households.forEach((h, i) => {
-        if (!(h.credit > CREDIT_EPSILON)) return;
-        const id = ctx.idFactory
-            ? ctx.idFactory(h, i)
-            : 'cadj_carry_' + (nextYearLabel || 'next') + '_' + h.primaryMemberId;
-        carriedCreditRecords.push({
-            id,
-            memberId: h.primaryMemberId,
-            type: 'carry_forward',
-            amount: h.credit,
-            status: 'recorded',
-            reason: 'Carried forward to ' + (nextYearLabel || 'next year'),
-            toYear: nextYearLabel,
-            createdAt: now
-        });
-    });
-
-    return {
-        creditAdjustments: [...(creditAdjustments || []), ...carriedCreditRecords],
-        owedAdjustments: updatedOwed,
-        carriedCreditRecords
-    };
+    const newIds = new Set(carry.carriedCreditRecords.map(row => row.id));
+    const creditAdjustments = carry.priorYear.creditAdjustments.map(row => newIds.has(row.id)
+        ? { ...structuredClone(row), createdAt: row.createdAt || now } : structuredClone(row));
+    return { creditAdjustments, owedAdjustments: structuredClone(carry.priorYear.owedAdjustments),
+        carriedCreditRecords: creditAdjustments.filter(row => newIds.has(row.id)) };
 }
 
 /**
@@ -274,7 +70,7 @@ export function buildCloseYearMessage(yearLabel, outstandingBalance, carry = nul
     if (outstandingBalance > 0) {
         msg += ' $' + outstandingBalance.toFixed(2) + ' is still outstanding. Closing will prevent further payments.';
     }
-    if (carry && carry.memberCount > 0 && Math.abs(carry.totalOpeningBalance || 0) > CREDIT_EPSILON) {
+    if (carry && carry.memberCount > 0 && cents(carry.totalOpeningBalance) !== 0) {
         const amount = Math.abs(carry.totalOpeningBalance).toFixed(2);
         const members = carry.memberCount + ' member' + (carry.memberCount === 1 ? '' : 's');
         // A net-negative opening balance is credit-dominant (carried back to
@@ -308,29 +104,10 @@ export function isYearLabelDuplicate(billingYears, label) {
 }
 
 /**
- * Build the cloned data for a new billing year (members reset, bills preserved).
- * Does NOT include Firestore-specific fields (createdAt, updatedAt) — caller adds those.
- *
- * Carry-forward seeding (#322, ADR 0005/0006): when a `carry` summary (from
- * `buildCarryForwardSummary` on the prior year) is supplied, the new year is
- * seeded with one `carry_opening` record in `owedAdjustments[]` per carrying
- * household — a netted opening balance (carried credit negative, carried charge
- * positive). `getHouseholdOpeningBalance` reads these so the carried balance
- * lands in the new year's owed (its annual total) and first invoice. The seed
- * records ride the same verbatim `owedAdjustments[]` round-trip the full-document
- * save preserves, so they are never dropped. Review carries supply `items`, a
- * detached snapshot, and retain zero-net seeds when they explain carried lines.
- * A legacy carry with no items retains its original seed shape and zero skip.
- * If no carry is supplied,
- * the arrays initialize empty (parity with buildSavePayload / buildInitialYearData).
- *
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Object} settings
- * @param {string} yearId
- * @param {{ households?: Array<{ primaryMemberId: *, openingBalance: number }> }} [carry]  carry-forward summary FROM the prior year
- * @param {string} [fromYearLabel]  the prior year's label (defaults to currentBillingYear-less mode: omit to tag nothing)
- * @returns {Object}
+ * Clone members, current household names, bills and settings into a new year.
+ * A supplied carry must already be finalized for these source/destination labels.
+ * Stored seeds are copied verbatim: legacy zero-net seeds were omitted by the
+ * plan; itemized review zero-net seeds retain their allocated explanation.
  */
 export function buildNewYearData(familyMembers, bills, settings, yearId, carry = null, fromYearLabel = null) {
     const clonedMembers = familyMembers.map(m => {
@@ -365,22 +142,13 @@ export function buildNewYearData(familyMembers, bills, settings, yearId, carry =
     // are deterministic per (source year, member) so a re-run never duplicates a
     // household's opening balance, and they are visibly distinct from usage-charge
     // ('oadj_') and payment ('pay_') ids.
-    const owedAdjustments = [];
-    if (carry && Array.isArray(carry.households)) {
-        carry.households.forEach(h => {
-            if (!h.items?.length && Math.abs(h.openingBalance || 0) <= CREDIT_EPSILON) return;
-            owedAdjustments.push({
-                id: 'coadj_' + (fromYearLabel || 'prev') + '_' + h.primaryMemberId,
-                memberId: h.primaryMemberId,
-                kind: 'carry_opening',
-                amount: h.openingBalance,
-                status: 'carried_in',
-                fromYear: fromYearLabel || null,
-                ...(Array.isArray(h.items) ? { items: structuredClone(h.items) } : {}),
-                createdAt: new Date().toISOString()
-            });
-        });
+    if (carry) {
+        requireFinancialAvailability(carry);
+        if (carry.nextYearLabel !== yearId || carry.fromYearLabel !== (fromYearLabel || 'prev')) {
+            throw new Error('The finalized carry plan belongs to another year.');
+        }
     }
+    const owedAdjustments = (carry?.seeds || []).map(seed => ({ ...structuredClone(seed), createdAt: new Date().toISOString() }));
 
     return {
         label: yearId,

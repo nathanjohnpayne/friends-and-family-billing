@@ -105,6 +105,21 @@ The added live entry-point guards span SettlementBoard, Dashboard, Manage/Invoic
 
 **PR 2 (coherent activation, `Closes #634`):** start only after PR 1 merges and main CI is green. Wire all financial authority, strict source holds, candidate refund ledgers, real finalized carry ids and the original activation callgraph below together. Real malformed-source tests exercise the merged bridge/service guards; valid sibling households remain usable. Rewrite the named coercion locks and epsilon authority as one activation. Exact-head human financial review and normal reviews/CI remain mandatory. No partial financial release, deploy or live report; stop at the phase checkpoint.
 
+**Activation source contract (second PR, not deployed):** `getHouseholdFinancials(member, source, {reopenedAdjustmentIds})` requires `familyMembers`, `bills`, `payments`, `creditAdjustments` and `owedAdjustments` arrays. Success carries safe integer components and checked dollar aliases; failure carries household identity/diagnostics without money. The availability edge strips diagnostics before UI consumption. Aggregate overflow creates a year-level private hold without inventing a held household or disabling valid household actions.
+
+The carry plan receives actual disposition ids plus source/destination labels before validation. The one whole-year candidate owns id namespace/collision checks, source status markings and next-year seeds; downstream helpers cannot generate replacement ids. Legacy zero-net seeds remain omitted; itemized review zero-net seeds retain their explanation. Source amount/cap/carry checks keep null reopening; board/metrics/history preserve their active reopening context.
+
+| Caller group | Activation treatment |
+| --- | --- |
+| `getHouseholdFinancials`, metrics, outstanding/close, both refund caps, carry, history reversal warning, review quantizer/preview consumers | Exact raw-source authority; no epsilon or numeric-string coercion |
+| `calculateAnnualSummary`, member payment/deferred/credit/opening display helpers | Raw member/audit or explicitly legacy display only; never settlement/cap/close/carry authority |
+| `recordPayment`, existing service/usage write-input parsers | Existing positive-input parsing and stored split remainder preserved; no payment ceiling |
+| `invoice.js`, `share.js`, public Function/cache writers and raw StatusBadge helper | Legacy M3/M4 numerical version remains unadapted; existing writer/cache parity tests retained, with canonical 66.67 versus legacy 66.66 explicitly separated |
+
+Hold consumers skip legacy monetary sums before rendering non-coercible source values, preserving record-presence counts and audit/reversal/correction access. Unformattable audit amounts use the existing unavailable signal; valid member displays remain unchanged. This is the approved bridge integration, not a renderer API or recovery policy.
+
+No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/public legacy half-cent comparisons remain M4 work. No new schema, stored conversion, repair policy or deployment is included.
+
 **Reviewability evidence:** the read-only recheck found live entry points in Manage/InvoicingTab plus email/text/share dialogs and stale-preview/async continuation paths beyond the original financial helper files and roughly66 existing helper test call sites. Combining this availability subsystem with arithmetic/candidate-ledger activation would not certify one M PR. Use the approved inactive consumer seam; do not split merely by file or partially activate money. #634 remains open after PR 1. #638 is unstarted and is not part of this authorization.
 
 

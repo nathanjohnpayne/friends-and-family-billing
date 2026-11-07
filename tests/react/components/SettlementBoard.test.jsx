@@ -86,9 +86,9 @@ describe('SettlementBoard', () => {
 
     it('shows settled status when fully paid', () => {
         const payments = [
-            { memberId: 1, amount: 480, method: 'cash' },
-            { memberId: 2, amount: 480, method: 'cash' },
-            { memberId: 3, amount: 480, method: 'cash' }
+            { id: 'source-1', memberId: 1, amount: 480, method: 'cash' },
+            { id: 'source-2', memberId: 2, amount: 480, method: 'cash' },
+            { id: 'source-3', memberId: 3, amount: 480, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const badges = screen.getAllByText('Settled');
@@ -113,8 +113,8 @@ describe('SettlementBoard', () => {
 
     it('filters by status', () => {
         const payments = [
-            { memberId: 1, amount: 480, method: 'cash' },
-            { memberId: 3, amount: 480, method: 'cash' }
+            { id: 'source-4', memberId: 1, amount: 480, method: 'cash' },
+            { id: 'source-5', memberId: 3, amount: 480, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const filterButtons = screen.getAllByRole('button');
@@ -125,7 +125,7 @@ describe('SettlementBoard', () => {
     });
 
     it('counts and filters households holding a Credit', () => {
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }]; // Bob owes 480 → Credit
+        const payments = [{ id: 'source-6', memberId: 2, amount: 600, method: 'cash' }]; // Bob owes 480 → Credit
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const creditChip = screen.getAllByRole('button').find(b => b.classList.contains('settlement-filter-chip') && b.textContent.startsWith('Credit'));
         expect(within(creditChip).getByText('1')).toBeInTheDocument();
@@ -215,8 +215,7 @@ describe('SettlementBoard', () => {
         const amountInput = screen.getByPlaceholderText('0.00');
         fireEvent.change(amountInput, { target: { value: '100' } });
         fireEvent.click(screen.getByText('Save Payment'));
-        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 1,
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ memberId: 1,
             amount: 100,
             method: 'cash',
             note: ''
@@ -234,9 +233,9 @@ describe('SettlementBoard', () => {
 
     it('hides Record Payment when member is fully settled', () => {
         const payments = [
-            { memberId: 1, amount: 10000, method: 'cash' },
-            { memberId: 2, amount: 10000, method: 'cash' },
-            { memberId: 3, amount: 10000, method: 'cash' }
+            { id: 'source-8', memberId: 1, amount: 10000, method: 'cash' },
+            { id: 'source-9', memberId: 2, amount: 10000, method: 'cash' },
+            { id: 'source-10', memberId: 3, amount: 10000, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -260,8 +259,7 @@ describe('SettlementBoard', () => {
         fireEvent.click(payButtons[0]);
         fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '200' } });
         fireEvent.click(screen.getByText('Save Payment'));
-        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 1,
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ memberId: 1,
             amount: 200,
             distribute: true
         }));
@@ -290,9 +288,9 @@ describe('SettlementBoard', () => {
 
     it('shows Payment History in expanded detail when settled', () => {
         const payments = [
-            { memberId: 1, amount: 10000, method: 'cash' },
-            { memberId: 2, amount: 10000, method: 'cash' },
-            { memberId: 3, amount: 10000, method: 'cash' }
+            { id: 'source-12', memberId: 1, amount: 10000, method: 'cash' },
+            { id: 'source-13', memberId: 2, amount: 10000, method: 'cash' },
+            { id: 'source-14', memberId: 3, amount: 10000, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -426,7 +424,7 @@ describe('SettlementBoard', () => {
 
 describe('SettlementBoard — household credit', () => {
     it('shows a Credit box with the overpaid amount for an overpaid household', () => {
-        const payments = [{ memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
+        const payments = [{ id: 'source-15', memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         // Both the summary box label and the status badge read "Credit" (RD-09).
         const bobCard = screen.getByText('Bob').closest('.settlement-card');
@@ -435,7 +433,7 @@ describe('SettlementBoard — household credit', () => {
     });
 
     it('shows a Credit badge (never Overpaid) for a household carrying an unresolved credit', () => {
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-16', memberId: 2, amount: 600, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expect(creditOnBoard().length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText(/overpaid/i)).toBeNull();
@@ -443,7 +441,7 @@ describe('SettlementBoard — household credit', () => {
 
     it('reads Settled (not Credit) when a recorded refund brings Net Contribution down to owed', () => {
         // Bob paid 600 (owed 480) but a recorded refund of 120 nets his contribution back to 480.
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-17', memberId: 2, amount: 600, method: 'cash' }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'refund', amount: 120, status: 'recorded' }];
         render(
             <SettlementBoard
@@ -462,8 +460,8 @@ describe('SettlementBoard — household credit', () => {
         // Alice (primary) + Carol (linked) each owe 480. Alice overpays 80, Carol underpays 80.
         // Household Net Contribution (960) equals owed (960): no household-level credit (ADR 0001).
         const payments = [
-            { memberId: 1, amount: 560, method: 'cash' },
-            { memberId: 3, amount: 400, method: 'cash' }
+            { id: 'source-18', memberId: 1, amount: 560, method: 'cash' },
+            { id: 'source-19', memberId: 3, amount: 400, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expect(creditOnBoard()).toHaveLength(0);
@@ -473,8 +471,8 @@ describe('SettlementBoard — household credit', () => {
         // Carol (linked) pays 560 of her 480; Alice (primary) pays 400 of hers. The household
         // nets to owed, so no household Credit exists and Carol's member badge must not invent one.
         const payments = [
-            { memberId: 1, amount: 400, method: 'cash' },
-            { memberId: 3, amount: 560, method: 'cash' }
+            { id: 'source-20', memberId: 1, amount: 400, method: 'cash' },
+            { id: 'source-21', memberId: 3, amount: 560, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -489,7 +487,7 @@ describe('SettlementBoard — household credit', () => {
         // Bob owes 480, paid 600, but a recorded carry-forward of 200 nets him to 400 —
         // below owed (an over-disposition later slices must prevent). The board must stay
         // internally consistent: a real Balance and the Record Payment action, never "Paid".
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-22', memberId: 2, amount: 600, method: 'cash' }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 200, status: 'recorded' }];
         render(
             <SettlementBoard
@@ -559,7 +557,7 @@ describe('SettlementBoard — deferred usage charges', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 999, status: 'deferred', description: 'Huge', incurredDate: '2025-02-01' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // Bob fully settled on bills
+        const payments = [{ id: 'source-23', memberId: 2, amount: 480, method: 'cash' }]; // Bob fully settled on bills
         render(
             <SettlementBoard
                 familyMembers={members}
@@ -583,7 +581,7 @@ describe('SettlementBoard — deferred usage charges', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2025-02-01' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // settled on bills, not the billed charge
+        const payments = [{ id: 'source-24', memberId: 2, amount: 480, method: 'cash' }]; // settled on bills, not the billed charge
         render(
             <SettlementBoard
                 familyMembers={members}
@@ -721,7 +719,7 @@ describe('SettlementBoard — Bill Charges (#320)', () => {
 // Bob (independent) owes $480/yr; paying $548.98 leaves a $68.98 household credit.
 
 describe('SettlementBoard — Issue Refund', () => {
-    const overpaid = [{ memberId: 2, amount: 548.98, method: 'cash' }];
+    const overpaid = [{ id: 'source-25', memberId: 2, amount: 548.98, method: 'cash' }];
 
     it('shows Issue Refund in the expanded card for a household with a credit', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={() => {}} />);
@@ -756,8 +754,7 @@ describe('SettlementBoard — Issue Refund', () => {
         fireEvent.click(screen.getByText('Issue Refund'));
         fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Overpaid Q1' } });
         fireEvent.click(screen.getByText('Save Refund'));
-        expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 2, amount: 68.98, method: 'venmo', reason: 'Overpaid Q1'
+        expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({ memberId: 2, amount: 68.98, method: 'venmo', reason: 'Overpaid Q1'
         }));
     });
 
@@ -794,7 +791,7 @@ describe('SettlementBoard — carried opening balance (#322)', () => {
         const owedAdjustments = [
             { id: 's1', memberId: 2, kind: 'carry_opening', amount: -180, status: 'carried_in', fromYear: '2025' }
         ];
-        const payments = [{ memberId: 2, amount: 250, method: 'cash' }];
+        const payments = [{ id: 'source-27', memberId: 2, amount: 250, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
         const card = screen.getByText('Bob').closest('.settlement-card');
         // Annual box shows the reduced 300 (not the full 480); Balance is the 50 shortfall.
@@ -809,7 +806,7 @@ describe('SettlementBoard — carried opening balance (#322)', () => {
         const owedAdjustments = [
             { id: 's1', memberId: 2, kind: 'carry_opening', amount: 120, status: 'carried_in', fromYear: '2025' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }];
+        const payments = [{ id: 'source-28', memberId: 2, amount: 480, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
         const card = screen.getByText('Bob').closest('.settlement-card');
         const annualBox = within(card).getByText('Annual').closest('.settlement-summary-box');
@@ -897,5 +894,61 @@ describe('SettlementBoard — open Review Requests (RD-03)', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expect(screen.queryByText('Review request')).toBeNull();
         expect(screen.getByRole('button', { name: 'Open review 0' })).toBeInTheDocument();
+    });
+});
+
+
+describe('activated household cent decisions', () => {
+    const solo = [{ id: 1, name: 'Exact', linkedMembers: [] }];
+    const annual = amount => [{ id: 'annual', amount, billingFrequency: 'annual', members: [1] }];
+    it('rejects a nominal two-cent refund when the complete signed R candidate crosses a cent', () => {
+        const onIssueRefund = vi.fn();
+        render(<SettlementBoard familyMembers={solo} bills={annual(600)} payments={[{ id: 'p', memberId: 1, amount: 600.01 }]}
+            creditAdjustments={[{ id: 'r', memberId: 1, amount: -0.005, type: 'refund', status: 'recorded' }]}
+            readOnly={false} onIssueRefund={onIssueRefund} />);
+        expandCard('Exact');
+        fireEvent.click(screen.getByText('Issue Refund'));
+        fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '0.02' } });
+        fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Candidate cap' } });
+        fireEvent.click(screen.getByText('Save Refund'));
+        expect(onIssueRefund).not.toHaveBeenCalled();
+        expect(screen.getByText(/Refund cannot exceed/)).toBeInTheDocument();
+    });
+
+    it('offers payment for a one-cent shortfall and permits a positive overpayment', () => {
+        const onRecordPayment = vi.fn();
+        render(<SettlementBoard familyMembers={solo} bills={annual(0.01)} payments={[]} readOnly={false} onRecordPayment={onRecordPayment} />);
+        expandCard('Exact');
+        fireEvent.click(screen.getByText('Record Payment'));
+        fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } });
+        fireEvent.click(screen.getByText('Save Payment'));
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, memberId: 1 }));
+    });
+
+    it('keeps zero-owed positive balance outstanding and zero-owed negative balance in credit', () => {
+        const props = { familyMembers: solo, bills: [], payments: [], readOnly: false };
+        const { rerender } = render(<SettlementBoard {...props} creditAdjustments={[{ id: 'r', memberId: 1, amount: 0.01, type: 'refund', status: 'recorded' }]} />);
+        const card = within(screen.getByRole('region', { name: 'Settlement for Exact' }));
+        expect(card.getByText('Outstanding')).toBeInTheDocument();
+        expect(card.queryByText('Settled')).not.toBeInTheDocument();
+        rerender(<SettlementBoard {...props} payments={[{ id: 'p', memberId: 1, amount: 0.01 }]} />);
+        expect(card.getAllByText('Credit').length).toBeGreaterThan(0);
+    });
+
+    it.each([1n, Symbol('invalid')])('renders a non-coercible source hold without running legacy display sums', amount => {
+        render(<SettlementBoard familyMembers={solo} bills={annual(1)} payments={[{ id: 'bad', memberId: 1, amount }]} readOnly={false} />);
+        expect(screen.getByText('Financial data unavailable')).toBeInTheDocument();
+    });
+
+    it('withholds real malformed-source money while retaining a valid sibling action', () => {
+        render(<SettlementBoard familyMembers={[...solo, { id: 2, name: 'Sibling', linkedMembers: [] }]} bills={annual(1)}
+            payments={[{ id: 'bad', memberId: 1, amount: '1' }]} readOnly={false} />);
+        expandCard('Exact');
+        const card = within(screen.getByRole('region', { name: 'Settlement for Exact' }));
+        expect(card.getByText('Financial data unavailable')).toBeInTheDocument();
+        expect(card.queryByText(/\$/)).not.toBeInTheDocument();
+        expect(card.queryByText('Paid')).not.toBeInTheDocument();
+        expect(card.queryByText('Record Payment')).not.toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Settlement for Sibling' })).toBeInTheDocument();
     });
 });

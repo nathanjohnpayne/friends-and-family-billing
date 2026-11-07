@@ -83,8 +83,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── billing-year.js        # Year lifecycle utilities
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
-│       ├── financial-availability.js # Private inactive hold-consumer bridge over legacy financial results
-│       ├── household-money.js     # Unused source-domain/carry ESM entry; functions/household-money.mjs
+│       ├── financial-availability.js # Private availability over exact household financial results
+│       ├── household-money.js     # Exact source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
@@ -104,7 +104,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   ├── index.js                   # Cloud Functions v2 entry point (sendEmail, resolveShareToken, submitDispute, etc.)
 │   ├── money.mjs                  # Unused ADR 0010 exact rational math and generic cent allocator
 │   ├── money.js                   # Node 24 CJS entry for money.mjs (no top-level await)
-│   ├── household-money.mjs        # Unused exact household sources, holds, carry and review money edges
+│   ├── household-money.mjs        # Exact household sources, holds, carry and review money edges
 │   ├── household-money.js         # Node 24 CJS entry for household-money.mjs
 │   ├── billing.js                 # Shared billing utilities for Cloud Functions
 │   └── package.json               # Cloud Functions dependencies (firebase-admin, firebase-functions, resend)
@@ -140,14 +140,17 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 └── .ai_context.md                 # Supplemental AI agent context
 ```
 
-The private `financial-availability.js` bridge reads only the existing legacy
-`getHouseholdFinancials` seam and strips money/source evidence from availability
-passed to UI guards. The active producer does not emit holds yet; tests supply
-the future private signal. It adds no source validation or money activation.
+The private `financial-availability.js` boundary strips money/source evidence before
+UI entry-point guards consume availability. Authenticated settlement, service
+refund caps, close/rollover and review money edges now use complete raw sources
+through the exact household adapter (ADR 0010). A finalized whole-year carry plan
+binds actual ids, source markings and next-year seeds before validation/writes.
+Member audit/display helpers and invoice/public writers remain legacy pending
+M3/M4; mixed numerical versions are source-only and must not deploy.
 See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
 
-The unused money and household-money entrypoints prove source interoperability
-only. Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
+Source interoperability and client activation are not Functions artifact admission.
+Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
 registration and its packaging/security tests are tracked in
 [#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638),
 after M2a and before M4 Functions activation.

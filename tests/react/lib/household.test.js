@@ -75,7 +75,7 @@ import {
 } from '@/lib/household.js';
 import { BillingYearService } from '@/lib/BillingYearService.js';
 import {
-    calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance,
+    getHouseholdFinancials,
     calculateSettlementMetrics, buildCarryForward, isLinkedToAnyone
 } from '@/lib/calculations.js';
 import { buildSavePayload, normalizeYearData } from '@/lib/persistence.js';
@@ -316,12 +316,12 @@ function createService(state = richState()) {
 /** Every household-level figure the app derives, keyed by member-set (order-free). */
 function householdFigures(state) {
     const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = state;
-    const summary = calculateAnnualSummary(familyMembers, bills);
     const out = {};
     familyMembers.filter(x => !isLinkedToAnyone(familyMembers, x.id)).forEach(contact => {
         const key = getHouseholdMemberIds(contact).slice().sort().join(',');
-        const openingBalance = getHouseholdOpeningBalance(contact, owedAdjustments);
-        out[key] = getHouseholdFinancials(contact, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
+        const result = getHouseholdFinancials(contact, { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: null });
+        const { householdId: _identity, ...money } = result;
+        out[key] = money;
     });
     return out;
 }
@@ -346,7 +346,7 @@ describe('BillingYearService.saveHousehold — contact change', () => {
         expect(after.bills).toEqual(before.bills);
         expect(householdFigures(after)).toEqual(figuresBefore);
         expect(calculateSettlementMetrics(after.familyMembers, after.bills, after.payments, after.creditAdjustments, null, after.owedAdjustments))
-            .toEqual(metricsBefore);
+            .toMatchObject({ cents: metricsBefore.cents, paidCount: metricsBefore.paidCount, totalMembers: metricsBefore.totalMembers });
         const carryAfter = buildCarryForward(after.familyMembers, after.bills, after.payments, after.creditAdjustments, after.owedAdjustments);
         const byMembers = c => Object.fromEntries(c.households.map(h => {
             const contact = (h.primaryMemberId === 3 || h.primaryMemberId === 1) ? 'lindqvist' : String(h.primaryMemberId);
