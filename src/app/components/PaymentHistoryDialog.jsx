@@ -9,8 +9,6 @@ import {
     calculateAnnualSummary,
     getHouseholdRecordedRefund,
     getHouseholdFinancials,
-    getHouseholdOpeningBalance,
-    CREDIT_EPSILON
 } from '../../lib/calculations.js';
 import { getPaymentMethodLabel, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
@@ -42,10 +40,8 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     if (!open) return null;
 
     const memberPayments = getMemberPayments(payments, memberId);
-    const totalPaid = getPaymentTotalForMember(payments, memberId);
-    const summary = calculateAnnualSummary(familyMembers, bills);
+    const summary = calculateAnnualSummary(familyMembers, bills.filter(bill => bill.members?.length && typeof bill.amount === 'number' && Number.isFinite(bill.amount)));
     const memberTotal = summary[memberId] ? summary[memberId].total : 0;
-    const balance = memberTotal - totalPaid;
 
     // Reversal-after-refund warning (#331, ADR 0003). History stays member-bound,
     // but its current household contact may change while the dialog is open
@@ -57,25 +53,23 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     // books (never auto-clawed-back). We warn, but never block — pure display.
     const householdContactId = findHouseholdContactId(familyMembers, memberId);
     const household = familyMembers.find(m => m.id === householdContactId);
-    const recordedRefund = getHouseholdRecordedRefund(household, creditAdjustments);
 
-    /**
-     * Household owed and Net Contribution exactly as the settlement board computes
-     * them, BEFORE any reversal. Reversing a payment appends a −amount entry, which
-     * drops Net Contribution by that amount, so the resulting Outstanding works out to
-     * `Math.max(0, (owed − netContribution) + |amount|)`. Derived from the same
-     * financials the board shows, so the warning figures match the card.
-     */
+    /** Read full raw source under the current contact and caller reopening context. */
     function householdOwedAndContribution() {
-        if (!household) return { owed: 0, netContribution: 0 };
-        const openingBalance = getHouseholdOpeningBalance(household, owedAdjustments);
-        return getHouseholdFinancials(
-            household, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance
-        );
+        if (!household) return { ok: false, householdId: memberId, holds: [{ householdId: memberId,
+            code: 'INVALID_SOURCE', component: 'source', field: 'familyMembers', recordId: memberId,
+            message: 'The history member has no current household' }] };
+        return getHouseholdFinancials(household, { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds });
     }
 
     const financials = householdOwedAndContribution();
     const available = financials.ok !== false;
+    const totalPaid = available ? getPaymentTotalForMember(payments, memberId) : 0;
+    const balance = memberTotal - totalPaid;
+    const householdIds = household ? [household.id, ...(household.linkedMembers || [])] : [];
+    const recordedRefund = available ? getHouseholdRecordedRefund(household, creditAdjustments)
+        : { has: creditAdjustments.some(row => row && row.type === 'refund' && row.status !== 'cancelled'
+            && householdIds.includes(row.memberId)) };
 
     /** Preserve audit correction access even when projected household money is unavailable. */
     function handleReverse() {
@@ -87,7 +81,8 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
     /** Confirm message for the reverse action — warns when the household has a recorded refund. */
     function reverseConfirmMessage() {
         if (!reverseTarget) return '';
-        const amountLabel = formatAnnualSummaryCurrency(reverseTarget.amount);
+        const amountLabel = typeof reverseTarget.amount === 'number' && Number.isFinite(reverseTarget.amount)
+            ? formatAnnualSummaryCurrency(reverseTarget.amount) : FINANCIAL_UNAVAILABLE;
         const dateLabel = new Date(reverseTarget.receivedAt).toLocaleDateString();
         if (recordedRefund.has) {
             // The resulting Outstanding and the household's state BEFORE the reversal,
@@ -98,18 +93,24 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
                     + ' payment from ' + dateLabel + ' creates a reversal entry in the audit trail. Reverse anyway?';
             }
             const refundLabel = formatAnnualSummaryCurrency(recordedRefund.total);
-            const { owed, netContribution } = financials;
-            const beforeOutstanding = owed - netContribution;
-            const resulting = Math.max(0, beforeOutstanding + Math.abs(reverseTarget.amount));
-            const resultingLabel = formatAnnualSummaryCurrency(resulting);
-            // Three cases (#331, #333):
-            //  • still in credit after the reversal (partial refund) — don't claim a false "$0.00 Outstanding"
-            //  • already Outstanding before the reversal — the reversal *increases* the balance to the new total
-            //  • settled or in credit before — the reversal *makes* them Outstanding
+            let id = 'reversal-preview';
+            while (payments.some(row => String(row.id) === id)) id += '_';
+            const candidate = getHouseholdFinancials(household, { familyMembers, bills, creditAdjustments, owedAdjustments,
+                payments: [...payments.map(row => row.id === reverseTarget.id ? { ...row, reversed: true } : row),
+                    { id, memberId: reverseTarget.memberId, amount: -reverseTarget.amount, type: 'reversal', reversesPaymentId: reverseTarget.id }] }, { reopenedAdjustmentIds });
+            if (!candidate.ok) return 'This household has a recorded refund. ' + FINANCIAL_UNAVAILABLE
+                + '. The refund is not automatically clawed back. This creates a reversal entry in the audit trail. Reverse anyway?';
+            const beforeOutstanding = financials.cents.balance;
+            const resulting = candidate.cents.balance;
+            const resultingLabel = formatAnnualSummaryCurrency(resulting / 100);
+            // Signed candidate cents distinguish credit, settled and outstanding.
+            // An already-outstanding household gets the existing increase wording.
             let impact;
-            if (resulting <= CREDIT_EPSILON) {
+            if (resulting < 0) {
                 impact = 'lowers their Net Contribution but leaves the household in credit';
-            } else if (beforeOutstanding > CREDIT_EPSILON) {
+            } else if (resulting === 0) {
+                impact = 'lowers their Net Contribution but leaves the household settled';
+            } else if (beforeOutstanding > 0) {
                 impact = 'will increase their Outstanding balance to ' + resultingLabel;
             } else {
                 impact = 'will make them Outstanding by ' + resultingLabel;
@@ -158,7 +159,8 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
                                     <div className="payment-history-item-left">
                                         <span className="payment-history-date">{date}</span>
                                         <span className={'payment-history-amount' + (isReversal ? ' reversal-amount' : '')}>
-                                            {isReversal ? '-' : ''}{formatAnnualSummaryCurrency(Math.abs(p.amount))}
+                                            {isReversal ? '-' : ''}{typeof p.amount === 'number' && Number.isFinite(p.amount)
+                                                ? formatAnnualSummaryCurrency(Math.abs(p.amount)) : FINANCIAL_UNAVAILABLE}
                                         </span>
                                     </div>
                                     <div className="payment-history-item-right">
@@ -244,7 +246,8 @@ function PaymentEditDialog({ payment, onSave, onCancel }) {
                     <input
                         className="composer-input"
                         type="text"
-                        value={formatAnnualSummaryCurrency(payment.amount)}
+                        value={typeof payment.amount === 'number' && Number.isFinite(payment.amount)
+                            ? formatAnnualSummaryCurrency(payment.amount) : FINANCIAL_UNAVAILABLE}
                         disabled
                     />
                 </div>

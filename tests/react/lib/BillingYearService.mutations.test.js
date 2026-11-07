@@ -34,7 +34,8 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
-import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancialAvailability } from '@/lib/financial-availability.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -69,15 +70,46 @@ function createService() {
 describe('BillingYearService — CRUD mutations', () => {
     beforeEach(() => clearStore());
 
-    it('preserves the existing Service Credit zero-share shape after shared split extraction', () => {
+    it('writes no zero-share Service Credits and audits every target without holding a valid household', () => {
         const svc = createService();
         svc._setState({ bills: [{ ...svc.getState().bills[0], members: [1, 2, 3] }] });
         const records = svc.recordServiceCredit({ billId: 101, amount: 0.01, reason: 'One cent' });
         expect(records.map(record => ({ memberId: record.memberId, amount: record.amount }))).toEqual([
-            { memberId: 1, amount: 0 }, { memberId: 2, amount: 0 }, { memberId: 3, amount: 0.01 }
+            { memberId: 3, amount: 0.01 }
         ]);
         expect(svc.getState().owedAdjustments).toEqual(records);
-        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 0.01, memberCount: 3 });
+        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: 0.01, memberCount: 3,
+            shares: [{ memberId: 1, amount: 0 }, { memberId: 2, amount: 0 }, { memberId: 3, amount: 0.01 }] });
+        for (const memberId of [1, 2, 3]) expect(getHouseholdFinancialAvailability(svc.getState(), memberId).available).toBe(true);
+    });
+
+    it.each([
+        ['ordinary bill split', { amount: 10 }, [{ memberId: 1, amount: 3.33 }, { memberId: 2, amount: 3.33 }, { memberId: 3, amount: 3.34 }]],
+        ['per-member credit', { amount: 0.01, memberId: 2 }, [{ memberId: 2, amount: 0.01 }]]
+    ])('retains allocation and availability for %s', (_name, input, expected) => {
+        const svc = createService();
+        svc._setState({ bills: [{ ...svc.getState().bills[0], members: [1, 2, 3] }] });
+        const records = svc.recordServiceCredit({ billId: 101, reason: 'Documented allocation', ...input });
+        expect(records.map(record => ({ memberId: record.memberId, amount: record.amount }))).toEqual(expected);
+        expect(svc.getState().billingEvents.at(-1).payload).toMatchObject({ amount: input.amount, shares: expected, memberCount: expected.length });
+        for (const memberId of [1, 2, 3]) expect(getHouseholdFinancialAvailability(svc.getState(), memberId).available).toBe(true);
+    });
+
+    it('preserves all existing raw rows and holds a historical zero credit without correction or migration', () => {
+        const svc = createService();
+        const existing = Object.freeze([
+            Object.freeze({ id: 'historical-zero', memberId: 1, billId: 101, kind: 'service_credit', status: 'active', amount: 0 }),
+            null,
+            Object.freeze({ id: 'positive', memberId: 2, billId: 101, kind: 'service_credit', status: 'active', amount: 0.02 })
+        ]);
+        const before = structuredClone(existing);
+        svc._setState({ owedAdjustments: existing, bills: [{ ...svc.getState().bills[0], members: [1, 2, 3] }] });
+        const appended = svc.recordServiceCredit({ billId: 101, amount: 0.01, reason: 'Future write only' });
+        expect(svc.getState().owedAdjustments).toEqual([...before, ...appended]);
+        expect(existing).toEqual(before);
+        expect(appended.map(row => row.amount)).toEqual([0.01]);
+        expect(getHouseholdFinancialAvailability(svc.getState(), 1).available).toBe(false);
+        expect(getHouseholdFinancialAvailability(svc.getState(), 2).available).toBe(true);
     });
 
     it('preserves legacy Service Credit allocation for duplicate loaded bill members', () => {
@@ -579,9 +611,9 @@ describe('BillingYearService — CRUD mutations', () => {
         }
 
         function householdCredit(svc, memberId) {
-            const { familyMembers, bills, payments, creditAdjustments } = svc.getState();
-            const summary = calculateAnnualSummary(familyMembers, bills);
-            return getHouseholdFinancials(familyMembers.find(m => m.id === memberId), summary, payments, creditAdjustments);
+            const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
+
+            return getHouseholdFinancials(familyMembers.find(m => m.id === memberId), { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: null });
         }
 
         it('records a refund to creditAdjustments and triggers save', () => {
@@ -643,6 +675,21 @@ describe('BillingYearService — CRUD mutations', () => {
             svc.issueRefund({ memberId: 1, amount: 60, method: 'venmo', reason: 'Partial' });
             expect(svc.getState().creditAdjustments).toHaveLength(1);
             expect(householdCredit(svc, 1).credit).toBeCloseTo(40, 5); // 100 − 60
+        });
+
+        it('caps the complete proposed R component instead of a rounded requested delta', () => {
+            const svc = withCredit(600.01);
+            svc._setState({ creditAdjustments: [{ id: 'past', memberId: 1, type: 'refund', status: 'recorded', amount: 0.004 }] });
+            // q(0.004 + 0.01) is 1 cent: the request is safe in the full candidate.
+            svc.issueRefund({ memberId: 1, amount: 0.01, reason: 'All available credit' });
+            expect(householdCredit(svc, 1).cents.balance).toBe(0);
+            const rejected = withCredit(600.01);
+            rejected._setState({ creditAdjustments: [{ id: 'past', memberId: 1, type: 'refund', status: 'recorded', amount: -0.005 }] });
+            // Before R=-1 cent => credit=2 cents; q(-0.005 + 0.02)=2 cents
+            // would over-dispose by a cent, so nominal credit is not a safe cap.
+            const before = structuredClone(rejected.getState());
+            expect(() => rejected.issueRefund({ memberId: 1, amount: 0.02, reason: 'Too much' })).toThrow(/exceed/);
+            expect(rejected.getState()).toEqual(before);
         });
 
         it('throws on a read-only year', () => {

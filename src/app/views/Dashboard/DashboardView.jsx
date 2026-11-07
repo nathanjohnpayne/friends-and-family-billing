@@ -74,15 +74,8 @@ export default function DashboardView() {
     // totalCreditsOwed too. Deferred charges (#317) do not affect the gate.
     const financialSource = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
     const availability = getYearFinancialAvailability(financialSource, { reopenedAdjustmentIds: reopenedAdjustments });
-    const hasHolds = availability.needsCorrectionCount > 0;
-    const heldIds = new Set(availability.households.filter(row => !row.available).flatMap(row => {
-        const primary = familyMembers.find(member => member.id === row.householdId);
-        return [primary.id, ...(primary.linkedMembers || [])];
-    }));
-    // Count only valid households as paid. Incomplete money totals stay private
-    // and are never rendered; all households remain in the denominator.
-    const metrics = { ...calculateSettlementMetrics(familyMembers.filter(member => !heldIds.has(member.id)),
-        bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments), totalMembers: availability.households.length };
+    const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments);
+    const hasHolds = !metrics.ok;
     /** Preserve each caller's reopening context while reading live state at its action boundary. */
     const getAvailability = (memberId, reopenedAdjustmentIds = null) => getHouseholdFinancialAvailability(
         { ...financialSource, ...service.getState() }, memberId, { reopenedAdjustmentIds });
@@ -93,7 +86,10 @@ export default function DashboardView() {
     const deferred = familyMembers
         .filter(m => !isLinkedToAnyone(familyMembers, m.id))
         .reduce((acc, m) => {
-            const { count, total } = getHouseholdDeferredCharges(m, owedAdjustments);
+            const { count, total } = hasHolds ? { total: 0,
+                count: owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
+                    && [m.id, ...(m.linkedMembers || [])].includes(row.memberId)).length }
+                : getHouseholdDeferredCharges(m, owedAdjustments);
             return { count: acc.count + count, total: acc.total + total };
         }, { count: 0, total: 0 });
 
@@ -103,8 +99,8 @@ export default function DashboardView() {
     const remaining = metrics.totalMembers - metrics.paidCount;
     // Every household settled and nothing outstanding: the close-gate state,
     // not the rounded display percentage (which reads 100 below a 0.5% shortfall).
-    const allSettled = remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
-    const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
+    const allSettled = !hasHolds && remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
+    const isReadyToClose = !hasHolds && currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
     const statusHeadline = hasHolds ? 'Unavailable' : isReadyToClose
         ? 'Settlement complete'
@@ -201,7 +197,7 @@ export default function DashboardView() {
                         valueClass={hasHolds ? '' : metrics.totalCreditsOwed > 0 ? 'credit' : 'settled-zero'}
                         subtitle="Unresolved credits" />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers}
-                        subtitle={hasHolds ? availability.needsCorrectionCount + ' household' + (availability.needsCorrectionCount === 1 ? ' needs' : 's need') + ' correction' : undefined} />
+                        subtitle={hasHolds && availability.needsCorrectionCount > 0 ? availability.needsCorrectionCount + ' household' + (availability.needsCorrectionCount === 1 ? ' needs' : 's need') + ' correction' : undefined} />
                     <KpiCard
                         label="Open Reviews"
                         value={String(openDisputeCount)}
@@ -239,6 +235,7 @@ export default function DashboardView() {
             </div>
 
             <SettlementBoard
+                getFinancialSource={() => ({ ...financialSource, ...service.getState() })}
                 getFinancialAvailability={memberId => getAvailability(memberId, reopenedAdjustments)}
                 familyMembers={familyMembers}
                 bills={bills}

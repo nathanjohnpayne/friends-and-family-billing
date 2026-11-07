@@ -1,4 +1,4 @@
-import { assertYearFinanciallyAvailable } from './financial-availability.js';
+import { assertYearFinanciallyAvailable, requireFinancialAvailability } from './financial-availability.js';
 /**
  * BillingYearService — manages billing year lifecycle (list, load, switch,
  * create, archive) against Firestore.
@@ -16,7 +16,7 @@ import { normalizeYearData, buildSavePayload, buildInitialYearData } from './per
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
-import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
+import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials } from './calculations.js';
 import { selectBillableCharges } from './chargeNotice.js';
 import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields } from './household.js';
 import { rebuildMemberShareDocs } from './ShareLinkService.js';
@@ -483,11 +483,13 @@ export class BillingYearService {
 
         // Compute what carries from the prior (current) year. A credit re-opened by
         // an active not_received (#319, ADR 0003) is held back from the carry.
-        const carry = buildCarryForwardSummary(
-            familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
-            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
-        );
-        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : null;
+        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : 'prev';
+        const creditDispositionIds = new Map(familyMembers.filter(member => !isLinkedToAnyone(familyMembers, member.id))
+            .map(member => [member.id, generateCreditAdjustmentId()]));
+        const carry = buildCarryForwardSummary(familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
+            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set(), fromYearLabel: priorLabel,
+                nextYearLabel: yearId, creditDispositionIds, now: new Date().toISOString() });
+        requireFinancialAvailability(carry);
 
         // 1. Build the new-year seed (netted opening balances) — do NOT write inline.
         const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
@@ -501,7 +503,7 @@ export class BillingYearService {
         if (activeYear && carry.memberCount > 0) {
             const marked = applyCarryForwardToPriorYear(
                 creditAdjustments || [], owedAdjustments || [], carry,
-                { nextYearLabel: yearId, userId: this._user.uid, idFactory: () => generateCreditAdjustmentId() }
+                { nextYearLabel: yearId, userId: this._user.uid }
             );
             const priorEvent = {
                 id: generateEventId(),
@@ -1494,11 +1496,12 @@ export class BillingYearService {
      *
      * Append-only: a credit is voided via a later status change, NEVER deleted
      * (mirrors recordUsageCharge / the payments-ledger discipline). Emits a
-     * SERVICE_CREDIT_RECORDED billing event. Does not touch recordPayment /
-     * reversePayment, the payments[] ledger, or the bill.
+     * SERVICE_CREDIT_RECORDED billing event. Zero split shares create no records;
+     * the event retains every target share, including zeros. Does not touch
+     * recordPayment / reversePayment, the payments[] ledger, or the bill.
      *
      * @param {{ billId: *, amount: number, reason: string, memberId?: *, incurredDate?: string }} data
-     * @returns {Array<Object>} the new owedAdjustments[] records (one per affected member)
+     * @returns {Array<Object>} the new owedAdjustments[] records (one per positive-share target)
      */
     recordServiceCredit(data) {
         this._guardReadOnly();
@@ -1537,8 +1540,10 @@ export class BillingYearService {
         const incurredDate = data.incurredDate || localDateString();
         const createdAt = new Date().toISOString();
 
+        const shares = splitCents(totalCents, targetIds);
         const records = [];
-        splitCents(totalCents, targetIds).forEach(({ memberId, cents: shareCents }) => {
+        shares.forEach(({ memberId, cents: shareCents }) => {
+            if (shareCents === 0) return;
             records.push({
                 id: generateUniqueAdjustmentId(),
                 memberId,
@@ -1559,7 +1564,8 @@ export class BillingYearService {
             reason,
             incurredDate,
             memberId: data.memberId !== undefined && data.memberId !== null ? data.memberId : null,
-            memberCount: records.length
+            memberCount: targetIds.length,
+            shares: shares.map(({ memberId, cents }) => ({ memberId, amount: cents / 100 }))
         });
 
         this._setState({
@@ -1683,16 +1689,11 @@ export class BillingYearService {
         // because doing so would inflate the credit and permit a double-refund. owedAdjustments
         // is passed as the 6th arg so a credit produced by a Service Credit (#321, reduced
         // owed) is still refundable through this same pipeline — no separate disposition path.
-        // openingBalance is the 7th arg so a household that carried in a credit (#322) has
-        // its refundable credit computed exactly as the board shows (the carry lowered owed).
-        const summary = calculateAnnualSummary(familyMembers, bills);
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
-        if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
-        if (amount > credit + CREDIT_EPSILON) {
-            throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');
-        }
-
+        // Read raw source under the service's null reopening context. Validate the
+        // entire candidate R component with the actual new id before any append.
+        const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+        const before = requireFinancialAvailability(getHouseholdFinancials(member, source));
+        if (before.cents.credit <= 0) throw new Error('This household has no credit to refund.');
         const entry = {
             id: generateCreditAdjustmentId(),
             memberId: member.id,
@@ -1703,6 +1704,11 @@ export class BillingYearService {
             status: 'recorded',
             createdAt: new Date().toISOString()
         };
+        const candidate = requireFinancialAvailability(getHouseholdFinancials(member,
+            { ...source, creditAdjustments: [...(creditAdjustments || []), entry] }));
+        if (candidate.cents.balance > 0) {
+            throw new Error('Refund cannot exceed the household credit of ' + before.credit.toFixed(2) + '.');
+        }
         const event = {
             id: generateEventId(),
             timestamp: new Date().toISOString(),
