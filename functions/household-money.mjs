@@ -1,5 +1,5 @@
 /**
- * Unused ADR 0010 source-domain adapter. No IO or production imports.
+ * ADR 0010 source-domain authority. No IO or source mutation.
  * All monetary output is safe integer cents. A held household returns diagnostics
  * and no money; sibling households can still be assessed. Source records are never
  * changed. Artifact admission and coherent caller activation are separate gates.
@@ -45,7 +45,7 @@ function nonnegativeSum(...values) {
 }
 
 /** Convert assigned cents to stored Number dollars only when cents round-trip. */
-function snapshotDollars(cents, recordId) {
+export function snapshotDollars(cents, recordId) {
     const value = cents / 100;
     if (toExactCents(value) !== cents) {
         fail('UNSAFE_CENTS', recordId, 'carry', 'amount', value,
@@ -456,8 +456,7 @@ export function projectHouseholdsMoney(source, options = {}) {
  * max(0, prior balance). Existing open debt and active reopened refunds stay live.
  * No source mutation, clock, alternative amount or additional disposition exists.
  */
-function validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds) {
-    const carryId = 'cadj_carry_' + nextYearLabel + '_' + member.id;
+function validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds, carryId) {
     const creditAdjustments = [...(source.creditAdjustments || [])];
     if (projection.credit > 0) {
         if (creditAdjustments.some(row => row && row.id === carryId)) {
@@ -498,12 +497,16 @@ function validateCarrySource(source, member, projection, admitted, unused, nextY
  * marking eligibility. No clock, ids, source status, ledger or year is mutated.
  */
 export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
-    reopenedAdjustmentIds = null, carryUnusedOpeningCredit = false, reviewServiceCredits = [] } = {}) {
+    reopenedAdjustmentIds = null, carryUnusedOpeningCredit = false, reviewServiceCredits = [],
+    creditDispositionIds = null, itemized = false, now = null } = {}) {
     const households = projectHouseholdsMoney(source).map(projection => {
         if (!projection.ok) return projection;
         try {
             const member = source.familyMembers.find(row => row.id === projection.householdId);
             const ids = idsFor(member);
+            const carryId = creditDispositionIds === null ? 'cadj_carry_' + nextYearLabel + '_' + member.id
+                : creditDispositionIds.get(member.id);
+            if (projection.credit > 0) key(carryId, 'carry');
             const admitted = admit(source, member, null);
             // Component ids are unique within the already-validated household;
             // unrelated households/kinds must never supply snapshot metadata.
@@ -546,7 +549,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                 if (remainder !== 0) detail.push({ kind: remainder < 0 ? 'remainder' : 'applied',
                     description: remainder < 0 ? 'Other ' + fromYearLabel + ' overpayment'
                         : 'Part applied to your ' + fromYearLabel + ' balance', amount: snapshotDollars(remainder, member.id) });
-                items.push({ sourceId: projection.credit > 0 ? 'cadj_carry_' + nextYearLabel + '_' + member.id : openingSeedIds[0],
+                items.push({ sourceId: projection.credit > 0 ? carryId : openingSeedIds[0],
                     kind: 'credit', basis: 'credit', memberId: member.id, billName: null,
                     description: "Your household's " + fromYearLabel + ' credit',
                     amount: snapshotDollars(-totalCredit, member.id), detail });
@@ -558,12 +561,12 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
             // seed. Deterministic credit ids may collide with legacy source ids;
             // hold instead of renaming them or publishing an invalid snapshot.
             if (seed) projectOpening([seed], ids, []);
-            const sourceHold = validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds);
+            const sourceHold = validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds, carryId);
             if (sourceHold) return sourceHold;
             const creditAdjustmentIds = admitted.R.filter(row => !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
             return { ...projection, creditAdjustmentIds, openingSeedIds, unusedOpeningCreditCents: unused,
                 deferredChargeIds: projection.rows.deferred.map(row => deferredById.get(row.id).id),
-                openingBalanceCents, seed };
+                openingBalanceCents, seed, creditDispositionId: projection.credit > 0 ? carryId : null };
         } catch (error) {
             if (!(error instanceof MoneyIntegrityError)) throw error;
             return { ok: false, householdId: projection.householdId, holds: [{ code: error.code,
@@ -574,12 +577,72 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
     const ok = households.every(row => row.ok);
     if (!ok) return { ok, households };
     try {
-        return { ok, households, totalOpeningBalanceCents: integerSum(...households.map(row => row.openingBalanceCents)) };
+        const carried = households.filter(row => row.seed);
+        const newCredits = carried.filter(row => row.credit > 0).map(row => ({
+            id: row.creditDispositionId, memberId: row.householdId, type: 'carry_forward',
+            amount: snapshotDollars(row.credit, row.householdId), status: 'recorded',
+            reason: 'Carried forward to ' + (nextYearLabel || 'next year'), toYear: nextYearLabel || null,
+            ...(now ? { createdAt: now } : {})
+        }));
+        // Validate the whole-year namespaces used by downstream id lookups. A
+        // cancelled/ineligible row still occupies its id; never rename a collision.
+        const registry = records => {
+            const result = new Map();
+            for (const row of records) {
+                if (!row) continue;
+                const id = String(row.id);
+                result.set(id, [...(result.get(id) || []), row]);
+            }
+            return result;
+        };
+        const credits = registry([...(source.creditAdjustments || []), ...newCredits]);
+        for (const row of newCredits) {
+            if (credits.get(key(row.id, 'carry')).length !== 1) {
+                fail('DUPLICATE_ID', row.id, 'carry', 'id', row.id, 'Final carry disposition id is ambiguous in the year ledger');
+            }
+        }
+        const owed = registry(source.owedAdjustments || []);
+        const chargeIds = new Set(carried.flatMap(row => row.deferredChargeIds).map(String));
+        const openingIds = new Set(carried.filter(row => row.unusedOpeningCreditCents > 0).flatMap(row => row.openingSeedIds).map(String));
+        for (const id of [...chargeIds, ...openingIds]) {
+            if (owed.get(id)?.length !== 1) fail('DUPLICATE_ID', id, 'carry', 'id', id, 'Carry marking id is ambiguous in the year ledger');
+        }
+        const seeds = carried.map(row => row.seed);
+        if (registry(seeds).size !== seeds.length) fail('DUPLICATE_ID', seeds.map(row => row.id), 'carry', 'id', seeds, 'Final opening seed ids are ambiguous');
+        const priorYear = {
+            creditAdjustments: [...clone(source.creditAdjustments || []), ...newCredits],
+            owedAdjustments: (source.owedAdjustments || []).map(row => row && chargeIds.has(String(row.id))
+                ? { ...clone(row), status: 'carried_forward', carriedForwardTo: nextYearLabel }
+                : row && openingIds.has(String(row.id)) ? { ...clone(row), carriedForwardTo: nextYearLabel } : clone(row))
+        };
+        // Reproject the combined candidate, never per-household stand-in ids.
+        for (const before of households) {
+            const member = source.familyMembers.find(row => row.id === before.householdId);
+            const after = projectHouseholdMoney({ ...source, ...priorYear }, member);
+            if (!after.ok) return { ok: false, households, holds: after.holds };
+            if (after.balance !== Math.max(0, before.balance)) {
+                fail('CARRY_INVARIANT', member.id, 'carry', 'amount', after.balance, 'Final whole-year candidate changes source settlement');
+            }
+            if (reopenedAdjustmentIds?.size) {
+                const activeBefore = projectHouseholdMoney(source, member, { reopenedAdjustmentIds });
+                const activeAfter = projectHouseholdMoney({ ...source, ...priorYear }, member, { reopenedAdjustmentIds });
+                if (!activeBefore.ok || !activeAfter.ok) return { ok: false, households, holds: [...(activeBefore.holds || []), ...(activeAfter.holds || [])] };
+                if (activeAfter.balance > Math.max(0, activeBefore.balance)) fail('CARRY_INVARIANT', member.id,
+                    'carry', 'amount', activeAfter.balance, 'Final candidate increases an active source-year shortfall');
+            }
+        }
+        return { ok, households, priorYear, carriedCreditRecords: newCredits,
+            fromYearLabel, nextYearLabel, itemized,
+            seeds: seeds.filter(seed => itemized || toExactCents(seed.amount) !== 0).map(seed => {
+                const { items: _items, ...opaque } = seed;
+                return clone(itemized ? seed : opaque);
+            }),
+            totalOpeningBalanceCents: integerSum(...households.map(row => row.openingBalanceCents)) };
     } catch (error) {
         if (!(error instanceof MoneyIntegrityError)) throw error;
         return { ok: false, households, holds: [{ code: error.code, component: 'carry-total',
             recordId: households.map(row => row.householdId), field: 'totalOpeningBalanceCents',
-            observedType: 'number', message: error.message }] };
+            observedType: 'number', ...error.source, message: error.message }] };
     }
 }
 

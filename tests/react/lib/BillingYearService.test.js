@@ -66,7 +66,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
-import { calculateAnnualSummary, getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -277,6 +277,24 @@ describe('BillingYearService', () => {
                 bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
             };
         }
+
+        it('persists valid carry with an unadmitted null credit row and preserves the original raw ledger', async () => {
+            seedPriorYear();
+            const creditAdjustments = Object.freeze([null]);
+            const payment = Object.freeze({ id: 'one-dollar', memberId: 1, amount: 1, receivedAt: '2026-01-01', method: 'cash' });
+            svc._setState({ familyMembers: [svc.getState().familyMembers[0]], bills: [],
+                payments: [payment], creditAdjustments, owedAdjustments: [] });
+            await svc.createYear('2027');
+            const priorWrite = setDocCalls.find(call => call.path === 'users/user-1/billingYears/2026' && call.data.creditAdjustments);
+            const nextWrite = setDocCalls.find(call => call.path === 'users/user-1/billingYears/2027' && call.data.owedAdjustments);
+            expect(priorWrite.data.creditAdjustments[0]).toBeNull();
+            expect(priorWrite.data.creditAdjustments).toHaveLength(2);
+            expect(priorWrite.data.creditAdjustments[1]).toMatchObject({ memberId: 1, type: 'carry_forward', amount: 1 });
+            expect(nextWrite.data.owedAdjustments).toEqual([expect.objectContaining({ memberId: 1, kind: 'carry_opening', amount: -1 })]);
+            expect(svc.getState().activeYear.id).toBe('2027');
+            expect(creditAdjustments).toEqual([null]);
+            expect(payment).toEqual({ id: 'one-dollar', memberId: 1, amount: 1, receivedAt: '2026-01-01', method: 'cash' });
+        });
 
         it('seeds carry_opening records in the new year for each carrying household', async () => {
             seedPriorYear();
@@ -894,8 +912,8 @@ describe('BillingYearService', () => {
             // lowers her owed to 640, so 200 is now owed back as a household Credit.
             svc.recordServiceCredit({ billId: 101, memberId: 1, amount: 200, reason: 'Big credit' });
             const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = svc.getState();
-            const summary = calculateAnnualSummary(familyMembers, bills);
-            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), summary, payments, creditAdjustments, null, owedAdjustments);
+
+            const f = getHouseholdFinancials(familyMembers.find(m => m.id === 1), { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: null });
             expect(f.owed).toBeCloseTo(640, 5); // 840 − 200
             expect(f.credit).toBeCloseTo(200, 5); // paid 840, owes 640 → 200 back
         });

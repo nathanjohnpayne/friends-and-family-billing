@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance, CREDIT_EPSILON } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -11,7 +11,7 @@ import CompanyLogo from './CompanyLogo.jsx';
 import { getHouseholdName } from '../../lib/household.js';
 import Dialog from './Dialog.jsx';
 import FinancialUnavailable from './FinancialUnavailable.jsx';
-import { getHouseholdFinancialAvailability } from '../../lib/financial-availability.js';
+import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '../../lib/financial-availability.js';
 import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
@@ -53,12 +53,13 @@ function isOpenReviewRequest(d) {
  *
  * @param {{ familyMembers: Array, bills: Array, payments: Array, disputes?: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges, getFinancialAvailability }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges, getFinancialAvailability, getFinancialSource }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
 
-    const summary = calculateAnnualSummary(familyMembers, bills);
+    const summary = calculateAnnualSummary(familyMembers, bills.filter(bill => bill.members?.length && typeof bill.amount === 'number' && Number.isFinite(bill.amount)));
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
 
     // Only show parent/independent members as top-level rows (mirrors main.js:1932)
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
@@ -71,6 +72,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         const data = summary[member.id];
         if (!data) return null;
 
+        const financials = getHouseholdFinancials(member, source, { reopenedAdjustmentIds });
+        const available = financials.ok !== false;
         let billsTotal = data.total;
         const linkedData = [];
 
@@ -86,11 +89,11 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // lowers the household's owed/annual total, a carried charge (positive) raises
         // it. Floored at 0 to match getHouseholdFinancials. combinedTotal is the
         // household's effective owed for THIS year (bills ± carried opening balance).
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
+        const openingBalance = available ? getHouseholdOpeningBalance(member, owedAdjustments) : 0;
         const combinedTotal = Math.max(0, billsTotal + openingBalance);
 
-        const payment = getPaymentTotalForMember(payments, member.id)
-            + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
+        const payment = available ? getPaymentTotalForMember(payments, member.id)
+            + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0) : 0;
 
         // Household-grain credit (ADR 0001): Net Contribution = gross paid minus
         // recorded refunds/carry-forwards. Status, the collectable balance, and the
@@ -112,16 +115,17 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // `combinedTotal` (above) stays the gross bill split ± the carried opening balance
         // for the displayed "Annual" figure; service credits and billed charges follow
         // Option B and surface only in the balance, not the bill's own amount.
-        const financials = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
-        const available = financials.ok !== false;
-        const { owed, netContribution, credit } = financials;
-        const balance = owed - netContribution;
-        const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
-        const status = available ? (getPaymentStatus(owed, netForStatus) || 'settled') : 'unavailable';
+        const { owed, credit } = financials;
+        const balance = financials.balance;
+        const status = !available ? 'unavailable' : financials.cents.balance > 0
+            ? (financials.cents.N > 0 ? 'partial' : 'outstanding')
+            : financials.cents.balance < 0 ? 'credit' : 'settled';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
-        const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
+        const pendingCharges = available ? getHouseholdDeferredCharges(member, owedAdjustments)
+            : { count: owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
+                && [member.id, ...(member.linkedMembers || [])].includes(row.memberId)).length };
 
         const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
 
@@ -192,6 +196,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                         <HouseholdCard
                             key={row.member.id}
                             row={row}
+                            getSource={() => getFinancialSource ? getFinancialSource() : source}
+                            reopenedAdjustmentIds={reopenedAdjustmentIds}
                             getAvailability={() => getFinancialAvailability
                                 ? getFinancialAvailability(row.member.id)
                                 : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, row.member.id, { reopenedAdjustmentIds })}
@@ -263,7 +269,7 @@ function hasSameBillSet(dataA, dataB) {
 }
 
 /** Keep held household context visible while withholding money and financial entry points. */
-function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+function HouseholdCard({ row, getSource, reopenedAdjustmentIds, getAvailability, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -286,11 +292,11 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
     const access = useFinancialAccess(getAvailability, member.id);
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
-    // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
-    // reads as settled, matching the status badge and the credit epsilon.
-    const showPaymentAction = !readOnly && available && balance > CREDIT_EPSILON;
+    // The checked dollar alias is positive exactly when canonical balance cents
+    // are positive; every outstanding cent offers the existing payment action.
+    const showPaymentAction = !readOnly && available && balance > 0;
     // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
-    const showRefundAction = !readOnly && available && credit > CREDIT_EPSILON;
+    const showRefundAction = !readOnly && available && credit > 0;
 
     /** Prefill the existing credit; submission still rechecks live household availability. */
     function openRefund() {
@@ -318,8 +324,19 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
             setRefundError('Enter a valid amount.');
             return;
         }
-        if (amt > credit + CREDIT_EPSILON) {
-            setRefundError('Refund cannot exceed the credit of ' + formatAnnualSummaryCurrency(credit) + '.');
+        const source = getSource();
+        const current = source.familyMembers.find(row => row.id === member.id);
+        if (!current || isLinkedToAnyone(source.familyMembers, current.id)) { setRefundError(FINANCIAL_UNAVAILABLE); return; }
+        const before = getHouseholdFinancials(current, source, { reopenedAdjustmentIds });
+        // A prospective UI record is never persisted. Choose a fresh private id;
+        // the service independently validates its actual finalized ledger entry.
+        let id = 'refund-preview';
+        while ((source.creditAdjustments || []).some(row => row && String(row.id) === id)) id += '_';
+        const candidate = getHouseholdFinancials(current, { ...source,
+            creditAdjustments: [...(source.creditAdjustments || []), { id, memberId: member.id, amount: amt, type: 'refund', status: 'recorded' }] }, { reopenedAdjustmentIds });
+        if (!before.ok || !candidate.ok) { setRefundError(FINANCIAL_UNAVAILABLE); return; }
+        if (before.cents.credit <= 0 || candidate.cents.balance > 0) {
+            setRefundError('Refund cannot exceed the credit of ' + formatAnnualSummaryCurrency(before.credit) + '.');
             return;
         }
         if (!refundReason.trim()) {
@@ -425,7 +442,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
                         ) : (
                             <div className="settlement-summary-box">
                                 <span className="settlement-summary-label">Balance</span>
-                                <span className={'settlement-summary-value' + (balance > CREDIT_EPSILON ? ' settlement-summary-balance' : ' settled-zero')}>{balance > CREDIT_EPSILON ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
+                                <span className={'settlement-summary-value' + (balance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
                             </div>
                         )}
                     </div>}
@@ -585,7 +602,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
                             </button>
                         )}
                         <ActionMenu label={'More actions for ' + member.name}>
-                            {available && <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
+                            {available && <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}>
                                 Email Invoice
                             </ActionMenuItem>}
                             {available && <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
@@ -613,7 +630,7 @@ function HouseholdCard({ row, getAvailability, payments, readOnly, onRecordPayme
                 >
                     <p className="payment-dialog-for">
                         For: <strong>{member.name}</strong>
-                        {balance > CREDIT_EPSILON && (
+                        {balance > 0 && (
                             <span className="payment-dialog-balance">
                                 {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
                             </span>

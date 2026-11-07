@@ -484,12 +484,24 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
 
         it('binds carry metadata to the household and component when source ids collide elsewhere', () => {
             const deferred = { ...owed('shared', 1, 'usage_charge', 'deferred'), description: 'One charge', calc: { household: 1 } };
-            const service = sc('shared', 0.25, 'One credit');
+            const service = sc('own-service', 0.25, 'One credit');
             const otherDeferred = { ...deferred, memberId: 3, amount: 999, description: 'Other charge', calc: { household: 3 } };
-            const otherService = { ...service, memberId: 3, amount: 999, reason: 'Other credit' };
+            const otherService = { ...service, id: 'other-service', memberId: 3, amount: 999, reason: 'Other credit' };
             const source = state({ familyMembers: [member, { id: 3, linkedMembers: [] }], payments: [payment('p', 1)],
-                owedAdjustments: [otherDeferred, otherService, owed('shared', 0), service, deferred] });
-            const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [otherService, service] });
+                owedAdjustments: [otherDeferred, otherService, service, deferred] });
+            assert.equal(project(source, member).ok, true);
+            assert.equal(project(source, source.familyMembers[1]).ok, true);
+            const collision = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027' });
+            assert.equal(collision.ok, false);
+            assert.equal(collision.households.every(household => household.ok), true);
+            assert.equal(collision.holds.length, 1);
+            assert.equal(collision.holds[0].code, 'DUPLICATE_ID');
+            assert.equal(collision.holds[0].recordId, 'shared');
+            const unambiguous = { ...source, owedAdjustments: [
+                { ...otherDeferred, id: 'other-deferred' }, { ...otherService, id: 'other-service' },
+                { ...service, id: 'own-service' }, deferred
+            ] };
+            const result = carry(unambiguous, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [unambiguous.owedAdjustments[1], unambiguous.owedAdjustments[2]] });
             assert.equal(result.ok, true);
             const h = result.households[0];
             assert.deepEqual(h.deferredChargeIds, ['shared']);
