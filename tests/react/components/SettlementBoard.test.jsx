@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SettlementBoard from '@/app/components/SettlementBoard.jsx';
 
 const members = [
@@ -901,27 +902,31 @@ describe('SettlementBoard — open Review Requests (RD-03)', () => {
 describe('activated household cent decisions', () => {
     const solo = [{ id: 1, name: 'Exact', linkedMembers: [] }];
     const annual = amount => [{ id: 'annual', amount, billingFrequency: 'annual', members: [1] }];
-    it('rejects a nominal two-cent refund when the complete signed R candidate crosses a cent', () => {
+    it('rejects a nominal two-cent refund when the complete signed R candidate crosses a cent', async () => {
+        const user = userEvent.setup();
         const onIssueRefund = vi.fn();
         render(<SettlementBoard familyMembers={solo} bills={annual(600)} payments={[{ id: 'p', memberId: 1, amount: 600.01 }]}
             creditAdjustments={[{ id: 'r', memberId: 1, amount: -0.005, type: 'refund', status: 'recorded' }]}
             readOnly={false} onIssueRefund={onIssueRefund} />);
-        expandCard('Exact');
-        fireEvent.click(screen.getByText('Issue Refund'));
-        fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '0.02' } });
-        fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Candidate cap' } });
-        fireEvent.click(screen.getByText('Save Refund'));
+        await user.click(screen.getByText('Exact'));
+        await user.click(screen.getByText('Issue Refund'));
+        await user.clear(screen.getByRole('spinbutton'));
+        await user.type(screen.getByRole('spinbutton'), '0.02');
+        await user.type(screen.getByLabelText(/Reason/), 'Candidate cap');
+        await user.click(screen.getByText('Save Refund'));
         expect(onIssueRefund).not.toHaveBeenCalled();
         expect(screen.getByText(/Refund cannot exceed/)).toBeInTheDocument();
     });
 
-    it('offers payment for a one-cent shortfall and permits a positive overpayment', () => {
+    it('offers payment for a one-cent shortfall and permits a positive overpayment', async () => {
+        const user = userEvent.setup();
         const onRecordPayment = vi.fn();
         render(<SettlementBoard familyMembers={solo} bills={annual(0.01)} payments={[]} readOnly={false} onRecordPayment={onRecordPayment} />);
-        expandCard('Exact');
-        fireEvent.click(screen.getByText('Record Payment'));
-        fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } });
-        fireEvent.click(screen.getByText('Save Payment'));
+        await user.click(screen.getByText('Exact'));
+        await user.click(screen.getByText('Record Payment'));
+        await user.clear(screen.getByPlaceholderText('0.00'));
+        await user.type(screen.getByPlaceholderText('0.00'), '100');
+        await user.click(screen.getByText('Save Payment'));
         expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, memberId: 1 }));
     });
 
@@ -940,10 +945,11 @@ describe('activated household cent decisions', () => {
         expect(screen.getByText('Financial data unavailable')).toBeInTheDocument();
     });
 
-    it('withholds real malformed-source money while retaining a valid sibling action', () => {
+    it('withholds real malformed-source money while retaining a valid sibling action', async () => {
+        const user = userEvent.setup();
         render(<SettlementBoard familyMembers={[...solo, { id: 2, name: 'Sibling', linkedMembers: [] }]} bills={annual(1)}
             payments={[{ id: 'bad', memberId: 1, amount: '1' }]} readOnly={false} />);
-        expandCard('Exact');
+        await user.click(screen.getByText('Exact'));
         const card = within(screen.getByRole('region', { name: 'Settlement for Exact' }));
         expect(card.getByText('Financial data unavailable')).toBeInTheDocument();
         expect(card.queryByText(/\$/)).not.toBeInTheDocument();
