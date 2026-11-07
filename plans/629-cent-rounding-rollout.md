@@ -118,6 +118,8 @@ The carry plan receives actual disposition ids plus source/destination labels be
 
 Hold consumers skip legacy monetary sums before rendering non-coercible source values, preserving record-presence counts and audit/reversal/correction access. Unformattable audit amounts use the existing unavailable signal; valid member displays remain unchanged. This is the approved bridge integration, not a renderer API or recovery policy.
 
+Settlement progress retains its nearest-whole-percent/clamp behavior, computed as an exact integer ratio so positive half-percent ties round upward.
+
 No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/public legacy half-cent comparisons remain M4 work. No new schema, stored conversion, repair policy or deployment is included.
 
 **Reviewability evidence:** the read-only recheck found live entry points in Manage/InvoicingTab plus email/text/share dialogs and stale-preview/async continuation paths beyond the original financial helper files and roughly66 existing helper test call sites. Combining this availability subsystem with arithmetic/candidate-ledger activation would not certify one M PR. Use the approved inactive consumer seam; do not split merely by file or partially activate money. #634 remains open after PR 1. #638 is unstarted and is not part of this authorization.

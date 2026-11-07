@@ -52,6 +52,14 @@ describe('activated complete-source boundary', () => {
         expect(getHouseholdFinancials(members[0], state)).toMatchObject({ ok: true, cents: { balance: -1, credit: 1 } });
     });
 
+    it('rounds an exact positive half-percent tie upward and retains percentage clamps', () => {
+        const bills = [{ id: 'bill', amount: 0.40, billingFrequency: 'annual', members: [1] }];
+        expect(calculateSettlementMetrics([members[0]], bills, [payment('p', 0.23)]).percentage).toBe(58);
+        expect(calculateSettlementMetrics([members[0]], bills, []).percentage).toBe(0);
+        expect(calculateSettlementMetrics([members[0]], bills, [payment('p', 1)]).percentage).toBe(100);
+        expect(calculateSettlementMetrics([members[0]], [], [payment('p', 1)]).percentage).toBe(0);
+    });
+
     it('withholds unsafe aggregate money without a phantom held household or blocking valid actions', () => {
         const state = source({ payments: [payment('a', 60000000000000), payment('b', 60000000000000, 2)] });
         const metrics = calculateSettlementMetrics(state.familyMembers, [], state.payments);

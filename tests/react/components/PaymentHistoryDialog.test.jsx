@@ -202,6 +202,21 @@ describe('PaymentHistoryDialog — reversal-after-refund warning (#331)', () => 
 
 
 describe('activated reversal candidate warning', () => {
+    it('keeps method/note correction usable for a held unformattable audit amount', async () => {
+        const user = userEvent.setup();
+        const onEditPayment = vi.fn();
+        const amount = Symbol('invalid source');
+        const payment = { id: 'bad', memberId: 1, amount, method: 'other', note: '' };
+        render(<PaymentHistoryDialog {...baseProps} payments={[payment]} onEditPayment={onEditPayment} />);
+        await user.click(screen.getByTitle('Edit payment method or note'));
+        expect(screen.getByDisplayValue('Financial data unavailable')).toBeDisabled();
+        await user.selectOptions(screen.getByLabelText('Method'), 'cash');
+        await user.type(screen.getByLabelText('Note'), 'Corrected note');
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+        expect(onEditPayment).toHaveBeenCalledWith('bad', { method: 'cash', note: 'Corrected note' });
+        expect(payment).toEqual({ id: 'bad', memberId: 1, amount, method: 'other', note: '' });
+    });
+
     it('reprojects raw P after reversal across a subcent aggregate boundary and preserves audit access', async () => {
         const user = userEvent.setup();
         const onReverse = vi.fn();

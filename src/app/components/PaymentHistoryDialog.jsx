@@ -244,7 +244,8 @@ function PaymentEditDialog({ payment, onSave, onCancel }) {
                     <input
                         className="composer-input"
                         type="text"
-                        value={formatAnnualSummaryCurrency(payment.amount)}
+                        value={typeof payment.amount === 'number' && Number.isFinite(payment.amount)
+                            ? formatAnnualSummaryCurrency(payment.amount) : FINANCIAL_UNAVAILABLE}
                         disabled
                     />
                 </div>

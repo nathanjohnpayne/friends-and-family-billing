@@ -345,6 +345,16 @@ export function buildCarryForward(familyMembers, bills, payments, creditAdjustme
     }
 }
 
+/** Round the clamped satisfied/annual ratio exactly to the nearest whole percent. */
+function settlementPercentage(annualCents, outstandingCents) {
+    if (annualCents <= 0) return 0;
+    const annual = BigInt(annualCents);
+    const satisfied = annual - BigInt(outstandingCents);
+    if (satisfied <= 0n) return 0;
+    if (satisfied >= annual) return 100;
+    return Number((satisfied * 200n + annual) / (annual * 2n));
+}
+
 /**
  * Aggregate checked household cents, preserving structural counts on a hold.
  * A positive cent balance is outstanding even when the household's owed is zero.
@@ -367,7 +377,7 @@ export function calculateSettlementMetrics(familyMembers, bills, payments, credi
             totalCreditsOwed: sumMoneyCents(valid.map(row => row.cents.credit)) };
         return { ok: true, ...structure, cents,
             ...Object.fromEntries(Object.entries(cents).map(([field, value]) => [field, snapshotDollars(value, 'year')])),
-            percentage: cents.totalAnnual > 0 ? Math.max(0, Math.min(100, Math.round((1 - cents.totalOutstanding / cents.totalAnnual) * 100))) : 0 };
+            percentage: settlementPercentage(cents.totalAnnual, cents.totalOutstanding) };
     } catch (error) {
         if (!(error instanceof MoneyIntegrityError)) throw error;
         return { ok: false, ...structure, holds: [{ householdId: null, code: error.code,

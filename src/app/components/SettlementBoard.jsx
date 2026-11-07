@@ -292,8 +292,8 @@ function HouseholdCard({ row, getSource, reopenedAdjustmentIds, getAvailability,
     const access = useFinancialAccess(getAvailability, member.id);
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
-    // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
-    // reads as settled, matching the status badge and the credit epsilon.
+    // The checked dollar alias is positive exactly when canonical balance cents
+    // are positive; every outstanding cent offers the existing payment action.
     const showPaymentAction = !readOnly && available && balance > 0;
     // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
     const showRefundAction = !readOnly && available && credit > 0;
