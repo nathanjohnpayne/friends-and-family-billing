@@ -202,6 +202,36 @@ describe('PaymentHistoryDialog — reversal-after-refund warning (#331)', () => 
 
 
 describe('activated reversal candidate warning', () => {
+    it('withholds stale history financials after a source switch removes the household and keeps an open reversal usable', async () => {
+        const user = userEvent.setup();
+        const onReverse = vi.fn();
+        const props = { ...baseProps, onReverse };
+        const { rerender } = render(<PaymentHistoryDialog {...props} />);
+        await user.click(screen.getAllByTitle('Reverse this payment')[0]);
+        rerender(<PaymentHistoryDialog {...props} familyMembers={[{ id: 2, name: 'New member', linkedMembers: [] }]}
+            bills={[]} payments={[]} />);
+        expect(screen.getByText('Financial data unavailable')).toBeInTheDocument();
+        expect(screen.queryByText('Paid')).not.toBeInTheDocument();
+        expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Reverse' }));
+        expect(onReverse).toHaveBeenCalledWith('p2');
+    });
+
+    it.each([[50, 'settled'], [51, 'in credit']])('describes the signed candidate after a reversal with remaining payment %s', async (remaining, state) => {
+        const user = userEvent.setup();
+        const onReverse = vi.fn();
+        render(<PaymentHistoryDialog {...baseProps} onReverse={onReverse}
+            bills={[{ id: 'bill', amount: 40, billingFrequency: 'annual', members: [1] }]}
+            payments={[{ id: 'remaining', memberId: 1, amount: remaining, receivedAt: '2026-01-15T00:00:00Z' },
+                { id: 'target', memberId: 1, amount: 20, receivedAt: '2026-02-15T00:00:00Z' }]}
+            creditAdjustments={[{ id: 'refund', memberId: 1, type: 'refund', status: 'recorded', amount: 10 }]} />);
+        await user.click(screen.getAllByTitle('Reverse this payment')[0]);
+        expect(screen.getByText(new RegExp('leaves the household ' + state))).toBeInTheDocument();
+        if (state === 'settled') expect(screen.queryByText(/leaves the household in credit/)).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Reverse' }));
+        expect(onReverse).toHaveBeenCalledWith('target');
+    });
+
     it('keeps method/note correction usable for a held unformattable audit amount', async () => {
         const user = userEvent.setup();
         const onEditPayment = vi.fn();

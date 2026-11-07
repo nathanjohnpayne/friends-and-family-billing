@@ -56,7 +56,9 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
 
     /** Read full raw source under the current contact and caller reopening context. */
     function householdOwedAndContribution() {
-        if (!household) return { owed: 0, netContribution: 0 };
+        if (!household) return { ok: false, householdId: memberId, holds: [{ householdId: memberId,
+            code: 'INVALID_SOURCE', component: 'source', field: 'familyMembers', recordId: memberId,
+            message: 'The history member has no current household' }] };
         return getHouseholdFinancials(household, { familyMembers, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds });
     }
 
@@ -99,15 +101,15 @@ export default function PaymentHistoryDialog({ open, memberId, memberName, famil
             if (!candidate.ok) return 'This household has a recorded refund. ' + FINANCIAL_UNAVAILABLE
                 + '. The refund is not automatically clawed back. This creates a reversal entry in the audit trail. Reverse anyway?';
             const beforeOutstanding = financials.cents.balance;
-            const resulting = Math.max(0, candidate.cents.balance);
+            const resulting = candidate.cents.balance;
             const resultingLabel = formatAnnualSummaryCurrency(resulting / 100);
-            // Three cases (#331, #333):
-            //  • still in credit after the reversal (partial refund) — don't claim a false "$0.00 Outstanding"
-            //  • already Outstanding before the reversal — the reversal *increases* the balance to the new total
-            //  • settled or in credit before — the reversal *makes* them Outstanding
+            // Signed candidate cents distinguish credit, settled and outstanding.
+            // An already-outstanding household gets the existing increase wording.
             let impact;
-            if (resulting <= 0) {
+            if (resulting < 0) {
                 impact = 'lowers their Net Contribution but leaves the household in credit';
+            } else if (resulting === 0) {
+                impact = 'lowers their Net Contribution but leaves the household settled';
             } else if (beforeOutstanding > 0) {
                 impact = 'will increase their Outstanding balance to ' + resultingLabel;
             } else {

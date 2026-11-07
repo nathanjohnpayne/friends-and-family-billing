@@ -197,7 +197,7 @@ export default function DashboardView() {
                         valueClass={hasHolds ? '' : metrics.totalCreditsOwed > 0 ? 'credit' : 'settled-zero'}
                         subtitle="Unresolved credits" />
                     <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers}
-                        subtitle={hasHolds ? availability.needsCorrectionCount + ' household' + (availability.needsCorrectionCount === 1 ? ' needs' : 's need') + ' correction' : undefined} />
+                        subtitle={hasHolds && availability.needsCorrectionCount > 0 ? availability.needsCorrectionCount + ' household' + (availability.needsCorrectionCount === 1 ? ' needs' : 's need') + ' correction' : undefined} />
                     <KpiCard
                         label="Open Reviews"
                         value={String(openDisputeCount)}

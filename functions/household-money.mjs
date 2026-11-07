@@ -642,7 +642,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
         if (!(error instanceof MoneyIntegrityError)) throw error;
         return { ok: false, households, holds: [{ code: error.code, component: 'carry-total',
             recordId: households.map(row => row.householdId), field: 'totalOpeningBalanceCents',
-            observedType: 'number', message: error.message }] };
+            observedType: 'number', ...error.source, message: error.message }] };
     }
 }
 
