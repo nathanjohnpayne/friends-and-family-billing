@@ -149,6 +149,26 @@ Member audit/display helpers and invoice/public writers remain legacy pending
 M3/M4; mixed numerical versions are source-only and must not deploy.
 See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
 
+The [bounded #648 owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+restores #635's accepted exact own-parent Notice projection and complete
+pre-mutation candidate guards, raw-zero dialog visibility and one synchronous
+post-billing source snapshot frozen before transport. Ordinary-invoice async
+guards stay unchanged. Main `4b223cb` already activates #644 exact authority;
+legacy Notice sub-cent divergence and zero-after-billing holds are current source
+defects, without verified deployment/live-data evidence. Retain this subset in
+the earliest financial release under the existing complete-set gates.
+
+[Plan #648](../../plans/648-charge-notice-recovery.md) owns the eleven-path inventory,
+test ownership and fresh M check. #651/R1–R4 retain post-await checks, fresh
+recovery, atomic versioned production and scoped sender/rules. **Known limitation
+until #651:** stale/failed asynchronous Notice delivery and legacy save uncertainty
+remain; a queued-write return is not durable confirmation. Keep #648's restored
+design blocker until amended #649 merges, then remove only #648 after readback;
+no reverse #635 implementation dependency on #651–#655/#614/#638 is introduced.
+[ADR 0012](../adr/0012-charge-notice-recovery.md) remains Proposed until new exact-head
+review/merge. Documentation/ticket scope establishes no runtime conformance or
+source implementation, merge/deploy, live read/report, repair/migration or #614 acknowledgment.
+
 Source interoperability and client activation are not Functions artifact admission.
 Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
 registration and its packaging/security tests are tracked in

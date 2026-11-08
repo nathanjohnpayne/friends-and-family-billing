@@ -186,6 +186,83 @@ The single shared carry-forward seam (ADR 0005) rolls a closing year's **undispo
 - The mutation is **append-only**: it changes status in place and never deletes a record (mirroring the payments-ledger and Usage Charge immutability). It does NOT touch `recordPayment`/`reversePayment`/`recordUsageCharge` or the `payments[]` ledger. It emits a `CHARGES_BILLED` billing event (mirroring `USAGE_CHARGE_RECORDED` / `REFUND_ISSUED`).
 - A billed charge raises the household's owed (via `getBilledUsageChargeTotalForMember`), so unpaid → Outstanding → blocks close (ADR 0006); settlement is through the existing payments ledger. It rejects an unknown member, throws when no deferred charges match the selection, and throws on a read-only year. Another household's charges are never affected.
 
+#### Future Charge Notice numerical and atomic boundaries (#648; Proposed ADR)
+
+The [bounded owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+restores #635's [already accepted own-parent numerical/early-guard scope](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6714986894).
+It qualifies the [original recovery contract](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+in [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) and
+[Invoicing](invoicing.md#future-charge-notice-issuance-and-recovery-contract-648).
+ADR 0012 remains Proposed until the new amended head is reviewed and merged;
+this is a future implementation obligation, not current conformance or code
+approval. No source patch or independently tested split head is supplied here.
+
+**Retained #635/M3:**
+
+- Each fixed selected raw set is its own allocation parent,
+  `T = q(Σ exact raw)`. Largest-remainder rows use ascending ordinal record-id
+  ties. One projector supplies preview, new stored snapshot `amount`, event
+  amount, email rows and running totals, without changing raw sources or old
+  snapshots. Single `1.005` produces `$1.01`, also its B contribution; separate
+  `0.005` Notices each produce one cent and need not sum to household B. There
+  is no universal Notice/B equality, new formula or per-Notice settlement.
+- Before any state mutation, event, queued save or persistence,
+  `billDeferredCharges` constructs a candidate copy with the actual selected rows
+  flipped to billed and finalized Notice/source IDs. Project complete household
+  authority and refuse the whole selection on any hold, `T = 0` or empty set.
+  The pre-bill Dashboard check alone does not suffice. Raw zero alone and mixed
+  raw-zero/positive selections both fail with no effects; silently dropping a
+  zero from the confirmed service selection is forbidden.
+- Raw-zero dialog candidates remain visible as **Not billable** with existing
+  correction copy; valid positive selections remain usable under the guard.
+  A positive raw row allocated zero display cents is valid: two `0.004` rows
+  together have `T = 1`, allocated rows `1/0`.
+- At Notice output, take one fresh `service.getState()` snapshot synchronously
+  after the billing mutation/queued-write call returns, validate through the same
+  availability reader, and use all five raw arrays from it (`familyMembers`,
+  `bills`, `payments`, `creditAdjustments`, `owedAdjustments`). Never mix in
+  render-time props. Freeze projected financial rows/parent and identity/display
+  context before the first transport await. Later transport metadata may be
+  appended without recomputing those frozen financial values. A returned queued
+  call is not confirmed persistence: legacy SaveQueue swallows failures.
+- Keep ordinary-invoice async guards unchanged. M3 adds no live `getState`/
+  availability continuation contract after awaits. **Known limitation until
+  #651:** stale/failed asynchronous Notice delivery and legacy save/orchestration
+  uncertainty remain; M3 does not promise atomic or durably confirmed issuance.
+- Keep both whole-cent writer tripwires (`recordUsageCharge` cents/100 and
+  `buildUsageChargeRecord` exact `toCents`/checked `snapshotDollars`). This bounded
+  writer evidence certifies no stored legacy/imported/direct data. Preserve
+  `.005`/`.004`, source-hold, stale, type/domain/provenance and overflow fixtures.
+  Required numerical tests include one shared preview/document/email-row/event/
+  running-total fixture, `1.005 → $1.01`, separate `0.005` Notices with non-binding
+  B comparison, and zero-only/mixed whole-selection refusal with no mutation,
+  event or queued save. These are obligations, not passing runtime evidence.
+
+#644 already activates complete exact authority behind `getHouseholdFinancials`
+and `calculateSettlementMetrics` on main `4b223cb`. The legacy `1.005 → 1.00`
+Notice and raw-zero-after-billing hold are present source defects; source
+activation is not verified production Hosting/deployment or a live-data census.
+The retained subset belongs in the earliest financial release independently of
+#614/#638, subject to the existing complete-set release gates.
+
+**Deferred #651/R1–R4:** post-await immutable-source/current-state rechecks, fresh
+recovery, atomic versioned producer, scoped sender and rules. Billing/event/
+frozen Notice/deterministic intent commit together through #614 only in that
+future contract. A missing original email preserves bill/Notice with
+not-addressable delivery, not a financial hold. Functions never mutate a year.
+Delivery state never allocates payments to a Notice or changes owed, settlement,
+financial holds, close readiness or rollover eligibility. Close/rollover warnings
+are non-blocking; no new claim starts after close, while a previously successful
+claim may finish externally. The historical factual new-format copy and other
+seven accepted recovery choices/four amendments remain as ADR 0012 specifies.
+
+[Plan #648](../plans/648-charge-notice-recovery.md) retains the eleven-path partial
+Notice baseline in #635 and leaves recovery outside its release chain. Keep the
+restored #648 design blocker until amended #649 merges, then remove only #648
+and read back; closed #634 remains. #635 has no reverse implementation dependency
+on #651–#655/#614/#638. Draft #646/P1 remain open pending an authorized source
+split and required final-head reviews.
+
 #### Credit Dispositions
 
 - `issueRefund` records a Refund (#318) for a household that carries a Credit by appending to `creditAdjustments[]` (append-only; `type: 'refund'`, `status: 'recorded'`, the household primary's `memberId`). Recording it clears the credit immediately (Model B, ADR 0003 — no member confirmation), since the refund subtracts from Net Contribution and lives outside the payments ledger; `payments[]` and the payment math are untouched. It emits a `REFUND_ISSUED` billing event and triggers save.
@@ -199,3 +276,7 @@ The single shared carry-forward seam (ADR 0005) rolls a closing year's **undispo
 
 - `_guardReadOnly` throws for closed, archived, or null active year, and passes for open and settling years.
 - `createYear` is not guarded by `_guardReadOnly`: the rollover (legacy and review) writes the prior-year document from an open, settling, or closed year, the one deliberate append to a closed year (ADR 0007, ADR 0009). It rejects an archived source year.
+
+Uncommunicated Notices never remove their billed source rows or alter money.
+These warnings define no new billed-charge auto-carry rule: existing financial
+authority and frozen owed/settlement/carry formulas remain decisive.
