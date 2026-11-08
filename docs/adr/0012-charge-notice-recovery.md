@@ -1,0 +1,292 @@
+# Charge Notice issuance and recovery
+
+**Status: Proposed.** Tracks [#648](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/648); blocks the recovery prerequisite of [#635](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635).
+
+This is a recommendation for owner review, not an accepted amendment to ADRs
+0005, 0007, 0008, 0009 or 0010, or to any accepted specification. The
+[#635 scope checkpoint](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6715777283)
+proposed the design prerequisite; the owner later authorized design and
+implementation-ticket drafts only in the
+[#648 design authorization](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/648#issuecomment-6715850733).
+That authorization permits no implementation, acceptance, merge, deployment, production read,
+impact report, data repair or migration. The proposed scopes and evidence are in
+[the recovery plan](../../plans/648-charge-notice-recovery.md).
+
+## Problem
+
+Today billing changes the selected Usage Charges from deferred to billed and
+queues a year save before Notice/link/email work completes. A financial hold,
+source change or failure can interrupt the follow-up after owed has increased.
+The normal billing action no longer selects those charges. Repeating the Notice
+helper overwrites its historical snapshot, and repeating the mail helper creates
+another independent mail document. Awaiting one save does not protect against a
+later stale full-year overwrite.
+
+## Proposed prerequisites and authority
+
+Use the versioned year-write primitive from #614, including its `rev`,
+`lastWriteId`, stale/offline handling and unsaved-input preservation. Do not add a
+parallel compare-and-swap mechanism. Its every-writer audit must include the
+household-compensation transaction now present in `BillingYearService`, as well
+as saves, lifecycle transitions, creation and rollover. Compensation must remain
+compatible with stop-on-stale behavior; it must never apply a fresh revision to
+stale arrays.
+See the [#614 writer-inventory audit](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/614#issuecomment-6715850475).
+
+#615's stage-1 rules must be deployed before #614 merges. #614 deployment still
+needs its separate owner acknowledgment that pre-feature tabs may lose writes
+after a year becomes versioned. #615's `createdAt` count needs a separately
+authorized production read; any backfill needs its own authority. None is
+granted here. #614 remains independent of this recovery feature. The Functions
+source guard must continue to prohibit **every Functions write to a billing-year
+document**, including recovery and compensation paths.
+
+R2 must reuse the complete financial authority in
+`functions/household-money.mjs`, not legacy Functions billing helpers or a new
+formula. #638's explicit artifact admission must clear before R2 imports or
+deploys that source graph. Verify the closed module graph, exact allowlisted
+paths and Node 24 CJS/ESM packaging/security tests. Any additional recovery
+entrypoint, module or dispatch target must pass its own explicit artifact gate;
+do not silently expand #638 or use wildcard allowlists. A larger admission/API
+surface needs a separately reviewable scope. Neither #638 source work nor a
+deployment is authorized here.
+
+## Proposed atomic issuance
+
+Bind the operation to the authenticated administrator and selected year. Allocate
+the Notice, event and write identities once, outside a retryable transaction.
+Through #614's queue and versioned primitive, read the durable year and target
+Notice/intent before writes; compare the fixed expected revision, validate the
+original selection and household, and validate the finalized billed candidate.
+Commit all of the following or none:
+
+- The exact selected source records marked billed with the same `chargeNoticeId`
+  and billing timestamp; raw amounts and member ownership stay unchanged.
+- One `CHARGES_BILLED` event linking the Notice and exact source IDs.
+- One frozen original Notice at the existing Requests substrate path,
+  `users/<uid>/billingYears/<yearId>/disputes/<chargeNoticeId>`.
+- One deterministic, administrator/year/Notice/channel-scoped `mailQueue`
+  delivery intent. Use an unambiguous canonical identity encoding; an existing
+  key with different identity or immutable payload is a conflict, never overwrite.
+
+The callback performs only transaction reads, pure validation/projection and
+writes. No service-state mutation, link creation/pruning, provider call or
+notification occurs inside it. Validate cardinality, encoded document sizes,
+transaction operation/rules-access budgets and safe integer bounds before
+mutation; fail the whole selection rather than split its billing commit.
+Resolve/adopt local state only after confirmed commit. An uncertain outcome is
+classified by #614's write identity. If a later revision prevents that proof,
+stop as unknown and offer fresh recovery discovery; never replay billing or
+adopt a fresh revision onto the attempted payload.
+
+The Notice becomes recorded atomically with billing, independently of email
+success. Current `projectMemberDisputes` excludes Charge Notices, and the
+Functions response separately projects Refund Notices only. This bounded
+proposal adds no member endpoint or public-share Notice payload. Raw source
+fingerprints, membership/recipient bindings and queue state remain private.
+Any future member-facing Notice availability needs its own reviewed projection
+and scope checks. The owner choice about atomic Notice visibility concerns
+recording/availability to existing authorized readers, not automatic public
+publication.
+
+## Frozen identity and schema
+
+Version the Notice and queue envelopes explicitly. Their immutable binding must
+include administrator/year/Notice identity, billing event identity, original
+contact member ID, original household member IDs, intended normalized recipient
+email (explicitly absent when none exists), the exact source IDs, and a canonical
+fingerprint of the original raw
+source records. Specify canonical ordering and encoding, reject duplicate or
+ambiguous IDs, and do not hash projected numbers as a substitute for raw sources.
+The versioned canonicalization covers every immutable source field, including
+raw finite-number money and member/bill linkage. It excludes only the expressly
+defined billing-transition fields (`status`, `chargeNoticeId`, `billedAt`), whose
+expected billed values are verified separately. It cannot silently ignore a
+changed money, description, date or allocation input.
+
+Freeze the original source linkage and reviewed presentation together:
+projection/schema version, selected-set parent cents, allocated row cents,
+member-safe descriptions/dates, original recipient/display context, and billing
+time. Row cents sum exactly to the selected-set parent. ADR 0010's selected
+Notice allocation remains distinct from the household billed component; the
+Notice is not a new financial ledger or a claim that separate Notices sum to
+that component. Historical snapshots are rendered as stored, never reallocated.
+
+The Notice's financial content, recipient binding, source fingerprint and
+original timestamps are create-once. Delivery status, claim/attempt evidence,
+provider acceptance ID, errors and later authorizations live on the separate
+queue record. Rules and server validation enforce the new format without
+changing Review Request/Refund Notice behavior or broadening generic mail.
+
+## Fresh recovery and privacy
+
+A fresh administrator action names an existing Notice ID. It reads current
+durable authority, not caller-held charges or an old open dialog. It verifies
+the billed source IDs, original raw fingerprint and event linkage against the
+immutable snapshot, plus current year revision, lifecycle, complete household
+financial availability and original recipient/membership. It never re-bills,
+re-emits the billing event, remints/prunes links or overwrites the Notice.
+
+The conservative recommendation rejects a removed or changed contact, household
+membership, recipient email, conflicting linkage or integrity hold. A new
+household contact does not inherit a previous recipient's historical Notice.
+The current helper permits missing `memberEmail`. Preserve the bill and frozen
+Notice when no original email exists, with the intent `blocked` for reason
+`not_addressable`. Do not invent an address or later reassign this Notice to a
+newly supplied recipient. That delivery-only block creates no financial hold;
+this missing-recipient recommendation needs explicit owner acceptance.
+An unrelated revision change requires fresh authorization, not silent revision
+replacement. Bind asynchronous completion to administrator/year/operation so a
+year or account switch cannot apply results to another context.
+
+Closed/archived years allow historical inspection only: no issuance, recovery
+write, resend or automatic reopening. Any exceptional correction follows ADR
+0007 through separately approved future work. This lifecycle recommendation is
+pending owner acceptance, not an approved amendment to ADR 0007. A missing
+snapshot or uncertain delivery is a Notice protocol block; it does not itself
+create a household financial integrity hold or change settlement/close math.
+Only the existing financial authority may determine financial availability.
+Prefer link-free email with
+truthful contact/existing-link guidance. New link minting would introduce the
+separate M4/versioned-public-projection dependencies and is outside this proposal.
+
+The current `buildChargeNoticeEmail` says "This amount is now due." Recovery
+can occur after later payments/refunds leave the household settled, even when
+the billed rows and original Notice are unchanged. The proposed new-format
+message records the historical billing event, not a current payment demand.
+Do not allocate household payments to individual Notices, infer that a Notice is
+unpaid, recompute its snapshot amount or assert a current amount due. Proposed
+copy (the list retains the frozen original rows):
+
+> These charges were billed to your household on [billing date], totaling
+> [original Notice amount]. This is a record of that billing event, not your
+> current balance. Later payments or credits may have changed what remains to
+> pay. Contact the administrator, or use your existing billing link, to check
+> your current balance.
+
+This communication boundary requires owner acceptance. Apply it only to the
+new-format message; do not rewrite historical Notices or generic legacy email.
+
+## Delivery authorization and outcomes
+
+The client requests delivery against a specific persisted year revision.
+Reauthorization and the sender's claim independently run
+`projectHouseholdMoney(source, member, { reopenedAdjustmentIds: null })` from
+`functions/household-money.mjs` over the complete raw persisted year read in
+their transaction, requiring `ok: true`; client availability Booleans are not
+authority. Resolve the original household contact from that same read, validate
+membership/email/lifecycle and immutable Notice linkage, and fail closed on
+any admission/hold failure, including changes outside the selected charges.
+The explicit `null` selects the ordinary Charge Notice context, without the
+separate refund-not-received reopening overlay; it does not waive source
+admission or redefine refund/settlement policy. Never use legacy
+`functions/billing.js` calculations or reallocate the original Notice.
+Before dispatch the sender transaction also rereads the Notice and stable
+intent, verifies the fixed authorized revision and frozen binding, and claims
+only an eligible unclaimed, addressable attempt.
+It renders only the frozen presentation. The **successful sender claim is the
+authorization linearization boundary**. Changes committed before it block
+dispatch; changes after it cannot revoke an external send. This boundary, rather
+than an impossible revocation guarantee, needs owner acceptance.
+
+The sender and recovery endpoint may update delivery records, never source year
+documents. Reauthorization of the same logical intent is a server-controlled,
+transactional transition following a fresh authenticated action and fixed
+revision check; clients cannot reset delivery status. New-format dispatch can
+share an internal dispatcher between creation and explicit recovery without
+changing legacy generic-mail behavior. Route the new format away from the legacy
+generic sender so there is one dispatch path. Merely updating `pending` cannot
+reinvoke the existing `onDocumentCreated` trigger: an explicit dispatch handler
+must invoke the shared dispatcher after eligible fresh reauthorization. A fresh
+action can also dispatch an already authorized, still-unclaimed pending intent;
+it does not create a new message. Transactional claims arbitrate creation-event
+and explicit-dispatch races. There is no automatic send replay.
+
+Keep a server-controlled monotonic attempt sequence and unique claim identity
+with durable transition evidence, so an older invocation cannot overwrite a
+newer attempt's status. Only `blocked` or `definitely_not_sent` can transition to
+`pending` after new persisted authorization. `processing`, `unknown` and `sent`
+can never transition back to pending; there is no abandoned-claim reaper.
+
+| Durable outcome | Meaning and permitted recovery |
+| --- | --- |
+| `pending` | No successful claim yet; observe/reconcile this same intent. |
+| `processing` | Claimed; another send is forbidden. A stranded claim requires reconciliation, not self-reset. |
+| `sent` | Provider accepted the message; not proof of inbox arrival or receipt. Observe only. |
+| `blocked` | Current authority fails validation before dispatch. Fixing authority requires a fresh action; it never changes the original recipient binding. |
+| `definitely_not_sent` | Evidence establishes failure before any external send attempt. A fresh action may authorize the same logical intent again. |
+| `unknown` | Send may have happened, or evidence cannot settle an abandoned claim. Stop; no blind retry or replacement intent. |
+
+A 30-second observation timeout or listener loss changes only the displayed
+observation state; it never overwrites durable `pending`, `processing` or
+`sent`. Failure after entering the external call, an ambiguous provider response,
+or loss of acknowledgment after provider acceptance is unknown unless positive
+evidence settles it. Persist pre-dispatch evidence so known validation failures
+are distinguishable. No exactly-once, confirmed-receipt or provider-idempotency
+guarantee is assumed. Any later provider-specific reconciliation proposal must
+verify current provider documentation and receive its own review.
+
+## Legacy boundary and owner decisions
+
+Existing random mail documents lack Notice linkage. Absence of the deterministic
+new key is not proof that an older Notice was never emailed. Missing original
+snapshots cannot be silently reconstructed under a new rounding/recipient
+contract. Existing snapshots stay unchanged; missing snapshots or untracked
+delivery remain blocked/manual, with no new repair policy or migration implied.
+
+Owner acceptance is still needed for: atomic Notice availability alongside
+billing; preserving billing/Notice with blocked delivery when no original email
+exists; strict refusal after contact/membership/email changes; the sender-claim
+authorization boundary; stopping rather than retrying unknown delivery; and the
+legacy blocked/manual boundary; and historical factual new-format email that
+makes no current-balance/payment-demand claim. Acceptance of this document alone would not
+accept implementation or authorize any deployment. Every later financial/rules
+PR, and this design PR if merge is later requested, requires explicit human
+review of its exact head as well as the repository review workflow.
+
+## Draft future specification amendment — not in force
+
+If the owner accepts this proposal, a later approved implementation PR would
+add the following contract to the relevant Charge Notice specification and
+cross-reference the versioned-write specification. This text is a reviewable
+draft only; accepted specifications remain unchanged:
+
+> Off-cycle billing commits the selected billed ledger rows, one billing event,
+> an immutable versioned Charge Notice and one stable scoped delivery intent in
+> the same #614 version-checked client transaction. The callback has no external
+> side effects. A conflict or exceeded transaction budget produces no partial
+> bill. The server never writes a billing-year document.
+>
+> Recovery requires a fresh authenticated action naming an existing Notice ID
+> and current durable authority. It preserves the exact source binding and
+> historical cents/recipient snapshot. It cannot rebill, recreate the event,
+> replace the original snapshot, remint/prune links or reassign its recipient.
+> Changed original household/contact/email or unavailable financial authority
+> blocks delivery. Missing original email preserves billing/Notice and records
+> a not-addressable delivery block; no address is invented or reassigned.
+> Closed/archived years are historical-view-only.
+>
+> New-format email states the original charges were billed and identifies their
+> historical snapshot total. It makes no claim that this is currently due,
+> because subsequent payments/credits may have changed the household balance.
+> No per-Notice payment allocation or new balance formula is introduced.
+>
+> Reauthorization and sender claim require successful complete raw-source
+> projection through shared `projectHouseholdMoney` with the ordinary Notice
+> context `reopenedAdjustmentIds: null`, never a client Boolean or new formula.
+> #638 artifact admission precedes the R2 import/deploy; additional entrypoints,
+> modules and dispatch targets require explicit reviewed artifact admission.
+>
+> The sender's transactional claim against the authorized year revision is the
+> dispatch authorization boundary. Source changes before claim block dispatch;
+> changes after claim cannot revoke an external send. New-format dispatch uses
+> one common claimed path for creation and explicit recovery, with monotonic
+> attempt evidence. Only a freshly authorized blocked/proven-pre-dispatch
+> failure may become pending again. Processing, unknown and sent never reset.
+>
+> Sent means provider accepted, not confirmed received. Observation timeout does
+> not change durable delivery status. Ambiguous send outcomes stop without
+> automatic retry or a replacement intent. Historical missing snapshots or
+> untracked delivery remain manual protocol blocks, with no inferred financial
+> hold, migration or repair authority. No exactly-once/provider-idempotency
+> guarantee is assumed.
