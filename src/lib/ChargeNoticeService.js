@@ -18,6 +18,7 @@ import { createAndPruneShareLink } from './ShareLinkService.js';
 import { queueEmail } from './mail.js';
 import { buildShareScopes } from './share.js';
 import { buildChargeNoticeDoc, buildChargeNoticeEmail } from './chargeNotice.js';
+import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from './financial-availability.js';
 
 /**
  * Issue a Charge Notice for a set of just-billed charges.
@@ -50,8 +51,8 @@ export async function issueChargeNotice(opts, deps = {}) {
 
     const {
         userId, billingYearId, yearLabel, memberId, memberName, memberEmail,
-        chargeNoticeId, charges, familyMembers, bills, payments, owedAdjustments,
-        activeYear, settings,
+        chargeNoticeId, charges, familyMembers, bills, payments, creditAdjustments, owedAdjustments,
+        activeYear, settings, getAvailability,
     } = opts;
 
     // Guard the id first, before any side effect: an absent/blank chargeNoticeId would
@@ -63,6 +64,15 @@ export async function issueChargeNotice(opts, deps = {}) {
     if (!noticeId || noticeId === 'undefined' || noticeId === 'null') {
         throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
     }
+
+    // Validate complete household source and the selected snapshot before link/prune/write.
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    function assertAvailable() {
+        if (!getHouseholdFinancialAvailability(source, memberId).available
+            || (getAvailability && !getAvailability().available)) throw new Error(FINANCIAL_UNAVAILABLE);
+    }
+    assertAvailable();
+    const noticeDoc = buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, charges });
 
     // 1. Best-effort: mint a member share link carrying usageCharges:read so the
     //    member can review the charge on their share page. If it fails, the notice
@@ -93,13 +103,8 @@ export async function issueChargeNotice(opts, deps = {}) {
     }
 
     // 2. Write the outbound Charge Notice document to the disputes subcollection.
-    const noticeDoc = buildChargeNoticeDoc({
-        memberId,
-        memberName,
-        chargeNoticeId,
-        charges,
-        ...(tokenHash ? { tokenHash } : {}),
-    });
+    assertAvailable();
+    if (tokenHash) noticeDoc.tokenHash = tokenHash;
     // Deterministic id keyed to the chargeNoticeId (validated above) so a retry
     // overwrites the same dispute doc instead of appending a duplicate (and
     // re-triggering the member notification) — PR #328 review r3447513514.
@@ -111,12 +116,13 @@ export async function issueChargeNotice(opts, deps = {}) {
     // 3. Email the member. Non-fatal — never block the primary action — but a
     //    delivery failure is returned so the caller can report it truthfully.
     let emailError = null;
+    assertAvailable();
     if (memberEmail) {
         try {
             const { subject, body } = buildChargeNoticeEmail({
                 memberName,
                 amount: noticeDoc.amount,
-                charges,
+                charges: noticeDoc.charges,
                 yearLabel: yearLabel || (activeYear ? activeYear.label || activeYear.id : ''),
                 shareUrl,
             });

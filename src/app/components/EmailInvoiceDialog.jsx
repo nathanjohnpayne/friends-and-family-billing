@@ -30,35 +30,35 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
 
-    const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
-        String(billingYearId) + ':' + memberId, open);
-    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
+    const contextKey = JSON.stringify(ctx);
+    const access = useFinancialAccess(() => ({ available: ctx.ok && (getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId)).available }),
+        String(billingYearId) + ':' + memberId + ':' + contextKey, open);
 
-    // Reset state when dialog opens
+    // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
-        if (open) {
-            setGeneratedShareUrl('');
-            bodyEditedRef.current = false;
-        }
-    }, [open, memberId]);
-
-    // Build body whenever variant changes (but not when share URL arrives — that's handled at send time)
-    useEffect(() => {
-        if (!ctx) return;
-        const subjectTemplate = (settings && settings.emailSubject) || '';
-        setSubject(buildInvoiceSubject(ctx.currentYear, ctx.member, subjectTemplate, ctx));
-        setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'email'));
+        setGeneratedShareUrl('');
         setCopied(false);
+        setSending(false);
         bodyEditedRef.current = false;
-    }, [open, variant, memberId, access.available]);
+        if (!open || !access.available || !ctx.ok) {
+            setSubject('');
+            setBody('');
+            return;
+        }
+        const nextSubject = buildInvoiceSubject(ctx.currentYear, ctx.member, settings?.emailSubject || '', ctx);
+        const nextBody = buildInvoiceBody(ctx, variant, '', 'email');
+        setSubject(nextSubject.ok ? nextSubject.value : '');
+        setBody(nextBody.ok ? nextBody.value : '');
+    }, [open, variant, contextKey, access.available]);
 
     if (!open) return null;
     if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
         footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
-    if (!ctx) return null;
+    if (!ctx.ok) return null;
 
     const recipientEmail = ctx.member.email || '';
     const needsLink = variant === 'text-link' || variant === 'full';
@@ -102,7 +102,8 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     function rebuildBodyWithUrl(url) {
         if (!url) return body;
         if (!bodyEditedRef.current) {
-            return buildInvoiceBody(ctx, variant, url, 'email');
+            const result = buildInvoiceBody(ctx, variant, url, 'email');
+            return result.ok ? result.value : null;
         }
         // User manually edited — append link block only if not already present
         if (body.includes(url)) return body;
@@ -123,9 +124,10 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
-        if (!access.canContinue(ticket)) return;
+        if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
@@ -138,6 +140,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket)) return;
@@ -162,6 +165,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 const url = await ensureShareLink(ticket);
                 if (!url) { setSending(false); return; } // abort — toast already shown
                 finalBody = rebuildBodyWithUrl(url);
+                if (typeof finalBody !== 'string') return;
                 setBody(finalBody);
             }
             if (!access.canContinue(ticket)) return;
@@ -203,6 +207,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{recipientEmail || 'Not provided'}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.refunded > 0 && <div className="invoice-meta-row"><span className="invoice-meta-label">Refunded</span><span>{formatAnnualSummaryCurrency(ctx.refunded)}</span></div>}
                 {ctx.payment > 0 && (
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
                 )}

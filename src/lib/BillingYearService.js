@@ -17,7 +17,7 @@ import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials } from './calculations.js';
-import { selectBillableCharges } from './chargeNotice.js';
+import { selectBillableCharges, summarizeChargePreview } from './chargeNotice.js';
 import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields } from './household.js';
 import { rebuildMemberShareDocs } from './ShareLinkService.js';
 import { SaveQueue } from './SaveQueue.js';
@@ -1621,10 +1621,15 @@ export class BillingYearService {
             throw new Error('No deferred charges to bill for this member in the selected period.');
         }
 
+        requireFinancialAvailability(getHouseholdFinancials(member, this._state));
+        const preview = summarizeChargePreview(selected);
+        requireFinancialAvailability(preview);
+        if (!preview.issuable) throw new Error('A Charge Notice must total at least one cent.');
+
         const chargeNoticeId = generateChargeNoticeId();
         const billedAt = new Date().toISOString();
         const billedIds = new Set(selected.map(c => c.id));
-        const amount = Math.round(selected.reduce((sum, c) => sum + (c.amount || 0), 0) * 100) / 100;
+        const amount = preview.total;
 
         // Append-only flip: replace each selected record with a billed copy; all
         // other records pass through untouched.
@@ -1633,6 +1638,10 @@ export class BillingYearService {
                 ? { ...a, status: 'billed', chargeNoticeId, billedAt }
                 : a
         );
+
+        // B may overflow only after the selected deferred rows enter it. Validate
+        // the actual finalized status/id candidate before any event/state/save effect.
+        requireFinancialAvailability(getHouseholdFinancials(member, { ...this._state, owedAdjustments: updatedAdjustments }));
 
         const events = this._emitEvent('CHARGES_BILLED', {
             chargeNoticeId,

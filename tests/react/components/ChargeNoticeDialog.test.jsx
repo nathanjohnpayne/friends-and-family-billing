@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import ChargeNoticeDialog from '@/app/components/ChargeNoticeDialog.jsx';
 
@@ -112,5 +113,28 @@ describe('ChargeNoticeDialog', () => {
         );
         const total = screen.getByText('Total to bill').closest('.charge-notice-total');
         expect(within(total).getByText(/\$15\.00/)).toBeInTheDocument();
+    });
+});
+
+
+describe('selected Notice canonical preview', () => {
+    it('renders allocated half-cent rows and one-cent total without changing the confirmation ids', async () => {
+        const user = userEvent.setup();
+        const onConfirm = vi.fn();
+        renderDialog({ charges: [{ id: 'a', description: 'January', amount: .005, incurredDate: '2026-01-01' },
+            { id: 'b', description: 'February', amount: .005, incurredDate: '2026-02-01' }], onConfirm });
+        expect(screen.getByText('January').closest('li')).toHaveTextContent('$0.01');
+        expect(screen.getByText('February').closest('li')).toHaveTextContent('$0.00');
+        await user.click(screen.getByRole('button', { name: 'Bill & Notify' }));
+        expect(onConfirm).toHaveBeenCalledWith(['a', 'b']);
+    });
+
+    it('disables a zero-cent selection and withholds an invalid preview', () => {
+        const { rerender } = renderDialog({ charges: [{ id: 'a', amount: .004 }] });
+        expect(screen.getByRole('button', { name: 'Bill & Notify' })).toBeDisabled();
+        rerender(<ChargeNoticeDialog open memberName="Alice" charges={[{ id: 'a', amount: NaN }]}
+            onConfirm={vi.fn()} onClose={vi.fn()} />);
+        expect(screen.getByText('Financial data unavailable')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Bill & Notify' })).not.toBeInTheDocument();
     });
 });

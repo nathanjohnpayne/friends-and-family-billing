@@ -289,6 +289,21 @@ describe('DashboardView', () => {
             ]);
         });
 
+        it('binds pending Notice continuation availability to its original year and household', () => {
+            const { service } = renderWithDeferred();
+            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            fireEvent.click(screen.getByText('Bill Charges'));
+            fireEvent.click(screen.getByText('Bill & Notify'));
+            const opts = mockIssueChargeNotice.mock.calls[0][0];
+            const original = { ...mockState, ...service.getState() };
+            service.getState.mockReturnValue(original);
+            expect(opts.getAvailability().available).toBe(true);
+            service.getState.mockReturnValue({ ...original, activeYear: { id: '2027', label: '2027' } });
+            expect(opts.getAvailability().available).toBe(false);
+            service.getState.mockReturnValue({ ...original, familyMembers: original.familyMembers.map(row => row.id === 1 ? { ...row, linkedMembers: [2] } : row) });
+            expect(opts.getAvailability().available).toBe(false);
+        });
+
         async function billAndNotify() {
             const user = userEvent.setup();
             renderWithDeferred();
@@ -521,5 +536,23 @@ describe('Dashboard aggregate integrity', () => {
         await user.click(alice.getByText('Alice'));
         expect(alice.getByRole('button', { name: 'Issue Refund' })).toBeInTheDocument();
         expect(alice.queryByText('Financial data unavailable')).not.toBeInTheDocument();
+    });
+});
+
+
+describe('deferred display integrity counts', () => {
+    it('counts later households after an earlier Annual display overflow and preserves valid sibling actions', async () => {
+        const user = userEvent.setup();
+        renderDashboard({ bills: [{ id: 'big', name: 'Large', amount: 60000000000000, billingFrequency: 'annual', members: [1] }],
+            payments: [], owedAdjustments: [
+                { id: 'opening', memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: 60000000000000 },
+                { id: 'credit', memberId: 1, kind: 'service_credit', status: 'active', amount: 60000000000000 },
+                { id: 'a', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: .01 },
+                { id: 'b', memberId: 2, kind: 'usage_charge', status: 'deferred', amount: .02 }
+            ] });
+        expect(screen.getByTestId('deferred-charges-indicator')).toHaveTextContent('Unavailable (2 charges)');
+        const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
+        await user.click(bob.getByText('Bob'));
+        expect(bob.getByRole('button', { name: 'Bill Charges' })).toBeEnabled();
     });
 });

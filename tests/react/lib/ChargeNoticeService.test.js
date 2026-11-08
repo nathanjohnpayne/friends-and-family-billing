@@ -35,6 +35,7 @@ const baseOpts = () => ({
     familyMembers: [{ id: 1, name: 'Alice', linkedMembers: [] }],
     bills: [],
     payments: [],
+    creditAdjustments: [],
     owedAdjustments: [],
     activeYear: { id: '2026', label: '2026' },
     settings: {}
@@ -47,6 +48,50 @@ describe('issueChargeNotice', () => {
         vi.clearAllMocks();
         createShareLink = vi.fn(async () => ({ url: 'https://example.com/share?token=xyz', tokenHash: 'hash-xyz', rawToken: 'xyz' }));
         queueEmailFn = vi.fn(async () => ({ id: 'mail-1' }));
+    });
+
+    it.each([.004, NaN, Infinity, '1'])('rejects zero/invalid selected %s before link/prune/doc/email side effects', async amount => {
+        const opts = { ...baseOpts(), charges: [{ id: 'a', amount }] };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow();
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects a different malformed admitted household record before minting a link', async () => {
+        const opts = { ...baseOpts(), creditAdjustments: [{ id: 'r', memberId: 1, amount: '1', type: 'refund', status: 'recorded' }] };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('sends allocated new snapshot rows, preserving raw charges', async () => {
+        const opts = { ...baseOpts(), charges: ['a', 'b'].map(id => ({ id, description: id, amount: .005 })) };
+        await issueChargeNotice(opts, { createShareLink, queueEmailFn });
+        const doc = mockSetDoc.mock.calls[0][1];
+        expect(doc.amount).toBe(.01);
+        expect(doc.charges.map(row => row.amount)).toEqual([.01, 0]);
+        expect(queueEmailFn.mock.calls[0][0].body).toContain('b: $0.00');
+        expect(opts.charges.map(row => row.amount)).toEqual([.005, .005]);
+    });
+
+    it('stops after awaited link generation if the household is now held', async () => {
+        let available = true;
+        createShareLink.mockImplementation(async () => { available = false; return { url: 'https://example.com', tokenHash: 'h' }; });
+        const opts = { ...baseOpts(), getAvailability: () => ({ available }) };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('stops before email if the household becomes held while the Notice write is in flight', async () => {
+        let available = true;
+        mockSetDoc.mockImplementationOnce(async () => { available = false; });
+        await expect(issueChargeNotice({ ...baseOpts(), getAvailability: () => ({ available }) }, { createShareLink, queueEmailFn }))
+            .rejects.toThrow(/unavailable/);
+        expect(mockSetDoc).toHaveBeenCalledOnce();
+        expect(queueEmailFn).not.toHaveBeenCalled();
     });
 
     it('writes a charge_notice doc to the disputes subcollection with the billed total', async () => {

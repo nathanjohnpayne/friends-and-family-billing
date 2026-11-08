@@ -26,34 +26,32 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     const [generating, setGenerating] = useState(false);
     const bodyEditedRef = useRef(false);
 
-    const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
-        String(billingYearId) + ':' + memberId, open);
-    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
+    const contextKey = JSON.stringify(ctx);
+    const access = useFinancialAccess(() => ({ available: ctx.ok && (getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId)).available }),
+        String(billingYearId) + ':' + memberId + ':' + contextKey, open);
 
-    // Reset state when dialog opens
+    // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
-        if (open) {
-            setGeneratedShareUrl('');
-            setGenerating(false);
-            bodyEditedRef.current = false;
-        }
-    }, [open, memberId]);
-
-    // Build body when variant changes
-    useEffect(() => {
-        if (!ctx) return;
-        setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'sms'));
+        setGeneratedShareUrl('');
         setCopied(false);
+        setGenerating(false);
         bodyEditedRef.current = false;
-    }, [open, variant, memberId, access.available]);
+        if (!open || !access.available || !ctx.ok) {
+            setBody('');
+            return;
+        }
+        const nextBody = buildInvoiceBody(ctx, variant, '', 'sms');
+        setBody(nextBody.ok ? nextBody.value : '');
+    }, [open, variant, contextKey, access.available]);
 
     if (!open) return null;
     if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
         footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
-    if (!ctx) return null;
+    if (!ctx.ok) return null;
 
     const needsLink = variant === 'text-link';
 
@@ -97,7 +95,8 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     function rebuildBodyWithUrl(url) {
         if (!url) return body;
         if (!bodyEditedRef.current) {
-            return buildInvoiceBody(ctx, variant, url, 'sms');
+            const result = buildInvoiceBody(ctx, variant, url, 'sms');
+            return result.ok ? result.value : null;
         }
         if (body.includes(url)) return body;
         return body + '\n\n' + url;
@@ -117,9 +116,10 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
             const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
-        if (!access.canContinue(ticket)) return;
+        if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
         navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
     }
 
@@ -132,6 +132,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
             const url = await ensureShareLink(ticket);
             if (!url) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket)) return;
@@ -161,6 +162,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Phone</span><span>{ctx.member.phone || 'Not provided'}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.refunded > 0 && <div className="invoice-meta-row"><span className="invoice-meta-label">Refunded</span><span>{formatAnnualSummaryCurrency(ctx.refunded)}</span></div>}
                 {ctx.payment > 0 && (
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
                 )}

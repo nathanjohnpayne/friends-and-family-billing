@@ -84,6 +84,7 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
 │       ├── financial-availability.js # Private availability over exact household financial results
+│       ├── financial-display.js      # Private checked display aliases/allocated rows and unavailable result
 │       ├── household-money.js     # Exact source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
@@ -145,8 +146,12 @@ UI entry-point guards consume availability. Authenticated settlement, service
 refund caps, close/rollover and review money edges now use complete raw sources
 through the exact household adapter (ADR 0010). A finalized whole-year carry plan
 binds actual ids, source markings and next-year seeds before validation/writes.
-Member audit/display helpers and invoice/public writers remain legacy pending
-M3/M4; mixed numerical versions are source-only and must not deploy.
+Member audit/display helpers retain their independent raw grain. Authenticated
+M3 household/invoice consumers use `financial-display.js` checked cents and
+explicit unavailable output results; ordinary invoice balance excludes B and
+subtracts N under null reopening. Selected Notice projection serves preview and
+new snapshots only, with guards before side effects. Public writers remain legacy
+pending M4; mixed numerical versions are source-only and must not deploy.
 See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
 
 Source interoperability and client activation are not Functions artifact admission.

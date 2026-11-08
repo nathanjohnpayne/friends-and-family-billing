@@ -60,7 +60,7 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
     const preview = useMemo(() => summarizeChargePreview(selected), [selected]);
 
     if (!open) return null;
-    if (!access.available) return <Dialog onClose={onClose} title="Bill Charges"
+    if (!access.available || !preview.ok) return <Dialog onClose={onClose} title="Bill Charges"
         footer={<button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
@@ -70,6 +70,10 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
         e.preventDefault();
         if (access.begin() === null) return;
         setError('');
+        if (!preview.ok || !preview.issuable) {
+            setError(preview.ok ? 'A Charge Notice must total at least one cent.' : 'Financial data unavailable');
+            return;
+        }
         if (preview.count === 0) {
             setError('No deferred charges to bill for the selected period.');
             return;
@@ -90,7 +94,7 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
             footer={(
                 <>
                     <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="btn btn-sm btn-ink" disabled={preview.count === 0}>
+                    <button type="submit" className="btn btn-sm btn-ink" disabled={!preview.issuable}>
                         Bill &amp; Notify
                     </button>
                 </>

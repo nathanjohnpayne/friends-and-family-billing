@@ -256,6 +256,9 @@ describe('record factories and next-year preview', () => {
         const row = { rowId: 'charge1', memberId: 2, amount: 30.125, description: ' Activation fee ', incurredDate: '2026-11-03' };
         expect(buildUsageChargeRecord(row, recordCtx)).toMatchObject({ id: 'oadj_uc_2026_charge1', amount: 30.13, description: 'Activation fee', status: 'deferred' });
         expect(buildUsageChargeRecord(row, recordCtx)).not.toHaveProperty('basis');
+        // Own-parent Notice policy depends on the review writer persisting whole cents.
+        const persisted = buildUsageChargeRecord(row, recordCtx).amount;
+        expect(persisted).toBe(Math.round(persisted * 100) / 100);
         expect(() => buildUsageChargeRecord({ ...row, existingAdjustmentId: 'existing' }, recordCtx)).toThrow('reused');
         expect(() => buildUsageChargeRecord({ ...row, incurredDate: '2026-02-30' }, recordCtx)).toThrow('valid incurred');
         expect(() => buildUsageChargeRecord({ ...row, amount: 0 }, recordCtx)).toThrow();
