@@ -1,34 +1,55 @@
 # Proposed Charge Notice recovery plan — #648
 
-**Status: Proposed amended design; owner-approved contract and four bounded
-implementation scopes, now filed and unstarted.**
-The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
-accepts all seven choices in [ADR 0012](../docs/adr/0012-charge-notice-recovery.md)
-and R1–R4 with four amendments: a clean #635/Notice split; non-blocking
-not-sent warnings before close/rollover; one historical factual new-format email
-for creation and recovery; and existing authorized text/share guidance for
-`not_addressable`. The filed scopes below carry these amendments. ADR 0012
-remains Proposed pending review and merge of the final amended head. Acceptance is not code approval or a runtime-conformance claim.
+**Status: Proposed amended design; documentation and ticket-scope changes only.**
+The [original owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+accepted all seven choices in [ADR 0012](../docs/adr/0012-charge-notice-recovery.md)
+and R1–R4 with four amendments: the #635/recovery split; non-blocking not-sent
+warnings before close/rollover; one historical factual new-format email for
+creation and recovery; and existing authorized text/share guidance for
+`not_addressable`. The [bounded owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+corrects the split: #635 retains the numerical and early-validation Notice
+subset already accepted in the [own-parent decision](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6714986894).
+The all-Notice carve at `c3f9490` reversed that decision; restoring it introduces
+no new formula. ADR 0012 remains Proposed until the new documentation head is
+reviewed and merged. `c3f9490` must not be rewritten or merged; the two CodeRabbit
+P1 threads [4505108837](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#discussion_r4505108837)
+and [4505108847](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#discussion_r4505108847)
+stay open until the reviewer accepts the corrected text.
 
-Authorization covers documentation and ticket filing only. No implementation,
+Authorization covers documentation and ticket scope only. No source implementation,
 code-head approval, merge, deployment, live read/report, data repair/migration or
-#614 old-tab-loss acknowledgment is granted. [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651) tracks the Charge Notice work separately from #635 and outside the
-#611/#629/#603 financial release chain. Its four filed, unstarted children are [R1 / #652](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/652), [R2 / #653](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/653), [R3 / #654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654), [R4 / #655](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/655).
-Native parent/child/dependency and board readbacks completed before the #635
-handoff. All five issues are only on Friends & Family Billing Project #10 in
-Backlog: #651 is size:L with no route; #652–#655 are size:M with both high-effort
-routes mirrored on the board. #635 now has only closed #634 as its native blocker.
-This metadata handoff grants no implementation or release permission. This phase makes no source/test patch and
-validates no standalone split candidate. Draft #646 retains its open P1 until a
-later authorized actual split and exact-head reviews.
+#614 old-tab-loss acknowledgment is granted. [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651)
+tracks the deferred asynchronous/recovery work outside the #611/#629/#603
+financial release chain. Its filed, unstarted children are [R1 / #652](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/652),
+[R2 / #653](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/653),
+[R3 / #654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654)
+and [R4 / #655](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/655).
+The prior native graph/Project #10 readback placed all five in Backlog: #651 is
+size:L and unrouted; #652–#655 are size:M with both high-effort routes mirrored
+on the board. #648 was removed from #635 after that readback, then restored when
+the CodeRabbit findings exposed the scope regression. It remains a design
+blocker until the amended #649 head merges; only then remove #648 and read back
+the graph. Closed #634 remains the other native prerequisite. No recovery
+implementation edge runs back to #635. No source/test patch or independently
+validated split candidate is supplied here; draft #646/P1 remain open pending
+an authorized actual split and exact-head reviews.
 
 ## Source audit
 
-These are immutable source observations, not deployed-state assertions. Main is
-`91d341ceb98021e3871107a5c444b8dd3f4374ad`; the current #646 draft audited is
-`5887a85f375481ce1a92498643f1d641614e0711`. Issue #614/#615 text was read from
-the locally cached API captures for this investigation; implementation must
-refresh their decisions and live dependency/deployment evidence.
+These are immutable source observations, not deployed-state assertions. The
+original audit below compared main `91d341ceb98021e3871107a5c444b8dd3f4374ad`
+and draft #646 `5887a85f375481ce1a92498643f1d641614e0711`. The bounded amendment
+was verified against current main `4b223cb`: #644 already activated exact
+`projectHouseholdMoney` behind `getHouseholdFinancials` and
+`calculateSettlementMetrics`. Thus the legacy Notice path's `1.005 → 1.00`
+versus exact `101` cents, and its raw-zero deferred row becoming an
+`INVALID_DOMAIN` billed hold after mutation/event/save, are present current-main
+defects. They are not merely future #635 gaps. This establishes source activation,
+not verified Hosting/deployment or live-data behavior. No production access or
+census was performed. The numerical/early-guard subset belongs in the earliest
+financial release, independently of #614/#638; existing complete-set release
+gates remain. Implementation must refresh #614/#615 decisions and live release
+evidence separately.
 
 | Source | Consequence |
 | --- | --- |
@@ -52,37 +73,93 @@ records the compensation-writer prerequisite separately from this proposal.
 
 ## Read-only #646 split inventory
 
-Compared main `91d341ceb98021e3871107a5c444b8dd3f4374ad` to draft head
-`5887a85f375481ce1a92498643f1d641614e0711`. This is a structural file/hunk audit,
-not an applied patch, passing test run or approved independently reviewable head.
-Line references below are at the audited head and must be refreshed when the
-actual split is authorized.
+The original structural comparison used main
+`91d341ceb98021e3871107a5c444b8dd3f4374ad` and draft
+`5887a85f375481ce1a92498643f1d641614e0711`. The corrected table assigns partial
+Notice hunks to #635; the earlier seven-file pure-display carve is superseded.
+This is a documentation inventory, not an applied patch, passing test run or
+approved independently reviewable source head. Refresh line/hunk boundaries and
+perform a fresh M reviewability check before source work.
 
-| Remains in #635: authenticated display and ordinary invoices | Moves to the Notice follow-up |
+| Retained in #635 (M3) | Deferred to #651 / R1–R4 |
 | --- | --- |
-| All changes to `src/lib/financial-display.js` and `src/lib/invoice.js`; `SettlementBoard.jsx`, `EmailInvoiceDialog.jsx`, `TextInvoiceDialog.jsx`, `Manage/InvoicingTab.jsx` | All changes to `src/lib/chargeNotice.js`, `src/lib/ChargeNoticeService.js`, `ChargeNoticeDialog.jsx` |
-| `Dashboard/DashboardView.jsx`: imports 1–3 and calculations import; deferred aggregate 86–107; unavailable/KPI/progress/indicator hunks 116–244; invoice `creditAdjustments` props 345/364 | Same Dashboard: `issueChargeNotice` caller additions 461–471 (`creditAdjustments`, immutable `getState`, original year/household availability) |
-| No `BillingYearService.js` production hunk from this draft | `BillingYearService.js`: `summarizeChargePreview` import and `billDeferredCharges` selected-preview/one-cent guard, event amount and finalized billed-candidate guard 1624–1645 |
-| `SettlementBoard.test.jsx`, new `authenticated-invoices.test.jsx`, `emailTemplateParity.test.js`, new `financial-display.test.js`, `invoice.test.js` | `ChargeNoticeDialog.test.jsx`, `ChargeNoticeService.test.js`, `chargeNotice.test.js` changes |
-| `DashboardView.test.jsx`: deferred-display integrity/counts case 544–558 | Same Dashboard test: original-year/household Notice continuation case 292–306 |
-| Existing writer assertions outside the Notice additions remain with their existing scope | `BillingYearService.test.js`: new `toExactCents` import, writer tripwire 701–702, Notice billing/hold/candidate tests 983–1036; `year-end-review.test.js` writer tripwire 259–261 |
-| Ordinary-invoice/display paragraphs in ADR 0010, plan #629, billing/invoicing specs, `.ai_context.md` and repository overview | Selected Notice allocation/preview/snapshot/send/guard paragraphs in those shared documents; split prose deliberately without claiming runtime completion |
+| All display/ordinary-invoice changes in `src/lib/financial-display.js`, `src/lib/invoice.js`, `SettlementBoard.jsx`, `EmailInvoiceDialog.jsx`, `TextInvoiceDialog.jsx`, `Manage/InvoicingTab.jsx`; ordinary-invoice async guards remain unchanged | No ordinary-invoice async guard transfers |
+| `src/lib/chargeNotice.js`: one exact selected own-parent projector shared by preview, new stored snapshot amount/rows/running totals, email rows and event amount | Versioned immutable source/recipient envelopes, new-format historical message and recovery contracts |
+| `src/lib/BillingYearService.js`: `billDeferredCharges` exact event amount and complete finalized-candidate validation before mutation/event/queued save | #614-backed atomic versioned billing/event/Notice/intent producer; later durable recovery |
+| `ChargeNoticeDialog.jsx`: exact preview; raw-zero candidates visible as **Not billable**, with existing correction copy; existing valid positive selections remain usable under the guard | Recovery/delivery UI, not-addressable guidance and lifecycle warnings |
+| `Dashboard/DashboardView.jsx`: display/invoice changes and one synchronous fresh post-billing source snapshot for the Notice output boundary | Post-await current-state/immutable-source continuation rechecks and recovery integration |
+| `src/lib/ChargeNoticeService.js`: all five raw arrays from that single validated snapshot; freeze projection/presentation before the first transport await | Live `getState`/availability continuation contract after awaits, immutable-source rechecks, fresh recovery and scoped dispatch |
+| Numerical Notice, dialog zero/candidate, service snapshot/freeze and event parity tests; both whole-cent writer tripwires; display/invoice tests and ordinary-invoice async tests | Only the Notice post-await service/Dashboard continuation tests transfer, plus new R1–R4 protocol/recovery tests |
+| Numerical/early-guard specification paragraphs and acceptance fixtures | Atomic versioned issuance/recovery/rules/sender specifications; no numerical ownership transfer |
 
-The shared dependency is `chargeNotice.js` importing `financialUnavailable` from
-new #635 `financial-display.js`. Keep that source dependency explicit: the Notice
-parent and R3 depend on #635; #635 has no reverse dependency on recovery. R1 must
-keep its schema/projection helpers inert without importing a not-yet-landed UI
-module. Existing exact-money/household authority primitives already exist on
-main. An alternative helper relocation would be a separately reviewed future
-source choice, not a change made by this audit.
+The retained production surface is eleven existing paths (the six display/invoice
+paths above, `DashboardView.jsx`, `chargeNotice.js`, `ChargeNoticeService.js`,
+`ChargeNoticeDialog.jsx`, `BillingYearService.js`), within #635's old thirteen-path
+budget. This inventory is prospective, not M certification: bound the actual diff
+and recheck size:M before coding; stop for scope review if it cannot fit. Do not
+silently restore the all-Notice carve.
+
+### Retained M3 numerical and early-validation contract
+
+Each selected Notice is its own allocation parent: `T = q(Σ exact raw)`; allocate
+largest-remainder rows with ascending ordinal `String(record.id)` ties under
+ADR 0010. One function supplies preview, new stored snapshot `amount`, email
+rows/running totals and `CHARGES_BILLED` event amount. Preserve raw amounts and
+historical snapshots. A one-row `1.005` selection yields `$1.01`, also its B
+contribution; this one-row consequence is not universal Notice/B equality.
+Two separate `0.005` Notices each total one cent and need not sum to household
+B. There is no per-Notice settlement promise or new payment allocation.
+
+Before any state mutation, event, queued save or persistence,
+`billDeferredCharges` builds a candidate **copy** with the actual selected rows
+flipped to billed and actual finalized Notice/source IDs. Run complete household
+authority over that copy and refuse the **whole confirmed selection** on any
+hold, `T = 0` or empty selection. The pre-bill Dashboard availability check is
+insufficient. Raw-zero-only and mixed raw-zero/positive selections both fail
+without effects; do not silently drop a zero row from the confirmed service
+request. Show raw-zero candidates as **Not billable** with the existing
+correction copy so refusal is explainable without a dead end; this does not
+invent a new financial hold for the valid deferred state.
+A positive source row whose allocated display cents are zero is different:
+retain the accepted two `0.004` rows together, `T = 1` with allocated rows `1/0`.
+Existing valid positive selections remain usable under the same guard.
+
+At the Notice output boundary, synchronously after the billing mutation/queued
+write call returns, take **one fresh `service.getState()` snapshot**. Validate it
+through the same availability reader and thread all five raw arrays from it:
+`familyMembers`, `bills`, `payments`, `creditAdjustments`, `owedAdjustments`.
+Never mix render-time props with that post-bill source. Freeze the Notice
+projection/presentation before the first transport `await`. This is a queued-write
+boundary, not confirmed persistence: legacy SaveQueue swallows failures. M3 adds
+no live `getState`/availability continuation contract after awaits and no new
+asynchronous invalidation guarantee. Later transport metadata, such as a share
+URL obtained after an await, may be appended without recomputing frozen financial
+rows/parent or identity/display context; this does not promise that future transport text already exists.
+Ordinary-invoice async guards stay unchanged.
+
+**Known limitation until #651:** stale or failed asynchronous Notice delivery
+and legacy orchestration/save uncertainty remain. The synchronous baseline does
+not make issuance recoverable, atomic or durably confirmed. #651 alone owns
+post-await immutable-source/current-state rechecks, fresh recovery, the atomic
+versioned producer and scoped sender/rules work.
+
+The shared source dependency remains explicit: #651/R3 consume #635's private
+display/helper and numerical baseline; #635 never depends back on #651–#655,
+#614 or #638. R1 remains standalone/inert and consumes the M3 contract without
+importing an unlanded #635 UI module. If a future implementation chooses an actual
+M3 code import requiring #635 source, record native R1 blocked-by #635 and check
+for cycles before starting that work; never add a reverse #635-to-R1 edge. No
+import decision or native edge is added by this documentation amendment. Existing
+exact-money/household primitives are already on main. Any helper relocation
+requires separate source review.
 
 **Qualified writer evidence:** `BillingYearService.recordUsageCharge` 1438–1443
 rounds its parsed finite input to integer cents and stores `cents / 100`;
 `year-end-review.buildUsageChargeRecord` 252–261 uses exact `toCents` followed by
 checked `snapshotDollars`. True-up records use the existing integer `splitCents`
-allocation. Retain the two writer tripwires with the Notice scope. For valid,
-representable whole-cent output from these normal writers, selected-parent
-rounding introduces no sub-cent remainder difference. This proves nothing about
+allocation. Retain both writer tripwires in #635, alongside the numerical Notice
+tests. For valid, representable whole-cent output from these normal writers,
+selected-parent rounding introduces no sub-cent remainder difference. This proves nothing about
 all stored years: legacy/imported/direct records may contain sub-cent or malformed
 money, and extreme/unrepresentable inputs still need canonical admission.
 Preserve the sub-cent fixtures and complete-source holds. Whole-cent writer
@@ -92,11 +169,11 @@ charges. Those guards protect broader integrity than a remainder difference.
 
 ## Dependency and release boundaries
 
-The required sequence was completed: file all scopes, install and read back
-their native graph and Project #10 placement, then remove only #648 from #635.
-Before/after evidence is retained in the primary checkout under
-`.mergepath/issue-648/file-full-graph-before-handoff.json` and
-`.mergepath/issue-648/file-full-graph-after-handoff.json`. The read-back graph is:
+The prior graph/Project #10 handoff filed and read back the scopes before
+removing #648 from #635. Historical before/after captures remain in the primary
+checkout under `.mergepath/issue-648/file-full-graph-before-handoff.json` and
+`.mergepath/issue-648/file-full-graph-after-handoff.json`; they do not describe
+the restored blocker after the CodeRabbit stop. The current design graph is:
 
 ```text
 #651 Notice follow-up, size:L, unrouted
@@ -104,10 +181,12 @@ Before/after evidence is retained in the primary checkout under
   blocked by #648, #655 (R4), #635
 #652 (R1) blocked by #648
 #653 (R2) blocked by #652 (R1) and #638
-#654 (R3) blocked by #653 (R2), #614 and #635 (shared display-helper source)
+#654 (R3) blocked by #653 (R2), #614 and #635 (M3 baseline source)
 #655 (R4) blocked by #654 (R3)
 
-#635 blocked only by closed #634; #648 blocker removed after full readback
+#635 blocked by #648 and closed #634
+  keep #648 until amended #649 merges; then remove only #648 after readback
+  no implementation blocker from #651–#655, #614 or #638
 #636 blocked by #635 and #638; #638 blocked by closed #633
 #637 blocked by #636; #629 blocked by #637; #603 blocked by #629
 These existing financial dependencies remain unchanged
@@ -122,12 +201,13 @@ The fresh native graph has #614 and #615 each blocked by closed #612/#600;
 it does not itself encode the stricter #615-live-before-#614-merge prerequisite.
 That remains a separate required release condition, not deployment evidence.
 
-The Notice parent and R1–R4 add no blocker to #635, #629 or #603. Their own-parent
-Notice work is deferred outside that financial release chain; this scope change
-does not certify every existing Notice/source record or waive the remaining
+The Notice parent and R1–R4 add no blocker to #635, #629 or #603. Their
+asynchronous/recovery work is deferred outside that financial release chain; the retained M3 numerical
+and early-validation subset belongs in the earliest financial release. This scope
+change does not certify every existing Notice/source record or waive the remaining
 financial release gates. Keep #646 draft and its P1 open until an authorized
-source split actually removes the unsafe Notice follow-up and the resulting
-heads receive their required reviews. Documentation alone fixes no runtime bug.
+source split preserves the M3 baseline while removing the unsafe asynchronous
+follow-up and the resulting heads receive their required reviews. Documentation alone fixes no runtime bug.
 
 #614 does not depend on recovery. R3's source work may merge after #614 source
 lands, but no producer/UI activation is permitted until prerequisites are live.
@@ -151,12 +231,13 @@ No diagram arrow grants that authorization or represents confirmed deployment.
 Stage-2/reviewed-rollover gates remain as specified in #616/#607; this proposal
 does not move them.
 
-**Historical handoff requirement:** #651 and #652–#655 had to exist with all
-native relationships and board state read back before removing #648 from #635.
-That sequence is complete; #648 itself still requires final amended-head review
-and merge before documentary completion. Metadata/design completion must not
-masquerade as implemented recovery. Implementation remains unauthorized. The
-amended ADR stays Proposed until its final head is reviewed and merged.
+**Handoff requirement:** the earlier metadata sequence completed, but the #648
+blocker was restored after the two valid CodeRabbit P1 findings. Leave it in
+place now. Only after a new amended #649 head receives exact-head review and
+merges may only #648 be removed from #635, followed by graph readback. Metadata
+completion is not documentary completion or implemented recovery. The amended
+ADR stays Proposed until final-head review and merge; implementation remains
+unauthorized. #635 gains no reverse implementation dependency on R1–R4/#614/#638.
 
 Each R1–R4 implementation scope is `size:M`, high-stakes, routed `anthropic=opus-5.5/high` and
 `openai=gpt-6.1-sol/high`. Before starting, inventory the listed source surface
@@ -172,9 +253,15 @@ Filed issue: [#652](https://github.com/nathanjohnpayne/friends-and-family-billin
 **Dependencies/inputs:** blocked by #648 documentary completion; owner-accepted
 contract with ADR still Proposed pending final-head review/merge; refreshed #614/#615
 contract; existing Notice, mail and rules schemas. Source budget: pure Notice and
-intent identity/validation helpers, inert exact selected-set projection and
-frozen-row validation, matching rules/test fixtures, schema docs;
-no service, sender, UI or generic-mail behavior change.
+intent identity/validation helpers, versioned frozen-row/schema validation
+consuming the existing M3 projection contract, matching rules/test fixtures,
+schema docs; no service, sender, UI or generic-mail behavior change. R1 does not own or
+restore the #635 numerical projector or writer tripwires. R1 remains standalone/
+inert and consumes the M3 contract without importing an unlanded UI module. If
+future implementation chooses an actual M3 code import requiring #635 source,
+record native R1 blocked-by #635 and check for cycles before starting that work;
+never add a reverse #635-to-R1 edge. No import decision or native edge is added
+here.
 
 **Outputs:** explicit versions and canonical scoped delivery key; exact raw
 source fingerprint and immutable original recipient/membership binding; frozen
@@ -185,9 +272,10 @@ legacy sender through an interim rules allowance.
 
 **Acceptance criteria:**
 
-- Selected own-parent rows/running totals and new frozen rows conserve target
-  cents under ADR 0010, including sub-cent/zero/invalid fixtures. Whole-cent
-  recorder/review-writer tripwires remain, without certifying legacy sources.
+- New versioned frozen rows validate the existing M3 own-parent target/row
+  conservation contract, including sub-cent/zero/invalid fixtures. R1 consumes
+  that baseline; numerical parity and both writer tripwires remain in #635 and
+  certify no legacy source census.
 - Duplicate/ambiguous source IDs, malformed versions, identity collisions,
   mismatched payloads and noncanonical fingerprints fail closed.
 - The original Notice content/time cannot be replaced or deleted by a new-format
@@ -197,8 +285,8 @@ legacy sender through an interim rules allowance.
 - Document/transaction/rules-access/cardinality limits are explicit and bounded,
   including safe rejection of very large selections before any write.
 
-**Validation:** pure helper round-trip/canonical-order and exact selected-set
-projection tests, both normal-writer tripwires, and rules emulator
+**Validation:** pure helper round-trip/canonical-order and versioned frozen-row
+validation against M3 fixtures, plus rules emulator
 allow/deny matrix for schema versions, immutable fields and owner scope;
 generic-mail and other Request regressions; `npm run test:rules` and relevant
 existing suites. No live query or deploy is part of validation.
@@ -290,19 +378,18 @@ payment/refund and settlement without per-Notice allocation.
 
 Filed issue: [#654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654); unstarted.
 
-**Dependencies/inputs:** read-back native blockers R2 / #653, #614 source with all-writer
-inventory, and #635 for the shared private display helper; R1 is transitive. #615
-deployment evidence remains a prerequisite for #614 merge. Extract the minimum
-approved exact selected-set projection and finalized-candidate guards from draft
-#646 as separately reviewed prerequisites, preserving ADR 0010. This Notice
-producer is no longer a prerequisite of #635. Import the shared
-helper only after #635 lands; no dependency runs back from #635 to this work.
+**Dependencies/inputs:** native blockers R2 / #653, #614 source with all-writer
+inventory, and #635's landed numerical/early-guard baseline; R1 is transitive.
+#615 deployment evidence remains a prerequisite for #614 merge. Reuse M3's exact
+selected-set projector and complete finalized-candidate validation; R3 extends
+those guards with versioned atomicity and durable source binding, rather than
+introducing the first validation. No dependency runs back from #635 to this work.
 
-**Source budget:** BillingYearService/#614 primitive extension, pure Notice
-projection already covered by R1, service/persistence/queue tests. No new
-rounding policy, UI activation, public link writer or Functions source-year
-writer. If extracting the exact prerequisites exceeds size:M, stop for an
-approved independent prerequisite split.
+**Source budget:** BillingYearService/#614 primitive extension, consuming M3
+projection through R1's versioned envelope; service/persistence/queue tests. No
+new rounding policy, UI activation, public link writer or Functions source-year
+writer. Recheck size:M before coding; split for approval if the bounded extension
+cannot fit, without moving the M3 numerical baseline out of #635.
 
 **Outputs:** one queued transaction bills the fixed selection, appends its event,
 freezes its original Notice and creates its deterministic queue intent. Allocate
@@ -341,8 +428,8 @@ Filed issue: [#655](https://github.com/nathanjohnpayne/friends-and-family-billin
 **Dependencies/inputs:** read-back native blocker R3 / #654 (R1/R2 are transitive); separately
 verified live #615/#614 and compatible R1/R2 deployment evidence before activation; approved UI behavior and existing
 M4/Hosting release gates. Source budget: recovery read/action client and
-observation status, Charge Notice
-dialog/Dashboard integration, a shared non-blocking warning read/API used by the
+observation status, post-await immutable-source/current-state continuation
+rechecks and Charge Notice dialog/Dashboard integration, a shared non-blocking warning read/API used by the
 existing close/rollover flows, existing-path navigation guidance, and focused
 service/UI tests. No new close workflow or #606/#607 implementation belongs here.
 Stop and propose a bounded split before coding if this complete surface cannot
@@ -387,8 +474,9 @@ legacy repair. A 30-second listener timeout is an observation warning only.
   lock. Explain historical-only after close with the already-claimed-send
   exception. #606/#607 must retain this shared warning API in future work; R4
   does not depend on those tickets.
-- Integrate only the Notice carve after #635's independent display work. Preserve
-  complete-source/finalized-candidate/async guards and existing financial gates;
+- Integrate recovery after #635's declared numerical/early-guard baseline.
+  Preserve its complete-source/finalized-candidate checks and add the deferred
+  post-await immutable-source/current-state guards, with existing financial gates;
   run required exact-head checks. Documentation completion alone clears neither
   this implementation nor draft #646.
 
@@ -404,6 +492,12 @@ authorized work after exact-head human review.
 
 | Scenario | Required evidence |
 | --- | --- |
+| #635: single stored `1.005` row | `$1.01` across preview/new document/event/email rows/running totals; one shared fixture proves parity. One-row B agreement is not universal. |
+| #635: separate `0.005` Notices | Each totals one cent; household B sum comparison is explicitly non-binding. No per-Notice settlement promise. |
+| #635: two positive `0.004` rows together | `T = 1`, allocated rows `1/0`; a zero displayed allocation does not make a positive raw row unbillable. |
+| #635: raw zero alone or mixed with positive | Whole confirmed selection refused before state mutation, event, queued save or persistence; no silent filtering. Raw-zero dialog reason visible; valid positive selection remains usable. |
+| #635: retained source/writer tripwires | Both existing whole-cent writer assertions, existing `.005`/`.004` rows, source holds, stale and overflow fixtures preserved. |
+| #635: Notice output boundary | One fresh synchronous post-billing queued-write snapshot, same availability reader, all five raw arrays; freeze before first transport await. No durable-success or post-await invalidation claim. |
 | Uncertain commit, then later revision | Unknown stop; stable-ID discovery cannot rebill or overwrite. |
 | Stable-key collision or payload disagreement | Transaction fails with no mutation/send. |
 | Very large selection or transaction budget overflow | Whole action rejected before effects; no chunked partial bill. |
@@ -418,8 +512,9 @@ authorized work after exact-head human review.
 | Generic mail, other Request kinds, source/artifact guards | Existing behavior preserved and no Functions year writer introduced. |
 | Historical snapshot or legacy delivery without linkage | Original untouched; blocked/manual rather than fabricated recovery evidence. |
 
-The owner accepted all seven ADR choices and all four amendments in the linked
-PR decision. The final amended ADR/design head still needs review and merge;
+These are required future tripwires, not passing runtime evidence. The owner
+accepted all seven ADR choices and all four amendments, with the bounded
+ownership correction in the linked PR decisions. The final amended ADR/design head still needs review and merge;
 implementation and each later merge/deployment need their own authority. No
 current runtime conformance, live report, #614 acknowledgment, financial-data
 repair or migration is asserted. The relevant future-contract specification text

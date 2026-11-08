@@ -81,18 +81,66 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 
 ### Future Charge Notice issuance and recovery contract (#648)
 
-The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+The [original owner decision](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
 accepts all seven [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) choices
-and four amendments. This is final proposed implementation-contract text for
-review, not a runtime-conformance assertion. ADR 0012 remains **Proposed** until
-the final amended head is reviewed and merged. Documentation/ticket filing alone
-authorizes no implementation, code approval, merge, deploy, live report or #614
-acknowledgment. The [plan](../plans/648-charge-notice-recovery.md) assigns the
-Notice work to [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651), separately from
-#635's authenticated display and ordinary-invoice changes. The parent and its
-R1–R4 children (#652–#655) are filed and unstarted. Native graph and Project #10
-readbacks preceded the #635 metadata handoff; #635 retains only closed #634 as
-its native blocker. This establishes no runtime or release conformance.
+and four amendments; the [bounded owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+restores #635's already accepted numerical/early-guard Notice scope. This is
+future implementation-contract text, not runtime conformance. ADR 0012 remains
+**Proposed** until the new amended head is reviewed and merged. Documentation/
+ticket scope authorizes no source implementation, code approval, merge, deploy,
+live read/report, data repair/migration or #614 acknowledgment.
+
+The [plan](../plans/648-charge-notice-recovery.md) assigns exact selected own-parent
+projection, pre-mutation candidate validation, raw-zero dialog visibility and the
+synchronous output snapshot/freeze boundary to #635 alongside displays/ordinary
+invoices. One exact projector, `T = q(Σ exact raw)` with largest remainder and
+ascending ordinal record-id ties, supplies preview, new stored `amount`, email
+rows/running totals and `CHARGES_BILLED` amount. Single `1.005` yields `$1.01`;
+separate `0.005` Notices each yield one cent and need not sum to household B.
+No universal Notice/B equality, per-Notice settlement or formula change.
+
+Before mutation/event/queued save/persistence, `billDeferredCharges` runs complete
+household authority on a candidate copy with the actual selected rows flipped
+to billed and finalized IDs. Any hold, `T = 0` or empty selection refuses the
+whole set without effects. Raw zero alone and mixed raw-zero/positive selections
+both fail; never silently filter a confirmed zero row. The pre-bill Dashboard
+check alone is insufficient. The dialog shows raw-zero rows as **Not billable**
+with existing correction copy, and keeps valid positive selections usable under
+the guard. Positive raw rows allocated zero cents remain valid, including two
+`0.004` rows together at `T = 1`, rows `1/0`.
+
+At output take one fresh `service.getState()` snapshot synchronously after the
+billing mutation/queued-write call returns, validate through the same availability
+reader, and use all five raw arrays from it (`familyMembers`, `bills`, `payments`,
+`creditAdjustments`, `owedAdjustments`), never render-time props mixed with post-
+bill state. Freeze financial rows/parent and identity/display context before the
+first transport await. A share URL or transport metadata obtained later may be
+appended without recomputing frozen financial values; this is not a promise that
+future transport text already exists. Legacy SaveQueue swallows failures, so the
+boundary is not confirmed persistence. Ordinary-invoice async guards stay
+unchanged; M3 adds no live `getState`/availability continuation contract after
+awaits or new async invalidation guarantee.
+
+**Known limitation until #651:** stale/failed asynchronous Notice delivery and
+legacy orchestration/save uncertainty remain; #635 does not promise atomic,
+recoverable or durably confirmed issuance. [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651)
+and filed, unstarted R1–R4 (#652–#655) own post-await immutable-source/current-state
+rechecks, fresh recovery, atomic versioned producer and scoped sender/rules. R1
+consumes the M3 projection and R3 extends the existing early guards. They add no
+reverse #635 implementation dependency. #648 was removed from #635 after the
+original graph/Project #10 handoff, then restored after review findings; keep it
+until amended #649 merges, then remove only #648 and read back. Closed #634 stays.
+
+Main `4b223cb` already activates #644 exact authority; the legacy sub-cent Notice
+divergence and zero-after-billing hold are current source defects, not future-
+only gaps. This establishes no verified Hosting/deploy or live-data state. The
+retained subset belongs in the earliest financial release independently of
+#614/#638, under existing complete-set gates. No source split or independently
+validated candidate is supplied; #646/P1 remain open pending source authorization
+and final-head reviews.
+
+The following atomic/delivery requirements belong to #651/R1–R4; the existing
+seven recovery choices and other amendments are unchanged:
 
 - Initial billing atomically commits the selected billed rows, one linked billing
   event, an immutable versioned Notice and one stable administrator/year/Notice/
@@ -153,8 +201,15 @@ its native blocker. This establishes no runtime or release conformance.
   unsent Notices will remain historical and will not later send, with the
   already-claimed-send exception. Existing financial/lifecycle gates still apply.
 
-Required future validation covers atomicity/stale/unknown commit outcomes;
-selected-set, candidate and complete-source holds; immutable recipient/privacy;
+Required #635 tripwires (obligations, not passing runtime evidence) include one
+shared preview/new-document/email-row/event/running-total fixture, single
+`1.005 → $1.01`, separate `0.005` Notices with non-binding B comparison, raw-zero-
+only/mixed whole-selection refusal without mutation/event/queued save, both
+existing whole-cent writers, and preserved `.005`/`.004`, source-hold, stale and
+overflow fixtures. Numerical Notice/candidate/snapshot-freeze tests remain #635;
+only post-await Notice service/Dashboard continuation tests transfer to #651.
+Required #651 validation covers atomicity/stale/unknown commit outcomes;
+versioned candidate and complete-source holds; immutable recipient/privacy;
 new-format first/recovery copy parity; no processing/unknown replay even with a
 legacy lease reaper; absent-email navigation; lifecycle/claim races; and
 non-blocking warning list/read-failure behavior. These are implementation
