@@ -37,6 +37,7 @@ import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from './fina
  * @param {Array}    opts.payments
  * @param {Array}    [opts.owedAdjustments]
  * @param {Object}   opts.activeYear
+ * @param {Function} opts.getState        live immutable BillingYearService snapshot reader
  * @param {Object}   opts.settings
  * @param {Object}   [deps]  injectable collaborators (tests)
  * @param {Function} [deps.createShareLink]
@@ -52,7 +53,7 @@ export async function issueChargeNotice(opts, deps = {}) {
     const {
         userId, billingYearId, yearLabel, memberId, memberName, memberEmail,
         chargeNoticeId, charges, familyMembers, bills, payments, creditAdjustments, owedAdjustments,
-        activeYear, settings, getAvailability,
+        activeYear, settings, getAvailability, getState,
     } = opts;
 
     // Guard the id first, before any side effect: an absent/blank chargeNoticeId would
@@ -65,10 +66,17 @@ export async function issueChargeNotice(opts, deps = {}) {
         throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
     }
 
+    // A Boolean getter cannot observe a hold/year change that was later restored.
+    // Service snapshots are immutable identities: every _setState creates a new one.
+    if (typeof getState !== 'function') throw new Error('issueChargeNotice requires a live immutable getState reader.');
+    const operationSource = getState();
     // Validate complete household source and the selected snapshot before link/prune/write.
     const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
     function assertAvailable() {
-        if (!getHouseholdFinancialAvailability(source, memberId).available
+        if (!operationSource || getState() !== operationSource
+            || operationSource.activeYear?.id !== billingYearId
+            || !getHouseholdFinancialAvailability(operationSource, memberId).available
+            || !getHouseholdFinancialAvailability(source, memberId).available
             || (getAvailability && !getAvailability().available)) throw new Error(FINANCIAL_UNAVAILABLE);
     }
     assertAvailable();

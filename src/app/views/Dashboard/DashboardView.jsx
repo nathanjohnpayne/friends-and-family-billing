@@ -459,6 +459,7 @@ export default function DashboardView() {
                                     bills,
                                     payments,
                                     creditAdjustments: freshState.creditAdjustments || [],
+                                    getState: () => service.getState(),
                                     getAvailability: () => {
                                         const current = service.getState();
                                         const currentMember = current.familyMembers?.find(row => row.id === member?.id);

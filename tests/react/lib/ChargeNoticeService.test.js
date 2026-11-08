@@ -15,10 +15,15 @@ vi.mock('firebase/firestore', () => ({
     collection: (...args) => mockCollection(...args),
     doc: (...args) => mockDoc(...args),
     setDoc: (...args) => mockSetDoc(...args),
-    serverTimestamp: vi.fn(() => 'SERVER_TS')
+    serverTimestamp: vi.fn(() => 'SERVER_TS'),
+    getDocs: vi.fn(), getDoc: vi.fn(), writeBatch: vi.fn(), runTransaction: vi.fn()
 }));
 
-import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
+import { issueChargeNotice as issueChargeNoticeResult } from '@/lib/ChargeNoticeService.js';
+import { BillingYearService } from '@/lib/BillingYearService.js';
+
+// Ordinary orchestration fixtures supply an unchanged immutable source snapshot.
+const issueChargeNotice = (opts, deps) => issueChargeNoticeResult({ ...opts, getState: opts.getState || (() => opts) }, deps);
 
 const baseOpts = () => ({
     userId: 'user-1',
@@ -91,6 +96,46 @@ describe('issueChargeNotice', () => {
         await expect(issueChargeNotice({ ...baseOpts(), getAvailability: () => ({ available }) }, { createShareLink, queueEmailFn }))
             .rejects.toThrow(/unavailable/);
         expect(mockSetDoc).toHaveBeenCalledOnce();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects a Boolean-only caller before any side effect', async () => {
+        await expect(issueChargeNoticeResult({ ...baseOpts(), getAvailability: () => ({ available: true }) }, { createShareLink, queueEmailFn }))
+            .rejects.toThrow(/getState reader/);
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, null, () => null, () => ({ activeYear: { id: '2026' } })])('rejects a missing or unusable live source reader before effects', async getState => {
+        await expect(issueChargeNoticeResult({ ...baseOpts(), getState }, { createShareLink, queueEmailFn })).rejects.toThrow();
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it.each(['hold', 'year'])('never revives a real immutable-service operation after a transient %s is restored', async transition => {
+        const service = new BillingYearService();
+        const opts = baseOpts();
+        service._setState({ activeYear: opts.activeYear, familyMembers: opts.familyMembers, bills: opts.bills, payments: opts.payments,
+            creditAdjustments: opts.creditAdjustments, owedAdjustments: opts.owedAdjustments });
+        const initial = service.getState();
+        let finish;
+        createShareLink.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        const pending = issueChargeNoticeResult({ ...opts, getState: () => service.getState(),
+            getAvailability: () => ({ available: true }) }, { createShareLink, queueEmailFn });
+        expect(createShareLink).toHaveBeenCalledOnce();
+        if (transition === 'hold') {
+            service._setState({ creditAdjustments: [{ id: 'bad', memberId: 1, type: 'refund', status: 'recorded', amount: NaN }] });
+            service._setState({ creditAdjustments: initial.creditAdjustments });
+        } else {
+            service._setState({ activeYear: { ...opts.activeYear, id: '2027', label: '2027' } });
+            service._setState({ activeYear: initial.activeYear });
+        }
+        expect(service.getState()).not.toBe(initial);
+        finish({ url: 'https://example.com/share', tokenHash: 'h' });
+        await expect(pending).rejects.toThrow(/unavailable/);
+        expect(mockSetDoc).not.toHaveBeenCalled();
         expect(queueEmailFn).not.toHaveBeenCalled();
     });
 

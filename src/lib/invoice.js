@@ -30,12 +30,24 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
         balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {} };
 }
 
+/** Validate only the raw member-summary fields dereferenced by the Full renderer. */
+function validMemberSummary(data) {
+    const finite = value => typeof value === 'number' && Number.isFinite(value);
+    return !!data && typeof data.member?.name === 'string' && finite(data.total) && Array.isArray(data.bills)
+        && data.bills.every(row => !!row && typeof row.bill?.name === 'string' && finite(row.bill.amount)
+            && Array.isArray(row.bill.members) && finite(row.monthlyShare) && finite(row.annualShare));
+}
+
 /** Reject failed/incomplete contexts even through default-subject/empty-template paths. */
 function validInvoiceContext(ctx) {
     if (!(ctx?.ok === true && ctx.householdId === ctx.member?.id
         && (typeof ctx.householdId === 'string' || Number.isSafeInteger(ctx.householdId))
         && typeof ctx.member?.name === 'string' && typeof ctx.currentYear === 'string'
         && typeof ctx.firstName === 'string' && Array.isArray(ctx.linkedMembersData)
+        && Number.isSafeInteger(ctx.numMembers) && ctx.numMembers > 0
+        && (ctx.member.linkedMembers === undefined || Array.isArray(ctx.member.linkedMembers))
+        && ctx.numMembers === 1 + (ctx.member.linkedMembers || []).length
+        && validMemberSummary(ctx.memberData) && ctx.linkedMembersData.every(validMemberSummary)
         && ['combinedTotal', 'payment', 'refunded', 'balance'].every(field => typeof ctx[field] === 'number' && Number.isFinite(ctx[field]))
         && ['invoice', 'P', 'R', 'N', 'invoiceBalance'].every(field => Number.isSafeInteger(ctx.cents?.[field])))) return false;
     const cents = ctx.cents;

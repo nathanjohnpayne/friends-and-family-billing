@@ -103,6 +103,27 @@ describe('invoice unavailable result at every exported boundary', () => {
         expect(JSON.stringify(ctx)).not.toContain('recordId');
     });
 
+    it('rejects incomplete Full summary structure consistently at every output boundary', () => {
+        const data = source();
+        data.payments = [{ id: 'p', memberId: 1, amount: .01 }];
+        const valid = invoice(data);
+        const invalidContexts = [
+            { ...valid, numMembers: undefined }, { ...valid, numMembers: 0 }, { ...valid, numMembers: '1' },
+            { ...valid, linkedMembersData: [null] }, { ...valid, memberData: undefined },
+            { ...valid, memberData: { ...valid.memberData, bills: undefined } },
+            { ...valid, memberData: { ...valid.memberData, total: NaN } },
+            { ...valid, memberData: { ...valid.memberData, bills: [null] } },
+            { ...valid, linkedMembersData: [{ ...valid.memberData, member: null }] },
+            ...['monthlyShare', 'annualShare'].map(field => ({ ...valid, memberData: { ...valid.memberData,
+                bills: [{ ...valid.memberData.bills[0], [field]: undefined }] } })),
+            { ...valid, memberData: { ...valid.memberData, bills: [{ ...valid.memberData.bills[0],
+                bill: { ...valid.memberData.bills[0].bill, members: null } }] } }
+        ];
+        for (const ctx of invalidContexts) for (const result of outputs(ctx)) {
+            expect(result).toEqual({ ok: false, kind: 'financial-unavailable', householdId: 1 });
+        }
+    });
+
     it('rejects missing, malformed and internally inconsistent purported success contexts', () => {
         const valid = invoice(source());
         for (const ctx of [null, undefined, {}, { ...valid, combinedTotal: 0 }, { ...valid, combinedTotal: '0.58' }, { ...valid, payment: null }, { ...valid, cents: { ...valid.cents, N: 100 } }]) {
