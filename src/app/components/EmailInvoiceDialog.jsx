@@ -29,6 +29,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     const [sending, setSending] = useState(false);
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
+    const generatedForContext = useRef(null);
 
     const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
     const contextKey = JSON.stringify(ctx);
@@ -39,8 +40,13 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
         setGeneratedShareUrl('');
+        generatedForContext.current = null;
         setCopied(false);
         setSending(false);
+    }, [open, contextKey, access.available]);
+
+    // Variant changes rebuild text without invalidating a cached link or pending action.
+    useEffect(() => {
         bodyEditedRef.current = false;
         if (!open || !access.available || !ctx.ok) {
             setSubject('');
@@ -48,7 +54,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             return;
         }
         const nextSubject = buildInvoiceSubject(ctx.currentYear, ctx.member, settings?.emailSubject || '', ctx);
-        const nextBody = buildInvoiceBody(ctx, variant, '', 'email');
+        const nextBody = buildInvoiceBody(ctx, variant, generatedForContext.current === contextKey ? generatedShareUrl : '', 'email');
         setSubject(nextSubject.ok ? nextSubject.value : '');
         setBody(nextBody.ok ? nextBody.value : '');
     }, [open, variant, contextKey, access.available]);
@@ -69,7 +75,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
      */
     async function ensureShareLink(ticket) {
         if (!access.canContinue(ticket)) return '';
-        if (generatedShareUrl) return generatedShareUrl;
+        if (generatedShareUrl && generatedForContext.current === contextKey) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
         try {
             const result = await createAndPruneShareLink({
@@ -85,6 +91,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 settings,
             });
             if (!access.canContinue(ticket)) return '';
+            generatedForContext.current = contextKey;
             setGeneratedShareUrl(result.url);
             return result.url;
         } catch (err) {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
@@ -81,5 +81,46 @@ describe('invoice refund metadata at the actual consumer', () => {
         expect(screen.getAllByText('Refunded')).toHaveLength(1);
         expect(screen.getByText('$' + R.toFixed(2))).toBeInTheDocument();
         expect(screen.getByText('$' + (R - 20).toFixed(2))).toBeInTheDocument();
+    });
+});
+
+
+describe.each([['Email', EmailInvoiceDialog, 'Copy'], ['Text', TextInvoiceDialog, 'Copy Message']])('%s variant cache', (_name, Component, copyLabel) => {
+    it('reuses the generated link after changing variants without minting/pruning again', async () => {
+        const user = userEvent.setup();
+        const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
+        render(<Component {...base} />);
+        const copy = screen.getByRole('button', { name: copyLabel });
+        await user.click(copy);
+        await waitFor(() => expect(clipboardWrite).toHaveBeenCalledOnce());
+        await user.click(screen.getByLabelText('Text only'));
+        await user.click(screen.getByLabelText('Text + link'));
+        expect(screen.getAllByRole('textbox').find(field => field.tagName === 'TEXTAREA').value).toContain('https://example.com/share');
+        await user.click(copy);
+        await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(2));
+        expect(createAndPruneShareLink).toHaveBeenCalledOnce();
+        expect(clipboardWrite.mock.calls[1][0]).toContain('https://example.com/share');
+    });
+});
+
+describe.each([['Email', EmailInvoiceDialog, 'Send Email'], ['Text', TextInvoiceDialog, 'Open Messages']])('%s pending variant change', (_name, Component, actionLabel) => {
+    it('keeps actions disabled while the original link request is pending', async () => {
+        const user = userEvent.setup();
+        let finish;
+        createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        render(<Component {...base} />);
+        const action = screen.getByRole('button', { name: actionLabel });
+        await user.click(action);
+        expect(action).toBeDisabled();
+        await user.click(screen.getByLabelText('Text only'));
+        expect(action).toBeDisabled();
+        await user.click(action);
+        expect(createAndPruneShareLink).toHaveBeenCalledOnce();
+        expect(queueEmail).not.toHaveBeenCalled();
+        expect(openSmsComposer).not.toHaveBeenCalled();
+        await act(async () => { finish({ url: 'https://example.com/share' }); });
+        if (Component === EmailInvoiceDialog) expect(queueEmail).toHaveBeenCalledOnce();
+        else expect(openSmsComposer).toHaveBeenCalledOnce();
+        expect(createAndPruneShareLink).toHaveBeenCalledOnce();
     });
 });

@@ -25,6 +25,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const [generating, setGenerating] = useState(false);
     const bodyEditedRef = useRef(false);
+    const generatedForContext = useRef(null);
 
     const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
     const contextKey = JSON.stringify(ctx);
@@ -35,14 +36,19 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
         setGeneratedShareUrl('');
+        generatedForContext.current = null;
         setCopied(false);
         setGenerating(false);
+    }, [open, contextKey, access.available]);
+
+    // Variant changes rebuild text without invalidating a cached link or pending action.
+    useEffect(() => {
         bodyEditedRef.current = false;
         if (!open || !access.available || !ctx.ok) {
             setBody('');
             return;
         }
-        const nextBody = buildInvoiceBody(ctx, variant, '', 'sms');
+        const nextBody = buildInvoiceBody(ctx, variant, generatedForContext.current === contextKey ? generatedShareUrl : '', 'sms');
         setBody(nextBody.ok ? nextBody.value : '');
     }, [open, variant, contextKey, access.available]);
 
@@ -61,7 +67,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
      */
     async function ensureShareLink(ticket) {
         if (!access.canContinue(ticket)) return '';
-        if (generatedShareUrl) return generatedShareUrl;
+        if (generatedShareUrl && generatedForContext.current === contextKey) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
         setGenerating(true);
         try {
@@ -78,6 +84,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 settings,
             });
             if (!access.canContinue(ticket)) { setGenerating(false); return ''; }
+            generatedForContext.current = contextKey;
             setGeneratedShareUrl(result.url);
             setGenerating(false);
             return result.url;
