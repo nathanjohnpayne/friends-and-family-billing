@@ -220,3 +220,42 @@ Two choices were not settled by the existing requirements or by the code; each i
 12. "Nothing changed" confirms all three editing steps, still previews existing carried items, and creates no duplicate adjustments; prefilled deferred Usage Charges are carried once.
 13. Closed-year and settlement behavior follows ADR 0009.
 14. Every writer of the year document is version-checked and the rules enforce it (§ Versioned year-document writes): a stale client **running the versioned build** gets the Reload required state with its unsaved changes listed and kept, never a success indication, while a pre-feature tab receives no recovery UI and may lose edits it attempts after stage 2 (the owner-acknowledged window in #616); legacy unversioned or stale writes, single or batched, are refused at stage 2 (a correctly versioned batch satisfies the same ownership and `rev` checks and is simply outside the supported writer contract, which is transactions only); two concurrent sessions, the first-run race, migration of an unversioned document, offline and `permission-denied`, and lost-response recovery are tested; `delete` is denied; no Cloud Function writes a year document (source guard).
+
+### Future Notice warning at close and rollover (#648; Proposed ADR)
+
+The [owner decision](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+accepts the [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) contract choices
+and four amendments. ADR 0012 remains Proposed pending review and merge of the
+final amended head. This is future-contract text, not runtime conformance, code
+approval, a #614 old-tab acknowledgment or deployment/live-report authorization.
+
+- Before confirming close or rollover, use the shared R4 warning read/API to list
+  all Notice intents not `sent`, with count, Notice/household identities and
+  delivery status: blocked/not-addressable, pending, processing, unknown and
+  proven pre-dispatch failure. A failed read shows **Delivery status unavailable**
+  as a warning, not an empty list.
+- The administrator may knowingly proceed. Delivery status adds no financial
+  integrity hold, settlement lock, close/rollover refusal or readiness gate.
+  Existing exact-source holds, outstanding-money and lifecycle gates remain.
+- Explain that after close the Notices are historical only: no new dispatch
+  claim or recovery authorization. Unclaimed unsent Notices will never be sent
+  later. A send already authorized by a successful claim before close may finish
+  externally; the UI must not promise cancellation of that send.
+- R4 integrates the existing close/rollover paths. Future #606/#607 review flows
+  retain the same warning contract/API without a reverse R4 dependency on those
+  tickets. The warning creates no year-document writer and no change to version
+  checks, atomic rollover, draft preservation or source/destination safeguards.
+- The review's `buildUsageChargeRecord` and existing True-up `splitCents` writer
+  retain checked whole-cent outputs and tripwire coverage. This is evidence about
+  these admitted writer outputs, not a claim about every stored legacy record;
+  malformed/sub-cent source admission remains governed by ADR 0010.
+
+Future validation includes each not-sent state and read failure; knowingly
+proceeding without new financial gates; blocked/new post-close claims and an
+already claimed send completing; shared warning preservation in the reviewed
+rollover; and writer tripwires. No implementation/test patch is part of this
+amendment.
+
+Uncommunicated Notices never remove their billed source rows or alter money.
+These warnings define no new billed-charge auto-carry rule: existing financial
+authority and frozen owed/settlement/carry formulas remain decisive.

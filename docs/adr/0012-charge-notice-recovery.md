@@ -1,16 +1,38 @@
 # Charge Notice issuance and recovery
 
-**Status: Proposed.** Tracks [#648](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/648); blocks the recovery prerequisite of [#635](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635).
+**Status: Proposed.** The owner accepted all seven contract choices and the
+four-part R1–R4 split, with the four amendments below, in the
+[owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056).
+The amended document remains Proposed until its final head is reviewed and
+merged. Acceptance of the contract is not approval of a code head, a claim of
+runtime conformance, or permission to implement, merge, deploy, access live data,
+run the financial impact report, repair or migrate data. It records no #614
+old-tab-loss acknowledgment.
 
-This is a recommendation for owner review, not an accepted amendment to ADRs
-0005, 0007, 0008, 0009 or 0010, or to any accepted specification. The
-[#635 scope checkpoint](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6715777283)
-proposed the design prerequisite; the owner later authorized design and
-implementation-ticket drafts only in the
-[#648 design authorization](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/648#issuecomment-6715850733).
-That authorization permits no implementation, acceptance, merge, deployment, production read,
-impact report, data repair or migration. The proposed scopes and evidence are in
-[the recovery plan](../../plans/648-charge-notice-recovery.md).
+Tracks [#648](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/648).
+Documentation and filing the bounded implementation tickets are authorized;
+[the recovery plan](../../plans/648-charge-notice-recovery.md) records their scope
+and dependency graph. The structurally separable display/ordinary-invoice work
+stays in #635; Charge Notice issuance, snapshots, guards and recovery move to
+**Notice follow-up (new parent, to be filed)**. The read-only split audit produced
+no code patch or independently validated candidate. #646 remains a draft with its
+open P1 until a later authorized actual split and final-head reviews.
+
+The four owner amendments are part of every relevant R1–R4 acceptance contract:
+
+1. Decouple #635 only after the Notice parent, all four children and their native
+   dependencies exist and are read back. #635 keeps #634; #636 still depends on
+   #635. The Notice parent is outside the #611/#629/#603 financial release chain.
+2. Before close or rollover, list every intent not `sent` with its Notice and
+   household identity and status, plus counts, as a non-blocking warning. A failed
+   status read says **Delivery status unavailable**; it never becomes an empty
+   list or a financial hold. No new dispatch authorization is permitted after
+   close; an external send already authorized by a successful claim may finish.
+3. Use exactly one historical factual new-format email copy for initial creation
+   and recovery, even seconds after billing. It never says the amount is now due.
+4. A `not_addressable` result directs the administrator to existing text-invoice
+   or share entry points, subject to current hold/privacy/lifecycle guards. It
+   never changes this Notice's recipient, auto-notifies, or auto-mints a link.
 
 ## Problem
 
@@ -127,23 +149,27 @@ immutable snapshot, plus current year revision, lifecycle, complete household
 financial availability and original recipient/membership. It never re-bills,
 re-emits the billing event, remints/prunes links or overwrites the Notice.
 
-The conservative recommendation rejects a removed or changed contact, household
+The owner-approved contract rejects a removed or changed contact, household
 membership, recipient email, conflicting linkage or integrity hold. A new
 household contact does not inherit a previous recipient's historical Notice.
 The current helper permits missing `memberEmail`. Preserve the bill and frozen
 Notice when no original email exists, with the intent `blocked` for reason
 `not_addressable`. Do not invent an address or later reassign this Notice to a
-newly supplied recipient. That delivery-only block creates no financial hold;
-this missing-recipient recommendation needs explicit owner acceptance.
+newly supplied recipient. That delivery-only block creates no financial hold.
+The UI offers navigation to
+existing text-invoice/share entry points only when those paths are currently
+authorized. Ordinary text invoices still exclude billed Usage Charges (`B`);
+they do not become a copy of this Notice. No automatic link creation, substitute
+recipient, new notification or hold/privacy/lifecycle bypass is introduced.
 An unrelated revision change requires fresh authorization, not silent revision
 replacement. Bind asynchronous completion to administrator/year/operation so a
 year or account switch cannot apply results to another context.
 
 Closed/archived years allow historical inspection only: no issuance, recovery
 write, resend or automatic reopening. Any exceptional correction follows ADR
-0007 through separately approved future work. This lifecycle recommendation is
-pending owner acceptance, not an approved amendment to ADR 0007. A missing
-snapshot or uncertain delivery is a Notice protocol block; it does not itself
+0007 through separately approved future work. This lifecycle policy is
+owner-approved as a contract, with this amended ADR still Proposed pending
+final-head review and merge. A missing snapshot or uncertain delivery is a Notice protocol block; it does not itself
 create a household financial integrity hold or change settlement/close math.
 Only the existing financial authority may determine financial availability.
 Prefer link-free email with
@@ -152,11 +178,13 @@ separate M4/versioned-public-projection dependencies and is outside this proposa
 
 The current `buildChargeNoticeEmail` says "This amount is now due." Recovery
 can occur after later payments/refunds leave the household settled, even when
-the billed rows and original Notice are unchanged. The proposed new-format
-message records the historical billing event, not a current payment demand.
+the billed rows and original Notice are unchanged. The single new-format
+message used for both initial creation and recovery records the historical
+billing event, not a current payment demand.
 Do not allocate household payments to individual Notices, infer that a Notice is
-unpaid, recompute its snapshot amount or assert a current amount due. Proposed
-copy (the list retains the frozen original rows):
+unpaid, recompute its snapshot amount or assert a current amount due. Required
+sole new-format copy, including an initial send immediately after
+billing (the list retains the frozen original rows):
 
 > These charges were billed to your household on [billing date], totaling
 > [original Notice amount]. This is a record of that billing event, not your
@@ -164,8 +192,10 @@ copy (the list retains the frozen original rows):
 > pay. Contact the administrator, or use your existing billing link, to check
 > your current balance.
 
-This communication boundary requires owner acceptance. Apply it only to the
-new-format message; do not rewrite historical Notices or generic legacy email.
+The owner accepted this communication boundary. Creation and recovery cannot
+select different wording or reintroduce a first-send current-payment demand.
+Apply it only to the new format; do not rewrite historical Notices or generic
+legacy email.
 
 ## Delivery authorization and outcomes
 
@@ -186,8 +216,9 @@ intent, verifies the fixed authorized revision and frozen binding, and claims
 only an eligible unclaimed, addressable attempt.
 It renders only the frozen presentation. The **successful sender claim is the
 authorization linearization boundary**. Changes committed before it block
-dispatch; changes after it cannot revoke an external send. This boundary, rather
-than an impossible revocation guarantee, needs owner acceptance.
+dispatch; changes after it cannot revoke an external send. The owner accepted
+this claim boundary; the close/rollover warning below must
+state its already-claimed-send exception truthfully.
 
 The sender and recovery endpoint may update delivery records, never source year
 documents. Reauthorization of the same logical intent is a server-controlled,
@@ -207,6 +238,11 @@ with durable transition evidence, so an older invocation cannot overwrite a
 newer attempt's status. Only `blocked` or `definitely_not_sent` can transition to
 `pending` after new persisted authorization. `processing`, `unknown` and `sent`
 can never transition back to pending; there is no abandoned-claim reaper.
+Generic stale-processing lease/retry work in [#471](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/471)
+must explicitly exclude versioned Notice intents. Preserve its legacy behavior
+without borrowing that retry policy; R2 proves the exclusion even if a generic
+reaper lands. This compatibility obligation adds no native dependency in either
+direction; active overlapping sender changes must be serialized.
 
 | Durable outcome | Meaning and permitted recovery |
 | --- | --- |
@@ -226,7 +262,29 @@ are distinguishable. No exactly-once, confirmed-receipt or provider-idempotency
 guarantee is assumed. Any later provider-specific reconciliation proposal must
 verify current provider documentation and receive its own review.
 
-## Legacy boundary and owner decisions
+## Close and rollover warnings
+
+Before a close or rollover action, show counts and a list of this year's Notice
+intents not `sent`, including `blocked`/`not_addressable`, `pending`, `processing`,
+`unknown` and `definitely_not_sent` (proven pre-dispatch failure). Identify each
+Notice and its household and delivery status. If the status lookup fails, show
+**Delivery status unavailable** as a warning, never an apparently empty list.
+The administrator can knowingly proceed without sending or recovering these
+Notices first. The warning adds no financial integrity hold, settlement lock,
+readiness gate or service close/rollover refusal; existing financial and lifecycle
+gates still apply independently.
+
+Explain the consequence: after close the Notices are historical only, and no
+new delivery claim or recovery authorization can start. Unclaimed unsent work
+will not be sent later; a send that crossed the successful claim boundary while
+the year was eligible may still finish. Do not promise cancellation of an
+external send already in progress. Sender claims and lifecycle writes must
+arbitrate through their transactional year read so a pre-close authorization
+cannot be newly claimed after close. R4 supplies one shared warning read/API for
+the existing close and rollover flows; future #606/#607 review flows retain it
+without a reverse dependency from R4 to those tickets.
+
+## Legacy boundary and accepted choices
 
 Existing random mail documents lack Notice linkage. Absence of the deterministic
 new key is not proof that an older Notice was never emailed. Missing original
@@ -234,22 +292,24 @@ snapshots cannot be silently reconstructed under a new rounding/recipient
 contract. Existing snapshots stay unchanged; missing snapshots or untracked
 delivery remain blocked/manual, with no new repair policy or migration implied.
 
-Owner acceptance is still needed for: atomic Notice availability alongside
-billing; preserving billing/Notice with blocked delivery when no original email
-exists; strict refusal after contact/membership/email changes; the sender-claim
-authorization boundary; stopping rather than retrying unknown delivery; and the
-legacy blocked/manual boundary; and historical factual new-format email that
-makes no current-balance/payment-demand claim. Acceptance of this document alone would not
-accept implementation or authorize any deployment. Every later financial/rules
-PR, and this design PR if merge is later requested, requires explicit human
-review of its exact head as well as the repository review workflow.
+The owner accepted all seven choices: atomic Notice recording with billing;
+preserve billing/Notice and block delivery when the original email is absent;
+strict refusal after original contact/membership/email changes; claim-time
+sender authorization; stop on unknown delivery; the legacy blocked/manual
+boundary; and the sole historical factual new-format email without a current
+payment demand. The four amendments at the start of this ADR qualify those
+choices. This acceptance is documentary and does not establish implementation
+conformance. This amended design head still requires final-head review and merge;
+every later financial/rules PR requires explicit human review of its exact head
+and the repository review workflow. No approval implies merge or deployment
+permission.
 
-## Draft future specification amendment — not in force
+## Future implementation contract — runtime conformance not established
 
-If the owner accepts this proposal, a later approved implementation PR would
-add the following contract to the relevant Charge Notice specification and
-cross-reference the versioned-write specification. This text is a reviewable
-draft only; accepted specifications remain unchanged:
+The owner accepted these contract choices subject to the four amendments. The
+corresponding future-contract sections in the specifications are reviewable
+documentation only. They do not claim that current code conforms; this ADR
+remains Proposed until the final amended head is reviewed and merged:
 
 > Off-cycle billing commits the selected billed ledger rows, one billing event,
 > an immutable versioned Charge Notice and one stable scoped delivery intent in
@@ -264,10 +324,13 @@ draft only; accepted specifications remain unchanged:
 > Changed original household/contact/email or unavailable financial authority
 > blocks delivery. Missing original email preserves billing/Notice and records
 > a not-addressable delivery block; no address is invented or reassigned.
-> Closed/archived years are historical-view-only.
+> Offer existing authorized text/share entry points without including `B` in an
+> ordinary invoice or automatically minting a link. Closed/archived years are
+> historical-view-only; no new claim is allowed, while an already claimed
+> external send may complete.
 >
-> New-format email states the original charges were billed and identifies their
-> historical snapshot total. It makes no claim that this is currently due,
+> Exactly the same new-format copy at creation and recovery states the original
+> charges were billed and identifies their historical snapshot total. It makes no claim that this is currently due,
 > because subsequent payments/credits may have changed the household balance.
 > No per-Notice payment allocation or new balance formula is introduced.
 >
@@ -290,3 +353,12 @@ draft only; accepted specifications remain unchanged:
 > untracked delivery remain manual protocol blocks, with no inferred financial
 > hold, migration or repair authority. No exactly-once/provider-idempotency
 > guarantee is assumed.
+>
+> Close/rollover lists all not-sent intents and their identities/status/counts,
+> or warns that delivery status is unavailable. The administrator may knowingly
+> proceed; this adds no financial hold or readiness gate. Explain the
+> historical-only consequence and already-claimed-send exception.
+
+Uncommunicated Notices never remove their billed source rows or alter money.
+These warnings define no new billed-charge auto-carry rule: existing financial
+authority and frozen owed/settlement/carry formulas remain decisive.

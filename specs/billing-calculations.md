@@ -186,6 +186,40 @@ The single shared carry-forward seam (ADR 0005) rolls a closing year's **undispo
 - The mutation is **append-only**: it changes status in place and never deletes a record (mirroring the payments-ledger and Usage Charge immutability). It does NOT touch `recordPayment`/`reversePayment`/`recordUsageCharge` or the `payments[]` ledger. It emits a `CHARGES_BILLED` billing event (mirroring `USAGE_CHARGE_RECORDED` / `REFUND_ISSUED`).
 - A billed charge raises the household's owed (via `getBilledUsageChargeTotalForMember`), so unpaid → Outstanding → blocks close (ADR 0006); settlement is through the existing payments ledger. It rejects an unknown member, throws when no deferred charges match the selection, and throws on a read-only year. Another household's charges are never affected.
 
+#### Future atomic Charge Notice boundary (#648; Proposed ADR)
+
+The [owner-approved contract and four amendments](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+are specified in [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) and
+[Invoicing: future Charge Notice contract](invoicing.md#future-charge-notice-issuance-and-recovery-contract-648).
+ADR 0012 remains Proposed until final-head review/merge; this text describes a
+future implementation, not current conformance or code approval.
+
+- The fixed selected raw set is its own cent-allocation parent. Freeze its parent
+  and row cents for the Notice, preserving source amounts; never treat the Notice
+  as another ledger or infer that separate Notice totals equal household `B`.
+  Zero/invalid selections, any complete-source hold, and a held finalized billed
+  candidate stop before billing/event/Notice/mail effects. Retain broader stale,
+  year, household and identity guards regardless of whole-cent normal writers.
+- `recordUsageCharge` rounds to cents before storing cents/100; the review's
+  `buildUsageChargeRecord` uses exact `toCents` and checked `snapshotDollars`.
+  Keep both writer tripwires. This bounded evidence does not prove that stored
+  legacy/imported/direct records are whole cents, valid or representable. Existing
+  type/domain/overflow/provenance admission and legacy sub-cent fixtures remain.
+- Billing, its event, the frozen Notice and deterministic delivery intent commit
+  together through #614; replay never bills twice. A missing original email
+  preserves bill/Notice with not-addressable delivery, not a financial hold.
+  Functions never mutate a year; recovery preserves the original source linkage.
+- Delivery state never allocates payments to a Notice or changes owed, financial
+  holds, settlement, close readiness or rollover eligibility. Close/rollover
+  warns about all not-sent intents (or unavailable status) and allows knowingly
+  proceeding under existing financial gates. No new claim may start after close;
+  an already claimed external send may finish.
+
+The structural #646 split keeps displays/ordinary invoices in #635 and assigns
+these Notice mutations/snapshots/guards to the separate Notice follow-up and
+R1–R4. No source patch or independently tested split head is supplied by this
+specification update; the open draft/P1 still requires a future authorized split.
+
 #### Credit Dispositions
 
 - `issueRefund` records a Refund (#318) for a household that carries a Credit by appending to `creditAdjustments[]` (append-only; `type: 'refund'`, `status: 'recorded'`, the household primary's `memberId`). Recording it clears the credit immediately (Model B, ADR 0003 — no member confirmation), since the refund subtracts from Net Contribution and lives outside the payments ledger; `payments[]` and the payment math are untouched. It emits a `REFUND_ISSUED` billing event and triggers save.
@@ -199,3 +233,7 @@ The single shared carry-forward seam (ADR 0005) rolls a closing year's **undispo
 
 - `_guardReadOnly` throws for closed, archived, or null active year, and passes for open and settling years.
 - `createYear` is not guarded by `_guardReadOnly`: the rollover (legacy and review) writes the prior-year document from an open, settling, or closed year, the one deliberate append to a closed year (ADR 0007, ADR 0009). It rejects an archived source year.
+
+Uncommunicated Notices never remove their billed source rows or alter money.
+These warnings define no new billed-charge auto-carry rule: existing financial
+authority and frozen owed/settlement/carry formulas remain decisive.

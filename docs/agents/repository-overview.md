@@ -149,6 +149,17 @@ Member audit/display helpers and invoice/public writers remain legacy pending
 M3/M4; mixed numerical versions are source-only and must not deploy.
 See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
 
+The [owner-approved #648 scope amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+keeps displays/ordinary invoices in #635 and tracks selected Charge Notice
+issuance/snapshots/guards/recovery separately from the #611/#629/#603 financial
+release chain. [Plan #648](../../plans/648-charge-notice-recovery.md) records the
+native graph handoff and read-only file/hunk/test audit. No actual source split
+or standalone candidate has been validated; draft #646/P1 remain open pending an
+authorized split and final-head reviews. ADR 0012 is Proposed pending review and
+merge of its amended final head. Contract acceptance is no runtime-conformance,
+code, release or live-data approval; all existing financial holds and release
+gates remain.
+
 Source interoperability and client activation are not Functions artifact admission.
 Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
 registration and its packaging/security tests are tracked in

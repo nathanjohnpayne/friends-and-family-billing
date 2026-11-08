@@ -137,6 +137,38 @@ No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/
 
 ## M3: authenticated financial display and invoice consumers (after M2b)
 
+### Owner-approved Notice scope split (#648)
+
+The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+accepts the structural split audited in [plan #648](648-charge-notice-recovery.md#read-only-646-split-inventory):
+authenticated displays and ordinary invoices remain #635; selected Charge Notice
+projection/issuance/snapshots/guards/recovery move to **Notice follow-up (new
+parent, to be filed)** and its R1–R4 children. This is an amendment to M3 scope;
+the deferred own-parent Notice work is outside the #611/#629/#603 release-blocking
+chain. The separate Notice parent/R3 depend on #635's shared private display
+helper, never the reverse. #636 remains blocked by #635 and #638; #638 is blocked by closed #633; #637
+remains blocked by #636; #629 remains blocked by #637; #603 remains blocked by
+#629. #635 retains its existing closed #634 prerequisite. #634 closure records source completion, not proof
+of deployment.
+
+Before removing #648's blocker from #635, file the separate parent and all four
+children, install/read back their native dependencies as plan #648 specifies.
+The new parent/R1–R4 must not block #635, #629 or #603 after that handoff. Other
+financial/public compatibility, hold, report, exact-head review and deployment
+gates in this plan remain unchanged. Legacy sub-cent or malformed Notice/source
+data is not certified conformant or remediated by this scope decision. Preserve
+those fixtures and canonical holds; normal writer whole-cent evidence is bounded
+to admitted representable writer outputs.
+
+The split audit was read-only: it produced no source/test patch and validated no
+standalone candidate. #646 remains draft with its open P1 until a separately
+authorized actual source split and required final-head reviews. The owner
+accepted all seven ADR 0012 choices and four amendments, but ADR 0012 remains
+Proposed pending review/merge of the amended final head. Documentation and ticket
+filing authorize no implementation, code approval, merge, deployment, live report,
+repair/migration or #614 old-tab acknowledgment.
+
+
 M3 **extends** the approved #634 minimal bridge; it may never regress a held household or incomplete aggregate to Paid/settled, payable zero or stale money. Full invoice API/renderer unavailable results and complete display adaptation remain here; public response/cache/version semantics remain M4. The bridge does not waive the remaining prestart contract below or authorize M3 implementation.
 
 **Prestart contract gate:** define household integrity-hold rendering before implementation. Do not infer it from the unused adapter or silently render partial money.

@@ -78,3 +78,85 @@ Covers invoice generation helpers, the invoicing settings tab, and email/text in
 - Shows "Copy Message" and "Open Messages" action buttons.
 - Displays the member's phone number in metadata.
 - Renders nothing when `open` is false.
+
+### Future Charge Notice issuance and recovery contract (#648)
+
+The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
+accepts all seven [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) choices
+and four amendments. This is final proposed implementation-contract text for
+review, not a runtime-conformance assertion. ADR 0012 remains **Proposed** until
+the final amended head is reviewed and merged. Documentation/ticket filing alone
+authorizes no implementation, code approval, merge, deploy, live report or #614
+acknowledgment. The [plan](../plans/648-charge-notice-recovery.md) assigns the
+Notice work to **Notice follow-up (new parent, to be filed)**, separately from
+#635's authenticated display and ordinary-invoice changes.
+
+- Initial billing atomically commits the selected billed rows, one linked billing
+  event, an immutable versioned Notice and one stable administrator/year/Notice/
+  channel delivery intent through #614's version-checked client transaction.
+  Retry identities are allocated once; callbacks perform no external effects.
+  A collision, stale source, invalid finalized candidate or transaction-budget
+  excess produces no partial bill. Functions never write a billing-year document.
+- Preview and new snapshot rows allocate the exact selected raw sum to their own
+  parent cents under ADR 0010, with ordinal record-id ties and conserved running
+  totals. Reject invalid/zero-cent selections before effects. Preserve raw source
+  records and historical snapshots. Separate Notices need not sum to household
+  `B`; `B` alone decides billed owed. The real recorder and review writer create
+  whole-cent outputs for admitted representable inputs; this does not certify
+  legacy/imported/direct data or waive broader source/hold/stale guards.
+- Fresh recovery names the original Notice ID and rereads durable year revision,
+  event/source fingerprint, immutable recipient/membership and complete household
+  financial authority. It cannot rebill, replace the snapshot, re-emit the event,
+  remint/prune links, create a replacement message or reassign a recipient.
+  A changed original contact/membership/email or any admitted-source financial
+  hold blocks delivery. Server reauthorization and claim both require shared
+  `projectHouseholdMoney(..., { reopenedAdjustmentIds: null })` with `ok: true`;
+  no client Boolean or alternative formula is authority. #638 artifact admission
+  and explicit admission of additional entrypoints/modules remain separate gates.
+- An absent original email preserves billing and the Notice with a delivery-only
+  `blocked`/`not_addressable` intent, never an invented address or financial hold.
+  Show guidance to the existing text-invoice or share entry points under their
+  current financial-hold, privacy, identity and lifecycle guards. This is
+  navigation only: no automatic notification/link minting or recipient change.
+  Ordinary text invoices exclude `B`; do not claim that they contain this Notice.
+- Creation and recovery use **exactly the same historical factual new-format
+  copy** defined in ADR 0012, including an initial send seconds after billing.
+  It states the original billing date and frozen amount, never that this is now
+  due, unpaid or the current household balance. Later payments/refunds may change
+  what remains to pay; no per-Notice payment allocation is introduced. Historical
+  Notices and generic legacy email remain unchanged.
+- The successful transactional claim is the dispatch authorization boundary.
+  Changes before claim block it; later changes cannot revoke an external send.
+  Creation and explicit fresh recovery share one dispatcher and claim. Server
+  attempt/claim evidence is monotonic. Only freshly authorized `blocked` or
+  proven `definitely_not_sent` work can become pending again. `processing`,
+  `unknown` and `sent` never reset; no timeout reaper or replacement intent.
+  Generic processing-lease/retry work in #471 must exclude these versioned Notice
+  intents and prove that exclusion; it supplies no Notice retry authority.
+- Distinguish billing committed, Notice recorded, pending, processing, blocked,
+  proven pre-dispatch failure, unknown and provider-accepted Sent. Sent means
+  provider acceptance, not receipt. Observation timeout/listener loss does not
+  rewrite durable status. Ambiguous external-call outcomes stop without replay.
+  Missing legacy snapshots/untracked mail remain manual protocol blocks; absence
+  of a new intent is not evidence the Notice was never sent.
+- Closed/archived years are historical-view-only: no new issuance, recovery
+  authorization or claim, and no automatic reopen. A send successfully claimed
+  while eligible may still finish externally. Before close/rollover, warn with
+  counts and each Notice/household identity/status for every intent not `sent`
+  (including not-addressable, pending, processing, unknown and pre-dispatch
+  failure). Lookup failure shows **Delivery status unavailable**, never a false
+  empty list. The administrator may knowingly proceed; this warning adds no
+  financial hold, readiness gate or close/rollover lock. Explain that unclaimed
+  unsent Notices will remain historical and will not later send, with the
+  already-claimed-send exception. Existing financial/lifecycle gates still apply.
+
+Required future validation covers atomicity/stale/unknown commit outcomes;
+selected-set, candidate and complete-source holds; immutable recipient/privacy;
+new-format first/recovery copy parity; no processing/unknown replay even with a
+legacy lease reaper; absent-email navigation; lifecycle/claim races; and
+non-blocking warning list/read-failure behavior. These are implementation
+obligations, not claims that the present test suite passes them.
+
+Uncommunicated Notices never remove their billed source rows or alter money.
+These warnings define no new billed-charge auto-carry rule: existing financial
+authority and frozen owed/settlement/carry formulas remain decisive.
