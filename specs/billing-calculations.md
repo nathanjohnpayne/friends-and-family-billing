@@ -216,8 +216,8 @@ future implementation, not current conformance or code approval.
   an already claimed external send may finish.
 
 The structural #646 split keeps displays/ordinary invoices in #635 and assigns
-these Notice mutations/snapshots/guards to the separate Notice follow-up and
-R1–R4. No source patch or independently tested split head is supplied by this
+these Notice mutations/snapshots/guards to [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651)
+and its filed, unstarted R1–R4 children (#652–#655). No source patch or independently tested split head is supplied by this
 specification update; the open draft/P1 still requires a future authorized split.
 
 #### Credit Dispositions

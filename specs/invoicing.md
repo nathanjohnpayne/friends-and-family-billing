@@ -88,8 +88,11 @@ review, not a runtime-conformance assertion. ADR 0012 remains **Proposed** until
 the final amended head is reviewed and merged. Documentation/ticket filing alone
 authorizes no implementation, code approval, merge, deploy, live report or #614
 acknowledgment. The [plan](../plans/648-charge-notice-recovery.md) assigns the
-Notice work to **Notice follow-up (new parent, to be filed)**, separately from
-#635's authenticated display and ordinary-invoice changes.
+Notice work to [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651), separately from
+#635's authenticated display and ordinary-invoice changes. The parent and its
+R1–R4 children (#652–#655) are filed and unstarted. Native graph and Project #10
+readbacks preceded the #635 metadata handoff; #635 retains only closed #634 as
+its native blocker. This establishes no runtime or release conformance.
 
 - Initial billing atomically commits the selected billed rows, one linked billing
   event, an immutable versioned Notice and one stable administrator/year/Notice/

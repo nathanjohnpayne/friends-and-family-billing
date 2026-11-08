@@ -1,21 +1,24 @@
 # Proposed Charge Notice recovery plan — #648
 
 **Status: Proposed amended design; owner-approved contract and four bounded
-implementation scopes, with filing authorized.**
+implementation scopes, now filed and unstarted.**
 The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
 accepts all seven choices in [ADR 0012](../docs/adr/0012-charge-notice-recovery.md)
 and R1–R4 with four amendments: a clean #635/Notice split; non-blocking
 not-sent warnings before close/rollover; one historical factual new-format email
 for creation and recovery; and existing authorized text/share guidance for
-`not_addressable`. Each relevant ticket must carry these amendments before
-filing. ADR 0012 remains Proposed pending review and merge of the final amended
-head. Acceptance is not code approval or a runtime-conformance claim.
+`not_addressable`. The filed scopes below carry these amendments. ADR 0012
+remains Proposed pending review and merge of the final amended head. Acceptance is not code approval or a runtime-conformance claim.
 
 Authorization covers documentation and ticket filing only. No implementation,
 code-head approval, merge, deployment, live read/report, data repair/migration or
-#614 old-tab-loss acknowledgment is granted. **Notice follow-up (new parent, to
-be filed)** tracks the Charge Notice work separately from #635 and outside the
-#611/#629/#603 financial release chain. This phase makes no source/test patch and
+#614 old-tab-loss acknowledgment is granted. [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651) tracks the Charge Notice work separately from #635 and outside the
+#611/#629/#603 financial release chain. Its four filed, unstarted children are [R1 / #652](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/652), [R2 / #653](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/653), [R3 / #654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654), [R4 / #655](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/655).
+Native parent/child/dependency and board readbacks completed before the #635
+handoff. All five issues are only on Friends & Family Billing Project #10 in
+Backlog: #651 is size:L with no route; #652–#655 are size:M with both high-effort
+routes mirrored on the board. #635 now has only closed #634 as its native blocker.
+This metadata handoff grants no implementation or release permission. This phase makes no source/test patch and
 validates no standalone split candidate. Draft #646 retains its open P1 until a
 later authorized actual split and exact-head reviews.
 
@@ -89,19 +92,22 @@ charges. Those guards protect broader integrity than a remainder difference.
 
 ## Dependency and release boundaries
 
-Install and read back this native graph before removing the current #648 blocker
-from #635. Text arrows are the filing contract, not evidence that an edge exists:
+The required sequence was completed: file all scopes, install and read back
+their native graph and Project #10 placement, then remove only #648 from #635.
+Before/after evidence is retained in the primary checkout under
+`.mergepath/issue-648/file-full-graph-before-handoff.json` and
+`.mergepath/issue-648/file-full-graph-after-handoff.json`. The read-back graph is:
 
 ```text
-Notice follow-up (new parent, to be filed), size:L
-  native children R1, R2, R3, R4
-  blocked by #648, R4, #635
-R1 blocked by #648
-R2 blocked by R1 and #638
-R3 blocked by R2, #614 and #635 (shared display-helper source)
-R4 blocked by R3
+#651 Notice follow-up, size:L, unrouted
+  native children #652 (R1), #653 (R2), #654 (R3), #655 (R4)
+  blocked by #648, #655 (R4), #635
+#652 (R1) blocked by #648
+#653 (R2) blocked by #652 (R1) and #638
+#654 (R3) blocked by #653 (R2), #614 and #635 (shared display-helper source)
+#655 (R4) blocked by #654 (R3)
 
-#635 retains #634; remove only its #648 blocker after full graph readback
+#635 blocked only by closed #634; #648 blocker removed after full readback
 #636 blocked by #635 and #638; #638 blocked by closed #633
 #637 blocked by #636; #629 blocked by #637; #603 blocked by #629
 These existing financial dependencies remain unchanged
@@ -145,12 +151,12 @@ No diagram arrow grants that authorization or represents confirmed deployment.
 Stage-2/reviewed-rollover gates remain as specified in #616/#607; this proposal
 does not move them.
 
-**Before #648 closes or its edge to #635 is removed**, file the Notice parent
-and R1–R4, install all native child/dependency relationships above, and read back
-the graph. Only then remove #648 from #635. Design completion must not masquerade
-as implemented recovery. Ticket filing is authorized by the owner decision;
-implementation remains unauthorized. The amended ADR stays Proposed until its
-final head is reviewed and merged.
+**Historical handoff requirement:** #651 and #652–#655 had to exist with all
+native relationships and board state read back before removing #648 from #635.
+That sequence is complete; #648 itself still requires final amended-head review
+and merge before documentary completion. Metadata/design completion must not
+masquerade as implemented recovery. Implementation remains unauthorized. The
+amended ADR stays Proposed until its final head is reviewed and merged.
 
 Each R1–R4 implementation scope is `size:M`, high-stakes, routed `anthropic=opus-5.5/high` and
 `openai=gpt-6.1-sol/high`. Before starting, inventory the listed source surface
@@ -159,7 +165,9 @@ change, stop and propose a split for approval; do not silently expand it.
 Every PR requires exact-head human financial/security review plus repository
 review gates. No PR approval implies merge or deployment authority.
 
-## R1 — inert versioned Notice and queue schema
+## R1 / #652 — inert versioned Notice and queue schema
+
+Filed issue: [#652](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/652); unstarted.
 
 **Dependencies/inputs:** blocked by #648 documentary completion; owner-accepted
 contract with ADR still Proposed pending final-head review/merge; refreshed #614/#615
@@ -195,9 +203,11 @@ allow/deny matrix for schema versions, immutable fields and owner scope;
 generic-mail and other Request regressions; `npm run test:rules` and relevant
 existing suites. No live query or deploy is part of validation.
 
-## R2 — new-format delivery state and sender claim
+## R2 / #653 — new-format delivery state and sender claim
 
-**Dependencies/inputs:** natively blocked by R1 and #638 explicit artifact admission for the shared
+Filed issue: [#653](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/653); unstarted.
+
+**Dependencies/inputs:** read-back native blockers R1 / #652 and #638 explicit artifact admission for the shared
 financial module graph before import/deployment; refreshed sender/rules
 contract; fixed snapshot and year-revision authorization envelopes. Source budget: new-format branch in mail
 processing, a shared dispatcher and authenticated fresh-action reauthorization
@@ -276,9 +286,11 @@ CJS/ESM loading of the exact closed module graph, and artifact rejection of
 unadmitted modules/entrypoints/targets. Test rendered historical copy after
 payment/refund and settlement without per-Notice allocation.
 
-## R3 — atomic client producer, no UI activation
+## R3 / #654 — atomic client producer, no UI activation
 
-**Dependencies/inputs:** natively blocked by R2, #614 source with all-writer
+Filed issue: [#654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654); unstarted.
+
+**Dependencies/inputs:** read-back native blockers R2 / #653, #614 source with all-writer
 inventory, and #635 for the shared private display helper; R1 is transitive. #615
 deployment evidence remains a prerequisite for #614 merge. Extract the minimum
 approved exact selected-set projection and finalized-candidate guards from draft
@@ -322,9 +334,11 @@ after commit and advance revision afterward; emulator atomicity/rules tests;
 source-mutation assertions; zero/overflow/large-selection fixtures; all-writer
 source guard and queue compensation regressions. No live-data validation.
 
-## R4 — fresh recovery, lifecycle warnings and Notice UI integration
+## R4 / #655 — fresh recovery, lifecycle warnings and Notice UI integration
 
-**Dependencies/inputs:** natively blocked by R3 (R1/R2 are transitive); separately
+Filed issue: [#655](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/655); unstarted.
+
+**Dependencies/inputs:** read-back native blocker R3 / #654 (R1/R2 are transitive); separately
 verified live #615/#614 and compatible R1/R2 deployment evidence before activation; approved UI behavior and existing
 M4/Hosting release gates. Source budget: recovery read/action client and
 observation status, Charge Notice

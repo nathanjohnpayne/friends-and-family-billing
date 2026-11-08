@@ -226,7 +226,8 @@ Two choices were not settled by the existing requirements or by the code; each i
 The [owner decision](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
 accepts the [ADR 0012](../docs/adr/0012-charge-notice-recovery.md) contract choices
 and four amendments. ADR 0012 remains Proposed pending review and merge of the
-final amended head. This is future-contract text, not runtime conformance, code
+final amended head. [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651) and its R1–R4 children
+(#652–#655) are filed and unstarted. This is future-contract text, not runtime conformance, code
 approval, a #614 old-tab acknowledgment or deployment/live-report authorization.
 
 - Before confirming close or rollover, use the shared R4 warning read/API to list

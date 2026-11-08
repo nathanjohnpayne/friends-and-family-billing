@@ -142,8 +142,7 @@ No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/
 The [owner decision on PR #649](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
 accepts the structural split audited in [plan #648](648-charge-notice-recovery.md#read-only-646-split-inventory):
 authenticated displays and ordinary invoices remain #635; selected Charge Notice
-projection/issuance/snapshots/guards/recovery move to **Notice follow-up (new
-parent, to be filed)** and its R1–R4 children. This is an amendment to M3 scope;
+projection/issuance/snapshots/guards/recovery move to [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651) and its filed, unstarted R1–R4 children (#652–#655). This is an amendment to M3 scope;
 the deferred own-parent Notice work is outside the #611/#629/#603 release-blocking
 chain. The separate Notice parent/R3 depend on #635's shared private display
 helper, never the reverse. #636 remains blocked by #635 and #638; #638 is blocked by closed #633; #637
@@ -151,9 +150,11 @@ remains blocked by #636; #629 remains blocked by #637; #603 remains blocked by
 #629. #635 retains its existing closed #634 prerequisite. #634 closure records source completion, not proof
 of deployment.
 
-Before removing #648's blocker from #635, file the separate parent and all four
-children, install/read back their native dependencies as plan #648 specifies.
-The new parent/R1–R4 must not block #635, #629 or #603 after that handoff. Other
+The native parent/child/dependency graph and Project #10 Backlog placement were
+read back before removing only #648's blocker from #635, as plan #648 requires.
+#635 now has only closed #634 as its native blocker. The filed, unstarted
+#651/R1–R4 do not block #635, #629 or #603. This is a metadata/scope handoff, not
+source implementation or release proof. Other
 financial/public compatibility, hold, report, exact-head review and deployment
 gates in this plan remain unchanged. Legacy sub-cent or malformed Notice/source
 data is not certified conformant or remediated by this scope decision. Preserve

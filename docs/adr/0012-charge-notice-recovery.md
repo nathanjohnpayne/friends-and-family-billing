@@ -14,8 +14,12 @@ Documentation and filing the bounded implementation tickets are authorized;
 [the recovery plan](../../plans/648-charge-notice-recovery.md) records their scope
 and dependency graph. The structurally separable display/ordinary-invoice work
 stays in #635; Charge Notice issuance, snapshots, guards and recovery move to
-**Notice follow-up (new parent, to be filed)**. The read-only split audit produced
-no code patch or independently validated candidate. #646 remains a draft with its
+[Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651). Its R1–R4 children are filed and unstarted:
+[R1 / #652](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/652), [R2 / #653](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/653), [R3 / #654](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/654), [R4 / #655](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/655).
+Native graph/Project #10 readbacks completed before the #635 metadata handoff;
+#635 now retains only closed #634 as its native blocker. This changes no source
+head or implementation/release authority.
+The read-only split audit produced no code patch or independently validated candidate. #646 remains a draft with its
 open P1 until a later authorized actual split and final-head reviews.
 
 The four owner amendments are part of every relevant R1–R4 acceptance contract:

@@ -151,9 +151,12 @@ See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2
 
 The [owner-approved #648 scope amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056)
 keeps displays/ordinary invoices in #635 and tracks selected Charge Notice
-issuance/snapshots/guards/recovery separately from the #611/#629/#603 financial
-release chain. [Plan #648](../../plans/648-charge-notice-recovery.md) records the
-native graph handoff and read-only file/hunk/test audit. No actual source split
+issuance/snapshots/guards/recovery in [Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651)
+and its filed, unstarted R1–R4 children (#652–#655), separately from the
+#611/#629/#603 financial release chain. [Plan #648](../../plans/648-charge-notice-recovery.md) records the
+completed native graph/Project #10 metadata handoff and read-only file/hunk/test
+audit. #635 retains only closed #634 as its native blocker; recovery scopes remain
+unstarted. This establishes no implementation or release proof. No actual source split
 or standalone candidate has been validated; draft #646/P1 remain open pending an
 authorized split and final-head reviews. ADR 0012 is Proposed pending review and
 merge of its amended final head. Contract acceptance is no runtime-conformance,
