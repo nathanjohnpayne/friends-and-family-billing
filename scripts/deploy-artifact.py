@@ -29,7 +29,11 @@ ADC_URI = "op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential"
 TARGETS = {"functions": "functions", "hosting": "hosting", "firestore:rules": "firestore-rules", "storage": "storage"}
 BANNED = {".npmrc", ".bin", "node_modules", ".git", ".firebaserc"}
 FORBIDDEN_KEYS = {"predeploy", "postdeploy", "lifecycleHooks", "extensions", "frameworksBackend", "configDir", "schemaFilePath", "baseImageUri", "command", "args", "dataConnectGraphqlTrigger"}
-FUNCTION_FILES = {"index.js", "billing.js", "package.json", "package-lock.json", "functions.yaml"}
+LEGACY_FUNCTION_FILES = frozenset({"index.js", "billing.js", "package.json", "package-lock.json", "functions.yaml"})
+FUNCTION_VARIANTS = {
+    1: LEGACY_FUNCTION_FILES,
+    2: LEGACY_FUNCTION_FILES | {"money.js", "money.mjs", "household-money.js", "household-money.mjs"},
+}
 
 
 def strict_json(data):
@@ -61,8 +65,9 @@ def no_hooks(value):
             no_hooks(child)
 
 
-def validate_config(root, target):
+def validate_config(root, target, schema):
     """Validate target-only config and precomputed Functions discovery data."""
+    require(type(schema) is int and schema in FUNCTION_VARIANTS, "Unsupported artifact schema")
     config = strict_json((root / "firebase.json").read_bytes())
     no_hooks(config)
     key = "firestore" if target == "firestore:rules" else target
@@ -72,7 +77,8 @@ def validate_config(root, target):
     if target == "functions":
         require(value == {"source": "source", "runtime": "nodejs24", "codebase": "default"}, "Unexpected Functions configuration")
         source = root / "source"
-        require({p.name for p in source.iterdir()} == FUNCTION_FILES, "Unexpected Functions source files")
+        files = {p.name for p in source.iterdir()}
+        require(files == FUNCTION_VARIANTS[schema], "Unexpected Functions source files")
         package = strict_json((source / "package.json").read_bytes())
         require(isinstance(package, dict) and package.get("main") == "index.js" and package.get("engines") == {"node": "24"}, "Functions must use index.js/nodejs24")
         require(not package.get("scripts"), "Functions package scripts are forbidden")
@@ -140,7 +146,7 @@ def extract_verified(archive, destination, sha, target):
         require(files["metadata.json"].size <= 4 * 1024 * 1024, "Metadata is too large")
         metadata = strict_json(tf.extractfile(files["metadata.json"]).read())
         require(set(metadata) == {"schema", "repository", "sourceSha", "firebaseCli", "functionsSdk", "files"}, "Unexpected artifact metadata fields")
-        require(type(metadata["schema"]) is int and metadata["schema"] == 1 and metadata["repository"] == REPOSITORY and metadata["sourceSha"] == sha, "Artifact identity mismatch")
+        require(type(metadata["schema"]) is int and metadata["schema"] in FUNCTION_VARIANTS and metadata["repository"] == REPOSITORY and metadata["sourceSha"] == sha, "Artifact identity mismatch")
         require(metadata["firebaseCli"] == CLI_VERSION and metadata["functionsSdk"] == SDK_VERSION, "Artifact tool version mismatch")
         hashes = metadata["files"]
         require(isinstance(hashes, dict) and set(hashes) == set(files) - {"metadata.json"}, "Artifact file allowlist mismatch")
@@ -157,7 +163,7 @@ def extract_verified(archive, destination, sha, target):
             with os.fdopen(fd, "wb") as stream:
                 stream.write(tf.extractfile(member).read())
     for selected, directory in TARGETS.items():
-        validate_config(destination / directory, selected)
+        validate_config(destination / directory, selected, metadata["schema"])
     return destination / TARGETS[target], metadata
 
 
@@ -256,12 +262,12 @@ def resolve_tools(repository):
 DISCOVERY_PROOF = Path(__file__).with_name("check-functions-discovery.cjs").read_text()
 
 
-def check_discovery(staging, tools, env, cwd, invoke=run):
-    validate_config(staging, "functions")
+def check_discovery(staging, tools, env, cwd, schema, invoke=run):
+    validate_config(staging, "functions", schema)
     invoke([tools["node"], "-e", DISCOVERY_PROOF, str(staging / "source"), tools["firebase"]], env, cwd)
 
 
-def verify_staging(staging, target, hashes):
+def verify_staging(staging, target, hashes, schema):
     staging = Path(staging)
     require(staging.is_dir() and not staging.is_symlink(), "Missing immutable staging")
     actual = {p.relative_to(staging).as_posix(): p for p in staging.rglob("*") if p.is_file()}
@@ -269,10 +275,10 @@ def verify_staging(staging, target, hashes):
     for name, path in actual.items():
         require(not path.is_symlink() and digest(path.read_bytes()) == hashes[name], "Staging bytes changed")
     require(not any(p.is_symlink() for p in staging.rglob("*")), "Staging link inserted")
-    validate_config(staging, target)
+    validate_config(staging, target, schema)
 
 
-def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=None):
+def consume_verified(staging, target, tools, work, hashes, schema, invoke=run, acquire=None):
     """Final consumer: reverify -> one fixed ADC read -> unchanged helper.
 
     The trusted op reader retains operator HOME for desktop CLI configuration.
@@ -296,14 +302,14 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
     temp = work / "credential-tmp"
     temp.mkdir(mode=0o700)
     env["TMPDIR"] = str(temp)
-    verify_staging(staging, target, hashes)
+    verify_staging(staging, target, hashes, schema)
     if target == "functions":
-        check_discovery(staging, tools, env, cwd, invoke)
+        check_discovery(staging, tools, env, cwd, schema, invoke)
     # The launcher repeats the manifest/hash/resolution guard at Firebase's
     # execution boundary, including after the helper's credential checks.
     # No public private-mode dispatcher or caller-supplied payload. The guard
     # invocation is generated from already verified in-memory data only.
-    verified = {"staging": str(staging), "target": target, "tools": tools, "hashes": hashes}
+    verified = {"staging": str(staging), "target": target, "tools": tools, "hashes": hashes, "schema": schema}
     guard = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['launch_firebase'](" + repr(verified) + ",sys.argv[1:])"
     require(len(guard.encode()) <= 65536, "Firebase guard exceeds safe command bound")
     firebase = bin_dir / "firebase"
@@ -334,7 +340,7 @@ def consume_verified(staging, target, tools, work, hashes, invoke=run, acquire=N
 
 def launch_firebase(payload, argv):
     staging, target, tools = Path(payload["staging"]), payload["target"], payload["tools"]
-    verify_staging(staging, target, payload["hashes"])
+    verify_staging(staging, target, payload["hashes"], payload["schema"])
     # Canonical helper also uses firebase for its harmless project lookup. The
     # final deployment command remains strictly the selected config/target.
     if argv and argv[0] == "deploy":
@@ -344,7 +350,7 @@ def launch_firebase(payload, argv):
     env = child_environment(Path(os.environ["HOME"]), os.environ["PATH"])
     env["GOOGLE_APPLICATION_CREDENTIALS"] = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
     if target == "functions":
-        check_discovery(staging, tools, child_environment(Path(os.environ["HOME"]), os.environ["PATH"]), Path.cwd())
+        check_discovery(staging, tools, child_environment(Path(os.environ["HOME"]), os.environ["PATH"]), Path.cwd(), payload["schema"])
     os.execve(tools["node"], [tools["node"], tools["firebase"], *argv], env)
 
 
@@ -388,7 +394,7 @@ def main():
     run(gh + ["attestation", "verify", str(archive), "--repo", REPOSITORY, "--signer-workflow", REPOSITORY + "/.github/workflows/" + WORKFLOW, "--source-ref", "refs/heads/main", "--source-digest", args.sha, "--deny-self-hosted-runners", "--cert-oidc-issuer", "https://token.actions.githubusercontent.com"], gh_env, work)
     staging, metadata = extract_verified(archive, work / "extracted", args.sha, args.target)
     # Source/rules files are byte-bound to git, not merely trusted build outputs.
-    source_files = {"functions/source/" + name: "functions/" + name for name in FUNCTION_FILES - {"functions.yaml"}}
+    source_files = {"functions/source/" + name: "functions/" + name for name in FUNCTION_VARIANTS[metadata["schema"]] - {"functions.yaml"}}
     source_files.update({"firestore-rules/firestore.rules": "firestore.rules", "storage/storage.rules": "storage.rules"})
     original_config = strict_json(subprocess.check_output(git + ["cat-file", "blob", args.sha + ":firebase.json"], env=git_env, cwd=work, timeout=60))
     hosting = {**original_config["hosting"], "public": "public"}
@@ -398,20 +404,22 @@ def main():
     # Only the selected target is copied into the final project/upload tree.
     selected_stage = work / "selected"
     shutil.copytree(staging, selected_stage)
-    hashes = {p.relative_to(selected_stage).as_posix(): digest(p.read_bytes()) for p in selected_stage.rglob("*") if p.is_file()}
+    prefix = TARGETS[args.target] + "/"
+    hashes = {name[len(prefix):]: value for name, value in metadata["files"].items() if name.startswith(prefix)}
+    verify_staging(selected_stage, args.target, hashes, metadata["schema"])
     staging = selected_stage
     for path in selected_stage.rglob("*"):
         path.chmod(0o500 if path.is_dir() else 0o400)
     selected_stage.chmod(0o500)
     if args.target == "functions":
-        check_discovery(staging, tools, base, work)
+        check_discovery(staging, tools, base, work, metadata["schema"])
     if args.verify_only:
         print(json.dumps({"verified": True, "sourceSha": args.sha, "target": args.target, "credentialAcquired": False}))
         return
-    run_consumer(staging, args.target, tools, work, hashes)
+    run_consumer(staging, args.target, tools, work, hashes, metadata["schema"])
 
 
-def run_consumer(staging, target, tools, work, hashes):
+def run_consumer(staging, target, tools, work, hashes, schema):
     """Clean exec, anonymous verified-data pipe; no public private-mode dispatch.
 
     A new process image receives no PAT-bearing parent environment or memory.
@@ -419,7 +427,7 @@ def run_consumer(staging, target, tools, work, hashes):
     """
     cwd = Path(work) / "consumer-runtime"
     cwd.mkdir(mode=0o700)
-    verified = {"staging": str(staging), "target": target, "tools": tools, "work": str(work), "hashes": hashes}
+    verified = {"staging": str(staging), "target": target, "tools": tools, "work": str(work), "hashes": hashes, "schema": schema}
     payload = json.dumps(verified).encode()
     require(len(payload) <= 8 * 1024 * 1024, "Consumer payload too large")
     code = "import runpy,sys; m=runpy.run_path(" + repr(str(Path(__file__).resolve())) + "); m['install_signal_handlers'](); m['consume_verified'](**m['strict_json'](sys.stdin.buffer.read(8388609)))"
