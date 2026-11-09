@@ -19,11 +19,11 @@ vi.mock('firebase/firestore', () => ({
     getDocs: vi.fn(), getDoc: vi.fn(), writeBatch: vi.fn(), runTransaction: vi.fn()
 }));
 
-import { issueChargeNotice as issueChargeNoticeResult } from '@/lib/ChargeNoticeService.js';
+import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
 import { BillingYearService } from '@/lib/BillingYearService.js';
 
-// Ordinary orchestration fixtures supply an unchanged immutable source snapshot.
-const issueChargeNotice = (opts, deps) => issueChargeNoticeResult({ ...opts, getState: opts.getState || (() => opts) }, deps);
+import { summarizeChargePreview, buildChargeNoticeDoc } from '@/lib/chargeNotice.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 const baseOpts = () => ({
     userId: 'user-1',
@@ -81,62 +81,77 @@ describe('issueChargeNotice', () => {
         expect(opts.charges.map(row => row.amount)).toEqual([.005, .005]);
     });
 
-    it('stops after awaited link generation if the household is now held', async () => {
-        let available = true;
-        createShareLink.mockImplementation(async () => { available = false; return { url: 'https://example.com', tokenHash: 'h' }; });
-        const opts = { ...baseOpts(), getAvailability: () => ({ available }) };
-        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
-        expect(mockSetDoc).not.toHaveBeenCalled();
-        expect(queueEmailFn).not.toHaveBeenCalled();
-    });
+    it.each(['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments'])(
+        'rejects incomplete raw %s before transport', async field => {
+            const opts = baseOpts();
+            delete opts[field];
+            await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
+            expect(createShareLink).not.toHaveBeenCalled();
+            expect(mockSetDoc).not.toHaveBeenCalled();
+            expect(queueEmailFn).not.toHaveBeenCalled();
+        });
 
-    it('stops before email if the household becomes held while the Notice write is in flight', async () => {
-        let available = true;
-        mockSetDoc.mockImplementationOnce(async () => { available = false; });
-        await expect(issueChargeNotice({ ...baseOpts(), getAvailability: () => ({ available }) }, { createShareLink, queueEmailFn }))
-            .rejects.toThrow(/unavailable/);
-        expect(mockSetDoc).toHaveBeenCalledOnce();
-        expect(queueEmailFn).not.toHaveBeenCalled();
-    });
-
-    it('rejects a Boolean-only caller before any side effect', async () => {
-        await expect(issueChargeNoticeResult({ ...baseOpts(), getAvailability: () => ({ available: true }) }, { createShareLink, queueEmailFn }))
-            .rejects.toThrow(/getState reader/);
-        expect(createShareLink).not.toHaveBeenCalled();
-        expect(mockSetDoc).not.toHaveBeenCalled();
-        expect(queueEmailFn).not.toHaveBeenCalled();
-    });
-
-    it.each([undefined, null, () => null, () => ({ activeYear: { id: '2026' } })])('rejects a missing or unusable live source reader before effects', async getState => {
-        await expect(issueChargeNoticeResult({ ...baseOpts(), getState }, { createShareLink, queueEmailFn })).rejects.toThrow();
-        expect(createShareLink).not.toHaveBeenCalled();
-        expect(mockSetDoc).not.toHaveBeenCalled();
-        expect(queueEmailFn).not.toHaveBeenCalled();
-    });
-
-    it.each(['hold', 'year'])('never revives a real immutable-service operation after a transient %s is restored', async transition => {
-        const service = new BillingYearService();
+    it.each([1.005, .005, .004])('shares one %s fixture across preview, billed event, document and email', async amount => {
         const opts = baseOpts();
-        service._setState({ activeYear: opts.activeYear, familyMembers: opts.familyMembers, bills: opts.bills, payments: opts.payments,
-            creditAdjustments: opts.creditAdjustments, owedAdjustments: opts.owedAdjustments });
-        const initial = service.getState();
+        const charges = (amount === 1.005 ? ['a'] : ['a', 'b']).map(id => ({ id, memberId: 1,
+            kind: 'usage_charge', status: 'deferred', amount, description: id, incurredDate: '2026-01-01' }));
+        const service = new BillingYearService();
+        service._setState({ activeYear: opts.activeYear, familyMembers: opts.familyMembers, owedAdjustments: charges });
+        const preview = summarizeChargePreview(charges);
+        const result = service.billDeferredCharges({ memberId: 1, chargeIds: charges.map(row => row.id) });
+        const snapshot = service.getState();
+        await issueChargeNotice({ ...opts, ...snapshot, ...result }, { createShareLink, queueEmailFn });
+        const document = mockSetDoc.mock.calls[0][1];
+        const expected = amount === 1.005 ? 1.01 : .01;
+        expect(preview.total).toBe(expected);
+        expect(result.amount).toBe(expected);
+        expect(snapshot.billingEvents.at(-1).payload.amount).toBe(expected);
+        expect(document.amount).toBe(expected);
+        expect(document.charges).toEqual(preview.charges.map(({ id, description, amount, incurredDate }) => ({ id, description, amount, incurredDate })));
+        expect(buildChargeNoticeDoc({ ...opts, charges }).charges).toEqual(document.charges);
+        expect(preview.charges.at(-1).runningTotal).toBe(expected);
+        let running = 0;
+        for (const row of preview.charges) {
+            running += Math.round(row.amount * 100);
+            expect(row.runningTotal).toBe(running / 100);
+            expect(queueEmailFn.mock.calls[0][0].body).toContain(`${row.description}: $${row.amount.toFixed(2)}`);
+        }
+        expect(queueEmailFn.mock.calls[0][0].subject).toContain(expected.toFixed(2));
+        expect(snapshot.owedAdjustments.map(row => row.amount)).toEqual(charges.map(row => row.amount));
+        if (amount === 1.005) expect(getHouseholdFinancials(snapshot.familyMembers[0], snapshot).cents.B).toBe(101);
+    });
+
+    it('freezes financial and identity presentation before awaiting link transport', async () => {
+        const opts = baseOpts();
+        opts.yearLabel = '';
+        opts.charges = [{ id: 'a', amount: 1.005, description: 'Original charge', incurredDate: '2026-01-01' }];
+        opts.settings = { paymentMethods: [{ id: 'cash', label: 'Original method' }] };
         let finish;
         createShareLink.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
-        const pending = issueChargeNoticeResult({ ...opts, getState: () => service.getState(),
-            getAvailability: () => ({ available: true }) }, { createShareLink, queueEmailFn });
+        const pending = issueChargeNotice(opts, { createShareLink, queueEmailFn });
         expect(createShareLink).toHaveBeenCalledOnce();
-        if (transition === 'hold') {
-            service._setState({ creditAdjustments: [{ id: 'bad', memberId: 1, type: 'refund', status: 'recorded', amount: NaN }] });
-            service._setState({ creditAdjustments: initial.creditAdjustments });
-        } else {
-            service._setState({ activeYear: { ...opts.activeYear, id: '2027', label: '2027' } });
-            service._setState({ activeYear: initial.activeYear });
-        }
-        expect(service.getState()).not.toBe(initial);
-        finish({ url: 'https://example.com/share', tokenHash: 'h' });
-        await expect(pending).rejects.toThrow(/unavailable/);
-        expect(mockSetDoc).not.toHaveBeenCalled();
-        expect(queueEmailFn).not.toHaveBeenCalled();
+        opts.charges[0].amount = 99;
+        opts.charges[0].description = 'Changed charge';
+        opts.memberName = 'Changed name';
+        opts.memberEmail = 'changed@example.com';
+        opts.activeYear.label = 'Changed year';
+        opts.familyMembers[0].name = 'Changed member';
+        opts.settings.paymentMethods[0].label = 'Changed method';
+        finish({ url: 'https://example.com/frozen', tokenHash: 'frozen-hash' });
+        await pending;
+        const document = mockSetDoc.mock.calls[0][1];
+        const mail = queueEmailFn.mock.calls[0][0];
+        expect(document).toMatchObject({ memberName: 'Alice', amount: 1.01,
+            charges: [{ description: 'Original charge', amount: 1.01 }] });
+        expect(mail.to).toBe('alice@example.com');
+        expect(mail.body).toContain('Original charge: $1.01');
+        expect(mail.subject).toContain('2026');
+        expect(mail.body).toContain('https://example.com/frozen');
+        expect(mail.body).not.toContain('Changed');
+        const link = createShareLink.mock.calls[0][0];
+        expect(link.familyMembers[0].name).toBe('Alice');
+        expect(link.activeYear.label).toBe('2026');
+        expect(link.settings.paymentMethods[0].label).toBe('Original method');
     });
 
     it('writes a charge_notice doc to the disputes subcollection with the billed total', async () => {

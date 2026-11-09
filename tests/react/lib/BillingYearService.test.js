@@ -991,6 +991,23 @@ describe('BillingYearService', () => {
             expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).cents.B).toBe(1);
         });
 
+        it.each([{ amounts: [] }, { amounts: [0] }, { amounts: [0, 1] }])('rejects the complete confirmed $amounts set before event/state/save/persistence', ({ amounts }) => {
+            seedWithCharges({ owedAdjustments: amounts.map((amount, index) => ({ id: `zero-${index}`, memberId: 1,
+                kind: 'usage_charge', status: 'deferred', amount })) });
+            const before = svc.getState();
+            const original = structuredClone(before);
+            const save = vi.spyOn(svc, 'save');
+            const emit = vi.spyOn(svc, '_emitEvent');
+            const writesBefore = setDocCalls.length;
+            expect(() => svc.billDeferredCharges({ memberId: 1, chargeIds: before.owedAdjustments.map(row => row.id) })).toThrow();
+            expect(svc.getState()).toBe(before);
+            expect(svc.getState()).toEqual(original);
+            expect(emit).not.toHaveBeenCalled();
+            expect(save).not.toHaveBeenCalled();
+            expect(setDocCalls).toHaveLength(writesBefore);
+            expect(getHouseholdFinancials(before.familyMembers[0], before).ok).toBe(true);
+        });
+
         it('refuses a newly held B candidate before event/state/save effects', () => {
             seedWithCharges({ owedAdjustments: [
                 { id: 'already-billed', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 60000000000000 },

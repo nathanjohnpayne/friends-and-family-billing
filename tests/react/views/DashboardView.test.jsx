@@ -245,7 +245,8 @@ describe('DashboardView', () => {
                 // getState reflects the POST-billDeferredCharges state: o1 is now 'billed'
                 // (the real service flips it synchronously). The handler must read THIS fresh
                 // state, not the stale 'deferred' prop, when minting the Charge Notice link.
-                getState: vi.fn(() => ({ settings: {}, owedAdjustments: [
+                getState: vi.fn(() => ({ activeYear: mockState.activeYear, familyMembers: mockState.familyMembers,
+                    bills: mockState.bills, payments: mockState.payments, creditAdjustments: [], settings: {}, owedAdjustments: [
                     { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
                 ] })),
                 recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
@@ -289,19 +290,37 @@ describe('DashboardView', () => {
             ]);
         });
 
-        it('binds pending Notice continuation availability to its original year and household', () => {
-            const { service } = renderWithDeferred();
-            fireEvent.click(screen.getByText('Bob').closest('.settlement-card-main'));
-            fireEvent.click(screen.getByText('Bill Charges'));
-            fireEvent.click(screen.getByText('Bill & Notify'));
+        it('uses one complete fresh post-billing source and identity for Notice issuance', async () => {
+            const user = userEvent.setup();
+            const { service, billDeferredCharges } = renderWithDeferred();
+            const fresh = { activeYear: { id: '2026', label: 'Fresh label' }, settings: { emailSubject: 'Fresh settings' },
+                familyMembers: mockState.familyMembers.map(row => row.id === 2 ? { ...row, name: 'Fresh Bob', email: 'fresh@example.com' } : row),
+                bills: [{ ...mockState.bills[0], amount: 1400 }],
+                payments: [{ id: 'fresh-payment', memberId: 2, amount: 1 }],
+                creditAdjustments: [{ id: 'fresh-refund', memberId: 2, amount: .5, type: 'refund', status: 'recorded' }],
+                owedAdjustments: [{ id: 'o1', memberId: 2, kind: 'usage_charge', status: 'billed', amount: 12.5 }] };
+            const originalBill = billDeferredCharges.getMockImplementation();
+            billDeferredCharges.mockImplementation(args => {
+                service.getState.mockReturnValue(fresh);
+                service.getState.mockClear();
+                return originalBill(args);
+            });
+            let snapshotReadsAtIssuance;
+            mockIssueChargeNotice.mockImplementationOnce(() => {
+                snapshotReadsAtIssuance = service.getState.mock.calls.length;
+                return Promise.resolve({ emailError: null });
+            });
+            await user.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            await user.click(screen.getByText('Bill Charges'));
+            await user.click(screen.getByText('Bill & Notify'));
+            expect(snapshotReadsAtIssuance).toBe(1);
             const opts = mockIssueChargeNotice.mock.calls[0][0];
-            const original = { ...mockState, ...service.getState() };
-            service.getState.mockReturnValue(original);
-            expect(opts.getAvailability().available).toBe(true);
-            service.getState.mockReturnValue({ ...original, activeYear: { id: '2027', label: '2027' } });
-            expect(opts.getAvailability().available).toBe(false);
-            service.getState.mockReturnValue({ ...original, familyMembers: original.familyMembers.map(row => row.id === 1 ? { ...row, linkedMembers: [2] } : row) });
-            expect(opts.getAvailability().available).toBe(false);
+            for (const field of ['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments', 'activeYear', 'settings']) {
+                expect(opts[field]).toBe(fresh[field]);
+            }
+            expect(opts).toMatchObject({ memberName: 'Fresh Bob', memberEmail: 'fresh@example.com', yearLabel: 'Fresh label' });
+            expect(opts).not.toHaveProperty('getState');
+            expect(opts).not.toHaveProperty('getAvailability');
         });
 
         async function billAndNotify() {

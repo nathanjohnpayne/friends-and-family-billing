@@ -37,7 +37,7 @@ import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from './fina
  * @param {Array}    opts.payments
  * @param {Array}    [opts.owedAdjustments]
  * @param {Object}   opts.activeYear
- * @param {Function} opts.getState        live immutable BillingYearService snapshot reader
+ * @param {Array}    opts.creditAdjustments
  * @param {Object}   opts.settings
  * @param {Object}   [deps]  injectable collaborators (tests)
  * @param {Function} [deps.createShareLink]
@@ -53,7 +53,7 @@ export async function issueChargeNotice(opts, deps = {}) {
     const {
         userId, billingYearId, yearLabel, memberId, memberName, memberEmail,
         chargeNoticeId, charges, familyMembers, bills, payments, creditAdjustments, owedAdjustments,
-        activeYear, settings, getAvailability, getState,
+        activeYear, settings,
     } = opts;
 
     // Guard the id first, before any side effect: an absent/blank chargeNoticeId would
@@ -66,21 +66,16 @@ export async function issueChargeNotice(opts, deps = {}) {
         throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
     }
 
-    // A Boolean getter cannot observe a hold/year change that was later restored.
-    // Service snapshots are immutable identities: every _setState creates a new one.
-    if (typeof getState !== 'function') throw new Error('issueChargeNotice requires a live immutable getState reader.');
-    const operationSource = getState();
-    // Validate complete household source and the selected snapshot before link/prune/write.
+    // The caller supplies one fresh post-billing snapshot. Validate all raw
+    // collections synchronously, then copy presentation before any transport await.
+    // This queued-write boundary is not durable confirmation or recovery (#651).
     const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
-    function assertAvailable() {
-        if (!operationSource || getState() !== operationSource
-            || operationSource.activeYear?.id !== billingYearId
-            || !getHouseholdFinancialAvailability(operationSource, memberId).available
-            || !getHouseholdFinancialAvailability(source, memberId).available
-            || (getAvailability && !getAvailability().available)) throw new Error(FINANCIAL_UNAVAILABLE);
-    }
-    assertAvailable();
+    if (activeYear?.id !== billingYearId
+        || !getHouseholdFinancialAvailability(source, memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
     const noticeDoc = buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, charges });
+    const frozenYearLabel = yearLabel || activeYear.label || activeYear.id;
+    const shareInputs = structuredClone({ userId, memberId, memberName, billingYearId,
+        familyMembers, bills, payments, owedAdjustments, activeYear, settings });
 
     // 1. Best-effort: mint a member share link carrying usageCharges:read so the
     //    member can review the charge on their share page. If it fails, the notice
@@ -90,17 +85,8 @@ export async function issueChargeNotice(opts, deps = {}) {
     try {
         const scopes = buildShareScopes(true, false); // include disputes:create so they can request a review
         const link = await createShareLink({
-            userId,
-            memberId,
-            memberName,
-            billingYearId,
+            ...shareInputs,
             scopes,
-            familyMembers,
-            bills,
-            payments,
-            owedAdjustments: owedAdjustments || [],
-            activeYear,
-            settings,
         });
         if (link) {
             tokenHash = link.tokenHash || null;
@@ -111,7 +97,6 @@ export async function issueChargeNotice(opts, deps = {}) {
     }
 
     // 2. Write the outbound Charge Notice document to the disputes subcollection.
-    assertAvailable();
     if (tokenHash) noticeDoc.tokenHash = tokenHash;
     // Deterministic id keyed to the chargeNoticeId (validated above) so a retry
     // overwrites the same dispute doc instead of appending a duplicate (and
@@ -124,14 +109,13 @@ export async function issueChargeNotice(opts, deps = {}) {
     // 3. Email the member. Non-fatal — never block the primary action — but a
     //    delivery failure is returned so the caller can report it truthfully.
     let emailError = null;
-    assertAvailable();
     if (memberEmail) {
         try {
             const { subject, body } = buildChargeNoticeEmail({
                 memberName,
                 amount: noticeDoc.amount,
                 charges: noticeDoc.charges,
-                yearLabel: yearLabel || (activeYear ? activeYear.label || activeYear.id : ''),
+                yearLabel: frozenYearLabel,
                 shareUrl,
             });
             await queueEmailFn({ to: memberEmail, subject, body, uid: userId });

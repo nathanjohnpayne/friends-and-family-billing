@@ -441,36 +441,28 @@ export default function DashboardView() {
                             // would still mark them deferred and the minted share link would show
                             // the just-billed charges as pending/not-yet-due.
                             const freshState = service.getState();
-                            if (!getAvailability(dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
+                            if (freshState.activeYear?.id !== activeYear.id
+                                || !getHouseholdFinancialAvailability(freshState, dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
+                            const freshMember = freshState.familyMembers.find(row => row.id === dialog.memberId);
                             // Defer the success toast until the notice actually issues, and surface
                             // a failure to the admin rather than only console.error-ing it
                             // (PR #328 review r3447513511).
                             Promise.resolve(
                                 issueChargeNotice({
                                     userId: user ? user.uid : '',
-                                    billingYearId: activeYear.id,
-                                    yearLabel,
-                                    memberId: dialog.memberId,
-                                    memberName: member ? member.name : '',
-                                    memberEmail: member ? member.email : '',
+                                    billingYearId: freshState.activeYear.id,
+                                    yearLabel: freshState.activeYear.label || freshState.activeYear.id,
+                                    memberId: freshMember.id,
+                                    memberName: freshMember.name || '',
+                                    memberEmail: freshMember.email || '',
                                     chargeNoticeId: result.chargeNoticeId,
                                     charges: result.charges,
-                                    familyMembers,
-                                    bills,
-                                    payments,
-                                    creditAdjustments: freshState.creditAdjustments || [],
-                                    getState: () => service.getState(),
-                                    getAvailability: () => {
-                                        const current = service.getState();
-                                        const currentMember = current.familyMembers?.find(row => row.id === member?.id);
-                                        const sameHousehold = currentMember && !current.familyMembers.some(row => row.linkedMembers?.includes(member.id))
-                                            && JSON.stringify([...(currentMember.linkedMembers || [])].map(String).sort())
-                                                === JSON.stringify([...(member.linkedMembers || [])].map(String).sort());
-                                        return { available: current.activeYear?.id === activeYear.id && !!sameHousehold
-                                            && getAvailability(member.id).available };
-                                    },
-                                    owedAdjustments: freshState.owedAdjustments || [],
-                                    activeYear,
+                                    familyMembers: freshState.familyMembers,
+                                    bills: freshState.bills,
+                                    payments: freshState.payments,
+                                    creditAdjustments: freshState.creditAdjustments,
+                                    owedAdjustments: freshState.owedAdjustments,
+                                    activeYear: freshState.activeYear,
                                     settings: freshState.settings || {},
                                 })
                             )

@@ -137,6 +137,15 @@ No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/
 
 ## M3: authenticated financial display and invoice consumers (after M2b)
 
+**Current source candidate:** #635 adapts the eleven production paths below to the
+existing cent authority, including the synchronous Notice boundary. Ordinary
+invoices use `I − (P − R)`, with B excluded, null reopening, Paid P and one
+Refunded R row only when R > 0. The private renderer/output result contract is in
+[the invoicing spec](../specs/invoicing.md#private-financial-availability-and-output-results).
+The prior #649 design is preserved below; its documentation prerequisite merged
+as `a02064ea`. This candidate grants no review, merge or release clearance.
+
+
 ### Owner-approved bounded Notice scope split (#648)
 
 The [bounded owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)

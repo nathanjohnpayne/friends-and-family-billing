@@ -138,3 +138,41 @@ describe('selected Notice canonical preview', () => {
         expect(screen.queryByRole('button', { name: 'Bill & Notify' })).not.toBeInTheDocument();
     });
 });
+
+
+describe('raw-zero visibility without blocking a valid positive selection', () => {
+    it('shows excluded zero rows and confirms only the explicitly previewed positive set', async () => {
+        const user = userEvent.setup();
+        const onConfirm = vi.fn();
+        renderDialog({ charges: [{ id: 'zero', description: 'Legacy zero', amount: 0 },
+            { id: 'positive', description: 'Roaming', amount: 1.005 }], onConfirm });
+        const excluded = screen.getByRole('region', { name: 'Not billable charges' });
+        expect(excluded).toHaveTextContent('Legacy zero — Not billable');
+        expect(excluded).toHaveTextContent('not included in this Notice');
+        expect(excluded).toHaveTextContent('Correct the affected record before settling this household.');
+        expect(screen.getByText('1 charge selected for this Notice.')).toBeInTheDocument();
+        expect(screen.getByText('Roaming').closest('li')).toHaveTextContent('$1.01');
+        await user.click(screen.getByRole('button', { name: 'Bill & Notify' }));
+        expect(onConfirm).toHaveBeenCalledWith(['positive']);
+    });
+
+    it('explains a zero-only selection without creating an integrity hold', () => {
+        renderDialog({ charges: [{ id: 'zero', description: 'Legacy zero', amount: 0 }] });
+        expect(screen.getByRole('region', { name: 'Not billable charges' })).toHaveTextContent('Not billable');
+        expect(screen.getByRole('button', { name: 'Bill & Notify' })).toBeDisabled();
+        expect(screen.queryByText('Financial data unavailable')).not.toBeInTheDocument();
+        expect(screen.getByText('No billable charges in this period.')).toBeInTheDocument();
+        expect(screen.queryByText('No deferred charges in this period.')).not.toBeInTheDocument();
+    });
+
+    it('keeps both positive .004 source rows in the confirmation even when one displays zero cents', async () => {
+        const user = userEvent.setup();
+        const onConfirm = vi.fn();
+        renderDialog({ charges: [{ id: 'a', description: 'First positive', amount: .004 },
+            { id: 'b', description: 'Second positive', amount: .004 }], onConfirm });
+        expect(screen.getByText('Second positive').closest('li')).toHaveTextContent('$0.00');
+        expect(screen.queryByRole('region', { name: 'Not billable charges' })).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Bill & Notify' }));
+        expect(onConfirm).toHaveBeenCalledWith(['a', 'b']);
+    });
+});
