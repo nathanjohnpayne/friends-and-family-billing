@@ -2,65 +2,81 @@
  * Invoice helpers — extracted from legacy main.js for React consumption.
  * Pure functions, no DOM or global state dependencies.
  */
-import { calculateAnnualSummary, getPaymentTotalForMember, getServiceCreditTotalForMember, getHouseholdOpeningBalance } from './calculations.js';
+import { calculateAnnualSummary } from './calculations.js';
+import { getHouseholdFinancialAvailability } from './financial-availability.js';
+import { projectHouseholdDisplay, financialUnavailable } from './financial-display.js';
+import { snapshotDollars } from './household-money.js';
+import { MoneyIntegrityError } from './money.js';
 import { escapeHtml } from './formatting.js';
 
-/**
- * Build the full invoice context for a member (mirrors main.js:4310).
- *
- * `owedAdjustments` (optional, #321/#322): the member-facing owed reflects the
- * household's active Service Credits AND its carried-forward opening balance. The
- * combined bill-derived total is reduced by the sum of active `service_credit`
- * adjustments for the primary plus linked members, then adjusted by the netted
- * `carry_opening` opening balance (a carried credit lowers it, a carried charge
- * raises it), floored at 0 — mirroring getHouseholdFinancials so the invoice
- * agrees with the dashboard/settlement board. Billed Usage Charges (#320) are NOT
- * added here (they have their own Charge Notice), and deferred charges never touch
- * owed. Omit the argument and the function behaves exactly as before.
- *
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Array} payments
- * @param {number} memberId
- * @param {{ label?: string, id?: string }} activeYear
- * @param {{ emailMessage?: string, paymentMethods?: Array }} settings
- * @param {Array} [owedAdjustments]  Service Credits (−owed, #321) reduce the household
- *   total and the `carry_opening` seed records (#322) fold the carried opening balance in
- * @returns {Object|null}
- */
-export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments = []) {
-    const member = familyMembers.find(m => m.id === memberId);
-    if (!member) return null;
-
+/** Build a scoped ordinary invoice from complete raw source; B stays separate. */
+export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments) {
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    const member = Array.isArray(familyMembers) ? familyMembers.find(m => m.id === memberId) : null;
+    if (!member || !getHouseholdFinancialAvailability(source, memberId).available) return financialUnavailable(member?.id ?? null);
+    // Ordinary invoice reopening is deliberately null, independent of board context.
+    const projection = projectHouseholdDisplay(source, member);
+    if (!projection.ok) return projection;
     const summary = calculateAnnualSummary(familyMembers, bills);
     const memberData = summary[memberId];
-    const linkedIds = member.linkedMembers || [];
-    const linkedMembersData = linkedIds.map(id => summary[id]).filter(Boolean);
-
-    let combinedTotal = memberData ? memberData.total : 0;
-    linkedMembersData.forEach(d => { combinedTotal += d.total; });
-    // Compose both member-facing owed modifiers in ONE floored expression, exactly
-    // mirroring getHouseholdFinancials' bill-derived owed: active Service Credits
-    // (#321) subtract, and the netted carried opening balance (#322) adds (a carried
-    // credit is negative → lowers the first invoice total, a carried charge positive
-    // → raises it). Floored at 0 so neither an over-large credit nor a carried credit
-    // ever shows the member owing a negative amount.
-    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, memberId)
-        + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
-    const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-    combinedTotal = Math.max(0, combinedTotal - serviceCreditTotal + openingBalance);
-
-    let payment = getPaymentTotalForMember(payments, memberId);
-    linkedIds.forEach(id => { payment += getPaymentTotalForMember(payments, id); });
-    const balance = combinedTotal - payment;
-
+    const linkedMembersData = (member.linkedMembers || []).map(id => summary[id]).filter(Boolean);
+    const combinedTotal = projection.invoice, payment = projection.P, refunded = projection.R, balance = projection.invoiceBalance;
     const currentYear = activeYear ? (activeYear.label || activeYear.id) : String(new Date().getFullYear());
     const firstName = member.name.split(' ')[0];
     const amountStr = balance > 0 ? '$' + balance.toFixed(2) : '$' + combinedTotal.toFixed(2);
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
     const numMembers = 1 + (member.linkedMembers || []).length;
+    return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
+        balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {} };
+}
 
-    return { member, firstName, combinedTotal, payment, balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {} };
+/** Validate only the raw member-summary fields dereferenced by the Full renderer. */
+function validMemberSummary(data) {
+    const finite = value => typeof value === 'number' && Number.isFinite(value);
+    return !!data && typeof data.member?.name === 'string' && finite(data.total) && Array.isArray(data.bills)
+        && data.bills.every(row => !!row && typeof row.bill?.name === 'string' && finite(row.bill.amount)
+            && Array.isArray(row.bill.members) && finite(row.monthlyShare) && finite(row.annualShare));
+}
+
+/** Reject failed/incomplete contexts even through default-subject/empty-template paths. */
+function validInvoiceContext(ctx) {
+    if (!(ctx?.ok === true && ctx.householdId === ctx.member?.id
+        && (typeof ctx.householdId === 'string' || Number.isSafeInteger(ctx.householdId))
+        && typeof ctx.member?.name === 'string' && typeof ctx.currentYear === 'string'
+        && typeof ctx.firstName === 'string' && Array.isArray(ctx.linkedMembersData)
+        && Number.isSafeInteger(ctx.numMembers) && ctx.numMembers > 0
+        && (ctx.member.linkedMembers === undefined || Array.isArray(ctx.member.linkedMembers))
+        && ctx.numMembers === 1 + (ctx.member.linkedMembers || []).length
+        && validMemberSummary(ctx.memberData) && ctx.linkedMembersData.every(validMemberSummary)
+        && ['combinedTotal', 'payment', 'refunded', 'balance'].every(field => typeof ctx[field] === 'number' && Number.isFinite(ctx[field]))
+        && ['invoice', 'P', 'R', 'N', 'invoiceBalance'].every(field => Number.isSafeInteger(ctx.cents?.[field])))) return false;
+    const cents = ctx.cents;
+    if (BigInt(cents.N) !== BigInt(cents.P) - BigInt(cents.R)
+        || BigInt(cents.invoiceBalance) !== BigInt(cents.invoice) - BigInt(cents.N)) return false;
+    try {
+        if (ctx.amountStr !== '$' + (ctx.balance > 0 ? ctx.balance : ctx.combinedTotal).toFixed(2)
+            || ctx.amountLabel !== (ctx.balance > 0 && ctx.payment > 0 ? 'remaining balance' : 'total')) return false;
+        return Object.entries({ combinedTotal: 'invoice', payment: 'P', refunded: 'R', balance: 'invoiceBalance' })
+            .every(([alias, field]) => ctx[alias] === snapshotDollars(cents[field], ctx.householdId));
+    } catch (error) {
+        if (!(error instanceof MoneyIntegrityError)) throw error;
+        return false;
+    }
+}
+
+export function buildInvoiceSubject(year, member, template, ctx) {
+    return validInvoiceContext(ctx) ? { ok: true, value: buildInvoiceSubjectValue(year, member, template, ctx) }
+        : financialUnavailable(ctx?.householdId ?? null);
+}
+
+export function renderInvoiceTemplate(ctx, shareUrl) {
+    return validInvoiceContext(ctx) ? { ok: true, value: renderInvoiceTemplateValue(ctx, shareUrl) }
+        : financialUnavailable(ctx?.householdId ?? null);
+}
+
+export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
+    return validInvoiceContext(ctx) ? { ok: true, value: buildInvoiceBodyValue(ctx, variant, shareUrl, channel, options) }
+        : financialUnavailable(ctx?.householdId ?? null);
 }
 
 /**
@@ -69,7 +85,7 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
  * %member_first%, %member_last%, %annual_total%.
  * Falls back to a default subject when no template is provided.
  */
-export function buildInvoiceSubject(year, member, template, ctx) {
+function buildInvoiceSubjectValue(year, member, template, ctx) {
     if (!template) return 'Annual Billing Summary ' + year + '\u2014' + member.name;
     const nameParts = (member.name || '').split(' ');
     let result = template
@@ -455,10 +471,11 @@ function renderTemplateBlocks(nodes, ctx, shareUrl) {
  * @param {string} shareUrl
  * @returns {string}
  */
-export function renderInvoiceTemplate(ctx, shareUrl) {
+function renderInvoiceTemplateValue(ctx, shareUrl) {
     const doc = getInvoiceTemplateDocument(ctx?.settings);
-    if (!doc) return '';
-    return renderTemplateBlocks(doc.content, ctx, shareUrl || '').trim();
+    const html = doc ? renderTemplateBlocks(doc.content, ctx, shareUrl || '').trim() : '';
+    return ctx.refunded > 0 ? html + '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">Refunded: $'
+        + ctx.refunded.toFixed(2) + '</p>' : html;
 }
 
 /**
@@ -475,10 +492,12 @@ export function renderInvoiceTemplate(ctx, shareUrl) {
  * @returns {{ html: string, text: string, markdown: string }}
  */
 export function buildInvoiceTemplateEmailPayload(ctx, shareUrl) {
+    if (!validInvoiceContext(ctx)) return financialUnavailable(ctx?.householdId ?? null);
     return {
-        html: renderInvoiceTemplate(ctx, shareUrl),
-        text: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email'),
-        markdown: buildInvoiceBody(ctx, 'text-only', shareUrl, 'email', { markdown: true }),
+        ok: true,
+        html: renderInvoiceTemplateValue(ctx, shareUrl),
+        text: buildInvoiceBodyValue(ctx, 'text-only', shareUrl, 'email'),
+        markdown: buildInvoiceBodyValue(ctx, 'text-only', shareUrl, 'email', { markdown: true }),
     };
 }
 
@@ -531,7 +550,7 @@ function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
  * Build full detailed invoice text with bill breakdowns (mirrors main.js:4372).
  */
 function buildFullInvoiceText(ctx, shareUrl) {
-    const { member, firstName, combinedTotal, payment, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
+    const { member, firstName, combinedTotal, payment, refunded, balance, currentYear, linkedMembersData, memberData, numMembers } = ctx;
     const paymentPerPerson = numMembers > 0 ? payment / numMembers : 0;
 
     const emailMessage = buildConfiguredInvoiceMessage(ctx, shareUrl);
@@ -589,9 +608,11 @@ function buildFullInvoiceText(ctx, shareUrl) {
     if (payment > 0) {
         text += '  Payment Received:              $' + payment.toFixed(2) + '\n';
         text += '  Payment Per Person (' + numMembers + ' members):   $' + paymentPerPerson.toFixed(2) + '\n';
+        if (refunded > 0) text += '  Refunded:                      $' + refunded.toFixed(2) + '\n';
         text += '  Balance Remaining:             $' + balance.toFixed(2) + '\n';
     } else {
-        text += '  Payment Received:              $0.00\n';
+        text += '  Payment Received:              $' + payment.toFixed(2) + '\n';
+        if (refunded > 0) text += '  Refunded:                      $' + refunded.toFixed(2) + '\n';
         text += '  Balance Remaining:             $' + balance.toFixed(2) + '\n';
     }
     text += '='.repeat(80) + '\n';
@@ -612,7 +633,12 @@ function buildFullInvoiceText(ctx, shareUrl) {
  * @param {{ markdown?: boolean }} [options] — pass { markdown: true } for preview rendering
  * @returns {string}
  */
-export function buildInvoiceBody(ctx, variant, shareUrl, channel, options) {
+function buildInvoiceBodyValue(ctx, variant, shareUrl, channel, options) {
+    const text = buildInvoiceBodyText(ctx, variant, shareUrl, channel, options);
+    return variant !== 'full' && ctx.refunded > 0 ? text + '\n\nRefunded: $' + ctx.refunded.toFixed(2) : text;
+}
+
+function buildInvoiceBodyText(ctx, variant, shareUrl, channel, options) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
     const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, options);

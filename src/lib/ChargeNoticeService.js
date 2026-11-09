@@ -18,6 +18,7 @@ import { createAndPruneShareLink } from './ShareLinkService.js';
 import { queueEmail } from './mail.js';
 import { buildShareScopes } from './share.js';
 import { buildChargeNoticeDoc, buildChargeNoticeEmail } from './chargeNotice.js';
+import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from './financial-availability.js';
 
 /**
  * Issue a Charge Notice for a set of just-billed charges.
@@ -36,6 +37,7 @@ import { buildChargeNoticeDoc, buildChargeNoticeEmail } from './chargeNotice.js'
  * @param {Array}    opts.payments
  * @param {Array}    [opts.owedAdjustments]
  * @param {Object}   opts.activeYear
+ * @param {Array}    opts.creditAdjustments
  * @param {Object}   opts.settings
  * @param {Object}   [deps]  injectable collaborators (tests)
  * @param {Function} [deps.createShareLink]
@@ -50,7 +52,7 @@ export async function issueChargeNotice(opts, deps = {}) {
 
     const {
         userId, billingYearId, yearLabel, memberId, memberName, memberEmail,
-        chargeNoticeId, charges, familyMembers, bills, payments, owedAdjustments,
+        chargeNoticeId, charges, familyMembers, bills, payments, creditAdjustments, owedAdjustments,
         activeYear, settings,
     } = opts;
 
@@ -64,6 +66,17 @@ export async function issueChargeNotice(opts, deps = {}) {
         throw new Error('issueChargeNotice requires a valid chargeNoticeId to key the notice doc.');
     }
 
+    // The caller supplies one fresh post-billing snapshot. Validate all raw
+    // collections synchronously, then copy presentation before any transport await.
+    // This queued-write boundary is not durable confirmation or recovery (#651).
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    if (!billingYearId || !activeYear || activeYear.id !== billingYearId
+        || !getHouseholdFinancialAvailability(source, memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
+    const noticeDoc = buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, charges });
+    const frozenYearLabel = yearLabel || activeYear.label || activeYear.id;
+    const shareInputs = structuredClone({ userId, memberId, memberName, billingYearId,
+        familyMembers, bills, payments, owedAdjustments, activeYear, settings });
+
     // 1. Best-effort: mint a member share link carrying usageCharges:read so the
     //    member can review the charge on their share page. If it fails, the notice
     //    is still recorded and emailed (the member can use an existing link).
@@ -72,17 +85,8 @@ export async function issueChargeNotice(opts, deps = {}) {
     try {
         const scopes = buildShareScopes(true, false); // include disputes:create so they can request a review
         const link = await createShareLink({
-            userId,
-            memberId,
-            memberName,
-            billingYearId,
+            ...shareInputs,
             scopes,
-            familyMembers,
-            bills,
-            payments,
-            owedAdjustments: owedAdjustments || [],
-            activeYear,
-            settings,
         });
         if (link) {
             tokenHash = link.tokenHash || null;
@@ -93,13 +97,7 @@ export async function issueChargeNotice(opts, deps = {}) {
     }
 
     // 2. Write the outbound Charge Notice document to the disputes subcollection.
-    const noticeDoc = buildChargeNoticeDoc({
-        memberId,
-        memberName,
-        chargeNoticeId,
-        charges,
-        ...(tokenHash ? { tokenHash } : {}),
-    });
+    if (tokenHash) noticeDoc.tokenHash = tokenHash;
     // Deterministic id keyed to the chargeNoticeId (validated above) so a retry
     // overwrites the same dispute doc instead of appending a duplicate (and
     // re-triggering the member notification) — PR #328 review r3447513514.
@@ -116,8 +114,8 @@ export async function issueChargeNotice(opts, deps = {}) {
             const { subject, body } = buildChargeNoticeEmail({
                 memberName,
                 amount: noticeDoc.amount,
-                charges,
-                yearLabel: yearLabel || (activeYear ? activeYear.label || activeYear.id : ''),
+                charges: noticeDoc.charges,
+                yearLabel: frozenYearLabel,
                 shareUrl,
             });
             await queueEmailFn({ to: memberEmail, subject, body, uid: userId });

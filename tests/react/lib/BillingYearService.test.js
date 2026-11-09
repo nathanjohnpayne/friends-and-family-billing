@@ -66,6 +66,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
+import { toExactCents } from '@/lib/household-money.js';
 import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 function clearStore() {
@@ -697,6 +698,8 @@ describe('BillingYearService', () => {
 
             expect(charge.amount).toBe(1.01);
             expect(svc.getState().owedAdjustments[0].amount).toBe(1.01);
+            // Own-parent Notice policy depends on this writer persisting whole cents.
+            expect(charge.amount).toBe(toExactCents(charge.amount) / 100);
         });
 
         it('defaults incurredDate to the local date when omitted', () => {
@@ -976,6 +979,78 @@ describe('BillingYearService', () => {
                 ...extra
             });
         }
+
+        it.each([.005, .004])('uses selected own-parent cents without rewriting raw %s sources', amount => {
+            const charges = ['a', 'b'].map((id, index) => ({ id, memberId: 1, kind: 'usage_charge', status: 'deferred', amount,
+                incurredDate: index ? '2026-02-01' : '2026-01-01' }));
+            seedWithCharges({ owedAdjustments: charges });
+            const result = svc.billDeferredCharges({ memberId: 1 });
+            expect(result.amount).toBe(.01);
+            expect(svc.getState().owedAdjustments.map(row => row.amount)).toEqual([amount, amount]);
+            expect(svc.getState().billingEvents.at(-1).payload.amount).toBe(.01);
+            expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).cents.B).toBe(1);
+        });
+
+        it.each([{ amounts: [] }, { amounts: [0] }, { amounts: [0, 1] }])('rejects the complete confirmed $amounts set before event/state/save/persistence', ({ amounts }) => {
+            seedWithCharges({ owedAdjustments: amounts.map((amount, index) => ({ id: `zero-${index}`, memberId: 1,
+                kind: 'usage_charge', status: 'deferred', amount })) });
+            const before = svc.getState();
+            const original = structuredClone(before);
+            const save = vi.spyOn(svc, 'save');
+            const emit = vi.spyOn(svc, '_emitEvent');
+            const writesBefore = setDocCalls.length;
+            expect(() => svc.billDeferredCharges({ memberId: 1, chargeIds: before.owedAdjustments.map(row => row.id) })).toThrow();
+            expect(svc.getState()).toBe(before);
+            expect(svc.getState()).toEqual(original);
+            expect(emit).not.toHaveBeenCalled();
+            expect(save).not.toHaveBeenCalled();
+            expect(setDocCalls).toHaveLength(writesBefore);
+            expect(getHouseholdFinancials(before.familyMembers[0], before).ok).toBe(true);
+        });
+
+        it('refuses a newly held B candidate before event/state/save effects', () => {
+            seedWithCharges({ owedAdjustments: [
+                { id: 'already-billed', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 60000000000000 },
+                { id: 'pending', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: 60000000000000 }
+            ] });
+            expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).ok).toBe(true);
+            const before = svc.getState();
+            const save = vi.spyOn(svc, 'save');
+            expect(() => svc.billDeferredCharges({ memberId: 1 })).toThrow(/unavailable/);
+            expect(svc.getState()).toBe(before);
+            expect(save).not.toHaveBeenCalled();
+        });
+
+        it('keeps admitted signed deferred source unchanged when its billed candidate fails the existing B domain', () => {
+            seedWithCharges({ owedAdjustments: [
+                { id: 'a', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: -.005 },
+                { id: 'b', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: .02 }
+            ] });
+            expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).ok).toBe(true);
+            const before = svc.getState();
+            const save = vi.spyOn(svc, 'save');
+            expect(() => svc.billDeferredCharges({ memberId: 1 })).toThrow(/unavailable/);
+            expect(svc.getState()).toBe(before);
+            expect(save).not.toHaveBeenCalled();
+        });
+
+        it('allows separate half-cent Notices to total two cents while B is one cent', () => {
+            seedWithCharges({ owedAdjustments: ['a', 'b'].map(id => ({ id, memberId: 1, kind: 'usage_charge', status: 'deferred', amount: .005 })) });
+            const first = svc.billDeferredCharges({ memberId: 1, chargeIds: ['a'] });
+            const second = svc.billDeferredCharges({ memberId: 1, chargeIds: ['b'] });
+            expect(first.amount).toBe(.01);
+            expect(second.amount).toBe(.01);
+            expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).cents.B).toBe(1);
+        });
+
+        it.each([.004, NaN, Infinity, '1'])('refuses zero-target or invalid selection %s before status/event/save effects', amount => {
+            seedWithCharges({ owedAdjustments: [{ id: 'a', memberId: 1, kind: 'usage_charge', status: 'deferred', amount }] });
+            const before = svc.getState();
+            const save = vi.spyOn(svc, 'save');
+            expect(() => svc.billDeferredCharges({ memberId: 1 })).toThrow();
+            expect(svc.getState()).toBe(before);
+            expect(save).not.toHaveBeenCalled();
+        });
 
         it('flips all of a member deferred charges to billed and stamps the charge-notice id', () => {
             seedWithCharges();

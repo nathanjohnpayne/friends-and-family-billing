@@ -13,6 +13,7 @@ import { selectBillableCharges, monthRange, summarizeChargePreview } from '../..
 import { formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import Dialog from './Dialog.jsx';
 import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { FINANCIAL_CORRECTION } from '../../lib/financial-availability.js';
 import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
 
 /**
@@ -47,7 +48,7 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
     // Apply the selected period to the candidate charges (selectBillableCharges
     // ignores status here — these are already the member's deferred charges — and
     // just applies the incurred-date range + chronological sort).
-    const selected = useMemo(() => {
+    const periodCharges = useMemo(() => {
         if (!access.available) return [];
         const range = period === 'month' ? monthRange(now || new Date()) : {};
         return selectBillableCharges(
@@ -57,10 +58,15 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
         );
     }, [candidates, period, now, access.available]);
 
+    // Raw zero is valid deferred history, but cannot become a billed source.
+    // Show its exclusion before confirmation; direct service requests still reject
+    // the whole confirmed set. Positive rows allocated zero cents stay selected.
+    const notBillable = periodCharges.filter(row => row.amount === 0);
+    const selected = periodCharges.filter(row => row.amount !== 0);
     const preview = useMemo(() => summarizeChargePreview(selected), [selected]);
 
     if (!open) return null;
-    if (!access.available) return <Dialog onClose={onClose} title="Bill Charges"
+    if (!access.available || !preview.ok) return <Dialog onClose={onClose} title="Bill Charges"
         footer={<button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
@@ -70,6 +76,10 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
         e.preventDefault();
         if (access.begin() === null) return;
         setError('');
+        if (!preview.ok || !preview.issuable) {
+            setError(preview.ok ? 'A Charge Notice must total at least one cent.' : 'Financial data unavailable');
+            return;
+        }
         if (preview.count === 0) {
             setError('No deferred charges to bill for the selected period.');
             return;
@@ -90,7 +100,7 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
             footer={(
                 <>
                     <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                    <button type="submit" className="btn btn-sm btn-ink" disabled={preview.count === 0}>
+                    <button type="submit" className="btn btn-sm btn-ink" disabled={!preview.issuable}>
                         Bill &amp; Notify
                     </button>
                 </>
@@ -127,9 +137,16 @@ export default function ChargeNoticeDialog({ open, memberId, memberName, getAvai
                 </label>
             </div>
 
+            {notBillable.length > 0 && <section aria-label="Not billable charges">
+                <p>These charges are not included in this Notice. {FINANCIAL_CORRECTION}</p>
+                <ul>{notBillable.map(row => <li key={row.id}>
+                    {row.description || 'Usage charge'} — Not billable
+                </li>)}</ul>
+            </section>}
+            <p>{preview.count} {preview.count === 1 ? 'charge selected' : 'charges selected'} for this Notice.</p>
             <div className="charge-notice-preview">
                 {preview.count === 0 ? (
-                    <p className="charge-notice-empty">No deferred charges in this period.</p>
+                    <p className="charge-notice-empty">{notBillable.length > 0 ? 'No billable charges in this period.' : 'No deferred charges in this period.'}</p>
                 ) : (
                     <ul className="charge-notice-list">
                         {preview.charges.map(c => (

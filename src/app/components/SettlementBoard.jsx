@@ -3,7 +3,7 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
@@ -13,6 +13,7 @@ import Dialog from './Dialog.jsx';
 import FinancialUnavailable from './FinancialUnavailable.jsx';
 import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '../../lib/financial-availability.js';
 import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
+import { projectHouseholdDisplay } from '../../lib/financial-display.js';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
 function MemberAvatar({ member }) {
@@ -73,14 +74,13 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         if (!data) return null;
 
         const financials = getHouseholdFinancials(member, source, { reopenedAdjustmentIds });
-        const available = financials.ok !== false;
-        let billsTotal = data.total;
+        const display = projectHouseholdDisplay(source, member, { reopenedAdjustmentIds });
+        const available = financials.ok !== false && display.ok;
         const linkedData = [];
 
         (member.linkedMembers || []).forEach(linkedId => {
             const ls = summary[linkedId];
             if (ls) {
-                billsTotal += ls.total;
                 linkedData.push(ls);
             }
         });
@@ -89,11 +89,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // lowers the household's owed/annual total, a carried charge (positive) raises
         // it. Floored at 0 to match getHouseholdFinancials. combinedTotal is the
         // household's effective owed for THIS year (bills ± carried opening balance).
-        const openingBalance = available ? getHouseholdOpeningBalance(member, owedAdjustments) : 0;
-        const combinedTotal = Math.max(0, billsTotal + openingBalance);
-
-        const payment = available ? getPaymentTotalForMember(payments, member.id)
-            + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0) : 0;
+        const combinedTotal = available ? display.annual : undefined;
+        const payment = available ? display.P : undefined;
 
         // Household-grain credit (ADR 0001): Net Contribution = gross paid minus
         // recorded refunds/carry-forwards. Status, the collectable balance, and the
@@ -123,9 +120,10 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
-        const pendingCharges = available ? getHouseholdDeferredCharges(member, owedAdjustments)
-            : { count: owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
-                && [member.id, ...(member.linkedMembers || [])].includes(row.memberId)).length };
+        const pendingCount = owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
+            && [member.id, ...(member.linkedMembers || [])].includes(row.memberId)).length;
+        const pendingCharges = available ? { count: pendingCount, total: display.deferredCents } : { count: pendingCount };
+
 
         const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
 

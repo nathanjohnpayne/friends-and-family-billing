@@ -1,13 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import {
-    getInvoiceSummaryContext,
-    buildInvoiceSubject,
-    buildInvoiceBody,
+    getInvoiceSummaryContext as getInvoiceSummaryContextResult,
+    buildInvoiceSubject as buildInvoiceSubjectResult,
+    buildInvoiceBody as buildInvoiceBodyResult,
     buildInvoiceTemplateEmailPayload,
-    renderInvoiceTemplate,
+    renderInvoiceTemplate as renderInvoiceTemplateResult,
     docToPlainTextWithTokens,
     plainTextToDoc
 } from '@/lib/invoice.js';
+
+// Existing prose/formatting assertions consume explicitly successful API results.
+function getInvoiceSummaryContext(members, bills, payments, id, year, settings, owed = [], refunds = []) {
+    return getInvoiceSummaryContextResult(members, bills, payments, id, year, settings, owed, refunds);
+}
+const buildInvoiceSubject = (...args) => buildInvoiceSubjectResult(...args).value;
+const buildInvoiceBody = (...args) => buildInvoiceBodyResult(...args).value;
+const renderInvoiceTemplate = (...args) => renderInvoiceTemplateResult(...args).value;
 
 const members = [
     { id: 1, name: 'Alice Smith', email: 'alice@test.com', phone: '+14155551212', avatar: '', linkedMembers: [2], paymentReceived: 0 },
@@ -31,11 +39,11 @@ describe('invoice helpers', () => {
     });
 
     it('getInvoiceSummaryContext returns null for unknown member', () => {
-        expect(getInvoiceSummaryContext(members, bills, [], 999, year, {})).toBeNull();
+        expect(getInvoiceSummaryContext(members, bills, [], 999, year, {})).toEqual({ ok: false, kind: 'financial-unavailable', householdId: null });
     });
 
     it('buildInvoiceSubject formats correctly', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' });
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toContain('2026');
         expect(subject).toContain('Alice Smith');
     });
@@ -67,7 +75,7 @@ describe('invoice helpers', () => {
     });
 
     it('context includes balance when partially paid', () => {
-        const payments = [{ memberId: 1, amount: 300, method: 'cash' }];
+        const payments = [{ id: 'payment-1', memberId: 1, amount: 300, method: 'cash' }];
         const ctx = getInvoiceSummaryContext(members, bills, payments, 1, year, {});
         expect(ctx.payment).toBe(300);
         expect(ctx.balance).toBe(ctx.combinedTotal - 300);
@@ -111,17 +119,17 @@ describe('invoice helpers', () => {
     });
 
     it('buildInvoiceSubject falls back to default when template is empty', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '', null);
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toBe('Annual Billing Summary 2026\u2014Alice Smith');
     });
 
     it('buildInvoiceSubject resolves %member_first% and %member_last%', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %member_first% %member_last%', null);
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %member_first% %member_last%', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toBe('Invoice for Alice Smith');
     });
 
     it('buildInvoiceSubject resolves %member_first% for single-name member', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice' }, 'Hi %member_first% (%member_last%)', null);
+        const subject = buildInvoiceSubject('2026', { name: 'Alice' }, 'Hi %member_first% (%member_last%)', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toBe('Hi Alice ()');
     });
 
@@ -197,7 +205,7 @@ describe('getInvoiceSummaryContext — service credits reduce member-facing owed
     });
 
     it('reduces the remaining balance when partially paid', () => {
-        const payments = [{ memberId: 1, amount: 300, method: 'cash' }];
+        const payments = [{ id: 'payment-1', memberId: 1, amount: 300, method: 'cash' }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 200, status: 'active' }
         ];
@@ -404,12 +412,12 @@ describe('preferred payment method ordering (issue #185)', () => {
 
 describe('new token name aliases', () => {
     it('buildInvoiceSubject resolves %first_name% and %last_name%', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %first_name% %last_name%', null);
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, 'Invoice for %first_name% %last_name%', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toBe('Invoice for Alice Smith');
     });
 
     it('buildInvoiceSubject resolves %full_name%', () => {
-        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '%full_name% Bill', null);
+        const subject = buildInvoiceSubject('2026', { name: 'Alice Smith' }, '%full_name% Bill', getInvoiceSummaryContext(members, bills, [], 1, year, {}));
         expect(subject).toBe('Alice Smith Bill');
     });
 

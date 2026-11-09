@@ -958,3 +958,33 @@ describe('activated household cent decisions', () => {
         expect(screen.getByRole('region', { name: 'Settlement for Sibling' })).toBeInTheDocument();
     });
 });
+
+
+describe('canonical household display with preserved member lines', () => {
+    it('shows .58 Annual beside .57 Paid and .01 due in the actual card and payment dialog', async () => {
+        const user = userEvent.setup();
+        render(<SettlementBoard familyMembers={[{ ...members[0], linkedMembers: [] }, members[1]]}
+            bills={[{ ...bills[0], amount: 1.15, billingFrequency: 'annual', members: [1, 2] }]}
+            payments={[{ id: 'p', memberId: 1, amount: .57 }]} readOnly={false} />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        expect(alice.getByText('$0.58')).toBeInTheDocument();
+        expect(alice.getByText('$0.57')).toBeInTheDocument();
+        expect(alice.getByText('$0.01')).toBeInTheDocument();
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'Record Payment' }));
+        expect(screen.getByRole('dialog')).toHaveTextContent('$0.01');
+    });
+
+    it('shows linked household 46.67 after -20 opening while keeping independent 33.33 member lines', async () => {
+        const user = userEvent.setup();
+        render(<SettlementBoard familyMembers={members} bills={[{ ...bills[0], amount: 100, billingFrequency: 'annual' }]}
+            payments={[]} owedAdjustments={[{ id: 'seed', memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -20 }]}
+            readOnly={false} />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        expect(alice.getAllByText('$46.67').length).toBeGreaterThan(0);
+        await user.click(alice.getByText('Alice'));
+        expect(alice.getAllByText('$33.33').length).toBeGreaterThan(0);
+        expect(alice.getByText('Household Total')).toBeInTheDocument();
+        expect(alice.queryByText('$46.66')).not.toBeInTheDocument();
+    });
+});

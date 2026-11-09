@@ -27,38 +27,47 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
     const [sending, setSending] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const busy = sending || generating;
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
+    const generatedForContext = useRef(null);
 
-    const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
-        String(billingYearId) + ':' + memberId, open);
-    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
+    const contextKey = JSON.stringify(ctx);
+    const access = useFinancialAccess(() => ({ available: ctx.ok && (getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId)).available }),
+        String(billingYearId) + ':' + memberId + ':' + contextKey, open);
 
-    // Reset state when dialog opens
+    // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
-        if (open) {
-            setGeneratedShareUrl('');
-            bodyEditedRef.current = false;
-        }
-    }, [open, memberId]);
-
-    // Build body whenever variant changes (but not when share URL arrives — that's handled at send time)
-    useEffect(() => {
-        if (!ctx) return;
-        const subjectTemplate = (settings && settings.emailSubject) || '';
-        setSubject(buildInvoiceSubject(ctx.currentYear, ctx.member, subjectTemplate, ctx));
-        setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'email'));
+        setGeneratedShareUrl('');
+        generatedForContext.current = null;
         setCopied(false);
+        setSending(false);
+        setGenerating(false);
+    }, [open, contextKey, access.available]);
+
+    // Variant changes rebuild text without invalidating a cached link or pending action.
+    useEffect(() => {
         bodyEditedRef.current = false;
-    }, [open, variant, memberId, access.available]);
+        if (!open || !access.available || !ctx.ok) {
+            setSubject('');
+            setBody('');
+            return;
+        }
+        const nextSubject = buildInvoiceSubject(ctx.currentYear, ctx.member, settings?.emailSubject || '', ctx);
+        const nextBody = buildInvoiceBody(ctx, variant, generatedForContext.current === contextKey ? generatedShareUrl : '', 'email');
+        setSubject(nextSubject.ok ? nextSubject.value : '');
+        setBody(nextBody.ok ? nextBody.value : '');
+    }, [open, variant, contextKey, access.available]);
 
     if (!open) return null;
     if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
         footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
-    if (!ctx) return null;
+    if (!ctx.ok) return null;
 
     const recipientEmail = ctx.member.email || '';
     const needsLink = variant === 'text-link' || variant === 'full';
@@ -69,8 +78,9 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
      */
     async function ensureShareLink(ticket) {
         if (!access.canContinue(ticket)) return '';
-        if (generatedShareUrl) return generatedShareUrl;
+        if (generatedShareUrl && generatedForContext.current === contextKey) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
+        setGenerating(true);
         try {
             const result = await createAndPruneShareLink({
                 userId,
@@ -85,12 +95,16 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 settings,
             });
             if (!access.canContinue(ticket)) return '';
+            generatedForContext.current = contextKey;
             setGeneratedShareUrl(result.url);
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+            if (showToast && access.canContinue(ticket)) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
+        } finally {
+            // A stale request must not unlock a newer action after context changes.
+            if (access.canContinue(ticket)) setGenerating(false);
         }
     }
 
@@ -102,7 +116,8 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     function rebuildBodyWithUrl(url) {
         if (!url) return body;
         if (!bodyEditedRef.current) {
-            return buildInvoiceBody(ctx, variant, url, 'email');
+            const result = buildInvoiceBody(ctx, variant, url, 'email');
+            return result.ok ? result.value : null;
         }
         // User manually edited — append link block only if not already present
         if (body.includes(url)) return body;
@@ -121,12 +136,15 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
-        if (!access.canContinue(ticket)) return;
-        navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
+        if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
+        navigator.clipboard.writeText(finalBody).then(() => {
+            if (access.canContinue(ticket)) setCopied(true);
+        });
     }
 
     /** Recheck the action ticket before launching mail with a generated invoice body. */
@@ -136,8 +154,9 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket)) return;
@@ -160,18 +179,20 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             let finalBody = body;
             if (needsLink) {
                 const url = await ensureShareLink(ticket);
-                if (!url) { setSending(false); return; } // abort — toast already shown
+                if (!url || !access.canContinue(ticket)) return; // abort — toast already shown
                 finalBody = rebuildBodyWithUrl(url);
+                if (typeof finalBody !== 'string') return;
                 setBody(finalBody);
             }
             if (!access.canContinue(ticket)) return;
             await queueEmail({ to: recipientEmail, subject, body: finalBody, uid: user ? user.uid : '' });
+            if (!access.canContinue(ticket)) return;
             if (showToast) showToast('Invoice emailed to ' + recipientEmail);
             onClose();
         } catch (err) {
-            if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+            if (showToast && access.canContinue(ticket)) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
         } finally {
-            setSending(false);
+            if (access.canContinue(ticket)) setSending(false);
         }
     }
 
@@ -183,16 +204,16 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             footer={(
                 <>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={sending}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={busy}>
                         {copied ? 'Copied!' : 'Copy'}
                     </button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleOpenMail} disabled={sending}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleOpenMail} disabled={busy}>
                         Open Mail App
                     </button>
                     <button
                         className="btn btn-sm btn-ink"
                         onClick={handleSendEmail}
-                        disabled={sending || !recipientEmail}
+                        disabled={busy || !recipientEmail}
                     >
                         {sending ? 'Sending\u2026' : 'Send Email'}
                     </button>
@@ -203,6 +224,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Email</span><span>{recipientEmail || 'Not provided'}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.refunded > 0 && <div className="invoice-meta-row"><span className="invoice-meta-label">Refunded</span><span>{formatAnnualSummaryCurrency(ctx.refunded)}</span></div>}
                 {ctx.payment > 0 && (
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
                 )}
@@ -213,15 +235,15 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
 
             <div className="invoice-variant-selector">
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
                     Text only
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
                     Text + link
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
                     Full invoice
                 </label>
             </div>
@@ -229,11 +251,11 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             <div className="payment-dialog-fields">
                 <div className="payment-field-group">
                     <label>Subject</label>
-                    <input className="composer-input" value={subject} onChange={e => setSubject(e.target.value)} />
+                    <input className="composer-input" disabled={busy} value={subject} onChange={e => setSubject(e.target.value)} />
                 </div>
                 <div className="payment-field-group">
                     <label>Message</label>
-                    <textarea className="composer-input invoice-body-textarea" rows={10} value={body} onChange={handleBodyChange} />
+                    <textarea className="composer-input invoice-body-textarea" disabled={busy} rows={10} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
         </Dialog>

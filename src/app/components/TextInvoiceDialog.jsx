@@ -25,35 +25,39 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const [generating, setGenerating] = useState(false);
     const bodyEditedRef = useRef(false);
+    const generatedForContext = useRef(null);
 
-    const access = useFinancialAccess(() => getAvailability ? getAvailability()
-        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId),
-        String(billingYearId) + ':' + memberId, open);
-    const ctx = open && access.available ? getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments) : null;
+    const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments);
+    const contextKey = JSON.stringify(ctx);
+    const access = useFinancialAccess(() => ({ available: ctx.ok && (getAvailability ? getAvailability()
+        : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, memberId)).available }),
+        String(billingYearId) + ':' + memberId + ':' + contextKey, open);
 
-    // Reset state when dialog opens
+    // Any changed source/identity invalidates old composed money, edits and pending work.
     useEffect(() => {
-        if (open) {
-            setGeneratedShareUrl('');
-            setGenerating(false);
-            bodyEditedRef.current = false;
-        }
-    }, [open, memberId]);
-
-    // Build body when variant changes
-    useEffect(() => {
-        if (!ctx) return;
-        setBody(buildInvoiceBody(ctx, variant, generatedShareUrl, 'sms'));
+        setGeneratedShareUrl('');
+        generatedForContext.current = null;
         setCopied(false);
+        setGenerating(false);
+    }, [open, contextKey, access.available]);
+
+    // Variant changes rebuild text without invalidating a cached link or pending action.
+    useEffect(() => {
         bodyEditedRef.current = false;
-    }, [open, variant, memberId, access.available]);
+        if (!open || !access.available || !ctx.ok) {
+            setBody('');
+            return;
+        }
+        const nextBody = buildInvoiceBody(ctx, variant, generatedForContext.current === contextKey ? generatedShareUrl : '', 'sms');
+        setBody(nextBody.ok ? nextBody.value : '');
+    }, [open, variant, contextKey, access.available]);
 
     if (!open) return null;
     if (!access.available) return <Dialog onClose={onClose} title="Financial data unavailable"
         footer={<button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>}>
         <FinancialUnavailable />
     </Dialog>;
-    if (!ctx) return null;
+    if (!ctx.ok) return null;
 
     const needsLink = variant === 'text-link';
 
@@ -63,7 +67,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
      */
     async function ensureShareLink(ticket) {
         if (!access.canContinue(ticket)) return '';
-        if (generatedShareUrl) return generatedShareUrl;
+        if (generatedShareUrl && generatedForContext.current === contextKey) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
         setGenerating(true);
         try {
@@ -79,15 +83,17 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 activeYear,
                 settings,
             });
-            if (!access.canContinue(ticket)) { setGenerating(false); return ''; }
+            if (!access.canContinue(ticket)) return '';
+            generatedForContext.current = contextKey;
             setGeneratedShareUrl(result.url);
-            setGenerating(false);
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-            setGenerating(false);
+            if (showToast && access.canContinue(ticket)) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
+        } finally {
+            // A stale request must not unlock a newer action after context changes.
+            if (access.canContinue(ticket)) setGenerating(false);
         }
     }
 
@@ -97,7 +103,8 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
     function rebuildBodyWithUrl(url) {
         if (!url) return body;
         if (!bodyEditedRef.current) {
-            return buildInvoiceBody(ctx, variant, url, 'sms');
+            const result = buildInvoiceBody(ctx, variant, url, 'sms');
+            return result.ok ? result.value : null;
         }
         if (body.includes(url)) return body;
         return body + '\n\n' + url;
@@ -115,12 +122,15 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
-        if (!access.canContinue(ticket)) return;
-        navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
+        if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
+        navigator.clipboard.writeText(finalBody).then(() => {
+            if (access.canContinue(ticket)) setCopied(true);
+        });
     }
 
     /** Launch the SMS composer only while the original live household ticket remains valid. */
@@ -130,13 +140,14 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
+            if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket)) return;
         openSmsComposer(ctx.member.phone, finalBody, () => {
-            if (showToast) showToast('Message copied\u2014paste into your messaging app');
+            if (showToast && access.canContinue(ticket)) showToast('Message copied\u2014paste into your messaging app');
         });
     }
 
@@ -161,6 +172,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Recipient</span><span>{ctx.member.name}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Phone</span><span>{ctx.member.phone || 'Not provided'}</span></div>
                 <div className="invoice-meta-row"><span className="invoice-meta-label">Annual Total</span><span>{formatAnnualSummaryCurrency(ctx.combinedTotal)}</span></div>
+                {ctx.refunded > 0 && <div className="invoice-meta-row"><span className="invoice-meta-label">Refunded</span><span>{formatAnnualSummaryCurrency(ctx.refunded)}</span></div>}
                 {ctx.payment > 0 && (
                     <div className="invoice-meta-row"><span className="invoice-meta-label">Balance</span><span>{formatAnnualSummaryCurrency(ctx.balance)}</span></div>
                 )}
@@ -171,11 +183,11 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
 
             <div className="invoice-variant-selector">
                 <label className="invoice-variant-option">
-                    <input type="radio" name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    <input type="radio" disabled={generating} name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
                     Text only
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    <input type="radio" disabled={generating} name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
                     Text + link
                 </label>
             </div>
@@ -183,7 +195,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
             <div className="payment-dialog-fields">
                 <div className="payment-field-group">
                     <label>Message</label>
-                    <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={handleBodyChange} />
+                    <textarea className="composer-input invoice-body-textarea" disabled={generating} rows={5} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
         </Dialog>

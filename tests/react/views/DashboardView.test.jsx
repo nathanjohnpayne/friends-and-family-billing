@@ -245,7 +245,8 @@ describe('DashboardView', () => {
                 // getState reflects the POST-billDeferredCharges state: o1 is now 'billed'
                 // (the real service flips it synchronously). The handler must read THIS fresh
                 // state, not the stale 'deferred' prop, when minting the Charge Notice link.
-                getState: vi.fn(() => ({ settings: {}, owedAdjustments: [
+                getState: vi.fn(() => ({ activeYear: mockState.activeYear, familyMembers: mockState.familyMembers,
+                    bills: mockState.bills, payments: mockState.payments, creditAdjustments: [], settings: {}, owedAdjustments: [
                     { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
                 ] })),
                 recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
@@ -287,6 +288,39 @@ describe('DashboardView', () => {
             expect(noticeArg.owedAdjustments).toEqual([
                 expect.objectContaining({ id: 'o1', status: 'billed' })
             ]);
+        });
+
+        it('uses one complete fresh post-billing source and identity for Notice issuance', async () => {
+            const user = userEvent.setup();
+            const { service, billDeferredCharges } = renderWithDeferred();
+            const fresh = { activeYear: { id: '2026', label: 'Fresh label' }, settings: { emailSubject: 'Fresh settings' },
+                familyMembers: mockState.familyMembers.map(row => row.id === 2 ? { ...row, name: 'Fresh Bob', email: 'fresh@example.com' } : row),
+                bills: [{ ...mockState.bills[0], amount: 1400 }],
+                payments: [{ id: 'fresh-payment', memberId: 2, amount: 1 }],
+                creditAdjustments: [{ id: 'fresh-refund', memberId: 2, amount: .5, type: 'refund', status: 'recorded' }],
+                owedAdjustments: [{ id: 'o1', memberId: 2, kind: 'usage_charge', status: 'billed', amount: 12.5 }] };
+            const originalBill = billDeferredCharges.getMockImplementation();
+            billDeferredCharges.mockImplementation(args => {
+                service.getState.mockReturnValue(fresh);
+                service.getState.mockClear();
+                return originalBill(args);
+            });
+            let snapshotReadsAtIssuance;
+            mockIssueChargeNotice.mockImplementationOnce(() => {
+                snapshotReadsAtIssuance = service.getState.mock.calls.length;
+                return Promise.resolve({ emailError: null });
+            });
+            await user.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            await user.click(screen.getByText('Bill Charges'));
+            await user.click(screen.getByText('Bill & Notify'));
+            expect(snapshotReadsAtIssuance).toBe(1);
+            const opts = mockIssueChargeNotice.mock.calls[0][0];
+            for (const field of ['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments', 'activeYear', 'settings']) {
+                expect(opts[field]).toBe(fresh[field]);
+            }
+            expect(opts).toMatchObject({ memberName: 'Fresh Bob', memberEmail: 'fresh@example.com', yearLabel: 'Fresh label' });
+            expect(opts).not.toHaveProperty('getState');
+            expect(opts).not.toHaveProperty('getAvailability');
         });
 
         async function billAndNotify() {
@@ -521,5 +555,23 @@ describe('Dashboard aggregate integrity', () => {
         await user.click(alice.getByText('Alice'));
         expect(alice.getByRole('button', { name: 'Issue Refund' })).toBeInTheDocument();
         expect(alice.queryByText('Financial data unavailable')).not.toBeInTheDocument();
+    });
+});
+
+
+describe('deferred display integrity counts', () => {
+    it('counts later households after an earlier Annual display overflow and preserves valid sibling actions', async () => {
+        const user = userEvent.setup();
+        renderDashboard({ bills: [{ id: 'big', name: 'Large', amount: 60000000000000, billingFrequency: 'annual', members: [1] }],
+            payments: [], owedAdjustments: [
+                { id: 'opening', memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: 60000000000000 },
+                { id: 'credit', memberId: 1, kind: 'service_credit', status: 'active', amount: 60000000000000 },
+                { id: 'a', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: .01 },
+                { id: 'b', memberId: 2, kind: 'usage_charge', status: 'deferred', amount: .02 }
+            ] });
+        expect(screen.getByTestId('deferred-charges-indicator')).toHaveTextContent('Unavailable (2 charges)');
+        const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
+        await user.click(bob.getByText('Bob'));
+        expect(bob.getByRole('button', { name: 'Bill Charges' })).toBeEnabled();
     });
 });

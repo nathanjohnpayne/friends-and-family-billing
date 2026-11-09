@@ -11,7 +11,10 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
-import { getInvoiceSummaryContext, buildInvoiceTemplateEmailPayload } from '@/lib/invoice.js';
+import { getInvoiceSummaryContext as getInvoiceSummaryContextResult, buildInvoiceTemplateEmailPayload } from '@/lib/invoice.js';
+function getInvoiceSummaryContext(members, bills, payments, id, year, settings, owed = [], refunds = []) {
+    return getInvoiceSummaryContextResult(members, bills, payments, id, year, settings, owed, refunds);
+}
 
 const require = createRequire(import.meta.url);
 const { simpleMarkdownToHtml, markdownToPlainText } = require('../../../functions/index.js')._testHelpers;

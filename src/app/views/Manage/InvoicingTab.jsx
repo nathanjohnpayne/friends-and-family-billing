@@ -13,7 +13,7 @@ import { isYearReadOnly } from '../../../lib/validation.js';
 import { detectDuplicatePaymentText } from '../../../lib/validation.js';
 import {
     buildInvoiceSubject, getInvoiceSummaryContext,
-    buildInvoiceTemplateEmailPayload, renderInvoiceTemplate,
+    buildInvoiceTemplateEmailPayload,
     docToPlainTextWithTokens, plainTextToDoc
 } from '../../../lib/invoice.js';
 import { generateRawToken, hashToken } from '../../../lib/validation.js';
@@ -103,10 +103,14 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
     const [testEmailSending, setTestEmailSending] = useState(false);
 
     const previewMember = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
+    const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
+    const projectedContext = previewMember
+        ? getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings, owedAdjustments, creditAdjustments)
+        : { ok: false };
     /** Read service state at action time so stale previews cannot authorize financial output. */
-    const getAvailability = () => getHouseholdFinancialAvailability(
-        { familyMembers, bills, payments, creditAdjustments, owedAdjustments, ...service.getState() }, previewMember?.id);
-    const previewKey = String(billingYearId) + ':' + previewMember?.id;
+    const getAvailability = () => ({ available: projectedContext.ok && getHouseholdFinancialAvailability(
+        { familyMembers, bills, payments, creditAdjustments, owedAdjustments, ...service.getState() }, previewMember?.id).available });
+    const previewKey = String(billingYearId) + ':' + previewMember?.id + ':' + JSON.stringify(projectedContext);
     const access = useFinancialAccess(getAvailability, previewKey);
 
     // A hidden dialog must not reappear for a different household with an old
@@ -116,7 +120,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
         setTestEmailPreviewKey(null);
         setTestEmailTo('');
         setTestEmailSending(false);
-    }, [previewMember?.id, billingYearId, access.available]);
+    }, [previewKey, access.available]);
 
     // Editor refs
     const bodyEditorRef = useRef(null);
@@ -228,12 +232,12 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
     let previewEmailPayload = null;
     let previewBodyHTML = '';
     if (previewMember && access.available) {
-        const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
-        const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings, owedAdjustments);
-        if (ctx) {
+        const ctx = projectedContext;
+        if (ctx.ok) {
             previewCtx = ctx;
             previewEmailPayload = buildInvoiceTemplateEmailPayload(ctx, previewShareUrl);
-            previewBodyHTML = previewEmailPayload.html || renderInvoiceTemplate(ctx, previewShareUrl);
+            if (previewEmailPayload.ok) previewBodyHTML = previewEmailPayload.html;
+            else previewCtx = null;
         }
     }
 
@@ -252,7 +256,9 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
         setTestEmailSending(true);
         try {
             const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
-            const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
+            const renderedSubject = buildInvoiceSubject(previewCtx?.currentYear, previewCtx?.member, subjectText, previewCtx);
+            if (!payload.ok || !renderedSubject.ok) return;
+            const subject = '[Test] ' + renderedSubject.value;
             // Only the markdown body is queued; the mail function renders
             // HTML server-side (queue docs cannot carry raw HTML).
             if (!access.canContinue(ticket)) return;
@@ -385,7 +391,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
                         {activeTab === 'preview' && (
                             <span className="template-subject-preview-text">
                                 {!access.available ? 'Unavailable' : previewCtx
-                                    ? buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)
+                                    ? buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx).value
                                     : subjectText || '\u2014'}
                             </span>
                         )}
