@@ -81,6 +81,18 @@ describe('issueChargeNotice', () => {
         expect(opts.charges.map(row => row.amount)).toEqual([.005, .005]);
     });
 
+    it.each([
+        { activeYear: undefined, billingYearId: '2026' },
+        { activeYear: undefined, billingYearId: undefined },
+        { activeYear: {}, billingYearId: undefined }
+    ])('rejects an absent year identity before transport: %j', async identity => {
+        const opts = { ...baseOpts(), ...identity, yearLabel: '' };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow('Financial data unavailable');
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
     it.each(['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments'])(
         'rejects incomplete raw %s before transport', async field => {
             const opts = baseOpts();

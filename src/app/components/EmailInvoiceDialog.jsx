@@ -27,6 +27,8 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
     const [body, setBody] = useState('');
     const [copied, setCopied] = useState(false);
     const [sending, setSending] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const busy = sending || generating;
     const [generatedShareUrl, setGeneratedShareUrl] = useState('');
     const bodyEditedRef = useRef(false);
     const generatedForContext = useRef(null);
@@ -43,6 +45,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         generatedForContext.current = null;
         setCopied(false);
         setSending(false);
+        setGenerating(false);
     }, [open, contextKey, access.available]);
 
     // Variant changes rebuild text without invalidating a cached link or pending action.
@@ -77,6 +80,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         if (!access.canContinue(ticket)) return '';
         if (generatedShareUrl && generatedForContext.current === contextKey) return generatedShareUrl;
         if (!userId || !billingYearId || !ctx) return '';
+        setGenerating(true);
         try {
             const result = await createAndPruneShareLink({
                 userId,
@@ -98,6 +102,9 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             console.error('Failed to generate share link:', err);
             if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
+        } finally {
+            // A stale request must not unlock a newer action after context changes.
+            if (access.canContinue(ticket)) setGenerating(false);
         }
     }
 
@@ -170,7 +177,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             let finalBody = body;
             if (needsLink) {
                 const url = await ensureShareLink(ticket);
-                if (!url) { setSending(false); return; } // abort — toast already shown
+                if (!url) return; // abort — toast already shown
                 finalBody = rebuildBodyWithUrl(url);
                 if (typeof finalBody !== 'string') return;
                 setBody(finalBody);
@@ -182,7 +189,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         } catch (err) {
             if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
         } finally {
-            setSending(false);
+            if (access.canContinue(ticket)) setSending(false);
         }
     }
 
@@ -194,16 +201,16 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             footer={(
                 <>
                     <button className="btn btn-sm btn-header-secondary" onClick={onClose}>Close</button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={sending}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleCopy} disabled={busy}>
                         {copied ? 'Copied!' : 'Copy'}
                     </button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleOpenMail} disabled={sending}>
+                    <button className="btn btn-sm btn-secondary" onClick={handleOpenMail} disabled={busy}>
                         Open Mail App
                     </button>
                     <button
                         className="btn btn-sm btn-ink"
                         onClick={handleSendEmail}
-                        disabled={sending || !recipientEmail}
+                        disabled={busy || !recipientEmail}
                     >
                         {sending ? 'Sending\u2026' : 'Send Email'}
                     </button>
@@ -225,15 +232,15 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
 
             <div className="invoice-variant-selector">
                 <label className="invoice-variant-option">
-                    <input type="radio" disabled={sending} name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
                     Text only
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" disabled={sending} name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
                     Text + link
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" disabled={sending} name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
+                    <input type="radio" disabled={busy} name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
                     Full invoice
                 </label>
             </div>
@@ -241,11 +248,11 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             <div className="payment-dialog-fields">
                 <div className="payment-field-group">
                     <label>Subject</label>
-                    <input className="composer-input" value={subject} onChange={e => setSubject(e.target.value)} />
+                    <input className="composer-input" disabled={busy} value={subject} onChange={e => setSubject(e.target.value)} />
                 </div>
                 <div className="payment-field-group">
                     <label>Message</label>
-                    <textarea className="composer-input invoice-body-textarea" rows={10} value={body} onChange={handleBodyChange} />
+                    <textarea className="composer-input invoice-body-textarea" disabled={busy} rows={10} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
         </Dialog>

@@ -51,7 +51,8 @@ describe.each([['Email', EmailInvoiceDialog], ['Text', TextInvoiceDialog]])('%s 
 });
 
 describe.each([
-    ['copy email', EmailInvoiceDialog, 'Copy'], ['send email', EmailInvoiceDialog, 'Send Email'],
+    ['copy email', EmailInvoiceDialog, 'Copy'], ['open mail', EmailInvoiceDialog, 'Open Mail App'],
+    ['send email', EmailInvoiceDialog, 'Send Email'],
     ['copy text', TextInvoiceDialog, 'Copy Message'], ['open SMS', TextInvoiceDialog, 'Open Messages']
 ])('pending %s', (_name, Component, action) => {
     it('cannot resume across a real hold even when the source becomes valid again before the link resolves', async () => {
@@ -69,6 +70,44 @@ describe.each([
         expect(queueEmail).not.toHaveBeenCalled();
         expect(openSmsComposer).not.toHaveBeenCalled();
         expect(screen.queryByText('https://example.com/stale')).not.toBeInTheDocument();
+    });
+});
+
+
+describe.each([
+    ['Email copy', EmailInvoiceDialog, 'Copy'], ['Email mail', EmailInvoiceDialog, 'Open Mail App'],
+    ['Email send', EmailInvoiceDialog, 'Send Email'],
+    ['Text copy', TextInvoiceDialog, 'Copy Message'], ['Text SMS', TextInvoiceDialog, 'Open Messages']
+])('%s valid context replacement', (_name, Component, actionLabel) => {
+    it('invalidates old output without letting the old request unlock a fresh pending action', async () => {
+        const user = userEvent.setup();
+        const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
+        let finishOld, finishFresh;
+        createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+            .mockReturnValueOnce(new Promise(resolve => { finishFresh = resolve; }));
+        const { rerender } = render(<Component {...base} />);
+        await user.click(screen.getByRole('button', { name: actionLabel }));
+        // Both sources are financially valid; the payment change replaces the
+        // invoice context without passing through a household integrity hold.
+        const freshProps = { ...base, payments: [{ ...base.payments[0], amount: .58 }] };
+        rerender(<Component {...freshProps} />);
+        expect(screen.queryByText('Financial data unavailable')).not.toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: actionLabel }));
+        await act(async () => { finishOld({ url: 'https://example.com/old-context' }); });
+        for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+        expect(queueEmail).not.toHaveBeenCalled();
+        expect(clipboardWrite).not.toHaveBeenCalled();
+        expect(openSmsComposer).not.toHaveBeenCalled();
+        expect(screen.queryByText('https://example.com/old-context')).not.toBeInTheDocument();
+        expect(screen.getAllByRole('textbox').find(field => field.tagName === 'TEXTAREA').value).not.toContain('old-context');
+        // Settle the fresh request in an unavailable context: no external action
+        // is launched by test cleanup, including the native mail app path.
+        rerender(<Component {...freshProps} creditAdjustments={invalid} />);
+        await act(async () => { finishFresh({ url: 'https://example.com/fresh-context' }); });
+        expect(createAndPruneShareLink).toHaveBeenCalledTimes(2);
+        expect(queueEmail).not.toHaveBeenCalled();
+        expect(clipboardWrite).not.toHaveBeenCalled();
+        expect(openSmsComposer).not.toHaveBeenCalled();
     });
 });
 
@@ -106,6 +145,8 @@ describe.each([['Email', EmailInvoiceDialog, 'Copy'], ['Text', TextInvoiceDialog
 describe.each([
     ['Email link', EmailInvoiceDialog, 'Send Email', 'Text + link'],
     ['Email full', EmailInvoiceDialog, 'Send Email', 'Full invoice'],
+    ['Email copy', EmailInvoiceDialog, 'Copy', 'Text + link'],
+    ['Email mail', EmailInvoiceDialog, 'Open Mail App', 'Full invoice'],
     ['Text copy', TextInvoiceDialog, 'Copy Message', 'Text + link'],
     ['Text SMS', TextInvoiceDialog, 'Open Messages', 'Text + link']
 ])('%s pending variant change', (_name, Component, actionLabel, selectedLabel) => {
@@ -114,14 +155,20 @@ describe.each([
         const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
         let finishLink, finishEmail;
         createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finishLink = resolve; }));
-        if (Component === EmailInvoiceDialog) queueEmail.mockReturnValueOnce(new Promise(resolve => { finishEmail = resolve; }));
+        if (actionLabel === 'Send Email') queueEmail.mockReturnValueOnce(new Promise(resolve => { finishEmail = resolve; }));
         render(<Component {...base} />);
         await user.click(screen.getByRole('radio', { name: selectedLabel }));
         const selected = screen.getByRole('radio', { name: selectedLabel });
         const action = screen.getByRole('button', { name: actionLabel });
+        const initialText = screen.getAllByRole('textbox').map(field => field.value);
         await user.click(action);
         expect(action).toBeDisabled();
         for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+        for (const field of screen.getAllByRole('textbox')) {
+            expect(field).toBeDisabled();
+            await user.type(field, 'Changed while pending');
+        }
+        expect(screen.getAllByRole('textbox').map(field => field.value)).toEqual(initialText);
         await user.click(screen.getByRole('radio', { name: 'Text only' }));
         expect(selected).toBeChecked();
         expect(screen.getByRole('radio', { name: 'Text only' })).not.toBeChecked();
@@ -131,20 +178,41 @@ describe.each([
         expect(openSmsComposer).not.toHaveBeenCalled();
         expect(clipboardWrite).not.toHaveBeenCalled();
 
-        await act(async () => { finishLink({ url: 'https://example.com/current-variant' }); });
+        // Intercept the navigation boundary; never launch a real mail app.
+        const mailLocation = { href: '' };
+        if (actionLabel === 'Open Mail App') {
+            const originalWindow = window;
+            vi.stubGlobal('window', new Proxy(originalWindow, { get(target, key) {
+                return key === 'location' ? mailLocation : Reflect.get(target, key, target);
+            } }));
+        }
+        try {
+            await act(async () => { finishLink({ url: 'https://example.com/current-variant' }); });
+        } finally {
+            vi.unstubAllGlobals();
+        }
         const displayedBody = screen.getAllByRole('textbox').find(field => field.tagName === 'TEXTAREA').value;
         expect(displayedBody).toContain('https://example.com/current-variant');
         expect(selected).toBeChecked();
-        if (Component === EmailInvoiceDialog) {
+        if (actionLabel === 'Send Email') {
             expect(queueEmail).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-                to: 'alice@example.com', body: displayedBody
+                to: 'alice@example.com', body: displayedBody, subject: screen.getAllByRole('textbox')[0].value
             }));
             expect(displayedBody.includes('ANNUAL BILLING SUMMARY')).toBe(selectedLabel === 'Full invoice');
             for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
             await user.click(screen.getByRole('radio', { name: 'Text only' }));
             expect(selected).toBeChecked();
             await act(async () => { finishEmail({}); });
-        } else if (actionLabel === 'Copy Message') {
+        } else if (actionLabel === 'Open Mail App') {
+            const mailto = new URL(mailLocation.href);
+            expect(mailto.protocol).toBe('mailto:');
+            expect(decodeURIComponent(mailto.pathname)).toBe('alice@example.com');
+            expect(mailto.searchParams.get('body')).toBe(displayedBody);
+            expect(mailto.searchParams.get('subject')).toBe(screen.getAllByRole('textbox')[0].value);
+            expect(displayedBody).toContain('ANNUAL BILLING SUMMARY');
+            expect(queueEmail).not.toHaveBeenCalled();
+            expect(clipboardWrite).not.toHaveBeenCalled();
+        } else if (actionLabel === 'Copy Message' || actionLabel === 'Copy') {
             expect(clipboardWrite).toHaveBeenCalledExactlyOnceWith(displayedBody);
             expect(openSmsComposer).not.toHaveBeenCalled();
         } else {
@@ -152,5 +220,7 @@ describe.each([
             expect(clipboardWrite).not.toHaveBeenCalled();
         }
         expect(createAndPruneShareLink).toHaveBeenCalledOnce();
+        for (const field of screen.getAllByRole('textbox')) expect(field).toBeEnabled();
+        for (const radio of screen.getAllByRole('radio')) expect(radio).toBeEnabled();
     });
 });

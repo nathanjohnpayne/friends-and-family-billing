@@ -70,7 +70,7 @@ export async function issueChargeNotice(opts, deps = {}) {
     // collections synchronously, then copy presentation before any transport await.
     // This queued-write boundary is not durable confirmation or recovery (#651).
     const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
-    if (activeYear?.id !== billingYearId
+    if (!billingYearId || !activeYear || activeYear.id !== billingYearId
         || !getHouseholdFinancialAvailability(source, memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
     const noticeDoc = buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, charges });
     const frozenYearLabel = yearLabel || activeYear.label || activeYear.id;

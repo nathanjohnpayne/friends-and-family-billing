@@ -83,16 +83,17 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 activeYear,
                 settings,
             });
-            if (!access.canContinue(ticket)) { setGenerating(false); return ''; }
+            if (!access.canContinue(ticket)) return '';
             generatedForContext.current = contextKey;
             setGeneratedShareUrl(result.url);
-            setGenerating(false);
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
             if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-            setGenerating(false);
             return '';
+        } finally {
+            // A stale request must not unlock a newer action after context changes.
+            if (access.canContinue(ticket)) setGenerating(false);
         }
     }
 
@@ -192,7 +193,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
             <div className="payment-dialog-fields">
                 <div className="payment-field-group">
                     <label>Message</label>
-                    <textarea className="composer-input invoice-body-textarea" rows={5} value={body} onChange={handleBodyChange} />
+                    <textarea className="composer-input invoice-body-textarea" disabled={generating} rows={5} value={body} onChange={handleBodyChange} />
                 </div>
             </div>
         </Dialog>
