@@ -404,8 +404,9 @@ def main():
     # Only the selected target is copied into the final project/upload tree.
     selected_stage = work / "selected"
     shutil.copytree(staging, selected_stage)
-    validate_config(selected_stage, args.target, metadata["schema"])
-    hashes = {p.relative_to(selected_stage).as_posix(): digest(p.read_bytes()) for p in selected_stage.rglob("*") if p.is_file()}
+    prefix = TARGETS[args.target] + "/"
+    hashes = {name[len(prefix):]: value for name, value in metadata["files"].items() if name.startswith(prefix)}
+    verify_staging(selected_stage, args.target, hashes, metadata["schema"])
     staging = selected_stage
     for path in selected_stage.rglob("*"):
         path.chmod(0o500 if path.is_dir() else 0o400)

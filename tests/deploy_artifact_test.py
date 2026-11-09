@@ -150,21 +150,28 @@ class ArtifactBoundary(unittest.TestCase):
                 self.assertEqual(calls, [])
 
     def test_main_binds_every_variant_source_byte_before_consumer_for_every_target(self):
-        cases = [(1, 'functions', None, False), (2, 'functions', None, False), (2, 'functions', None, True)]
-        cases += [(2, target, name, False) for target in deploy.TARGETS for name in MONEY_FILES]
+        cases = [(schema, target, None, False, None) for schema in [1, 2] for target in deploy.TARGETS]
+        cases.append((2, 'functions', None, True, None))
+        cases += [(2, target, name, False, None) for target in deploy.TARGETS for name in MONEY_FILES]
+        cases += [(2, 'functions', None, False, 'source/' + name) for name in MONEY_FILES]
+        cases += [(schema, 'functions', None, False, 'source/index.js') for schema in [1, 2]]
+        cases += [(2, target, None, False, name) for target, name in [('hosting', 'public/index.html'), ('firestore:rules', 'firestore.rules'), ('storage', 'storage.rules')]]
         copytree = shutil.copytree
-        for i, (schema, target, changed, drop_before_copy) in enumerate(cases):
-            with self.subTest(schema=schema, target=target, changed=changed, drop_before_copy=drop_before_copy):
+        for i, (schema, target, changed, drop_before_copy, mutate_before_copy) in enumerate(cases):
+            with self.subTest(schema=schema, target=target, changed=changed, drop_before_copy=drop_before_copy, mutate_before_copy=mutate_before_copy):
                 work = self.work / str(i)
                 work.mkdir()
                 originals = fixture(schema)
                 reads = set()
                 expected = {'functions/' + name for name in deploy.FUNCTION_VARIANTS[schema] - {'functions.yaml'}}
                 def copy_selected(source, dest, *args, **kwargs):
-                    if drop_before_copy and Path(source) == work / 'extracted/functions':
+                    if (drop_before_copy or mutate_before_copy) and Path(source) == work / 'extracted' / deploy.TARGETS[target]:
                         self.assertEqual(reads, expected | {'firebase.json', 'firestore.rules', 'storage.rules'})
-                        for name in MONEY_FILES:
-                            (Path(source) / 'source' / name).unlink()
+                        if drop_before_copy:
+                            for name in MONEY_FILES:
+                                (Path(source) / 'source' / name).unlink()
+                        else:
+                            (Path(source) / mutate_before_copy).write_bytes(b'tampered after verified git-byte reads')
                     return copytree(source, dest, *args, **kwargs)
                 def read_blob(argv, **_kwargs):
                     self.assertTrue(argv[-1].startswith(SHA + ':'))
@@ -194,14 +201,18 @@ class ArtifactBoundary(unittest.TestCase):
                     raise AssertionError(argv)
                 args = ['deployer', '--sha', SHA, '--target', target, '--repository-dir', str(work), '--work-dir', str(work)]
                 with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.subprocess, 'check_output', side_effect=read_blob), mock.patch.object(deploy, 'check_discovery'), mock.patch.object(deploy.shutil, 'copytree', side_effect=copy_selected), mock.patch.object(deploy, 'run_consumer') as consumer:
-                    if changed or drop_before_copy:
-                        with self.assertRaisesRegex(ValueError, 'Unexpected Functions source files' if drop_before_copy else 'Packaged source differs'):
+                    if changed or drop_before_copy or mutate_before_copy:
+                        error = 'Staging bytes changed' if mutate_before_copy else 'Staging file allowlist changed' if drop_before_copy else 'Packaged source differs'
+                        with self.assertRaisesRegex(ValueError, error):
                             deploy.main()
                         consumer.assert_not_called()
                     else:
                         deploy.main()
                         consumer.assert_called_once()
                         self.assertEqual(consumer.call_args.args[-1], schema)
+                        prefix = deploy.TARGETS[target] + '/'
+                        expected_hashes = {name[len(prefix):]: deploy.digest(data) for name, data in originals.items() if name.startswith(prefix)}
+                        self.assertEqual(consumer.call_args.args[-2], expected_hashes)
                         self.assertEqual(reads, expected | {'firebase.json', 'firestore.rules', 'storage.rules'})
 
     def test_extracted_current_bundle_loads_actual_cjs_esm_seam(self):
