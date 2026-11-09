@@ -84,7 +84,6 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
 │       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
 │       ├── financial-availability.js # Private availability over exact household financial results
-│       ├── financial-display.js      # Private checked display aliases/allocated rows and unavailable result
 │       ├── household-money.js     # Exact source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
@@ -146,13 +145,29 @@ UI entry-point guards consume availability. Authenticated settlement, service
 refund caps, close/rollover and review money edges now use complete raw sources
 through the exact household adapter (ADR 0010). A finalized whole-year carry plan
 binds actual ids, source markings and next-year seeds before validation/writes.
-Member audit/display helpers retain their independent raw grain. Authenticated
-M3 household/invoice consumers use `financial-display.js` checked cents and
-explicit unavailable output results; ordinary invoice balance excludes B and
-subtracts N under null reopening. Selected Notice projection serves preview and
-new snapshots only, with guards before side effects. Public writers remain legacy
-pending M4; mixed numerical versions are source-only and must not deploy.
+Member audit/display helpers and invoice/public writers remain legacy pending
+M3/M4; mixed numerical versions are source-only and must not deploy.
 See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
+
+The [bounded #648 owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+restores #635's accepted exact own-parent Notice projection and complete
+pre-mutation candidate guards, raw-zero dialog visibility and one synchronous
+post-billing source snapshot frozen before transport. Ordinary-invoice async
+guards stay unchanged. Main `4b223cb` already activates #644 exact authority;
+legacy Notice sub-cent divergence and zero-after-billing holds are current source
+defects, without verified deployment/live-data evidence. Retain this subset in
+the earliest financial release under the existing complete-set gates.
+
+[Plan #648](../../plans/648-charge-notice-recovery.md) owns the eleven-path inventory,
+test ownership and fresh M check. #651/R1–R4 retain post-await checks, fresh
+recovery, atomic versioned production and scoped sender/rules. **Known limitation
+until #651:** stale/failed asynchronous Notice delivery and legacy save uncertainty
+remain; a queued-write return is not durable confirmation. Keep #648's restored
+design blocker until amended #649 merges, then remove only #648 after readback;
+no reverse #635 implementation dependency on #651–#655/#614/#638 is introduced.
+[ADR 0012](../adr/0012-charge-notice-recovery.md) remains Proposed until new exact-head
+review/merge. Documentation/ticket scope establishes no runtime conformance or
+source implementation, merge/deploy, live read/report, repair/migration or #614 acknowledgment.
 
 Source interoperability and client activation are not Functions artifact admission.
 Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that

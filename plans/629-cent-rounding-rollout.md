@@ -137,23 +137,107 @@ No `CREDIT_EPSILON` export or authenticated authority caller remains. Functions/
 
 ## M3: authenticated financial display and invoice consumers (after M2b)
 
-M3 **extends** the approved #634 minimal bridge; it may never regress a held household or incomplete aggregate to Paid/settled, payable zero or stale money. Full invoice API/renderer unavailable results and complete display adaptation remain here; public response/cache/version semantics remain M4. The bridge does not waive the remaining prestart contract below or authorize M3 implementation.
+### Owner-approved bounded Notice scope split (#648)
 
-**Prestart contract gate:** define household integrity-hold rendering before implementation. Do not infer it from the unused adapter or silently render partial money.
+The [bounded owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+corrects the all-Notice carve in the [original split decision](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6716004056).
+It restores #635's [already accepted own-parent projection and early guards](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6714986894),
+without a new formula. [Plan #648](648-charge-notice-recovery.md#read-only-646-split-inventory)
+records the corrected partial-Notice-hunk/test inventory. The retained production
+surface is eleven existing paths within the old thirteen-path budget; the old
+seven-file pure-display carve is superseded:
 
-**Inputs:** authoritative cent components and allocated rows; existing UI/invoice scope.
+| #635 retained production paths | Bounded scope |
+| --- | --- |
+| `financial-display.js`, `invoice.js`, `SettlementBoard.jsx`, `EmailInvoiceDialog.jsx`, `TextInvoiceDialog.jsx`, `Manage/InvoicingTab.jsx` | Display/ordinary invoices; ordinary-invoice async guards unchanged |
+| `Dashboard/DashboardView.jsx` | Display/invoice work and synchronous post-billing source snapshot |
+| `chargeNotice.js` | Exact selected own-parent preview/new snapshot/event/email rows/running totals |
+| `ChargeNoticeService.js` | One five-array validated source and presentation frozen before first transport await |
+| `ChargeNoticeDialog.jsx` | Exact preview, raw-zero **Not billable** rows with existing correction copy |
+| `BillingYearService.js` | Exact event amount and complete finalized-candidate validation before effects |
 
-**Outputs:** bounded adapters in SettlementBoard, payment/refund/history dialogs, Dashboard/YearEndReview preview and `invoice.js`/invoice renderers consume the same projected values. Keep independently rounded member bill lines (#620) and raw audit inspection; no redesigned flows or unrelated copy changes. Payment/refund availability and refund-cap handlers already activated in M2b are decision logic, outside this display-only adaptation.
+Recheck the actual diff for size:M before source work; this inventory is not an
+independently tested candidate or prior M certification. If it cannot fit, stop
+for scope review. #646 remains draft with its open P1 until an authorized actual
+split and final-head reviews. Documentation/ticket scope authorizes no source
+implementation, code-head approval, merge, deploy, live read/report, repair,
+migration or #614 old-tab acknowledgment. ADR 0012 remains Proposed pending
+review/merge of the new amended documentation head; `c3f9490` is not mergeable.
+Its two valid CodeRabbit threads stay open until reviewer acceptance.
 
-**Acceptance:** household lines and declared additive rows reconcile without independent re-rounding; retain ordinary bill-invoice total scope and the separate Charge Notice path. Raw source values and historical snapshots remain unchanged and inspectable. The owner's [invoice payment-basis decision](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6714971444) specifies `I − N`, B excluded, null reopening, Paid P and one Refunded R row only when R > 0, preserving existing negative-balance semantics. The owner's [selected-Notice decision](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/635#issuecomment-6714986894) authorizes one exact own-parent projection for preview and **new presentation snapshots** within #635, with zero-total/invalid-selection guards before status/event/transport side effects. Source charges and historical Notice snapshots are not rewritten; no sum-of-Notices promise or new refund entitlement is introduced. All seven invoice and eight Notice conditions, including whole-cent writer tripwires, bind implementation.
+[Notice follow-up #651](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/651)
+and filed, unstarted R1–R4 (#652–#655) retain post-await immutable-source/current-
+state rechecks, fresh recovery, atomic versioned producer and scoped sender/rules,
+outside the #611/#629/#603 chain. R1 consumes the existing M3 projector contract;
+R3 extends its early guards. #651/R3 depend on #635's baseline, never the reverse.
+The earlier native/Project #10 handoff removed #648 from #635; after the review
+findings that blocker was restored. Keep #648 until amended #649 merges, then
+remove only #648 and read back the graph; closed #634 remains. No implementation
+edge from #635 to #651–#655/#614/#638 is introduced. #636 stays blocked by #635
+and #638; #638 by closed #633; #637 by #636; #629 by #637; #603 by #629.
 
-**Documented private runtime contract:** [Invoicing spec](../specs/invoicing.md#private-financial-availability-and-output-results) defines exact held copy, withheld figures/actions, `aggregatesUnavailable`, explicit money-free private invoice failure results, every exported renderer's success/failure shape, and valid → held → still held → valid recomputation. All invoice/Notice output actions and asynchronous continuations consume availability; no automatic retry/repair or public response/cache contract is inferred. The ordinary invoice and selected Notice parent scopes are recorded in ADR 0010 and the billing/invoicing specs before money code.
+Main `4b223cb` already activates the exact authority through #644; the legacy
+`1.005 → $1.00` Notice and raw-zero-after-billing hold are current source defects,
+not future-only gaps. Source activation establishes no verified Hosting/deploy
+or live-data state. Retain the numerical/early-guard subset in the earliest
+financial release independently of #614/#638; the complete financial/public
+release gates, report, holds and exact-head review requirements still apply.
 
-**Bounded M recheck (2026-11-07, before code):** one authenticated financial presentation subsystem, comprising a private display adapter; SettlementBoard household Annual `max(0,G+O)`/Paid P/deferred values; Dashboard's deferred aggregate; invoice context/renderers and Email/Text/InvoicingTab consumers; and selected Notice preview/new snapshot/email orchestration. `PaymentHistoryDialog` remains member-bound raw audit, with existing household warning/availability and nonblocking correction/reversal; do not convert its member summary into a household bill or newly declare its raw rows additive. Household projected payment-row consumers preserve exact original/reversal opposites. Existing year-end preview already uses the authority and receives regression coverage; no YearEndReview UI or #603 work is absorbed.
+M3 **extends** #634's minimal bridge and never regresses a hold/incomplete aggregate
+to Paid/settled, payable zero or stale money. Full invoice unavailable results and
+display adaptation remain here; public response/cache/version semantics remain M4.
 
-Expected source inventory is at most thirteen files: `src/lib/financial-display.js` (private adapter), `src/lib/invoice.js`, `src/lib/chargeNotice.js`, `src/lib/ChargeNoticeService.js`, the narrow `BillingYearService.billDeferredCharges` guard/event/return seam, SettlementBoard, DashboardView, EmailInvoiceDialog, TextInvoiceDialog, InvoicingTab, ChargeNoticeDialog, plus `useFinancialAccess`/`financial-availability.js` only if needed for the existing continuation/aggregate contract. Tests cover each changed consumer, Notice orchestration/whole-cent writers, invoice email parity, existing preview and the applicable complete ADR matrix; desktop/phone synthetic screenshots cover valid/held states. This is one M because all work adapts existing authenticated presentation/output paths to established primitives and explicit owner scopes; no new financial authority, flow, ledger model, public protocol or deployment subsystem is added. If implementing these declared boundaries requires a financial policy change or materially broader source set, stop for a scoped serial split instead of silently enlarging M.
+**Prestart gate:** define household integrity-hold rendering and bound the eleven-
+path diff before implementation. Existing source work and this contract authorize
+no implementation or partial release.
 
-**Validation:** targeted component/invoice tests for all changed money states plus desktop/phone visual evidence where visible states change. Size rationale: presentation adaptation to one already-tested authority, including only the specifically approved newly persisted Notice presentation snapshot and pre-side-effect guards. Existing payment/refund decision handlers, eligibility, positive-input/overpayment rules, stored splitCents, raw source records, carry-only U and public writers stay outside this change. Gate: exact-head human financial review and normal review/CI; no deploy before the complete set. The owner separately authorized #635 to start with the known main shared Phase 4b CI failure while its canonical repair proceeds; that start exception grants no code-head approval or waiver of other failures/findings/holds.
+**Inputs/outputs:** authoritative cent components and allocated rows; bounded
+authenticated display/invoice adapters retain #620 independent member bill lines
+and raw audit access. Payment/refund availability and caps remain the M2b decision
+logic. Exact selected Notice `T = q(Σ exact raw)` uses largest remainder with
+ascending ordinal record-id ties; one function supplies preview, new stored
+snapshot `amount`, email rows/running totals and `CHARGES_BILLED` event amount.
+No source normalization or historical snapshot rewrite.
+
+**Early guard/output contract:** before mutation/event/queued save/persistence,
+`billDeferredCharges` builds a complete candidate copy with actual selected rows
+flipped to billed and finalized IDs, projects complete household authority, and
+refuses the whole selection on any hold, `T = 0` or empty selection. Raw zero
+alone or mixed with positive is refused without effects or silently dropping a
+confirmed row. Raw-zero dialog rows show **Not billable** and existing correction
+copy; positive raw rows allocated zero display cents remain valid, including two
+`0.004` rows together at `T = 1`, rows `1/0`. Valid positive selections remain
+usable under the guard. The Dashboard pre-bill check alone is insufficient.
+
+At Notice output take one fresh `service.getState()` snapshot synchronously after
+the billing mutation/queued-write call returns, validate through the same
+availability reader, and use all five arrays (`familyMembers`, `bills`, `payments`,
+`creditAdjustments`, `owedAdjustments`) from it. No render-time/post-bill mixing.
+Freeze financial rows/parent and identity/display context before the first
+transport await; later transport metadata can be appended without recomputing
+those values. A queued call return is not durable confirmation: SaveQueue still swallows failures. M3 adds
+no live continuation `getState`/availability contract after awaits; ordinary-
+invoice async guards remain unchanged.
+
+**Acceptance:** additive household rows conserve cents; ordinary invoices keep
+their scope. Each Notice is its own parent, not a new ledger: two separate
+`0.005` Notices total one cent each and need not sum to B. One `1.005` Notice
+matches its B contribution at `$1.01` as a one-row consequence, not a universal
+Notice/B equality or per-Notice settlement promise. Existing financial formulas,
+source amounts and historical snapshots stay authoritative. **Known limitation
+until #651:** failed/stale asynchronous Notice delivery and legacy orchestration/
+save uncertainty remain; M3 does not promise atomic/recoverable/durable issuance.
+
+**Validation obligations, not passing test evidence:** one shared numerical
+fixture proves preview/document/email-row/event/running-total parity; single
+`1.005 → $1.01`; separate `0.005` Notices and non-binding B comparison; raw-zero-
+only/mixed refusal without mutation/event/queued save; both whole-cent writer
+tripwires; existing `.005`/`.004`, source-hold, stale and overflow fixtures.
+Numerical Notice/candidate/snapshot-freeze tests remain #635; only post-await
+Notice service/Dashboard continuation tests transfer to #651. Targeted display/
+ordinary-invoice tests and desktop/phone evidence remain required. All later
+financial heads need explicit human financial review plus repository review/CI;
+no deploy before the complete set.
 
 ## M4: both public writers and money-version consumer (after M3 and #638)
 
