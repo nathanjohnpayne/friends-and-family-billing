@@ -89,7 +89,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+            if (showToast && access.canContinue(ticket)) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
         } finally {
             // A stale request must not unlock a newer action after context changes.
@@ -122,13 +122,15 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
-        navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
+        navigator.clipboard.writeText(finalBody).then(() => {
+            if (access.canContinue(ticket)) setCopied(true);
+        });
     }
 
     /** Launch the SMS composer only while the original live household ticket remains valid. */
@@ -138,14 +140,14 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket)) return;
         openSmsComposer(ctx.member.phone, finalBody, () => {
-            if (showToast) showToast('Message copied\u2014paste into your messaging app');
+            if (showToast && access.canContinue(ticket)) showToast('Message copied\u2014paste into your messaging app');
         });
     }
 

@@ -100,7 +100,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             return result.url;
         } catch (err) {
             console.error('Failed to generate share link:', err);
-            if (showToast) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+            if (showToast && access.canContinue(ticket)) showToast('Could not generate share link: ' + (err.message || 'Unknown error'), { kind: 'failure' });
             return '';
         } finally {
             // A stale request must not unlock a newer action after context changes.
@@ -136,13 +136,15 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             if (typeof finalBody !== 'string') return;
             setBody(finalBody);
         }
         if (!access.canContinue(ticket) || typeof finalBody !== 'string') return;
-        navigator.clipboard.writeText(finalBody).then(() => setCopied(true));
+        navigator.clipboard.writeText(finalBody).then(() => {
+            if (access.canContinue(ticket)) setCopied(true);
+        });
     }
 
     /** Recheck the action ticket before launching mail with a generated invoice body. */
@@ -152,7 +154,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
         let finalBody = body;
         if (needsLink) {
             const url = await ensureShareLink(ticket);
-            if (!url) return; // abort — toast already shown by ensureShareLink
+            if (!url || !access.canContinue(ticket)) return; // abort — toast already shown by ensureShareLink
             finalBody = rebuildBodyWithUrl(url);
             if (typeof finalBody !== 'string') return;
             setBody(finalBody);
@@ -177,17 +179,18 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
             let finalBody = body;
             if (needsLink) {
                 const url = await ensureShareLink(ticket);
-                if (!url) return; // abort — toast already shown
+                if (!url || !access.canContinue(ticket)) return; // abort — toast already shown
                 finalBody = rebuildBodyWithUrl(url);
                 if (typeof finalBody !== 'string') return;
                 setBody(finalBody);
             }
             if (!access.canContinue(ticket)) return;
             await queueEmail({ to: recipientEmail, subject, body: finalBody, uid: user ? user.uid : '' });
+            if (!access.canContinue(ticket)) return;
             if (showToast) showToast('Invoice emailed to ' + recipientEmail);
             onClose();
         } catch (err) {
-            if (showToast) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+            if (showToast && access.canContinue(ticket)) showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
         } finally {
             if (access.canContinue(ticket)) setSending(false);
         }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { flushSync } from 'react-dom';
 
 vi.mock('@/lib/firebase.js', () => ({ db: {}, storage: {} }));
 vi.mock('@/lib/mail.js', () => ({ queueEmail: vi.fn(async () => ({})) }));
@@ -79,21 +80,26 @@ describe.each([
     ['Email send', EmailInvoiceDialog, 'Send Email'],
     ['Text copy', TextInvoiceDialog, 'Copy Message'], ['Text SMS', TextInvoiceDialog, 'Open Messages']
 ])('%s valid context replacement', (_name, Component, actionLabel) => {
-    it('invalidates old output without letting the old request unlock a fresh pending action', async () => {
+    it.each(['resolve', 'reject'])('ignores a stale link %s without unlocking a fresh valid-context action', async outcome => {
         const user = userEvent.setup();
         const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
-        let finishOld, finishFresh;
-        createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+        const showToast = vi.fn();
+        let finishOld, rejectOld, finishFresh;
+        createAndPruneShareLink.mockReturnValueOnce(new Promise((resolve, reject) => { finishOld = resolve; rejectOld = reject; }))
             .mockReturnValueOnce(new Promise(resolve => { finishFresh = resolve; }));
-        const { rerender } = render(<Component {...base} />);
+        const { rerender } = render(<Component {...base} showToast={showToast} />);
         await user.click(screen.getByRole('button', { name: actionLabel }));
         // Both sources are financially valid; the payment change replaces the
         // invoice context without passing through a household integrity hold.
-        const freshProps = { ...base, payments: [{ ...base.payments[0], amount: .58 }] };
+        const freshProps = { ...base, showToast, payments: [{ ...base.payments[0], amount: .58 }] };
         rerender(<Component {...freshProps} />);
         expect(screen.queryByText('Financial data unavailable')).not.toBeInTheDocument();
         await user.click(screen.getByRole('button', { name: actionLabel }));
-        await act(async () => { finishOld({ url: 'https://example.com/old-context' }); });
+        await act(async () => {
+            if (outcome === 'resolve') finishOld({ url: 'https://example.com/old-context' });
+            else rejectOld(new Error('Stale link failure'));
+        });
+        expect(showToast).not.toHaveBeenCalled();
         for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
         expect(queueEmail).not.toHaveBeenCalled();
         expect(clipboardWrite).not.toHaveBeenCalled();
@@ -224,3 +230,105 @@ describe.each([
         for (const radio of screen.getAllByRole('radio')) expect(radio).toBeEnabled();
     });
 });
+
+
+describe.each(['reopen', 'valid-context'])('late queued email after %s', transition => {
+    it.each(['resolve', 'reject'])('does not close, toast or unlock the fresh send when the old queue %s completes', async outcome => {
+        const user = userEvent.setup();
+        const onClose = vi.fn(), showToast = vi.fn();
+        let finishOld, rejectOld, finishFresh;
+        queueEmail.mockReturnValueOnce(new Promise((resolve, reject) => { finishOld = resolve; rejectOld = reject; }))
+            .mockReturnValueOnce(new Promise(resolve => { finishFresh = resolve; }));
+        const props = { ...base, onClose, showToast };
+        const { rerender } = render(<EmailInvoiceDialog {...props} />);
+        await user.click(screen.getByRole('button', { name: 'Send Email' }));
+        expect(queueEmail).toHaveBeenCalledOnce();
+        let freshProps = props;
+        if (transition === 'reopen') {
+            rerender(<EmailInvoiceDialog {...props} open={false} />);
+        } else freshProps = { ...props, payments: [{ ...base.payments[0], amount: .58 }] };
+        rerender(<EmailInvoiceDialog {...freshProps} />);
+        await user.click(screen.getByRole('button', { name: 'Send Email' }));
+        expect(queueEmail).toHaveBeenCalledTimes(2);
+        await act(async () => {
+            if (outcome === 'resolve') finishOld({});
+            else rejectOld(new Error('Stale queue failure'));
+        });
+        expect(onClose).not.toHaveBeenCalled();
+        expect(showToast).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
+        for (const field of screen.getAllByRole('textbox')) expect(field).toBeDisabled();
+        await act(async () => { finishFresh({}); });
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(showToast).toHaveBeenCalledExactlyOnceWith('Invoice emailed to alice@example.com');
+        expect(queueEmail).toHaveBeenCalledTimes(2);
+        for (const field of screen.getAllByRole('textbox')) expect(field).toBeEnabled();
+    });
+});
+
+describe.each([['Email', EmailInvoiceDialog, 'Copy'], ['Text', TextInvoiceDialog, 'Copy Message']])(
+    '%s clipboard completion context', (_name, Component, copyLabel) => {
+        it.each(['unchanged', 'reopen', 'valid-context'])('updates Copied only for its original %s context', async transition => {
+            const user = userEvent.setup();
+            let finishClipboard;
+            const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText')
+                .mockReturnValueOnce(new Promise(resolve => { finishClipboard = resolve; }));
+            const { rerender } = render(<Component {...base} />);
+            await user.click(screen.getByRole('button', { name: copyLabel }));
+            expect(clipboardWrite).toHaveBeenCalledOnce();
+            if (transition === 'reopen') {
+                rerender(<Component {...base} open={false} />);
+                rerender(<Component {...base} />);
+            } else if (transition === 'valid-context') {
+                rerender(<Component {...base} payments={[{ ...base.payments[0], amount: .58 }]} />);
+            }
+            await act(async () => { finishClipboard(); });
+            expect(screen.queryByRole('button', { name: 'Copied!' }) !== null).toBe(transition === 'unchanged');
+            expect(clipboardWrite).toHaveBeenCalledOnce();
+            expect(queueEmail).not.toHaveBeenCalled();
+            expect(openSmsComposer).not.toHaveBeenCalled();
+        });
+    });
+
+describe('late SMS clipboard fallback feedback', () => {
+    it.each(['unchanged', 'reopen', 'valid-context'])('toasts only in its original %s context', async transition => {
+        const user = userEvent.setup();
+        const showToast = vi.fn();
+        const { rerender } = render(<TextInvoiceDialog {...base} showToast={showToast} />);
+        await user.click(screen.getByRole('button', { name: 'Open Messages' }));
+        expect(openSmsComposer).toHaveBeenCalledOnce();
+        const copiedFallback = openSmsComposer.mock.calls[0][2];
+        if (transition === 'reopen') {
+            rerender(<TextInvoiceDialog {...base} showToast={showToast} open={false} />);
+            rerender(<TextInvoiceDialog {...base} showToast={showToast} />);
+        } else if (transition === 'valid-context') {
+            rerender(<TextInvoiceDialog {...base} showToast={showToast} payments={[{ ...base.payments[0], amount: .58 }]} />);
+        }
+        await act(async () => { copiedFallback(); });
+        expect(showToast).toHaveBeenCalledTimes(transition === 'unchanged' ? 1 : 0);
+        expect(openSmsComposer).toHaveBeenCalledOnce();
+    });
+});
+
+
+describe.each([['Email', EmailInvoiceDialog, 'Copy'], ['Text', TextInvoiceDialog, 'Copy Message']])(
+    '%s link result continuation', (_name, Component, copyLabel) => {
+        it('keeps the fresh composed body when context changes between helper return and caller continuation', async () => {
+            const user = userEvent.setup();
+            const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
+            let finishLink;
+            createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finishLink = resolve; }));
+            const { rerender } = render(<Component {...base} />);
+            await user.click(screen.getByRole('button', { name: copyLabel }));
+            await act(async () => {
+                finishLink({ url: 'https://example.com/old-helper-result' });
+                queueMicrotask(() => flushSync(() => rerender(<Component {...base} payments={[{ ...base.payments[0], amount: .58 }]} />)));
+            });
+            const freshBody = screen.getAllByRole('textbox').find(field => field.tagName === 'TEXTAREA').value;
+            expect(freshBody).not.toContain('old-helper-result');
+            expect(freshBody).not.toContain('$0.01');
+            expect(clipboardWrite).not.toHaveBeenCalled();
+            expect(queueEmail).not.toHaveBeenCalled();
+            expect(openSmsComposer).not.toHaveBeenCalled();
+        });
+    });
