@@ -72,6 +72,8 @@ original five files (`index.js`, `billing.js`, `package.json`, `package-lock.jso
 Both variants retain the same repository, revision, digest, attestation and tool
 checks; every admitted source file except generated `functions.yaml` is compared
 with the original git bytes at that full revision, even for other deploy targets.
+The declared schema stays bound through the selected-stage copy, credential
+consumer and final Firebase launch; a reduced schema 2 tree cannot become schema 1.
 Compatibility permits a separately approved rollback only while the original
 artifact and its provenance remain available; it extends no retention window or
 deployment authority. Retention/rebuild policy follow-up remains [#626](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/626).

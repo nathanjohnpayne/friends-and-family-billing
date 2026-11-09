@@ -146,18 +146,26 @@ class ArtifactBoundary(unittest.TestCase):
                     file.write_text('changed')
                 calls = []
                 with self.assertRaises(ValueError):
-                    deploy.consume_verified(staging, 'functions', {'node': '/fake/node', 'op': '/fake/op', 'python3': '/fake/python'}, work, hashes, acquire=lambda *args: calls.append('read'))
+                    deploy.consume_verified(staging, 'functions', {'node': '/fake/node', 'op': '/fake/op', 'python3': '/fake/python'}, work, hashes, 2, acquire=lambda *args: calls.append('read'))
                 self.assertEqual(calls, [])
 
     def test_main_binds_every_variant_source_byte_before_consumer_for_every_target(self):
-        cases = [(1, 'functions', None), (2, 'functions', None)]
-        cases += [(2, target, name) for target in deploy.TARGETS for name in MONEY_FILES]
-        for i, (schema, target, changed) in enumerate(cases):
-            with self.subTest(schema=schema, target=target, changed=changed):
+        cases = [(1, 'functions', None, False), (2, 'functions', None, False), (2, 'functions', None, True)]
+        cases += [(2, target, name, False) for target in deploy.TARGETS for name in MONEY_FILES]
+        copytree = shutil.copytree
+        for i, (schema, target, changed, drop_before_copy) in enumerate(cases):
+            with self.subTest(schema=schema, target=target, changed=changed, drop_before_copy=drop_before_copy):
                 work = self.work / str(i)
                 work.mkdir()
                 originals = fixture(schema)
                 reads = set()
+                expected = {'functions/' + name for name in deploy.FUNCTION_VARIANTS[schema] - {'functions.yaml'}}
+                def copy_selected(source, dest, *args, **kwargs):
+                    if drop_before_copy and Path(source) == work / 'extracted/functions':
+                        self.assertEqual(reads, expected | {'firebase.json', 'firestore.rules', 'storage.rules'})
+                        for name in MONEY_FILES:
+                            (Path(source) / 'source' / name).unlink()
+                    return copytree(source, dest, *args, **kwargs)
                 def read_blob(argv, **_kwargs):
                     self.assertTrue(argv[-1].startswith(SHA + ':'))
                     name = argv[-1].split(':', 1)[1]
@@ -185,15 +193,15 @@ class ArtifactBoundary(unittest.TestCase):
                         return ''
                     raise AssertionError(argv)
                 args = ['deployer', '--sha', SHA, '--target', target, '--repository-dir', str(work), '--work-dir', str(work)]
-                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.subprocess, 'check_output', side_effect=read_blob), mock.patch.object(deploy, 'check_discovery'), mock.patch.object(deploy, 'run_consumer') as consumer:
-                    if changed:
-                        with self.assertRaisesRegex(ValueError, 'Packaged source differs'):
+                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.subprocess, 'check_output', side_effect=read_blob), mock.patch.object(deploy, 'check_discovery'), mock.patch.object(deploy.shutil, 'copytree', side_effect=copy_selected), mock.patch.object(deploy, 'run_consumer') as consumer:
+                    if changed or drop_before_copy:
+                        with self.assertRaisesRegex(ValueError, 'Unexpected Functions source files' if drop_before_copy else 'Packaged source differs'):
                             deploy.main()
                         consumer.assert_not_called()
                     else:
                         deploy.main()
                         consumer.assert_called_once()
-                        expected = {'functions/' + name for name in deploy.FUNCTION_VARIANTS[schema] - {'functions.yaml'}}
+                        self.assertEqual(consumer.call_args.args[-1], schema)
                         self.assertEqual(reads, expected | {'firebase.json', 'firestore.rules', 'storage.rules'})
 
     def test_extracted_current_bundle_loads_actual_cjs_esm_seam(self):
@@ -203,6 +211,63 @@ class ArtifactBoundary(unittest.TestCase):
             self.skipTest('Node unavailable in Python-only verifier; isolated producer always proves extracted Node24 modules')
         env = {'HOME': str(self.work), 'PATH': '/usr/bin:/bin', 'FFB_ISOLATED_TEST': '1'}
         subprocess.run([node, str(ROOT / 'scripts/check-functions-modules.cjs'), str(staging / 'source')], env=env, cwd=self.work, check=True, timeout=30)
+
+    def test_private_consumer_preserves_schema_even_when_reduced_hashes_match(self):
+        for schema, drop in [(1, False), (2, False), (2, True)]:
+            with self.subTest(schema=schema, drop=drop):
+                work = self.work / (str(schema) + str(drop))
+                work.mkdir()
+                archive(self.tar, schema=schema)
+                staging, _ = deploy.extract_verified(self.tar, work / 'extracted', SHA, 'functions')
+                if drop:
+                    for name in MONEY_FILES:
+                        (staging / 'source' / name).unlink()
+                # Deliberately capture AFTER removal: hashes alone cannot detect it.
+                hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+                tools = {'node': '/fake/node', 'firebase': '/fake/firebase', 'op': '/fake/op', 'python3': '/fake/python', 'helper': '/fake/helper'}
+                with mock.patch.object(deploy, 'checked_process') as process:
+                    deploy.run_consumer(staging, 'functions', tools, work, hashes, schema)
+                payload = json.loads(process.call_args.kwargs['input_data'])
+                self.assertEqual(payload['schema'], schema)
+                calls = []
+                def acquire(_argv, _env, _cwd, stream):
+                    calls.append('read')
+                    stream.write('{"type":"authorized_user","client_id":"fake","client_secret":"fake","refresh_token":"fake"}')
+                def invoke(argv, *_args):
+                    if argv[0] == tools['helper']:
+                        calls.append('helper')
+                        guard = (work / 'trusted-bin/firebase').read_text()
+                        command = deploy.shlex.split(guard.splitlines()[1])
+                        self.assertIn("'schema': " + str(schema), command[command.index('-c') + 1])
+                if drop:
+                    with self.assertRaisesRegex(ValueError, 'Unexpected Functions source files'):
+                        deploy.consume_verified(**payload, invoke=invoke, acquire=acquire)
+                    self.assertEqual(calls, [])
+                else:
+                    deploy.consume_verified(**payload, invoke=invoke, acquire=acquire)
+                    self.assertEqual(calls, ['read', 'helper'])
+
+    def test_final_launcher_preserves_declared_schema_with_matching_reduced_hashes(self):
+        staging, _ = self.verify(schema=2)
+        for name in MONEY_FILES:
+            (staging / 'source' / name).unlink()
+        hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+        tools = {'node': '/fake/node', 'firebase': '/fake/firebase'}
+        payload = {'staging': str(staging), 'target': 'functions', 'tools': tools, 'hashes': hashes, 'schema': 2}
+        with mock.patch.object(deploy.os, 'execve') as launch:
+            for schema in [2, True, 3, None]:
+                with self.subTest(schema=schema):
+                    with self.assertRaises(ValueError):
+                        deploy.launch_firebase({**payload, 'schema': schema}, ['projects:list', '--json'])
+                    launch.assert_not_called()
+        # An independently verified, actually declared legacy artifact remains valid.
+        archive(self.tar, schema=1)
+        legacy, _ = deploy.extract_verified(self.tar, self.work / 'legacy', SHA, 'functions')
+        payload.update(staging=str(legacy), schema=1)
+        with mock.patch.dict(os.environ, {'HOME': str(self.work), 'PATH': '/usr/bin:/bin', 'GOOGLE_APPLICATION_CREDENTIALS': '/fake/adc'}), mock.patch.object(deploy, 'check_discovery') as discovery, mock.patch.object(deploy.os, 'execve') as launch:
+            deploy.launch_firebase(payload, ['projects:list', '--json'])
+            self.assertEqual(discovery.call_args.args[-1], 1)
+            launch.assert_called_once()
 
     def test_adversarial_archive_paths_and_links_are_refused(self):
         for name, kind in [("../outside", tarfile.REGTYPE), ("/outside", tarfile.REGTYPE), ("functions/source/link", tarfile.SYMTYPE), ("functions/source/index.js", tarfile.REGTYPE), ("functions/source/INDEX.js", tarfile.REGTYPE), ("functions/source/.env", tarfile.REGTYPE), ("functions/source/node_modules/x", tarfile.REGTYPE)]:
@@ -241,7 +306,7 @@ class ArtifactBoundary(unittest.TestCase):
         (staging / "source/functions.yaml").unlink()
         calls = []
         with self.assertRaises(ValueError):
-            deploy.consume_verified(staging, "functions", {"node": "/fake/node", "op": "/fake/op", "python3": "/fake/python"}, self.work, hashes, acquire=lambda *args: calls.append("acquire"))
+            deploy.consume_verified(staging, "functions", {"node": "/fake/node", "op": "/fake/op", "python3": "/fake/python"}, self.work, hashes, 1, acquire=lambda *args: calls.append("acquire"))
         self.assertEqual(calls, [])
 
     def test_exactly_one_fake_read_then_deploy_with_private_external_credentials(self):
@@ -264,7 +329,7 @@ class ArtifactBoundary(unittest.TestCase):
             self.assertEqual(credential.stat().st_mode & 0o777, 0o600)
             self.assertEqual(Path(env["HOME"]), self.work / "deploy-home")
         with mock.patch.dict(os.environ, {"GH_TOKEN": "canary", "GOOGLE_APPLICATION_CREDENTIALS": "/hostile", "NODE_OPTIONS": "--require=/hostile", "PYTHONPATH": "/hostile"}):
-            deploy.consume_verified(staging, "hosting", {"node": "/fake/node", "op": "/fake/op", "python3": "/fake/python", "helper": "/trusted/helper"}, self.work, hashes, invoke, acquire)
+            deploy.consume_verified(staging, "hosting", {"node": "/fake/node", "op": "/fake/op", "python3": "/fake/python", "helper": "/trusted/helper"}, self.work, hashes, 1, invoke, acquire)
         self.assertEqual(calls, ["acquire", "deploy"])
         self.assertFalse((self.work / "source-credential.json").exists())
         self.assertFalse((self.work / "credential-tmp").exists())
@@ -353,7 +418,7 @@ class ArtifactBoundary(unittest.TestCase):
         (canary / 'json.py').write_text("raise Exception('HOSTILE PYTHON IMPORT')")
         tools = {'node': '/fake/node', 'op': str(op), 'helper': str(helper), 'python3': sys.executable}
         with mock.patch.dict(os.environ, {'GH_TOKEN': 'fake-PAT-canary', 'OP_PREFLIGHT_AUTHOR_PAT': 'fake-author-canary', 'GOOGLE_APPLICATION_CREDENTIALS': '/hostile', 'PYTHONPATH': str(canary), 'NODE_OPTIONS': '--require=/hostile'}):
-            deploy.run_consumer(staging, 'hosting', tools, self.work, hashes)
+            deploy.run_consumer(staging, 'hosting', tools, self.work, hashes, 1)
         observed = json.loads(marker.read_text())
         env = observed['env']
         self.assertFalse(any(key.startswith(('GH_', 'OP_')) or key in ['PYTHONPATH', 'NODE_OPTIONS'] for key in env))
@@ -398,7 +463,7 @@ class ArtifactBoundary(unittest.TestCase):
                     calls.append("helper")
                     raise OSError("Fake helper token check failed")
                 with self.assertRaises((ValueError, OSError)):
-                    deploy.consume_verified(staging, "hosting", {"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": "/fake/helper"}, work, hashes, invoke, acquire)
+                    deploy.consume_verified(staging, "hosting", {"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": "/fake/helper"}, work, hashes, 1, invoke, acquire)
                 self.assertEqual(calls, ["read", "helper"] if label == "helper" else ["read"])
                 self.assertFalse((work / "source-credential.json").exists())
                 self.assertFalse((work / "credential-tmp").exists())
@@ -416,7 +481,7 @@ class ArtifactBoundary(unittest.TestCase):
                 helper.write_text('#!/bin/bash\necho $$ > ' + str(marker) + '\nexec /bin/sleep 30\n')
                 helper.chmod(0o700)
                 harness = work / 'harness.py'
-                harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", acquire=acquire)\n")
+                harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"authorized_user\",\"client_id\":\"fake\",\"client_secret\":\"fake\",\"refresh_token\":\"fake\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", 1, acquire=acquire)\n")
                 process = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(harness)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 try:
                     deadline = time.monotonic() + 5
@@ -449,7 +514,7 @@ class ArtifactBoundary(unittest.TestCase):
         helper.chmod(0o700)
         tools = {'node': '/fake/node', 'op': str(reader), 'helper': str(helper), 'python3': sys.executable}
         harness = self.work / 'nested.py'
-        harness.write_text("import importlib.util\ns=importlib.util.spec_from_file_location('d'," + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d);d.install_signal_handlers();d.run_consumer(" + repr(str(staging)) + ",'hosting'," + repr(tools) + "," + repr(str(self.work)) + "," + repr(hashes) + ")\n")
+        harness.write_text("import importlib.util\ns=importlib.util.spec_from_file_location('d'," + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d);d.install_signal_handlers();d.run_consumer(" + repr(str(staging)) + ",'hosting'," + repr(tools) + "," + repr(str(self.work)) + "," + repr(hashes) + ",1)\n")
         process = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(harness)], env={'HOME': str(self.work), 'PATH': '/usr/bin:/bin'}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         helper_pid = None
         try:
@@ -501,13 +566,13 @@ class ArtifactBoundary(unittest.TestCase):
             for file in (staging / 'source').iterdir():
                 if file.suffix in ['.js', '.mjs']:
                     file.write_text("throw Error('CANDIDATE EXECUTED');")
-            deploy.check_discovery(staging, tools, env, self.work)
+            deploy.check_discovery(staging, tools, env, self.work, schema)
         ancestor_sdk = self.work / 'node_modules/firebase-functions'
         ancestor_sdk.mkdir(parents=True)
         (ancestor_sdk / 'package.json').write_text('{"name":"firebase-functions","version":"7.4.0","main":"index.js"}')
         (ancestor_sdk / 'index.js').write_text("throw Error('SDK IMPORTED');")
         with self.assertRaises(subprocess.CalledProcessError):
-            deploy.check_discovery(staging, tools, deploy.child_environment(home, '/usr/bin:/bin'), self.work)
+            deploy.check_discovery(staging, tools, deploy.child_environment(home, '/usr/bin:/bin'), self.work, schema)
 
 
 if __name__ == '__main__':
