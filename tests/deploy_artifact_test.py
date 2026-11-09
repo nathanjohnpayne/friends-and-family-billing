@@ -221,6 +221,10 @@ class ArtifactBoundary(unittest.TestCase):
         if node is None:
             self.skipTest('Node unavailable in Python-only verifier; isolated producer always proves extracted Node24 modules')
         env = {'HOME': str(self.work), 'PATH': '/usr/bin:/bin', 'FFB_ISOLATED_TEST': '1'}
+        major = subprocess.check_output([node, '-p', 'process.versions.node.split(".")[0]'], env=env, cwd=self.work, text=True, timeout=30).strip()
+        self.assertTrue(major.isascii() and major.isdecimal(), 'Invalid Node major version')
+        if major != '24':
+            self.skipTest('Found Node' + major + '; optional extracted-module proof requires Node24; producer checks its pinned runtime')
         subprocess.run([node, str(ROOT / 'scripts/check-functions-modules.cjs'), str(staging / 'source')], env=env, cwd=self.work, check=True, timeout=30)
 
     def test_private_consumer_preserves_schema_even_when_reduced_hashes_match(self):
