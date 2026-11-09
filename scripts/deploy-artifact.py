@@ -29,7 +29,11 @@ ADC_URI = "op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential"
 TARGETS = {"functions": "functions", "hosting": "hosting", "firestore:rules": "firestore-rules", "storage": "storage"}
 BANNED = {".npmrc", ".bin", "node_modules", ".git", ".firebaserc"}
 FORBIDDEN_KEYS = {"predeploy", "postdeploy", "lifecycleHooks", "extensions", "frameworksBackend", "configDir", "schemaFilePath", "baseImageUri", "command", "args", "dataConnectGraphqlTrigger"}
-FUNCTION_FILES = {"index.js", "billing.js", "package.json", "package-lock.json", "functions.yaml"}
+LEGACY_FUNCTION_FILES = frozenset({"index.js", "billing.js", "package.json", "package-lock.json", "functions.yaml"})
+FUNCTION_VARIANTS = {
+    1: LEGACY_FUNCTION_FILES,
+    2: LEGACY_FUNCTION_FILES | {"money.js", "money.mjs", "household-money.js", "household-money.mjs"},
+}
 
 
 def strict_json(data):
@@ -61,7 +65,7 @@ def no_hooks(value):
             no_hooks(child)
 
 
-def validate_config(root, target):
+def validate_config(root, target, schema=None):
     """Validate target-only config and precomputed Functions discovery data."""
     config = strict_json((root / "firebase.json").read_bytes())
     no_hooks(config)
@@ -72,7 +76,9 @@ def validate_config(root, target):
     if target == "functions":
         require(value == {"source": "source", "runtime": "nodejs24", "codebase": "default"}, "Unexpected Functions configuration")
         source = root / "source"
-        require({p.name for p in source.iterdir()} == FUNCTION_FILES, "Unexpected Functions source files")
+        files = {p.name for p in source.iterdir()}
+        variants = [FUNCTION_VARIANTS[schema]] if schema is not None else FUNCTION_VARIANTS.values()
+        require(files in variants, "Unexpected Functions source files")
         package = strict_json((source / "package.json").read_bytes())
         require(isinstance(package, dict) and package.get("main") == "index.js" and package.get("engines") == {"node": "24"}, "Functions must use index.js/nodejs24")
         require(not package.get("scripts"), "Functions package scripts are forbidden")
@@ -140,7 +146,7 @@ def extract_verified(archive, destination, sha, target):
         require(files["metadata.json"].size <= 4 * 1024 * 1024, "Metadata is too large")
         metadata = strict_json(tf.extractfile(files["metadata.json"]).read())
         require(set(metadata) == {"schema", "repository", "sourceSha", "firebaseCli", "functionsSdk", "files"}, "Unexpected artifact metadata fields")
-        require(type(metadata["schema"]) is int and metadata["schema"] == 1 and metadata["repository"] == REPOSITORY and metadata["sourceSha"] == sha, "Artifact identity mismatch")
+        require(type(metadata["schema"]) is int and metadata["schema"] in FUNCTION_VARIANTS and metadata["repository"] == REPOSITORY and metadata["sourceSha"] == sha, "Artifact identity mismatch")
         require(metadata["firebaseCli"] == CLI_VERSION and metadata["functionsSdk"] == SDK_VERSION, "Artifact tool version mismatch")
         hashes = metadata["files"]
         require(isinstance(hashes, dict) and set(hashes) == set(files) - {"metadata.json"}, "Artifact file allowlist mismatch")
@@ -157,7 +163,7 @@ def extract_verified(archive, destination, sha, target):
             with os.fdopen(fd, "wb") as stream:
                 stream.write(tf.extractfile(member).read())
     for selected, directory in TARGETS.items():
-        validate_config(destination / directory, selected)
+        validate_config(destination / directory, selected, metadata["schema"])
     return destination / TARGETS[target], metadata
 
 
@@ -388,7 +394,7 @@ def main():
     run(gh + ["attestation", "verify", str(archive), "--repo", REPOSITORY, "--signer-workflow", REPOSITORY + "/.github/workflows/" + WORKFLOW, "--source-ref", "refs/heads/main", "--source-digest", args.sha, "--deny-self-hosted-runners", "--cert-oidc-issuer", "https://token.actions.githubusercontent.com"], gh_env, work)
     staging, metadata = extract_verified(archive, work / "extracted", args.sha, args.target)
     # Source/rules files are byte-bound to git, not merely trusted build outputs.
-    source_files = {"functions/source/" + name: "functions/" + name for name in FUNCTION_FILES - {"functions.yaml"}}
+    source_files = {"functions/source/" + name: "functions/" + name for name in FUNCTION_VARIANTS[metadata["schema"]] - {"functions.yaml"}}
     source_files.update({"firestore-rules/firestore.rules": "firestore.rules", "storage/storage.rules": "storage.rules"})
     original_config = strict_json(subprocess.check_output(git + ["cat-file", "blob", args.sha + ":firebase.json"], env=git_env, cwd=work, timeout=60))
     hosting = {**original_config["hosting"], "public": "public"}

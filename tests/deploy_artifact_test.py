@@ -38,7 +38,10 @@ def manifest():
     return {"specVersion": "v1alpha1", "endpoints": endpoints, "params": [{"type": "secret", "name": "RESEND_API_KEY"}], "extensions": {}, "requiredAPIs": []}
 
 
-def fixture():
+MONEY_FILES = ("money.js", "money.mjs", "household-money.js", "household-money.mjs")
+
+
+def fixture(schema=1):
     files = {
         "functions/firebase.json": {"functions": {"source": "source", "runtime": "nodejs24", "codebase": "default"}},
         "functions/source/package.json": {"main": "index.js", "engines": {"node": "24"}},
@@ -54,13 +57,18 @@ def fixture():
         "storage/firebase.json": {"storage": {"rules": "storage.rules"}},
         "storage/storage.rules": "rules_version = '2';",
     }
-    return {key: (json.dumps(value) if isinstance(value, dict) else value).encode() for key, value in files.items()}
+    result = {key: (json.dumps(value) if isinstance(value, dict) else value).encode() for key, value in files.items()}
+    if schema == 2:
+        result.update({"functions/source/" + name: (ROOT / "functions" / name).read_bytes() for name in MONEY_FILES})
+    return result
 
 
-def archive(path, changes=None, extra=None, metadata_changes=None):
-    files = fixture()
+def archive(path, changes=None, extra=None, metadata_changes=None, schema=1, removed=()):
+    files = fixture(schema)
     files.update(changes or {})
-    metadata = {"schema": 1, "repository": deploy.REPOSITORY, "sourceSha": SHA, "firebaseCli": "15.34.2", "functionsSdk": "7.4.0", "files": {k: deploy.digest(v) for k, v in files.items()}}
+    for name in removed:
+        del files[name]
+    metadata = {"schema": schema, "repository": deploy.REPOSITORY, "sourceSha": SHA, "firebaseCli": "15.34.2", "functionsSdk": "7.4.0", "files": {k: deploy.digest(v) for k, v in files.items()}}
     metadata.update(metadata_changes or {})
     files["metadata.json"] = json.dumps(metadata).encode()
     with tarfile.open(path, "w", format=tarfile.USTAR_FORMAT) as tf:
@@ -89,6 +97,111 @@ class ArtifactBoundary(unittest.TestCase):
         staging, _ = self.verify()
         self.assertEqual((staging / "source/index.js").read_text(), "throw Error('CANDIDATE EXECUTED');")
         self.assertFalse((staging / "source/node_modules").exists())
+
+    def test_closed_legacy_and_current_variants_for_every_target(self):
+        for schema in [1, 2]:
+            for target in deploy.TARGETS:
+                with self.subTest(schema=schema, target=target):
+                    archive(self.tar, schema=schema)
+                    dest = self.work / (str(schema) + target.replace(':', '-'))
+                    _, metadata = deploy.extract_verified(self.tar, dest, SHA, target)
+                    self.assertEqual(metadata['schema'], schema)
+                    for name in MONEY_FILES:
+                        packaged = dest / 'functions/source' / name
+                        self.assertEqual(packaged.exists(), schema == 2)
+                        if schema == 2:
+                            self.assertEqual(packaged.read_bytes(), (ROOT / 'functions' / name).read_bytes())
+
+    def test_unsupported_and_crossed_variants_fail_closed(self):
+        for i, (schema, metadata) in enumerate([(1, {'schema': 2}), (2, {'schema': 1}),
+                (1, {'schema': True}), (2, {'schema': 2.0}), (2, {'schema': 3}), (2, {'schema': '2'})]):
+            with self.subTest(schema=schema, metadata=metadata):
+                archive(self.tar, schema=schema, metadata_changes=metadata)
+                with self.assertRaises(ValueError):
+                    deploy.extract_verified(self.tar, self.work / str(i), SHA, 'functions')
+
+    def test_missing_extra_and_digest_modified_modules_fail_for_unselected_target(self):
+        cases = [{'removed': ['functions/source/' + name]} for name in MONEY_FILES]
+        cases.append({'changes': {'functions/source/unregistered.mjs': b'export {};'}})
+        hashes = {name: deploy.digest(data) for name, data in fixture(2).items()}
+        cases += [{'changes': {'functions/source/' + name: b'changed'}, 'metadata_changes': {'files': hashes}} for name in MONEY_FILES]
+        for i, case in enumerate(cases):
+            with self.subTest(case=i):
+                archive(self.tar, schema=2, **case)
+                with self.assertRaises(ValueError):
+                    deploy.extract_verified(self.tar, self.work / str(i), SHA, 'hosting')
+
+    def test_staged_monetary_drop_add_and_modification_precede_credential_read(self):
+        for i, (name, action) in enumerate([(name, action) for name in MONEY_FILES for action in ['drop', 'modify']] + [('extra.mjs', 'add')]):
+            with self.subTest(name=name, action=action):
+                work = self.work / str(i)
+                work.mkdir()
+                archive(self.tar, schema=2)
+                staging, _ = deploy.extract_verified(self.tar, work / 'extracted', SHA, 'functions')
+                hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
+                file = staging / 'source' / name
+                if action == 'drop':
+                    file.unlink()
+                else:
+                    file.write_text('changed')
+                calls = []
+                with self.assertRaises(ValueError):
+                    deploy.consume_verified(staging, 'functions', {'node': '/fake/node', 'op': '/fake/op', 'python3': '/fake/python'}, work, hashes, acquire=lambda *args: calls.append('read'))
+                self.assertEqual(calls, [])
+
+    def test_main_binds_every_variant_source_byte_before_consumer_for_every_target(self):
+        cases = [(1, 'functions', None), (2, 'functions', None)]
+        cases += [(2, target, name) for target in deploy.TARGETS for name in MONEY_FILES]
+        for i, (schema, target, changed) in enumerate(cases):
+            with self.subTest(schema=schema, target=target, changed=changed):
+                work = self.work / str(i)
+                work.mkdir()
+                originals = fixture(schema)
+                reads = set()
+                def read_blob(argv, **_kwargs):
+                    self.assertTrue(argv[-1].startswith(SHA + ':'))
+                    name = argv[-1].split(':', 1)[1]
+                    reads.add(name)
+                    if name == 'firebase.json':
+                        return b'{"hosting":{"public":"public"}}'
+                    path = name.replace('functions/', 'functions/source/', 1) if name.startswith('functions/') else {'firestore.rules': 'firestore-rules/firestore.rules', 'storage.rules': 'storage/storage.rules'}[name]
+                    return originals[path]
+                def external(argv, *_args):
+                    if 'merge-base' in argv:
+                        return ''
+                    if '-p' in argv:
+                        return '24'
+                    if '--version' in argv:
+                        return '15.34.2'
+                    if 'api' in argv:
+                        return json.dumps([{'workflow_runs': [{'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success', 'status': 'completed'}]}])
+                    if 'download' in argv:
+                        name = 'ffb-deploy-' + SHA + '.tar'
+                        tar = Path(argv[-1]) / name
+                        archive(tar, schema=schema, changes={'functions/source/' + changed: b'changed but correctly rehashed'} if changed else None)
+                        (tar.parent / 'SHA256SUMS').write_text(deploy.digest(tar.read_bytes()) + '  ' + name + '\n')
+                        return ''
+                    if 'attestation' in argv:
+                        return ''
+                    raise AssertionError(argv)
+                args = ['deployer', '--sha', SHA, '--target', target, '--repository-dir', str(work), '--work-dir', str(work)]
+                with mock.patch.object(sys, 'argv', args), mock.patch.dict(os.environ, {'FFB_TRUSTED_MAIN': SHA}), mock.patch.object(deploy, 'resolve_tools', return_value={name: '/trusted/' + name for name in ['git', 'node', 'firebase', 'gh']}), mock.patch.object(deploy, 'run', side_effect=external), mock.patch.object(deploy.subprocess, 'check_output', side_effect=read_blob), mock.patch.object(deploy, 'check_discovery'), mock.patch.object(deploy, 'run_consumer') as consumer:
+                    if changed:
+                        with self.assertRaisesRegex(ValueError, 'Packaged source differs'):
+                            deploy.main()
+                        consumer.assert_not_called()
+                    else:
+                        deploy.main()
+                        consumer.assert_called_once()
+                        expected = {'functions/' + name for name in deploy.FUNCTION_VARIANTS[schema] - {'functions.yaml'}}
+                        self.assertEqual(reads, expected | {'firebase.json', 'firestore.rules', 'storage.rules'})
+
+    def test_extracted_current_bundle_loads_actual_cjs_esm_seam(self):
+        staging, _ = self.verify(schema=2)
+        node = shutil.which('node')
+        self.assertIsNotNone(node, 'Node24 required for extracted module proof')
+        env = {'HOME': str(self.work), 'PATH': '/usr/bin:/bin', 'FFB_ISOLATED_TEST': '1'}
+        subprocess.run([node, str(ROOT / 'scripts/check-functions-modules.cjs'), str(staging / 'source')], env=env, cwd=self.work, check=True, timeout=30)
 
     def test_adversarial_archive_paths_and_links_are_refused(self):
         for name, kind in [("../outside", tarfile.REGTYPE), ("/outside", tarfile.REGTYPE), ("functions/source/link", tarfile.SYMTYPE), ("functions/source/index.js", tarfile.REGTYPE), ("functions/source/INDEX.js", tarfile.REGTYPE), ("functions/source/.env", tarfile.REGTYPE), ("functions/source/node_modules/x", tarfile.REGTYPE)]:
@@ -370,15 +483,24 @@ class ArtifactBoundary(unittest.TestCase):
                     pass
 
     def test_real_pinned_cli_discovers_manifest_without_candidate_import_or_spawn(self):
-        node = Path('/opt/homebrew/opt/node@24/bin/node')
-        cli = Path('/opt/homebrew/lib/node_modules/firebase-tools/lib/bin/firebase.js')
+        node = Path(shutil.which('node') or '/opt/homebrew/opt/node@24/bin/node')
+        cli = Path(os.environ.get('FFB_TEST_FIREBASE_CLI', '/opt/homebrew/lib/node_modules/firebase-tools/lib/bin/firebase.js'))
         if not node.exists() or not cli.exists():
-            self.skipTest('Runtime delegate proof runs on the configured deployment host')
-        staging, _ = self.verify()
+            self.skipTest('Runtime delegate proof also runs in the isolated production build')
         home = self.work / 'neutral-home'
         home.mkdir()
         tools = {"node": str(node), "firebase": str(cli)}
-        deploy.check_discovery(staging, tools, deploy.child_environment(home, '/usr/bin:/bin'), self.work)
+        env = deploy.child_environment(home, '/usr/bin:/bin')
+        version = subprocess.check_output([str(node), str(cli), '--version'], env=env, cwd=self.work, text=True, timeout=30)
+        self.assertEqual(version.strip(), deploy.CLI_VERSION)
+        for schema in [1, 2]:
+            archive(self.tar, schema=schema)
+            staging, _ = deploy.extract_verified(self.tar, self.work / str(schema), SHA, 'functions')
+            # Every candidate module is a tripwire, including unused schema2 files.
+            for file in (staging / 'source').iterdir():
+                if file.suffix in ['.js', '.mjs']:
+                    file.write_text("throw Error('CANDIDATE EXECUTED');")
+            deploy.check_discovery(staging, tools, env, self.work)
         ancestor_sdk = self.work / 'node_modules/firebase-functions'
         ancestor_sdk.mkdir(parents=True)
         (ancestor_sdk / 'package.json').write_text('{"name":"firebase-functions","version":"7.4.0","main":"index.js"}')
