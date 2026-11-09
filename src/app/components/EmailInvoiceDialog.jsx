@@ -225,15 +225,15 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
 
             <div className="invoice-variant-selector">
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    <input type="radio" disabled={sending} name="email-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
                     Text only
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    <input type="radio" disabled={sending} name="email-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
                     Text + link
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
+                    <input type="radio" disabled={sending} name="email-variant" value="full" checked={variant === 'full'} onChange={() => setVariant('full')} />
                     Full invoice
                 </label>
             </div>

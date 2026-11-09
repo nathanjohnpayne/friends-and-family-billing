@@ -103,24 +103,54 @@ describe.each([['Email', EmailInvoiceDialog, 'Copy'], ['Text', TextInvoiceDialog
     });
 });
 
-describe.each([['Email', EmailInvoiceDialog, 'Send Email'], ['Text', TextInvoiceDialog, 'Open Messages']])('%s pending variant change', (_name, Component, actionLabel) => {
-    it('keeps actions disabled while the original link request is pending', async () => {
+describe.each([
+    ['Email link', EmailInvoiceDialog, 'Send Email', 'Text + link'],
+    ['Email full', EmailInvoiceDialog, 'Send Email', 'Full invoice'],
+    ['Text copy', TextInvoiceDialog, 'Copy Message', 'Text + link'],
+    ['Text SMS', TextInvoiceDialog, 'Open Messages', 'Text + link']
+])('%s pending variant change', (_name, Component, actionLabel, selectedLabel) => {
+    it('keeps the selected variant fixed and delivers the displayed body after its link resolves', async () => {
         const user = userEvent.setup();
-        let finish;
-        createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        const clipboardWrite = vi.spyOn(navigator.clipboard, 'writeText');
+        let finishLink, finishEmail;
+        createAndPruneShareLink.mockReturnValueOnce(new Promise(resolve => { finishLink = resolve; }));
+        if (Component === EmailInvoiceDialog) queueEmail.mockReturnValueOnce(new Promise(resolve => { finishEmail = resolve; }));
         render(<Component {...base} />);
+        await user.click(screen.getByRole('radio', { name: selectedLabel }));
+        const selected = screen.getByRole('radio', { name: selectedLabel });
         const action = screen.getByRole('button', { name: actionLabel });
         await user.click(action);
         expect(action).toBeDisabled();
-        await user.click(screen.getByLabelText('Text only'));
-        expect(action).toBeDisabled();
+        for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+        await user.click(screen.getByRole('radio', { name: 'Text only' }));
+        expect(selected).toBeChecked();
+        expect(screen.getByRole('radio', { name: 'Text only' })).not.toBeChecked();
         await user.click(action);
         expect(createAndPruneShareLink).toHaveBeenCalledOnce();
         expect(queueEmail).not.toHaveBeenCalled();
         expect(openSmsComposer).not.toHaveBeenCalled();
-        await act(async () => { finish({ url: 'https://example.com/share' }); });
-        if (Component === EmailInvoiceDialog) expect(queueEmail).toHaveBeenCalledOnce();
-        else expect(openSmsComposer).toHaveBeenCalledOnce();
+        expect(clipboardWrite).not.toHaveBeenCalled();
+
+        await act(async () => { finishLink({ url: 'https://example.com/current-variant' }); });
+        const displayedBody = screen.getAllByRole('textbox').find(field => field.tagName === 'TEXTAREA').value;
+        expect(displayedBody).toContain('https://example.com/current-variant');
+        expect(selected).toBeChecked();
+        if (Component === EmailInvoiceDialog) {
+            expect(queueEmail).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                to: 'alice@example.com', body: displayedBody
+            }));
+            expect(displayedBody.includes('ANNUAL BILLING SUMMARY')).toBe(selectedLabel === 'Full invoice');
+            for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+            await user.click(screen.getByRole('radio', { name: 'Text only' }));
+            expect(selected).toBeChecked();
+            await act(async () => { finishEmail({}); });
+        } else if (actionLabel === 'Copy Message') {
+            expect(clipboardWrite).toHaveBeenCalledExactlyOnceWith(displayedBody);
+            expect(openSmsComposer).not.toHaveBeenCalled();
+        } else {
+            expect(openSmsComposer).toHaveBeenCalledExactlyOnceWith('+15555550100', displayedBody, expect.any(Function));
+            expect(clipboardWrite).not.toHaveBeenCalled();
+        }
         expect(createAndPruneShareLink).toHaveBeenCalledOnce();
     });
 });

@@ -180,11 +180,11 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
 
             <div className="invoice-variant-selector">
                 <label className="invoice-variant-option">
-                    <input type="radio" name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
+                    <input type="radio" disabled={generating} name="sms-variant" value="text-only" checked={variant === 'text-only'} onChange={() => setVariant('text-only')} />
                     Text only
                 </label>
                 <label className="invoice-variant-option">
-                    <input type="radio" name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
+                    <input type="radio" disabled={generating} name="sms-variant" value="text-link" checked={variant === 'text-link'} onChange={() => setVariant('text-link')} />
                     Text + link
                 </label>
             </div>
