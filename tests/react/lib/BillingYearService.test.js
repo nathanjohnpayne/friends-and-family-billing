@@ -1046,6 +1046,39 @@ describe('BillingYearService', () => {
                 expect(stable(retried)).toEqual(stable(reference));
             });
 
+            it('refuses a rollover or a status change while a year load is in progress (its version and state may be from different reads)', async () => {
+                seedReview();
+                const stored = structuredClone(mockStore[PRIOR]);
+                svc._loadingYears = 1;
+                await expect(svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) })).rejects.toThrow('The billing year is loading');
+                await expect(svc.createYear('2027')).rejects.toThrow('The billing year is loading');
+                await expect(svc.setYearStatus('settling')).rejects.toThrow('The billing year is loading');
+                svc._loadingYears = 0;
+                expect(mockStore[PRIOR]).toEqual(stored);
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(committedWrites()).toHaveLength(0);
+            });
+
+            it('a failed commit behind a pending save keeps the version that save advanced (later saves are not refused)', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                const { runTransaction } = await import('firebase/firestore');
+                const original = runTransaction.getMockImplementation();
+                // The queued save commits first; the rollover's transaction then fails definitively.
+                runTransaction.mockImplementationOnce(async (...args) => {
+                    const result = await original(...args);
+                    mockTxControl.failNextCommit = firestoreError('aborted');
+                    return result;
+                });
+                svc._setState({ settings: { ...svc.getState().settings, emailSubject: 'Queued before Start' } });
+                svc.save();
+                await expect(svc.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED' });
+                expect(mockStore[PRIOR]).toMatchObject({ rev: 2, settings: { emailSubject: 'Queued before Start' } });
+                await expect(svc._saveConfirmed()).resolves.toBeUndefined();
+                expect(mockStore[PRIOR].rev).toBe(3);
+                expect(svc.getState().writeBlock).toBeNull();
+            });
+
             it('a callback replayed by the SDK produces no duplicate records and no side effects', async () => {
                 const before = seedReview();
                 const stored = structuredClone(mockStore[PRIOR]);

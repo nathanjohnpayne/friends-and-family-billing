@@ -900,7 +900,20 @@ export class BillingYearService {
         // Its write carries the in-memory billing events, and closing the year would
         // stop a failed household change's compensating save (#528).
         this._guardHouseholdGraph();
+        this._guardYearLoad();
         return this._runYearOperation(() => this._setYearStatusNow(newStatus));
+    }
+
+    /**
+     * @private A year-level operation writes a full snapshot of the in-memory year. While
+     * a year load is in progress, the version this tab records and the state it installs
+     * can belong to different reads (overlapping switches), so a snapshot taken then
+     * could carry an older state at a newer rev. Refused like an ordinary mutation.
+     */
+    _guardYearLoad() {
+        if (this._loadingYears > 0) {
+            throw new Error('The billing year is loading. Try again in a moment.');
+        }
     }
 
     /** @private setYearStatus's body; always called through _runYearOperation. */
@@ -1012,6 +1025,7 @@ export class BillingYearService {
         // carry marking; a household change still being saved could be rolled back
         // after that snapshot (#528).
         this._guardHouseholdGraph();
+        this._guardYearLoad();
         return this._runYearOperation(() => this._createYearNow(yearId, options));
     }
 
@@ -1182,16 +1196,22 @@ export class BillingYearService {
                 ownOutcome: true, buildPayload: (_stored, prepared) => ({ ...prepared.source }) }
         ];
 
-        const versionsBefore = new Map([yearId, sourceId].map(id => [id, this._yearVersions.get(id)]));
+        // What this tab knew of both documents when the attempt started: taken when the
+        // queued write runs (after every earlier save of the source resolved, each of
+        // which advances the source's rev), restored when nothing of this attempt landed.
+        let versionsBefore = null;
         const restoreVersions = () => {
-            for (const [id, known] of versionsBefore) {
+            for (const [id, known] of versionsBefore || []) {
                 if (known === undefined) this._yearVersions.delete(id);
                 else this._yearVersions.set(id, known);
             }
         };
         const observe = { commitSent: false };
         try {
-            await this._enqueueConfirmed([yearId, sourceId], () => this._commitYearWrite(specs, { prepare, observe }));
+            await this._enqueueConfirmed([yearId, sourceId], () => {
+                versionsBefore = new Map([yearId, sourceId].map(id => [id, this._yearVersions.get(id)]));
+                return this._commitYearWrite(specs, { prepare, observe });
+            });
         } catch (error) {
             return this._recoverReviewedCommit(error, { yearId, sourceId, destinationRef, sourceRef, reconciliation,
                 payloadFingerprint, commitSent: observe.commitSent, restoreVersions });
