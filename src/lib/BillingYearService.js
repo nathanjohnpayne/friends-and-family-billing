@@ -334,11 +334,31 @@ export class BillingYearService {
             gen: this._loadGen(yearId),
             kind,
             committed: false,
-            args
+            args,
+            previousOfYear: this._queuedYearSnapshots.get(yearId) || null,
+            previousOfGen: this._snapshotsByGen.get(genKey(yearId, this._loadGen(yearId))) || null
         };
         this._queuedYearSnapshots.set(yearId, snapshot);
         this._snapshotsByGen.set(genKey(yearId, snapshot.gen), snapshot);
         return snapshot.seq;
+    }
+
+    /**
+     * @private A status change that failed is not unsaved data (it did not happen, and
+     * the administrator was told): withdraw its snapshot, so later edits to the live
+     * state are what a recovery record keeps.
+     */
+    _withdrawSnapshot(yearId, seq) {
+        const ofYear = this._queuedYearSnapshots.get(yearId);
+        if (ofYear && ofYear.seq === seq) {
+            if (ofYear.previousOfYear) this._queuedYearSnapshots.set(yearId, ofYear.previousOfYear);
+            else this._queuedYearSnapshots.delete(yearId);
+        }
+        for (const [key, snapshot] of this._snapshotsByGen) {
+            if (snapshot.seq !== seq) continue;
+            if (snapshot.previousOfGen) this._snapshotsByGen.set(key, snapshot.previousOfGen);
+            else this._snapshotsByGen.delete(key);
+        }
     }
 
     /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
@@ -899,6 +919,7 @@ export class BillingYearService {
                 billingEvents: updatedEvents
             });
         } catch (error) {
+            this._withdrawSnapshot(activeYear.id, seq);
             console.error('setYearStatus failed:', error);
             throw error;
         }

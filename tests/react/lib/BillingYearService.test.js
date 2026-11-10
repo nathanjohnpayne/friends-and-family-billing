@@ -2191,6 +2191,19 @@ describe('BillingYearService — load generations for every writer (#614)', () =
         expect(mockStore[PATH].status).toBe('settling');
     });
 
+    it('a failed status change is not kept as unsaved data over later edits', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        await expect(s.setYearStatus('settling')).rejects.toMatchObject({ code: 'unavailable' });
+        s.addMember({ name: 'Bea' }); // made after the failed status change
+        mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other' };
+        await s._saveQueue._chain;
+        const block = s.getState().writeBlock;
+        expect(block.payload.status).toBe('open');
+        expect(block.payload.familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+    });
+
     it('a status change that lands after the year was switched away from leaves the other year’s state alone', async () => {
         mockStore[PATH] = doc('2026');
         const s = await loadedService();
