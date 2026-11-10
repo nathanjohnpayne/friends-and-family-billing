@@ -473,6 +473,13 @@ describe('the local draft', () => {
         expect(stored().reconciliationId).not.toBe('rec_other');
     });
 
+    it('discards a draft with a malformed row instead of crashing', () => {
+        seedDraft({ newBills: [null] });
+        renderPage();
+        expect(screen.getByText(/malformed and was discarded/)).toBeInTheDocument();
+        expect(stored().newBills).toEqual([]);
+    });
+
     it('discards an unreadable draft with a message', () => {
         window.localStorage.setItem(KEY, '{not json');
         renderPage();

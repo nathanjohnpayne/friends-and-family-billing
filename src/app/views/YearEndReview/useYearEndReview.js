@@ -39,6 +39,17 @@ function restoreDraft(stored, source, userId) {
     if (!validation.draft) {
         return { draft: null, message: validation.errors[0]?.message || 'The saved draft could not be used and was discarded.' };
     }
+    const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    const draftRows = validation.draft;
+    if (!Object.values(draftRows.bills).every(isObject) || !draftRows.newBills.every(isObject) || !draftRows.charges.every(isObject)
+        || !draftRows.newBills.every(row => Array.isArray(row.members))) {
+        return { draft: null, message: 'The saved draft was malformed and was discarded.' };
+    }
+    try {
+        deriveReview({ draft: draftRows, sourceYear, bills: source.bills, familyMembers: source.familyMembers, owedAdjustments: source.owedAdjustments, flags: {} });
+    } catch (_) {
+        return { draft: null, message: 'The saved draft was malformed and was discarded.' };
+    }
     const flags = {};
     for (const [billId, row] of Object.entries(validation.draft.bills)) {
         const before = stored.value.bills?.[billId]?.existingCredits;
