@@ -389,6 +389,23 @@ export class BillingYearService {
         }
     }
 
+    /**
+     * @private A write built from the year's whole in-memory state committed (the
+     * legacy rollover's source): every snapshot of that year queued before it is
+     * superseded, so none is retried over it later (#614).
+     */
+    _retireYearSnapshots(yearId) {
+        const prefix = String(yearId) + '#';
+        const snapshots = [this._queuedYearSnapshots.get(yearId),
+            ...[...this._snapshotsByGen.entries()].filter(([key]) => key.startsWith(prefix)).map(([, snapshot]) => snapshot)];
+        for (const snapshot of snapshots) {
+            if (!snapshot) continue;
+            snapshot.committed = true;
+            snapshot.previousOfYear = null;
+            snapshot.previousOfGen = null;
+        }
+    }
+
     /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
     _markSnapshotCommitted(yearId, seq) {
         for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
@@ -1110,6 +1127,10 @@ export class BillingYearService {
         //    tab last loaded or saved. A failure is re-thrown after the queue settles to
         //    fail createYear loudly and skip the switch into a non-existent year.
         await this._enqueueConfirmed([yearId, activeYear ? activeYear.id : yearId], () => this._commitYearWrite(this._legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite)));
+        // The source write carried the whole in-memory state (edits are refused while
+        // the rollover runs), so an earlier save that failed is now superseded and must
+        // never be retried over the carry markings.
+        if (priorWrite) this._retireYearSnapshots(priorWrite.yearId);
 
         await this._loadYearsList();
         await this.switchYear(yearId);

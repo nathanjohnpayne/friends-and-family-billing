@@ -2205,6 +2205,26 @@ describe('BillingYearService — load generations for every writer (#614)', () =
         expect(s.getState().writeBlock).toBeNull();
     });
 
+    it('never retries a failed save over a rollover that superseded it', async () => {
+        mockStore[PATH] = doc('2026', { payments: [{ id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', method: 'cash' }] });
+        const s = await loadedService();
+        s._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }] });
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        s.recordPayment({ memberId: 1, amount: 10, method: 'cash' });
+        await s._saveQueue._chain;
+        // Back online, Start New Year: the source write carries the payment and the markings.
+        await s.createYear('2027');
+        const source = mockStore[PATH];
+        expect(source.payments.map(p => p.amount)).toEqual([680, 10]);
+        expect(source.creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
+        expect(source.billingEvents.map(e => e.eventType)).toContain('YEAR_CARRIED_FORWARD');
+        expect(s.getState().activeYear.id).toBe('2027');
+        // Switching back does not write the pre-rollover snapshot over the source.
+        await s.switchYear('2026');
+        expect(mockStore[PATH]).toBe(source);
+        expect(s.getState().creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
+    });
+
     it('keeps the year and its unsaved payment when the retry before a reload still fails', async () => {
         mockStore[PATH] = doc('2026');
         mockStore[PATH_27] = doc('2027');
