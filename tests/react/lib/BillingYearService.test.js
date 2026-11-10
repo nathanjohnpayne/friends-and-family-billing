@@ -2447,7 +2447,8 @@ describe('BillingYearService — Reload required state (#669)', () => {
             trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: {} };
         // Still offline: the retry fails, nothing starts.
         mockTxControl.failNextCommit = firestoreError('unavailable');
-        await expect(s.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED', message: expect.stringMatching(/not saved yet/) });
+        await expect(s.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED',
+            message: expect.stringMatching(/not saved yet.*Try again when you are back online\./) });
         expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
         // Online: the edit is saved first, then the rollover commits over a source that holds it.
         await expect(s.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'completed', yearId: '2027' });
@@ -2455,6 +2456,53 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(mockStore[PATH].billingEvents.map(e => e.eventType)).toContain('YEAR_ROLLED_OVER');
         // No snapshot of the pre-rollover source is left to be retried over it.
         expect(s._queuedYearSnapshots.get('2026')).toMatchObject({ committed: true });
+    });
+
+    it('checkReviewedRollover classifies read-only: absent → not committed, own → already completed, other → elsewhere; never writes (#609)', async () => {
+        seedYear();
+        const s = await loadedService();
+        const writesBefore = setDocCalls.length;
+        const attempt = { reconciliationId: 'rec-z', payloadFingerprint: 'yrp1_mine' };
+        // Absent destination: not committed.
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'COMMIT_UNCERTAIN', resolution: 'not_committed' });
+        // Created elsewhere (no review event).
+        mockStore['users/user-1/billingYears/2027'] = { label: '2027', status: 'open', rev: 1, billingEvents: [] };
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'elsewhere' });
+        // This reconciliation with other entries: diverged.
+        mockStore['users/user-1/billingYears/2027'].billingEvents = [{ eventType: 'YEAR_CREATED_FROM_REVIEW', timestamp: '2026-12-08T15:12:00.000Z',
+            payload: { reconciliationId: 'rec-z', payloadFingerprint: 'yrp1_other' } }];
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'diverged',
+            existing: expect.objectContaining({ reconciliationId: 'rec-z', createdAt: '2026-12-08T15:12:00.000Z' }) });
+        expect(setDocCalls.length).toBe(writesBefore);
+        // This reconciliation with these entries: completed; the tab enters 2027.
+        mockStore['users/user-1/billingYears/2027'].billingEvents[0].payload.payloadFingerprint = 'yrp1_mine';
+        await expect(s.checkReviewedRollover('2027', attempt)).resolves.toEqual({ outcome: 'already_completed', yearId: '2027' });
+        expect(s.getState().activeYear.id).toBe('2027');
+        // Unreadable documents: uncertain without a resolution.
+        const { getDoc } = await import('firebase/firestore');
+        getDoc.mockRejectedValueOnce(firestoreError('unavailable'));
+        const unreadable = await s.checkReviewedRollover('2028', attempt).catch(error => error);
+        expect(unreadable).toMatchObject({ code: 'COMMIT_UNCERTAIN' });
+        expect(unreadable).not.toHaveProperty('resolution');
+    });
+
+    it('when the retry of an unsaved edit is refused (Reload required), the message says to reload, not to come back online (#685 review)', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        s.updateMember(2, { phone: '+14155551212' });
+        await s._saveQueue._chain;
+        const live = s.getState();
+        const reconciliation = { reconciliationId: 'rec-y', sourceYearId: '2026', sourceFingerprint: computeSourceFingerprint({ ...live, status: live.activeYear.status }),
+            trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: {} };
+        // Another session saved 2026 meanwhile: the retried save is refused as stale.
+        otherSessionSaves();
+        const refused = s.createYear('2027', { reconciliation });
+        await expect(refused).rejects.toMatchObject({ code: 'COMMIT_FAILED',
+            message: expect.stringMatching(/Changes to 2026 are not saved yet.*This tab is read-only until it reloads; reload to continue\./) });
+        await expect(refused).rejects.not.toMatchObject({ message: expect.stringMatching(/back online/) });
+        expect(s.getState().writeBlock).toBeTruthy();
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
     });
 
     it('releases committed history: a long session retains only the last committed snapshot, not every state', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 const mockService = {
     switchYear: vi.fn(),
@@ -41,7 +42,16 @@ function renderSelector(overrides = {}) {
             ...overrides
         });
     }
-    return render(<ToastProvider><BillingYearSelector /></ToastProvider>);
+    return render(
+        <MemoryRouter initialEntries={['/settings']}>
+            <ToastProvider>
+                <Routes>
+                    <Route path="/settings" element={<BillingYearSelector />} />
+                    <Route path="/year-end-review" element={<p>Year-End Review page</p>} />
+                </Routes>
+            </ToastProvider>
+        </MemoryRouter>
+    );
 }
 
 describe('BillingYearSelector', () => {
@@ -122,55 +132,66 @@ describe('BillingYearSelector', () => {
         expect(mockService.setYearStatus).not.toHaveBeenCalled();
     });
 
-    it('Start New Year opens label input dialog', () => {
-        renderSelector();
-        fireEvent.click(screen.getByText('Start New Year'));
-        expect(screen.getByText('Start New Billing Year')).toBeInTheDocument();
-        expect(screen.getByLabelText('Billing year label')).toBeInTheDocument();
-    });
-
-    it('calls createYear with entered label', async () => {
-        renderSelector();
-        fireEvent.click(screen.getByText('Start New Year'));
-        const input = screen.getByLabelText('Billing year label');
-        fireEvent.change(input, { target: { value: '2027' } });
-        await act(async () => {
-            fireEvent.click(screen.getByText('Create Year'));
-        });
-        // The selector passes the re-opened credit set (#319/#322) as options.
-        expect(mockService.createYear).toHaveBeenCalledWith('2027', expect.objectContaining({
-            reopenedAdjustmentIds: expect.any(Set)
-        }));
-    });
-
-    it('submits the new-year label on Enter through the dialog form', async () => {
+    // #609: Start New Year and its label dialog are replaced by the Year-End Review entry
+    // point (the label is suggested and checked on the review's last step, and the
+    // re-opened credit set is passed there). These were the label dialog's tests and now
+    // assert its replacement.
+    it('Review & start opens the Year-End Review instead of a label dialog', async () => {
         const user = userEvent.setup();
         renderSelector();
-        await user.click(screen.getByText('Start New Year'));
-        const input = screen.getByLabelText('Billing year label');
-        await user.clear(input);
-        await user.type(input, '2028{Enter}');
-        expect(mockService.createYear).toHaveBeenCalledWith('2028', expect.objectContaining({
-            reopenedAdjustmentIds: expect.any(Set)
-        }));
+        await user.click(screen.getByRole('button', { name: 'Review & start 2027' }));
+        expect(screen.getByText('Year-End Review page')).toBeInTheDocument();
+        expect(screen.queryByText('Start New Billing Year')).toBeNull();
+        expect(screen.queryByLabelText('Billing year label')).toBeNull();
     });
 
-    it('shows error for duplicate year label', () => {
+    it('never creates a year from Settings; the review is the only path', async () => {
         renderSelector();
-        fireEvent.click(screen.getByText('Start New Year'));
-        const input = screen.getByLabelText('Billing year label');
-        fireEvent.change(input, { target: { value: '2026' } });
-        fireEvent.click(screen.getByText('Create Year'));
-        expect(screen.getByText(/already exists/)).toBeInTheDocument();
+        expect(screen.queryByText('Start New Year')).toBeNull();
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Review & start 2027' }));
+        });
         expect(mockService.createYear).not.toHaveBeenCalled();
     });
 
-    it('hides Start New Year for archived year', () => {
+    it('names the suggested next year and explains the review', () => {
+        renderSelector({
+            billingYears: [{ id: '2030', label: '2030', status: 'open' }],
+            activeYear: { id: '2030', label: '2030', status: 'open' }
+        });
+        expect(screen.getByRole('button', { name: 'Review & start 2031' })).toBeEnabled();
+        expect(screen.getByText(/sets 2031’s prices before 2031 is created/)).toBeInTheDocument();
+    });
+
+    it('disables the review with the ADR 0007 pointer once the next year exists', () => {
+        renderSelector({
+            billingYears: [{ id: '2027', label: '2027', status: 'open' }, { id: '2026', label: '2026', status: 'closed' }],
+            activeYear: { id: '2026', label: '2026', status: 'closed' }
+        });
+        const button = screen.getByRole('button', { name: 'Review & start 2027' });
+        expect(button).toBeDisabled();
+        expect(screen.getByText('2027 already exists.')).toBeInTheDocument();
+        expect(screen.getByText(/Record new charges, credits and refunds in 2027, the open year/)).toBeInTheDocument();
+        fireEvent.click(button);
+        expect(screen.queryByText('Year-End Review page')).toBeNull();
+    });
+
+    it('treats a rollover event on the year as a successor even without a higher label', () => {
+        renderSelector({
+            billingYears: [{ id: '2026', label: '2026', status: 'settling' }],
+            activeYear: { id: '2026', label: '2026', status: 'settling' },
+            billingEvents: [{ id: 'e1', eventType: 'YEAR_ROLLED_OVER', payload: { toYear: '2026-27' } }]
+        });
+        expect(screen.getByRole('button', { name: 'Review & start 2026-27' })).toBeDisabled();
+    });
+
+    it('hides the review for an archived year', () => {
         renderSelector({
             billingYears: [{ id: '2026', label: '2026', status: 'archived' }],
             activeYear: { id: '2026', label: '2026', status: 'archived' }
         });
         expect(screen.queryByText('Start New Year')).toBeNull();
+        expect(screen.queryByRole('button', { name: /Review & start/ })).toBeNull();
     });
 
     it('does not show archive or forward buttons for closed year', () => {
@@ -182,6 +203,6 @@ describe('BillingYearSelector', () => {
         expect(screen.queryByText('Close Year')).toBeNull();
         // But backward transition and new year are present
         expect(screen.getByText('Reopen to Settling')).toBeInTheDocument();
-        expect(screen.getByText('Start New Year')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Review & start 2027' })).toBeEnabled();
     });
 });

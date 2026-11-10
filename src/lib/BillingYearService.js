@@ -822,8 +822,15 @@ export class BillingYearService {
                 await this._enqueueConfirmed([yearId], this._yearDocWrite(...snapshot.args));
             } catch (err) {
                 const label = snapshot.args[0] && (snapshot.args[0].label || snapshot.args[0].id);
+                // The next step depends on the cause: a refusal (a stale document or
+                // permission-denied) has entered Reload required, where retrying cannot help.
+                const next = this._state.writeBlock || isBlockingWriteError(err)
+                    ? 'This tab is read-only until it reloads; reload to continue.'
+                    : isOfflineWriteError(err)
+                        ? 'Try again when you are back online.'
+                        : 'Try again.';
                 const message = 'Changes to ' + label + ' are not saved yet (' + (err && err.message ? err.message : 'unknown error')
-                    + '). They are kept in this tab and the year was not reloaded; try again when you are back online.';
+                    + '). They are kept in this tab and the year was not reloaded. ' + next;
                 if (!this._state.writeBlock) this._setState({ saveStatus: { state: 'not_saved', message, at: new Date().toISOString() } });
                 throw new Error(message);
             }
@@ -1121,6 +1128,44 @@ export class BillingYearService {
         this._guardHouseholdGraph();
         this._guardYearLoad();
         return this._runYearOperation(() => this._createYearNow(yearId, options));
+    }
+
+    /**
+     * Read-only check of a reviewed rollover (#609): reads the destination and the active
+     * (source) year and classifies them by the three-way rule, writing nothing. The
+     * Year-End Review page uses it to settle an unresolved attempt whose payload it cannot
+     * re-send as its own (another tab's entries). Same contract as createYear's reviewed
+     * path: resolves `{ outcome: 'already_completed', yearId }` (and enters the year) when
+     * the destination is this reconciliation with this payload fingerprint; rejects
+     * NEXT_YEAR_EXISTS ('diverged' | 'elsewhere'), COMMIT_UNCERTAIN with resolution
+     * 'not_committed' when the destination is absent, or COMMIT_UNCERTAIN without a
+     * resolution when the documents cannot be read.
+     *
+     * @param {string} yearId
+     * @param {{ reconciliationId: string, payloadFingerprint: string }} attempt
+     * @returns {Promise<{ outcome: 'already_completed', yearId: string }>}
+     */
+    async checkReviewedRollover(yearId, { reconciliationId, payloadFingerprint }) {
+        if (!this._user) return;
+        return this._runYearOperation(async () => {
+            const { activeYear } = this._state;
+            if (!activeYear) throw new RolloverError(ROLLOVER_OUTCOMES.COMMIT_UNCERTAIN, 'There is no source year to check against.', { yearId });
+            const uid = this._user.uid;
+            const sourceId = activeYear.id;
+            const readBack = await this._readRolloverBack(doc(db, 'users', uid, 'billingYears', yearId), doc(db, 'users', uid, 'billingYears', sourceId));
+            if (!readBack) {
+                throw new RolloverError(ROLLOVER_OUTCOMES.COMMIT_UNCERTAIN, 'It could not be checked whether ' + yearId + ' was created. Your draft is kept; check again.', { yearId });
+            }
+            const verdict = classifyRolloverCompletion({ destination: readBack.destination, source: readBack.source, yearId, reconciliationId, payloadFingerprint });
+            if (verdict.resolution === ROLLOVER_RESOLUTIONS.COMPLETED) return this._enterRolledOverYear(yearId, sourceId, 'already_completed');
+            if (verdict.resolution === ROLLOVER_RESOLUTIONS.NOT_COMMITTED) {
+                throw new RolloverError(ROLLOVER_OUTCOMES.COMMIT_UNCERTAIN, 'It was checked: ' + yearId + ' was not created. Nothing was saved.',
+                    { yearId, resolution: verdict.resolution });
+            }
+            throw new RolloverError(ROLLOVER_OUTCOMES.NEXT_YEAR_EXISTS, verdict.resolution === ROLLOVER_RESOLUTIONS.DIVERGED
+                ? 'Billing year "' + yearId + '" was already started from this review on another tab, with different entries. Nothing was saved here.'
+                : 'Billing year "' + yearId + '" already exists. Nothing was saved.', { yearId, resolution: verdict.resolution, existing: verdict.existing });
+        });
     }
 
     /**

@@ -1,35 +1,39 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getBillingYearStatusLabel } from '@/lib/formatting.js';
-import { suggestNextYearLabel, isYearLabelDuplicate } from '@/lib/billing-year.js';
-import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
+import { suggestNextYearLabel } from '@/lib/billing-year.js';
+import { findSuccessorYear } from '@/lib/year-end-review.js';
 import { useBillingData } from '../hooks/useBillingData.js';
-import { useRefundNotices } from '../hooks/useRefundNotices.js';
 import { useToast } from '../contexts/ToastContext.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import Dialog from './Dialog.jsx';
+
+/** Statuses the Year-End Review may roll over from (specs/year-end-review.md § The page, guard). */
+const REVIEWABLE = ['open', 'settling', 'closed'];
 
 /**
  * BillingYearSelector — switch years, manage lifecycle transitions.
  * Port of renderBillingYearSelector() + confirm* functions from main.js.
  * All native confirm()/prompt()/alert() replaced with styled React dialogs.
+ *
+ * A new year is created only through the Year-End Review (#609, ADR 0009):
+ * "Review & start <next year>" opens /year-end-review, which suggests and
+ * checks the label on its last step. The old label dialog is retired. Once a
+ * next year exists the button is disabled with the ADR 0007 pointer.
  */
 export default function BillingYearSelector() {
-    const { billingYears, activeYear, service } = useBillingData();
-    const { refundNotices } = useRefundNotices();
+    const { billingYears, activeYear, billingEvents, service } = useBillingData();
     const { showToast } = useToast();
+    const navigate = useNavigate();
     const [busy, setBusy] = useState(false);
 
     // Confirm dialog state
     const [confirmState, setConfirmState] = useState(null);
 
-    // New year prompt state
-    const [newYearOpen, setNewYearOpen] = useState(false);
-    const [newYearLabel, setNewYearLabel] = useState('');
-    const [newYearError, setNewYearError] = useState('');
-
     if (!activeYear) return null;
 
     const status = activeYear.status || 'open';
+    const successor = findSuccessorYear(billingYears || [], activeYear, billingEvents || []);
+    const nextLabel = successor ? successor.label : suggestNextYearLabel(activeYear);
 
     function handleYearChange(e) {
         service.switchYear(e.target.value);
@@ -55,36 +59,6 @@ export default function BillingYearSelector() {
 
     function handleStatusChange(newStatus, message) {
         requestConfirm(message, () => service.setYearStatus(newStatus));
-    }
-
-    function handleStartNewYear() {
-        setNewYearLabel(suggestNextYearLabel(activeYear));
-        setNewYearError('');
-        setNewYearOpen(true);
-    }
-
-    async function executeNewYear() {
-        const yearId = newYearLabel.trim();
-        if (!yearId) {
-            setNewYearError('Label is required.');
-            return;
-        }
-        if (isYearLabelDuplicate(billingYears, yearId)) {
-            setNewYearError('Billing year "' + yearId + '" already exists.');
-            return;
-        }
-        setNewYearOpen(false);
-        setBusy(true);
-        try {
-            // #319/#322: a credit re-opened by an active not_received is owed back
-            // this (prior) year and must not carry forward (ADR 0003/0006).
-            const reopenedAdjustmentIds = reopenedCreditAdjustmentIds(refundNotices);
-            await service.createYear(yearId, { reopenedAdjustmentIds });
-        } catch (err) {
-            showToast('Error: ' + err.message, { kind: 'failure' });
-        } finally {
-            setBusy(false);
-        }
     }
 
     return (
@@ -123,14 +97,22 @@ export default function BillingYearSelector() {
                     </button>
                 )}
 
-                {/* Year management */}
-                {status !== 'archived' && (
-                    <button className="btn btn-ink btn-sm" disabled={busy}
-                        onClick={handleStartNewYear}>
-                        Start New Year
+                {/* Year management: the Year-End Review is the only way a year is created. */}
+                {REVIEWABLE.includes(status) && (
+                    <button className="btn btn-ink btn-sm" disabled={busy || !!successor}
+                        aria-describedby="year-review-hint"
+                        onClick={() => navigate('/year-end-review')}>
+                        Review &amp; start {nextLabel}
                     </button>
                 )}
             </div>
+            {REVIEWABLE.includes(status) && (
+                <p className="year-selector-note" id="year-review-hint">
+                    {successor
+                        ? <><b>{successor.label} already exists.</b> Record new charges, credits and refunds in {successor.label}, the open year; a closed year is corrected forward.</>
+                        : <>The review catches up mid-year price changes, adds subscriptions that started this year, folds in member charges and sets {nextLabel}’s prices before {nextLabel} is created. Nothing is saved until its last step.</>}
+                </p>
+            )}
 
             {/* Generic confirm dialog for status transitions */}
             <ConfirmDialog
@@ -141,35 +123,6 @@ export default function BillingYearSelector() {
                 onConfirm={executeConfirm}
                 onCancel={() => setConfirmState(null)}
             />
-
-            {/* New year label prompt */}
-            {newYearOpen && (
-                <Dialog
-                    onClose={() => setNewYearOpen(false)}
-                    title="Start New Billing Year"
-                    onSubmit={e => { e.preventDefault(); executeNewYear(); }}
-                    footer={(
-                        <>
-                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setNewYearOpen(false)}>Cancel</button>
-                            <button type="submit" className="btn btn-sm btn-ink">Create Year</button>
-                        </>
-                    )}
-                >
-                    <div className="payment-dialog-fields">
-                        <div className="payment-field-group">
-                            <label htmlFor="new-year-label">Billing year label</label>
-                            <input
-                                id="new-year-label"
-                                className="composer-input"
-                                value={newYearLabel}
-                                onChange={e => { setNewYearLabel(e.target.value); setNewYearError(''); }}
-                                autoFocus
-                            />
-                        </div>
-                    </div>
-                    {newYearError && <p className="composer-error">{newYearError}</p>}
-                </Dialog>
-            )}
         </div>
     );
 }

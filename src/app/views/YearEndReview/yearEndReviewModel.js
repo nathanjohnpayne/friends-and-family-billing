@@ -24,6 +24,17 @@ export const signedMoney = amount => (amount < 0 ? '−' : '+') + currencyFormat
 
 export const isPositive = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
+/**
+ * Validation-time cents check: 'ok' for a positive amount of at least one cent,
+ * 'zero' for one that is not, 'range' for one outside the exact cent range
+ * (toCents throws there; during render that would crash the page).
+ */
+function centsCheck(value) {
+    if (!isPositive(value)) return 'zero';
+    try { return toCents(value) > 0 ? 'ok' : 'zero'; } catch (_) { return 'range'; }
+}
+const TOO_LARGE = 'Enter a smaller amount.';
+
 /** The twelve YYYY-MM values of the source year, for the month selects. */
 export function monthOptions(sourceLabel) {
     return MONTH_NAMES.map((name, index) => ({ value: `${sourceLabel}-${String(index + 1).padStart(2, '0')}`, label: `${name} ${sourceLabel}` }));
@@ -235,8 +246,8 @@ function deriveBill(bill, row, ctx) {
     } else if (monthMissing(row, 'lastMonth')) {
         err('lastMonth', 'Choose the last month of service.');
     }
-    if (row.override !== undefined && row.override !== null && !(isPositive(row.override) && toCents(row.override) > 0)) {
-        err('override', 'Enter an amount greater than $0.00. An override of $0.00 is not allowed.');
+    if (row.override !== undefined && row.override !== null && centsCheck(row.override) !== 'ok') {
+        err('override', centsCheck(row.override) === 'range' ? TOO_LARGE : 'Enter an amount greater than $0.00. An override of $0.00 is not allowed.');
     }
     if (Object.keys(out.errors).some(field => field !== 'nextYearAmount')) return out;
 
@@ -280,8 +291,8 @@ function deriveNewBill(row, ctx) {
     if (monthMissing(row, 'firstMonth')) err('firstMonth', 'Choose the first month of service.');
     if (!Array.isArray(row.members) || row.members.length === 0) err('members', 'Choose at least one member for a new subscription.');
     else if (row.members.some(memberId => !ctx.familyMembers.some(member => member.id === memberId))) err('members', 'A selected member no longer exists. Choose the members again.');
-    if (row.override !== undefined && row.override !== null && !(isPositive(row.override) && toCents(row.override) > 0)) {
-        err('override', 'Enter an amount greater than $0.00. An override of $0.00 is not allowed.');
+    if (row.override !== undefined && row.override !== null && centsCheck(row.override) !== 'ok') {
+        err('override', centsCheck(row.override) === 'range' ? TOO_LARGE : 'Enter an amount greater than $0.00. An override of $0.00 is not allowed.');
     }
     if (Object.keys(out.errors).length) return out;
     try {
@@ -295,7 +306,8 @@ function deriveNewBill(row, ctx) {
 function deriveCharge(row, ctx) {
     const out = { rowId: row.rowId, errors: {} };
     if (!ctx.familyMembers.some(member => member.id === row.memberId)) out.errors.memberId = 'Choose a member.';
-    if (!isPositive(row.amount) || toCents(row.amount) <= 0) out.errors.amount = 'Enter an amount greater than zero.';
+    const amount = centsCheck(row.amount);
+    if (amount !== 'ok') out.errors.amount = amount === 'range' ? TOO_LARGE : 'Enter an amount greater than zero.';
     if (typeof row.description !== 'string' || !row.description.trim()) out.errors.description = 'Enter a description.';
     if (typeof row.incurredDate !== 'string' || !row.incurredDate) out.errors.incurredDate = 'Choose the date this charge was incurred.';
     if (Object.keys(out.errors).length) return out;
