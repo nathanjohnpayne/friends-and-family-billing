@@ -41,8 +41,11 @@ function restoreDraft(stored, source, userId) {
     }
     const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
     const draftRows = validation.draft;
+    // The renderers read these as strings; validateDraft reports a wrong type but keeps the row.
+    const text = value => typeof value === 'string';
     if (!Object.values(draftRows.bills).every(isObject) || !draftRows.newBills.every(isObject) || !draftRows.charges.every(isObject)
-        || !draftRows.newBills.every(row => Array.isArray(row.members))) {
+        || !draftRows.newBills.every(row => Array.isArray(row.members) && text(row.name) && text(row.website) && text(row.frequency))
+        || !draftRows.charges.every(row => text(row.description) && text(row.incurredDate))) {
         return { draft: null, message: 'The saved draft was malformed and was discarded.' };
     }
     try {

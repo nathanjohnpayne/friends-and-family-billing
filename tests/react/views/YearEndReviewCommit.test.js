@@ -175,6 +175,15 @@ describe('startReviewedYear — the guard at Start', () => {
         expect(createYear).toHaveBeenCalledWith('2027', { reopenedAdjustmentIds: base.reopenedAdjustmentIds, reconciliation: base.payload });
     });
 
+    it('the re-check never calls an unclassified existing destination "created elsewhere" (it may be this draft’s commit)', async () => {
+        const createYear = vi.fn(async () => { throw new Error('Billing year "2027" already exists.'); });
+        const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }], createYear);
+        await expect(startReviewedYear({ ...base, service: svc, recheck: true })).resolves.toEqual({ state: 'uncertain', checked: false });
+        // Outside the re-check the same error still reads as created elsewhere.
+        const fresh = service([sourceYear], createYear);
+        await expect(startReviewedYear({ ...base, service: fresh })).resolves.toMatchObject({ state: 'elsewhere' });
+    });
+
     it('a failed guard read is a definite failure (nothing was sent)', async () => {
         const svc = service([sourceYear]);
         svc._loadYearsList.mockRejectedValue(codeError('unavailable'));

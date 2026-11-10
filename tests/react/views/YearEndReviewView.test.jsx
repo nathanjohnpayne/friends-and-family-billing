@@ -490,6 +490,19 @@ describe('the local draft', () => {
         expect(stored().newBills).toEqual([]);
     });
 
+    it('discards a restored row whose text fields are not strings instead of crashing a later step (#609 review)', async () => {
+        const user = userEvent.setup();
+        seedDraft({
+            newBills: [{ rowId: 'r1', billId: 900, name: null, amount: 9.99, frequency: 'monthly', website: '', members: [MEMBER.sam], firstMonth: '2026-09' }],
+            charges: [{ rowId: 'c1', memberId: MEMBER.zara, amount: 6, description: 42, incurredDate: '2026-11-28' }]
+        });
+        renderPage();
+        expect(screen.getByText(/malformed and was discarded/)).toBeInTheDocument();
+        await user.click(nextButton());
+        expect(screen.getByRole('heading', { name: 'New subscriptions' })).toBeInTheDocument();
+        expect(stored().newBills).toEqual([]);
+    });
+
     it('discards an unreadable draft with a message', () => {
         window.localStorage.setItem(KEY, '{not json');
         renderPage();

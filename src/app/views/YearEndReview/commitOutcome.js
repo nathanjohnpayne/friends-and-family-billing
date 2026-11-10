@@ -155,6 +155,13 @@ export async function startReviewedYear({ service, sourceYear, sourceEvents, yea
         const result = await service.createYear(yearId, { reopenedAdjustmentIds, reconciliation: payload });
         return classifyCommitResult({ result }, ctx);
     } catch (error) {
-        return classifyCommitResult({ error }, ctx);
+        const outcome = classifyCommitResult({ error }, ctx);
+        // A re-check exists to read completion evidence. An existing destination with no
+        // classification (no code, resolution or `existing`) may be this draft's own commit,
+        // so it is never reported as "created elsewhere" and the draft is never cleared on it.
+        if (recheck && outcome.state === 'elsewhere' && !error?.code && !error?.existing && !error?.resolution) {
+            return { state: 'uncertain', checked: false };
+        }
+        return outcome;
     }
 }
