@@ -213,6 +213,10 @@ export function buildPublicShareData(familyMembers, bills, payments, memberId, s
         if (serviceCredits.total > 0) {
             data.serviceCredits = serviceCredits;
         }
+        const carriedItems = buildCarriedItemsForShare(familyMembers, bills, owedAdjustments || [], memberId, linkedIds);
+        if (carriedItems.total !== 0 || carriedItems.items.length > 0) {
+            data.carriedItems = carriedItems;
+        }
     }
 
     if (scopes.includes('paymentMethods:read')) {
@@ -379,4 +383,82 @@ export function buildPaymentHistoryForShare(payments, householdIds) {
         method: p.method || 'other',
     }));
     return { payments: items, count: items.length };
+}
+
+/**
+ * Project a household's carried opening items for public shares (ADR 0009).
+ * Snapshot descriptions/bill names survive later bill edits; only member-safe
+ * fields and household attribution cross this boundary, including in detail.
+ * Detail explains a credit and never contributes to the signed opening total.
+ *
+ * notApplied includes forfeited Service Credit excess; remainingCredit is only
+ * unused incoming money from the NET seed, exactly as the rollover computes U.
+ * The item split is display only (year-end-review fixtures 10l/10n).
+ * Bills are summed before cent rounding, matching calculateAnnualSummary's split.
+ * @param {Array} familyMembers
+ * @param {Array} bills
+ * @param {Array} owedAdjustments
+ * @param {*} memberId
+ * @param {Array} linkedIds
+ * @returns {{ fromYear: string|null, notApplied: number, remainingCredit: number, total: number, items: Array }}
+ */
+export function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds) {
+  const householdIds = [memberId, ...(linkedIds || [])];
+  const members = new Map((familyMembers || []).map((member) => [member.id, member]));
+  const seeds = (owedAdjustments || []).filter((a) =>
+    a && a.kind === "carry_opening" && a.status !== "voided" && householdIds.includes(a.memberId)
+  );
+  const toCents = (amount) => Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100);
+  const projectLine = (line, fallbackMemberId, includeDetail) => {
+    if (!line || typeof line !== "object") return null;
+    const attributedId = line.memberId ?? fallbackMemberId;
+    if (attributedId !== null && !householdIds.includes(attributedId)) return null;
+    const amount = Number.parseFloat(line.amount);
+    if (!Number.isFinite(amount)) return null;
+    const safe = {
+      memberId: attributedId,
+      memberName: attributedId === null ? null : (members.get(attributedId)?.name || ""),
+      kind: line.kind || "service_credit",
+      basis: line.basis ?? null,
+      billName: line.billName ?? null,
+      description: line.description || "",
+      amount,
+    };
+    if (includeDetail) {
+      safe.detail = (Array.isArray(line.detail) ? line.detail : [])
+        .map((detail) => projectLine(detail, null, false)).filter(Boolean);
+    }
+    return safe;
+  };
+  const items = seeds.flatMap((seed) => {
+    if (Array.isArray(seed.items)) {
+      return seed.items.map((item) => projectLine(item, seed.memberId, true)).filter(Boolean);
+    }
+    const amount = Number.parseFloat(seed.amount);
+    return Number.isFinite(amount)
+      ? [{ kind: "legacy", description: "Carried from " + (seed.fromYear || "previous year"), amount }]
+      : [];
+  });
+  const total = getHouseholdOpeningBalance({ id: memberId, linkedMembers: linkedIds || [] }, owedAdjustments);
+  const billTotals = new Map(householdIds.map((id) => [id, 0]));
+  (bills || []).forEach((bill) => {
+    if (!bill.members?.length) return;
+    const share = getBillAnnualAmount(bill) / bill.members.length;
+    bill.members.forEach((id) => {
+      if (billTotals.has(id)) billTotals.set(id, billTotals.get(id) + share);
+    });
+  });
+  const billsSubtotal = householdIds.reduce((sum, id) => sum + billTotals.get(id), 0);
+  const serviceCreditTotal = householdIds.reduce((sum, id) => sum + getServiceCreditTotalForMember(owedAdjustments, id), 0);
+  const openingCents = toCents(total);
+  const incomingCreditCents = Math.max(0, -openingCents);
+  const incomingChargeCents = Math.max(0, openingCents);
+  const billsAfterCredits = toCents(billsSubtotal) - toCents(serviceCreditTotal);
+  return {
+    fromYear: seeds[0]?.fromYear || null,
+    notApplied: Math.max(0, -(billsAfterCredits + openingCents)) / 100,
+    remainingCredit: Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents)) / 100,
+    total,
+    items,
+  };
 }

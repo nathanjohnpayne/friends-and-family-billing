@@ -8,8 +8,11 @@ import {
     applyCarryForwardToPriorYear,
     suggestNextYearLabel,
     isYearLabelDuplicate,
-    buildNewYearData
+    buildNewYearData,
+    isReviewedRollover,
+    buildReviewedRollover
 } from '@/lib/billing-year.js';
+import { computePayloadFingerprint } from '@/lib/year-end-review.js';
 import { getHouseholdOpeningBalance, calculateAnnualSummary, getHouseholdFinancials, buildCarryForward } from '@/lib/calculations.js';
 
 describe('calculateOutstandingBalance', () => {
@@ -614,5 +617,81 @@ describe('itemized review carry (#601, ADR 0009)', () => {
             const third = reviewCarry({ ...empty, ...again.next }, '2028', '2029');
             expect(third.next.owedAdjustments.map(a => a.amount)).toEqual(again.next.owedAdjustments.map(a => a.amount));
         }
+    });
+});
+
+// The reviewed rollover's pure preparation step (#606): the seam the commit (batch today,
+// the version-checked transaction next) consumes over whatever source snapshot it read.
+describe('buildReviewedRollover (#606, ADR 0009 § 3)', () => {
+    const source = () => freezeRecords({
+        activeYear: { id: '2026', label: '2026', status: 'open' },
+        familyMembers: [{ id: 1, name: 'Ada', linkedMembers: [2] }, { id: 2, name: 'Erik', linkedMembers: [] }, { id: 3, name: 'Kenji', linkedMembers: [] }],
+        bills: [{ id: 10, name: 'Northline Mobile', amount: 180, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2, 3] }],
+        payments: [{ id: 'p1', memberId: 1, amount: 1440 }, { id: 'p3', memberId: 3, amount: 720 }],
+        creditAdjustments: [], owedAdjustments: [], billingEvents: [{ id: 'evt_old', eventType: 'BILL_CREATED', payload: {} }],
+        settings: { emailMessage: 'Hi', paymentLinks: [], paymentMethods: [] }
+    });
+    const payload = (fields = {}) => ({ reconciliationId: 'rec-1', sourceYearId: '2026', sourceFingerprint: 'yer1_x',
+        trueUps: [{ billId: 10, newAmount: 198, firstMonth: '2026-07' }], confirmations: { noBillChanges: false }, ...fields });
+    const ctx = () => {
+        let n = 0;
+        return { now: '2026-12-01T10:00:00.000Z', userId: 'u1', eventId: () => 'evt_' + (++n) };
+    };
+
+    it('selects the review path by key presence, not truthiness, and keeps undefined legacy', () => {
+        expect(isReviewedRollover({ reconciliation: {} })).toBe(true);
+        expect(isReviewedRollover({ reconciliation: null })).toBe(true);
+        expect(isReviewedRollover({ reconciliation: undefined })).toBe(false);
+        expect(isReviewedRollover({ reopenedAdjustmentIds: new Set() })).toBe(false);
+        expect(isReviewedRollover(undefined)).toBe(false);
+    });
+
+    it('is pure and deterministic over a frozen source: same records, ids and fingerprint on every attempt', () => {
+        const input = source();
+        const first = buildReviewedRollover(input, '2027', payload(), ctx());
+        const second = buildReviewedRollover(input, '2027', payload(), ctx());
+        const stable = value => JSON.parse(JSON.stringify(value, (key, nested) => key === 'createdAt' ? undefined : nested));
+        expect(stable(second)).toEqual(stable(first));
+        expect(first.priorYear.owedAdjustments.map(row => row.id)).toEqual(['oadj_tu_2026_tu_2026_10_1', 'oadj_tu_2026_tu_2026_10_2', 'oadj_tu_2026_tu_2026_10_3']);
+        expect(first.priorYear.owedAdjustments.every(row => row.status === 'carried_forward')).toBe(true);
+        expect(first.priorYear.billingEvents.map(event => event.eventType)).toEqual(['BILL_CREATED', 'TRUE_UP_RECORDED', 'YEAR_CARRIED_FORWARD', 'YEAR_ROLLED_OVER']);
+        expect(first.priorYear.billingEvents[1]).toMatchObject({ id: 'evt_1', timestamp: '2026-12-01T10:00:00.000Z', actor: { type: 'admin', userId: 'u1' }, source: 'ui' });
+        expect(first.newYearData.owedAdjustments.map(seed => [seed.id, seed.amount])).toEqual([['coadj_2026_1', 72], ['coadj_2026_3', 36]]);
+        expect(input.owedAdjustments).toEqual([]);
+    });
+
+    it('fingerprints the payload entries and label, independent of key order and the source binding', () => {
+        const base = payload();
+        const reordered = Object.fromEntries(Object.entries(base).reverse());
+        expect(computePayloadFingerprint(reordered, '2027')).toBe(computePayloadFingerprint(base, '2027'));
+        expect(computePayloadFingerprint({ ...base, sourceFingerprint: 'yer1_y' }, '2027')).toBe(computePayloadFingerprint(base, '2027'));
+        expect(computePayloadFingerprint(payload({ trueUps: [{ billId: 10, newAmount: 199, firstMonth: '2026-07' }] }), '2027'))
+            .not.toBe(computePayloadFingerprint(base, '2027'));
+        expect(computePayloadFingerprint(base, '2028')).not.toBe(computePayloadFingerprint(base, '2027'));
+    });
+
+    it('rejects payload shapes that would duplicate or misclassify records', () => {
+        expect(() => buildReviewedRollover(source(), '2027', payload({ serviceCredits: [{ billId: 10, basis: 'price_change', newAmount: 170, firstMonth: '2026-07' }] }), ctx()))
+            .toThrow(/more than once/);
+        expect(() => buildReviewedRollover(source(), '2027', payload({ trueUps: [], serviceCredits: [{ billId: 10, basis: 'price_change', newAmount: 198, firstMonth: '2026-07' }] }), ctx()))
+            .toThrow(/True-up, not a Service Credit/);
+        expect(() => buildReviewedRollover(source(), '2027', payload({ trueUps: [{ billId: 99, newAmount: 5, firstMonth: '2026-07' }] }), ctx()))
+            .toThrow(/not in the 2026 billing year/);
+        expect(() => buildReviewedRollover(source(), '2027', payload({ endedBillIds: [10] }), ctx())).toThrow(/without its last month/);
+        expect(() => buildReviewedRollover(source(), '2027', payload({ newBills: [{ rowId: 'r', billId: 10, name: 'X', amount: 5, frequency: 'monthly',
+            website: '', members: [1], firstMonth: '2026-09' }] }), ctx())).toThrow(/collides/);
+        const existing = { ...source(), owedAdjustments: [{ id: 'oadj_tu_2026_tu_2026_10_1', memberId: 1, kind: 'usage_charge', amount: 1, status: 'billed' }] };
+        expect(() => buildReviewedRollover(existing, '2027', payload(), ctx())).toThrow(/already exists/);
+        expect(() => buildReviewedRollover(source(), '2027', payload(), { now: 'x' })).toThrow(/event id factory/);
+    });
+
+    it('records nothing for a memberless ended bill, leaves it out of the next year and notes BILL_ENDED_UNASSIGNED', () => {
+        const input = { ...source(), bills: [...source().bills, { id: 11, name: 'Old Cloud', amount: 12, billingFrequency: 'monthly', members: [] }] };
+        const result = buildReviewedRollover(input, '2027', payload({ trueUps: [], endedBillIds: [11],
+            serviceCredits: [{ billId: 11, basis: 'ended', lastMonth: '2026-08' }] }), ctx());
+        expect(result.priorYear.owedAdjustments).toEqual([]);
+        expect(result.newYearData.bills.map(bill => bill.id)).toEqual([10]);
+        expect(result.priorYear.billingEvents.map(event => event.eventType)).toEqual(['BILL_CREATED', 'BILL_ENDED_UNASSIGNED', 'YEAR_ROLLED_OVER']);
+        expect(result.priorYear.billingEvents[1].payload).toEqual({ billId: 11, billName: 'Old Cloud', lastMonth: '2026-08', reconciliationId: 'rec-1' });
     });
 });

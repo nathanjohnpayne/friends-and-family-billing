@@ -15,6 +15,9 @@ vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 
 vi.mock('firebase/firestore', () => {
     const matches = (data, wheres) => wheres.every(w => w.op === '==' && data[w.field] === w.value);
+    const setDoc = vi.fn(async (ref, data, options) => {
+        mockStore[ref.path] = options?.merge ? { ...(mockStore[ref.path] || {}), ...data } : data;
+    });
     return {
         doc: vi.fn((_db, ...segments) => ({ path: segments.join('/') })),
         collection: vi.fn((_db, ...segments) => ({ path: segments.join('/') })),
@@ -34,9 +37,7 @@ vi.mock('firebase/firestore', () => {
             }
             return { docs };
         }),
-        setDoc: vi.fn(async (ref, data, options) => {
-            mockStore[ref.path] = options?.merge ? { ...(mockStore[ref.path] || {}), ...data } : data;
-        }),
+        setDoc,
         writeBatch: vi.fn(() => {
             const ops = [];
             return {
@@ -62,7 +63,10 @@ vi.mock('firebase/firestore', () => {
                 update: (ref, data) => { writes.push({ path: ref.path, data, merge: true }); return tx; }
             };
             const result = await fn(tx);
-            for (const w of writes) mockStore[w.path] = w.merge ? { ...(mockStore[w.path] || {}), ...w.data } : w.data;
+            // The commit applies each buffered write through the setDoc mock, so a test
+            // can hold or fail a year-document commit (every year write is a
+            // transaction since #614) the same way it holds or fails setDoc.
+            for (const w of writes) await setDoc({ path: w.path }, w.data, w.merge ? { merge: true } : undefined);
             return result;
         }),
         serverTimestamp: vi.fn(() => '__SERVER_TIMESTAMP__')
@@ -626,6 +630,51 @@ describe('share documents after a contact change', () => {
         errSpy.mockRestore();
     });
 
+    it('refuses an unsafe compensation when another session wrote the year after the queued save (#614)', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        const path = 'users/user-1/billingYears/2026';
+        setDoc
+            .mockImplementationOnce(async () => {
+                svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+                throw new Error('unavailable');
+            })
+            .mockImplementationOnce(async (ref, data, options) => {
+                // The queued payment save lands; then another session saves the year
+                // with its own version before the compensation runs.
+                await original(ref, data, options);
+                mockStore[path] = { ...mockStore[path], rev: mockStore[path].rev + 1, lastWriteId: 'w-other-session' };
+            });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/Restoring the saved household also failed .*reload before making further changes/);
+        await svc._saveQueue._chain;
+        // Nothing was reverted over the other session's write: no second CAS, no blind patch.
+        expect(mockStore[path].lastWriteId).toBe('w-other-session');
+        expect(mockStore[path].familyMembers.find(x => x.id === 2).linkedMembers).toEqual([1, 3]);
+        expect(svc.getState().writeBlock).toMatchObject({ yearId: '2026', reason: 'stale' });
+        errSpy.mockRestore();
+    });
+
+    it('compensates through the version primitive: the revert advances the stored rev by one (#614)', async () => {
+        const { setDoc } = await import('firebase/firestore');
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const svc = createService();
+        setDoc.mockImplementationOnce(async () => {
+            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+            throw new Error('unavailable');
+        });
+        await expect(svc.changeHouseholdContact(2)).rejects.toThrow(/could not be saved/);
+        await svc._saveQueue._chain;
+        const persisted = mockStore['users/user-1/billingYears/2026'];
+        // The payment save created rev 1; the compensation wrote rev 2 over it.
+        expect(persisted.rev).toBe(2);
+        expect(typeof persisted.lastWriteId).toBe('string');
+        expect(persisted.familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
+        expect(svc.getState().writeBlock).toBeNull();
+        errSpy.mockRestore();
+    });
+
     it('keeps a queued payment when the open year is reloaded before it lands and the household save then fails', async () => {
         const { setDoc } = await import('firebase/firestore');
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -650,15 +699,18 @@ describe('share documents after a contact change', () => {
     });
 
     it('reports when the compensating write after a failed household save also fails', async () => {
-        const { setDoc, runTransaction } = await import('firebase/firestore');
+        const { setDoc } = await import('firebase/firestore');
+        const original = setDoc.getMockImplementation();
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const svc = createService();
-        setDoc.mockImplementationOnce(async () => {
-            // A payment is queued behind the failing write, so the stored year needs compensating.
-            svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
-            throw new Error('unavailable');
-        });
-        runTransaction.mockRejectedValueOnce(new Error('offline'));
+        setDoc
+            .mockImplementationOnce(async () => {
+                // A payment is queued behind the failing write, so the stored year needs compensating.
+                svc.recordPayment({ memberId: 4, amount: 10, method: 'cash' });
+                throw new Error('unavailable');
+            })
+            .mockImplementationOnce(original) // the queued payment save lands
+            .mockImplementationOnce(async () => { throw new Error('offline'); }); // the compensating write fails
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow(
             'The household change could not be saved: unavailable. Restoring the saved household also failed (offline); reload before making further changes.');
         expect(svc.getState().familyMembers.find(x => x.id === 1).linkedMembers).toEqual([2, 3]);
@@ -727,7 +779,7 @@ describe('share documents after a contact change', () => {
     });
 
     it('refuses a household change while a status change or Start New Year is running', async () => {
-        const { setDoc, writeBatch } = await import('firebase/firestore');
+        const { setDoc } = await import('firebase/firestore');
         const svc = createService();
         const before = structuredClone(svc.getState().familyMembers);
 
@@ -745,16 +797,10 @@ describe('share documents after a contact change', () => {
         expect(svc.getState().billingEvents.map(e => e.eventType)).toEqual(['YEAR_STATUS_CHANGED']);
         expect(mockStore['users/user-1/billingYears/2026'].status).toBe('settling');
 
-        // Start New Year next: the rollover batch is held open.
-        const originalBatch = writeBatch.getMockImplementation();
+        // Start New Year next: the rollover's transaction commit is held open.
         let releaseRollover;
         const rolloverHeld = new Promise(resolve => { releaseRollover = resolve; });
-        writeBatch.mockImplementationOnce(() => {
-            const batch = originalBatch();
-            const commit = batch.commit;
-            batch.commit = async () => { await rolloverHeld; return commit(); };
-            return batch;
-        });
+        setDoc.mockImplementationOnce(async (ref, data, options) => { await rolloverHeld; return originalSet(ref, data, options); });
         const rollover = svc.createYear('2027');
         await expect(svc.changeHouseholdContact(2)).rejects.toThrow('The billing year is being updated.');
         expect(() => svc.updateMember(1, { linkedMembers: [2, 3, 4] })).toThrow('The billing year is being updated.');
