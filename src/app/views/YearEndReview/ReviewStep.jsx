@@ -235,7 +235,7 @@ function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOp
                 </div>
             ) : (
                 <div className="status-banner status-banner--warning" role="alert">
-                    <p><b>We can’t tell yet whether {nextYearLabel} was created.</b> The connection dropped after Start was sent. Your draft is kept. Check again before trying anything else; checking never writes {nextYearLabel} twice.</p>
+                    <p><b>We can’t tell yet whether {nextYearLabel} was created.</b> The connection dropped after Start was sent. Your draft is kept. Check again before trying anything else; checking never writes {nextYearLabel} twice. Editing the draft is paused until then.</p>
                     <div className="yer-alert-acts"><button type="button" className="btn btn-ink" disabled={!canRetry} onClick={onRecheck}>Check again</button></div>
                 </div>
             );
@@ -253,13 +253,15 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
     nothingChanged, onGo, onOpenYear, onDiscard, onReload }) {
     const sourceLabel = source.sourceYear.label;
     const locked = commit.locked;
+    // Edit links wait while an earlier attempt is unresolved (Check again re-sends that attempt).
+    const editLocked = locked || commit.unresolved;
     const pending = gate.pending;
     const households = householdsOf(source.familyMembers);
     const previews = preview.ok ? preview.households : [];
     const byPrimary = id => previews.find(row => String(row.primaryMemberId ?? row.householdId) === String(id));
     const totals = preview.ok ? preview.totals : null;
     const conflict = commit.outcome && ['elsewhere', 'diverged'].includes(commit.outcome.state);
-    const ctx = { sourceLabel, nextYearLabel, familyMembers: source.familyMembers, pending, onEdit: onGo, locked, source, reopenedAdjustmentIds };
+    const ctx = { sourceLabel, nextYearLabel, familyMembers: source.familyMembers, pending, onEdit: onGo, locked: editLocked, source, reopenedAdjustmentIds };
     // During and after a commit the years list includes the year being started; the label is not editable then.
     const error = locked || conflict || commit.unresolved ? null : labelError(review.draft.nextYearLabel, billingYears);
     return (
@@ -269,9 +271,9 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
                 <div className="yer-ok" role="status">
                     <p><b>Nothing changed in {sourceLabel}.</b> You confirmed: no bill price changes or ended bills · no new subscriptions · no additional member charges. What already carries is still listed below, and nothing new is recorded.</p>
                     <div className="yer-hh-acts">
-                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={locked} onClick={() => onGo(1)}>Edit bills</button>
-                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={locked} onClick={() => onGo(2)}>Edit subscriptions</button>
-                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={locked} onClick={() => onGo(3)}>Edit charges</button>
+                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={editLocked} onClick={() => onGo(1)}>Edit bills</button>
+                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={editLocked} onClick={() => onGo(2)}>Edit subscriptions</button>
+                        <button type="button" className="btn btn-sm btn-header-secondary" disabled={editLocked} onClick={() => onGo(3)}>Edit charges</button>
                     </div>
                 </div>
             )}

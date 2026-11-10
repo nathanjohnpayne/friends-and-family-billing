@@ -1136,6 +1136,24 @@ describe('Step 4 — an unresolved attempt is never downgraded or replaced (#609
         expect(service.createYear).toHaveBeenCalledTimes(2);
     });
 
+    it('editing waits while the attempt is unresolved: no Back, no step links, no Edit links, so a success cannot clear later edits (Codex thread 4531744170)', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });
+        seedWireframe();
+        routedPage();
+        await startUnresolved(user);
+        expect(screen.getByText(/Editing the draft is paused until then\./)).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Back to member charges/ })).toBeNull();
+        expect(within(screen.getByRole('list', { name: 'Year-End Review steps' })).queryAllByRole('button')).toHaveLength(0);
+        await user.click(household(MEMBER.erik).getByRole('button', { name: /Show details for Lindqvist household/ }));
+        for (const name of ['Edit bills', 'Edit subscriptions', 'Edit charges']) {
+            expect(household(MEMBER.erik).getByRole('button', { name })).toBeDisabled();
+        }
+        expect(screen.getByTestId('year-end-review-step-4')).toBeInTheDocument();
+        // Discard stays available.
+        expect(screen.getByRole('button', { name: 'Discard draft' })).toBeEnabled();
+    });
+
     it('the label is locked while the attempt is unresolved, so Check again checks the year that was attempted', async () => {
         const user = userEvent.setup();
         fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });

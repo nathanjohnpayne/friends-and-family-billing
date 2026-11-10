@@ -211,6 +211,9 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
     const gate = gateOf({ review, preview, billingYears: knownYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale', unresolved: commit.unresolved });
     gateRef.current = gate;
     const locked = commit.locked;
+    // While an attempt is unresolved, Check again re-sends that attempt: edits made meanwhile would
+    // not be what is committed and a success would clear them with the draft, so editing waits.
+    const editLocked = locked || commit.unresolved;
     const conflict = !!commit.outcome && CONFLICT_STATES.includes(commit.outcome.state);
 
     const counts = entryCounts(review.draft);
@@ -220,7 +223,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
 
     const blocked = step <= 3 && review.stepErrors[step].length > 0;
     const last = step === 3;
-    const go = number => { if (locked) return; setStep(number); if (typeof window !== 'undefined') window.scrollTo?.(0, 0); };
+    const go = number => { if (editLocked) return; setStep(number); if (typeof window !== 'undefined') window.scrollTo?.(0, 0); };
 
     const openYear = async () => {
         const target = commit.outcome?.successorId ?? commit.outcome?.yearId;
@@ -257,7 +260,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
                     ? <span className="yer-hint yer-locked-note">Locked while {nextYearLabel} starts</span>
                     : <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setConfirmingDiscard(true)}>Discard draft</button>}
             </div>
-            <StepStrip step={step} names={names} onGo={go} locked={locked} />
+            <StepStrip step={step} names={names} onGo={go} locked={editLocked} />
             {locked && (
                 <div className="status-banner status-banner--warning yer-progress" role="status">
                     <span className="yer-spinner" aria-hidden="true" />
@@ -275,7 +278,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
                     onGo={go} onOpenYear={openYear} onDiscard={() => setConfirmingDiscard(true)} onReload={onReload} />
             )}
 
-            {!locked && (
+            {!editLocked && (
                 <div className="yer-foot">
                     {step > 1 ? <button type="button" className="btn btn-header-secondary" onClick={() => go(step - 1)}>← {step === 4 ? 'Back to member charges' : 'Back'}</button> : <span />}
                     <span className="yer-foot-spacer" />
