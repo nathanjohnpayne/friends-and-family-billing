@@ -441,8 +441,15 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
                 {/* Preview: rendered body */}
                 {activeTab === 'preview' && (
                     !access.available ? <FinancialUnavailable /> : previewCtx ? (
-                        <div className="template-preview-body invoice-preview-message"
-                            dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
+                        <>
+                            <div className="template-preview-body invoice-preview-message"
+                                dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
+                            {previewCtx.carriedItems && (
+                                <p className="invoicing-hint" style={{ padding: '0 16px 16px' }}>
+                                    The carried block is added automatically whenever the household carries a balance into the year, so the total in the message is always explained. No template token is needed.
+                                </p>
+                            )}
+                        </>
                     ) : (
                         <p className="invoicing-hint" style={{ padding: '16px' }}>Add family members to see a preview.</p>
                     )

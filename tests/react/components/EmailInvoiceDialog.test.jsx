@@ -12,6 +12,8 @@ vi.mock('@/lib/ShareLinkService.js', () => ({
 
 import EmailInvoiceDialog from '@/app/components/EmailInvoiceDialog.jsx';
 import { createAndPruneShareLink } from '@/lib/ShareLinkService.js';
+import userEvent from '@testing-library/user-event';
+import { invoiceMembers, invoiceBills, invoiceSeeds, invoiceYear } from '../helpers/carriedInvoiceFixture.js';
 
 const baseProps = {
     open: true,
@@ -66,5 +68,40 @@ describe('EmailInvoiceDialog', () => {
         createAndPruneShareLink.mockClear();
         render(<EmailInvoiceDialog {...baseProps} userId="test-user" billingYearId="2026" />);
         expect(createAndPruneShareLink).not.toHaveBeenCalled();
+    });
+});
+
+describe('EmailInvoiceDialog — carried from 2026 (#604)', () => {
+    const carriedProps = { ...baseProps, familyMembers: invoiceMembers, bills: invoiceBills, owedAdjustments: invoiceSeeds,
+        activeYear: { ...invoiceYear, status: 'open' }, settings: { emailMessage: 'Hi %first_name%,\n\nYour household total is %household_total%.\n\n%payment_methods%' } };
+    // The dialog's labels are not associated with their fields: [subject, message].
+    const message = () => screen.getAllByRole('textbox')[1];
+    const subjectField = () => screen.getAllByRole('textbox')[0];
+
+    it('every variant carries the block and the subject never changes', async () => {
+        const user = userEvent.setup();
+        render(<EmailInvoiceDialog {...carriedProps} />);
+        const subject = subjectField().value;
+        expect(subject).toBe('Annual Billing Summary 2027—Erik Lindqvist');
+        for (const label of ['Text only', 'Text + link', 'Full invoice']) {
+            await user.click(screen.getByLabelText(label));
+            expect(message().value).toContain('CARRIED FROM 2026\n- Erik: Northline Mobile went from $180 to $198 a month in July.\n  Your share of six months: $12.00');
+            expect(message().value).toContain('- Maja: Activation fee (Nov 3): $30.00');
+            expect(message().value).toContain('CARRIED TOTAL: +$55.00');
+            expect(subjectField().value).toBe(subject);
+        }
+        expect(message().value).toContain('  2027 bills:                    $668.00\n  Carried from 2026:             +$55.00\n  Combined Annual Total:         $723.00');
+    });
+
+    it('a legacy seed shows one line and a household without a carry shows none', async () => {
+        const user = userEvent.setup();
+        const { unmount } = render(<EmailInvoiceDialog {...carriedProps} memberId={4} />);
+        await user.click(screen.getByLabelText('Text only'));
+        expect(message().value.match(/Carried from 2026/g)).toHaveLength(1);
+        expect(message().value).toContain('Carried from 2026: +$30.00.');
+        unmount();
+        render(<EmailInvoiceDialog {...carriedProps} memberId={5} />);
+        await user.click(screen.getByLabelText('Full invoice'));
+        expect(message().value).not.toMatch(/carried/i);
     });
 });

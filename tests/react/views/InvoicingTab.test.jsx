@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { invoiceMembers, invoiceBills, invoiceSeeds, invoiceYear } from '../helpers/carriedInvoiceFixture.js';
 
 // Mock Firebase (needed by InvoicingTab for share link generation)
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
@@ -171,5 +172,58 @@ describe('InvoicingTab', () => {
     it('does not show dirty indicator initially', () => {
         renderTab();
         expect(screen.queryByText('Unsaved changes')).toBeNull();
+    });
+});
+
+describe('InvoicingTab preview — carried from 2026 (#604)', () => {
+    const carriedSettings = {
+        emailMessage: 'Hi %first_name%,\n\nYour household total is %household_total%.\n\n%payment_methods%\n\nThanks!',
+        paymentMethods: [{ id: 'pm_1', type: 'venmo', label: 'Venmo', enabled: true, handle: '@test', url: '', email: '', phone: '', instructions: '' }],
+    };
+    const preview = () => document.querySelector('.invoice-preview-message');
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockService.getState.mockReturnValue({ settings: carriedSettings });
+        useBillingData.mockReturnValue({ ...mockState, familyMembers: invoiceMembers, bills: invoiceBills, owedAdjustments: invoiceSeeds,
+            activeYear: { ...invoiceYear, status: 'open' } });
+    });
+
+    it('shows the block after the message and before the payment options, with the hint', () => {
+        render(<ToastProvider><InvoicingTab /></ToastProvider>);
+        fireEvent.click(screen.getByText('Preview'));
+        const text = preview().textContent;
+        expect(within(preview()).getByText('Carried from 2026')).toBeInTheDocument();
+        expect(within(preview()).getByText('Carried total: +$55.00')).toBeInTheDocument();
+        expect(text).toContain('Maja · Activation fee (Nov 3): $30.00');
+        expect(text).toContain('2027 total: $723.00 (2027 bills $668.00 + carried $55.00)');
+        expect(text.indexOf('Your household total is $723.00.')).toBeLessThan(text.indexOf('Carried from 2026'));
+        expect(text.indexOf('Carried total')).toBeLessThan(text.indexOf('Payment Options'));
+        expect(screen.getByText(/The carried block is added automatically/)).toBeInTheDocument();
+    });
+
+    it('shows one line for a legacy seed and nothing for a household without a carry', () => {
+        render(<ToastProvider><InvoicingTab /></ToastProvider>);
+        fireEvent.click(screen.getByText('Preview'));
+        fireEvent.change(screen.getByLabelText('Preview member'), { target: { value: '4' } });
+        expect(preview().textContent.match(/Carried from 2026/g)).toHaveLength(1);
+        expect(preview().textContent).toContain('Carried from 2026: +$30.00.');
+        fireEvent.change(screen.getByLabelText('Preview member'), { target: { value: '5' } });
+        expect(preview().textContent).not.toMatch(/carried/i);
+        expect(screen.queryByText(/The carried block is added automatically/)).toBeNull();
+    });
+
+    it('queues the same block in the test email markdown', async () => {
+        render(<ToastProvider><InvoicingTab /></ToastProvider>);
+        fireEvent.click(screen.getByText('Preview'));
+        fireEvent.click(screen.getByText('Send test email'));
+        fireEvent.change(screen.getByLabelText('Send to'), { target: { value: 'qa@example.com' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+        await waitFor(() => expect(queueEmail).toHaveBeenCalledTimes(1));
+        const { body, subject } = queueEmail.mock.calls[0][0];
+        expect(body).toContain('## Carried from 2026');
+        expect(body).toContain('- Maja · Activation fee (Nov 3): **$30.00**');
+        expect(body).toContain('**Carried total: +$55.00**');
+        expect(subject).toBe('[Test] Annual Billing Summary 2027—Erik Lindqvist');
     });
 });
