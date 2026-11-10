@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials, getHouseholdOpeningBalance } from '@/lib/calculations.js';
 import {
     buildShareScopes,
     buildShareTokenDoc,
@@ -9,11 +9,12 @@ import {
     buildPendingChargesForShare,
     buildServiceCreditsForShare,
     buildPaymentHistoryForShare,
-    buildPublicShareData
+    buildPublicShareData,
+    buildCarriedItemsForShare
 } from '@/lib/share.js';
 // CommonJS mirror used by the resolveShareToken Cloud Function — imported here so the
 // cache (React) and CF (fallback) builders can be asserted byte-for-byte identical (#356).
-import { buildPaymentHistoryForShare as cfBuildPaymentHistoryForShare } from '../../../functions/billing.js';
+import { buildPaymentHistoryForShare as cfBuildPaymentHistoryForShare, buildCarriedItemsForShare as cfBuildCarriedItemsForShare } from '../../../functions/billing.js';
 
 describe('buildPublicShareData — pendingCharges (#317 reachability)', () => {
     const familyMembers = [{ id: 1, name: 'Alice', linkedMembers: [] }];
@@ -614,4 +615,91 @@ describe('buildPublicShareData — household rounding (#620)', () => {
             expect(data.paymentSummary.combinedAnnualTotal).toBe(incoming === -100 ? 0 : incoming === -20 ? 46.67 : 66.66);
         });
     }
+});
+
+
+describe('carried share projection (#603)', () => {
+    const members = [{ id: 1, name: 'Erik', linkedMembers: [2] }, { id: 2, name: 'Maja' }, { id: 3, name: 'Other' }];
+    const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
+    const seed = (amount, items) => ({ id: 'seed-' + amount, kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, ...(items === undefined ? {} : { items }) });
+    const project = (records, sourceBills = bills) => buildCarriedItemsForShare(members, sourceBills, records, 1, [2]);
+    const publicData = (records, scopes = ['summary:read'], sourceBills = bills) => buildPublicShareData(members, sourceBills, [], 1, scopes, 'owner', { id: '2027' }, {}, records);
+    // The canonical cent authority on main (ADR 0010): G, S, O, owed and U in integer cents.
+    const canonical = (records, sourceBills = bills) => {
+        const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments: [], creditAdjustments: [], owedAdjustments: records }, { reopenedAdjustmentIds: null });
+        expect(financials.ok).toBe(true);
+        return financials.cents;
+    };
+    const cents = dollars => Math.round(dollars * 100);
+
+    it.each([[-100, 0], [-20, 4667], [30, 9667], [0, 6667]])('matches the deployed function and the canonical household cents for net %s', (amount, owedCents) => {
+        const records = [seed(amount)];
+        const carried = project(records);
+        expect(carried).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+        expect(carried.total).toBe(getHouseholdOpeningBalance(members[0], records));
+        const { G, S, O, owed, U } = canonical(records);
+        expect(G).toBe(6667);
+        expect(owed).toBe(owedCents);
+        expect(cents(carried.total)).toBe(O);
+        // Not applied this year is the floor remainder of G − S + O; the "$Y remains" amount is the rollover's U.
+        expect(cents(carried.notApplied)).toBe(Math.max(0, -(G - S + O)));
+        expect(cents(carried.remainingCredit)).toBe(U);
+        expect(cents(publicData(records).paymentSummary.combinedAnnualTotal)).toBe(owed);
+        // Rounded per-member display lines are unchanged.
+        expect(publicData(records).summary.annualTotal).toBe(33.33);
+        expect(publicData(records).linkedMembers[0].annualTotal).toBe(33.33);
+        if (amount === -100) expect(carried).toMatchObject({ notApplied: 33.33, remainingCredit: 33.33 });
+    });
+
+    it('distinguishes forfeited floor remainder from unused NET incoming money (10l/10n)', () => {
+        const sourceBills = [{ ...bills[0], members: [1] }];
+        const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
+        const split = [{ sourceId: 'charge', memberId: 1, kind: 'usage_charge', amount: 10 },
+            { sourceId: 'credit', memberId: null, kind: 'credit', amount: -10, detail: [{ sourceId: 'credit-detail', memberId: 1, kind: 'service_credit', amount: -10 }] }];
+        for (const [opening, items, notApplied, remaining] of [[-20, undefined, 120, 20], [0, split, 100, 0]]) {
+            const records = [seed(opening, items), credit];
+            const result = project(records, sourceBills);
+            expect(result).toMatchObject({ notApplied, remainingCredit: remaining });
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2]));
+            const { G, S, O, U } = canonical(records, sourceBills);
+            expect(cents(result.notApplied)).toBe(Math.max(0, -(G - S + O)));
+            expect(cents(result.remainingCredit)).toBe(U);
+        }
+    });
+
+    // Known remaining case owned by the public-writer alignment (#636, #672–#676), not #603:
+    // annual $1.15 split two ways gives this household raw bills of $0.575. The canonical
+    // authority quantizes G once ($0.58), so +$0.01 owes $0.59 and −$0.01 owes $0.57. The
+    // legacy public writer still rounds the raw sum after the carry and publishes $0.56
+    // for −$0.01. When #636 lands, flip the legacy expectation to the canonical cents.
+    it.each([[0.01, 59, 0.59], [-0.01, 57, 0.56]])('documents the half-cent public-writer case for net %s (#636)', (amount, owedCents, legacyTotal) => {
+        const sourceBills = [{ id: 'half', amount: 1.15, billingFrequency: 'annual', members: [1, 3] }];
+        const records = [seed(amount)];
+        const { G, owed } = canonical(records, sourceBills);
+        expect(G).toBe(58);
+        expect(owed).toBe(owedCents);
+        expect(publicData(records, ['summary:read'], sourceBills).paymentSummary.combinedAnnualTotal).toBe(legacyTotal);
+        expect(project(records, sourceBills)).toMatchObject({ total: amount, notApplied: 0, remainingCredit: 0 });
+    });
+
+    it('projects only safe household attribution and nested detail, preserving snapshot text', () => {
+        const records = [seed(12, [{ memberId: 2, kind: 'usage_charge', amount: 12, description: 'Activation fee', billName: 'Original name', id: 'private', note: 'private', detail: [{ memberId: 2, amount: -1, description: 'Safe', email: 'private' }, { memberId: 3, amount: -99, description: 'Other secret' }] }, { memberId: 3, amount: 99, description: 'Other secret' }]), { ...seed(999), memberId: 3 }, { ...seed(999), status: 'voided' }];
+        const result = project(records);
+        expect(result).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+        expect(result.total).toBe(12);
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]).toMatchObject({ memberName: 'Maja', description: 'Activation fee', billName: 'Original name' });
+        expect(result.items[0].detail).toHaveLength(1);
+        expect(JSON.stringify(result)).not.toMatch(/private|Other secret/);
+    });
+
+    it('gates carry with summary scope, omits absent carry, preserves zero-net itemization and legacy seeds', () => {
+        expect(publicData([seed(30)], [])).not.toHaveProperty('carriedItems');
+        expect(publicData([])).not.toHaveProperty('carriedItems');
+        expect(publicData([seed(0, [])])).not.toHaveProperty('carriedItems');
+        expect(publicData([seed(30)]).carriedItems.items).toEqual([{ kind: 'legacy', description: 'Carried from 2026', amount: 30 }]);
+        const records = [seed(0, [{ memberId: 1, amount: 10 }, { memberId: null, kind: 'credit', amount: -10 }])];
+        expect(publicData(records).carriedItems.items).toHaveLength(2);
+        expect(publicData(records).carriedItems).toEqual(cfBuildCarriedItemsForShare(members, bills, records, 1, [2]));
+    });
 });

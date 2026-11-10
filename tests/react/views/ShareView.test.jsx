@@ -34,6 +34,7 @@ vi.mock('@/lib/validation.js', () => ({
 }));
 
 vi.mock('@/lib/formatting.js', () => ({
+    sanitizeImageSrc: vi.fn(value => value || ''),
     getPaymentMethodIcon: vi.fn(() => '&#x1F4B3;'),
     getPaymentMethodLabel: vi.fn((m) => (m || 'other').charAt(0).toUpperCase() + (m || 'other').slice(1).replace(/_/g, ' ')),
     getInitials: vi.fn((name) => (name || '').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')
@@ -46,6 +47,11 @@ vi.mock('@/lib/share.js', async () => {
 });
 
 import ShareView from '@/app/views/ShareView.jsx';
+import { buildPublicShareData } from '@/lib/share.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
+import { buildCarriedItemsForShare as cfBuildCarriedItemsForShare } from '../../../functions/billing.js';
+import { carriedMembers, carriedBills, carriedSeeds } from '../helpers/carriedShareFixture.js';
+import preCarriedShareCache from '../helpers/preCarriedShareCache.json';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -126,6 +132,9 @@ function mockPublicSharesHit(data = sampleShareData) {
     });
     mockUpdateDoc.mockResolvedValue();
     mockDoc.mockReturnValue('doc-ref');
+    if ((data.scopes || []).includes('summary:read') && !data.carriedItems) {
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => data });
+    }
 }
 
 /** Helper: configure getDoc to return publicShares cache hit with expired token.
@@ -1709,6 +1718,19 @@ describe('ShareView', () => {
             expect(within(totalRow).getByText('$250.00')).toBeInTheDocument(); // reconciles 300 − 50
         });
 
+        it('does not expose floating-point dust as a zero not-applied row', async () => {
+            setToken('abc123');
+            mockPublicSharesHit({
+                ...withServiceCredits,
+                summary: { ...withServiceCredits.summary, annualTotal: 300.12 },
+                serviceCredits: { items: [{ reason: 'Outage', amount: 50.1 }], total: 50.1 },
+                paymentSummary: { combinedAnnualTotal: 250.02, balanceRemaining: 250.02, totalPaid: 0 },
+            });
+            render(<ShareView />);
+            await screen.findByText('Bills subtotal');
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+        });
+
         it('does not render the reconciliation when there are no service credits', async () => {
             setToken('abc123');
             mockPublicSharesHit({ ...withServiceCredits, serviceCredits: undefined });
@@ -1720,5 +1742,228 @@ describe('ShareView', () => {
             });
             expect(screen.queryByText('Bills subtotal')).toBeNull();
         });
+    });
+});
+
+
+describe('Carried share details (#603)', () => {
+    const build = (members = carriedMembers, bills = carriedBills, records = carriedSeeds) => buildPublicShareData(members, bills, [], 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records);
+    // Canonical household cents on main (ADR 0010); rows are asserted against these, not summed member lines.
+    const canonical = (bills = carriedBills, records = carriedSeeds) => {
+        const financials = getHouseholdFinancials(carriedMembers[0], { familyMembers: carriedMembers, bills, payments: [], creditAdjustments: [], owedAdjustments: records }, { reopenedAdjustmentIds: null });
+        expect(financials.ok).toBe(true);
+        return financials;
+    };
+    const money = cents => '$' + (cents / 100).toFixed(2);
+    const reconRow = label => screen.getByText(label, { selector: 'td' }).closest('tr');
+    beforeEach(() => { vi.clearAllMocks(); setToken('synthetic'); });
+
+    it('reconciles the Lindqvist fixture against the canonical household cents', async () => {
+        const { cents } = canonical();
+        expect(cents).toMatchObject({ G: 66800, O: 5500, owed: 72300 });
+        mockPublicSharesHit(build());
+        render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(within(reconRow('Bills subtotal')).getByText(money(cents.G))).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText('+' + money(cents.O))).toBeVisible();
+        expect(screen.queryByText('Not applied this year')).toBeNull();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
+    });
+
+    it('groups linked-member lines, household credit and explanatory detail once; both toggles control one panel', async () => {
+        const user = userEvent.setup();
+        mockPublicSharesHit(build());
+        render(<ShareView />);
+        const panel = await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(within(panel).getByText('Erik Lindqvist')).toBeVisible();
+        expect(within(panel).getByText('+$17.00')).toBeVisible();
+        expect(within(panel).getByText('Maja Lindqvist')).toBeVisible();
+        expect(within(panel).getByText('+$42.00')).toBeVisible();
+        expect(within(panel).getByText('Activation fee (Nov 3).')).toBeVisible();
+        expect(within(panel).getByText('Pinecone Vault ended in August (Erik Lindqvist)')).toBeVisible();
+        expect(within(panel).getByText('Carried total')).toBeVisible();
+        expect(within(screen.getByText('Household Total').closest('tr')).getByText('$723.00')).toBeVisible();
+        const rowToggle = screen.getByRole('button', { name: /^\+\$55\.00 Hide breakdown$/ });
+        const leadToggle = screen.getByRole('button', { name: '$55.00 carried from 2026' });
+        expect(screen.getByText(/\$668.00 of bills plus/)).toBeVisible();
+        expect(rowToggle).toHaveAttribute('aria-controls', panel.id);
+        expect(leadToggle).toHaveAttribute('aria-controls', panel.id);
+        expect(rowToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('Hide breakdown')).toBeVisible();
+        expect(screen.getByText('Household Total').compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(panel.compareDocumentPosition(screen.getByText('Annual Total')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        await user.click(rowToggle);
+        expect(panel).not.toBeVisible();
+        expect(leadToggle).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.getByText('Show breakdown')).toBeVisible();
+        leadToggle.focus();
+        await user.keyboard('{Enter}');
+        expect(panel).toBeVisible();
+        expect(rowToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(document.body.textContent).not.toMatch(/Other adjustments|True-up|carry_opening|adjustment/);
+    });
+
+    it('renders the cache and function carried payload identically', async () => {
+        const cached = build();
+        mockPublicSharesHit(cached);
+        const view = render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        const cacheText = view.container.textContent;
+        view.unmount();
+        const resolved = { ...cached, carriedItems: cfBuildCarriedItemsForShare(carriedMembers, carriedBills, carriedSeeds, 1, [2]) };
+        mockPublicSharesMissFetchOk(resolved);
+        const fallbackView = render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(fallbackView.container.textContent).toBe(cacheText);
+    });
+
+    it.each([[-100, '−$100.00', 0], [-20, '−$20.00', 4667]])('reconciles raw 100-dollar / 3 shares for a two-member household with %s incoming', async (amount, carriedText, owedCents) => {
+        const members = carriedMembers;
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 6667, O: amount * 100, owed: owedCents });
+        mockPublicSharesHit(build(members, bills, records));
+        render(<ShareView />);
+        await screen.findByText('Bills subtotal');
+        // $66.67 − $100.00 + $33.33 = $0.00, and −$20 => $46.67.
+        expect(within(reconRow('Bills subtotal')).getByText(money(cents.G))).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText(carriedText)).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
+        if (amount === -100) {
+            expect(within(reconRow('Not applied this year')).getByText('+$33.33')).toBeVisible();
+            expect(cents.U).toBe(3333);
+            expect(screen.getByText(/credit of \$100.00 covers this year; \$33.33 remains/)).toBeVisible();
+        } else {
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+            expect(screen.queryByText(/remains\./)).toBeNull();
+        }
+        expect(screen.queryByText(/Other adjustments/)).toBeNull();
+        // Rounded per-member display lines are unchanged ($33.33/yr, shown as $2.78/mo).
+        expect(screen.getAllByRole('button', { name: /\(\$2\.78\/mo\)/ })).toHaveLength(2);
+        expect(screen.queryByRole('region', { name: 'Carried from 2026' })).toBeNull();
+    });
+
+    // Known remaining case owned by the public-writer alignment (#636, #672–#676), not #603.
+    // The bills row is the canonical G ($0.58 from raw $0.575). With +$0.01 the published total
+    // reconciles; with −$0.01 the legacy writer still publishes $0.56 where the canonical owed is
+    // $0.57, so the rows show a one-cent gap until #636 aligns the writers.
+    it.each([[0.01, '+$0.01', 59, '$0.59'], [-0.01, '−$0.01', 57, '$0.56']])('documents the half-cent case for net %s (#636)', async (amount, carriedText, owedCents, publishedTotal) => {
+        const bills = [{ id: 'half', name: 'Annual bill', amount: 1.15, billingFrequency: 'annual', members: [1, 3] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 58, owed: owedCents });
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        render(<ShareView />);
+        await screen.findByText('Bills subtotal');
+        expect(within(reconRow('Bills subtotal')).getByText('$0.58')).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText(carriedText)).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(publishedTotal)).toBeVisible();
+    });
+
+    it.each([[-20, 120, 20], [0, 100, 0]])('separates the floor remainder from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
+        const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
+        const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, items: [{ kind: 'usage_charge', memberId: 1, description: 'Activation fee', amount: amount === 0 ? 10 : 0 }, { kind: 'credit', memberId: null, description: 'Your household credit', amount: amount === 0 ? -10 : -20 }] }, { kind: 'service_credit', memberId: 1, amount: 200, status: 'active' }];
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        render(<ShareView />);
+        await screen.findByText('Not applied this year');
+        expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$' + notApplied.toFixed(2))).toBeVisible();
+        if (remaining) expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
+        else expect(screen.queryByText(/remains\./)).toBeNull();
+        expect(screen.getByRole('region', { name: 'Carried from 2026' })).toBeVisible();
+    });
+
+    // #680 Codex P2: the lead sentence states the same terms as the reconciliation rows.
+    it('includes Service Credits in the lead callout so it adds up to the amount due', async () => {
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: 30 },
+            { id: 'sc', kind: 'service_credit', memberId: 1, status: 'active', amount: 10, reason: 'Outage' }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 10000, S: 1000, O: 3000, owed: 12000 });
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        const { container } = render(<ShareView />);
+        expect(await screen.findByText('$120.00 due for 2027')).toBeVisible();
+        expect(container.querySelector('.share-lead-sub').textContent)
+            .toBe('$100.00 of bills less $10.00 of service credits plus $30.00 carried from 2026 · nothing paid yet');
+        expect(within(reconRow('Bills subtotal')).getByText('$100.00')).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText('+$30.00')).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
+    });
+
+    it('states the not-applied floor remainder in the lead callout when credits exceed the bills (10l)', async () => {
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -20 },
+            { id: 'sc', kind: 'service_credit', memberId: 1, status: 'active', amount: 200, reason: 'Outage' }];
+        const payments = [{ id: 'p', memberId: 1, amount: 5 }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 10000, S: 20000, O: -2000, owed: 0 });
+        mockPublicSharesHit(buildPublicShareData(carriedMembers, bills, payments, 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records));
+        const { container } = render(<ShareView />);
+        await screen.findByText(/all settled for 2027/);
+        // $100.00 − $200.00 − $20.00 + $120.00 = $0.00, the same terms as the rows.
+        expect(container.querySelector('.share-lead-sub').textContent)
+            .toBe('$100.00 of bills less $200.00 of service credits less $20.00 carried from 2026 plus $120.00 not applied this year · $5.00 paid');
+        expect(within(reconRow('Not applied this year')).getByText('+$120.00')).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+    });
+
+    it('omits the section and controls entirely when no carry exists', async () => {
+        mockPublicSharesHit(build(carriedMembers, carriedBills, []));
+        render(<ShareView />);
+        await screen.findByText(/Lindqvist Household/);
+        expect(screen.queryByText(/Carried from/)).toBeNull();
+        expect(screen.queryByText('Bills subtotal')).toBeNull();
+    });
+});
+
+
+describe('Pre-itemization cached summary compatibility (#603)', () => {
+    beforeEach(() => { vi.clearAllMocks(); setToken('pre603'); });
+    it.each(preCarriedShareCache.fixtures)('resolves the actual base-builder $name payload before rendering', async ({ payload, members, bills, records }) => {
+        expect(preCarriedShareCache.sourceCommit).toBe('c810739b8bf75bc162ced3d6e85458c6ebb591d9');
+        expect(payload).not.toHaveProperty('carriedItems');
+        mockPublicSharesHit(payload);
+        const resolved = { ...payload, carriedItems: cfBuildCarriedItemsForShare(members, bills, records, 1, []) };
+        let finishResolve;
+        global.fetch = vi.fn(() => new Promise(resolve => { finishResolve = resolve; }));
+        render(<ShareView />);
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.objectContaining({ body: JSON.stringify({ token: 'pre603' }) })));
+        expect(screen.queryByText('Household Total')).toBeNull();
+        expect(mockUpdateDoc).not.toHaveBeenCalled();
+        finishResolve({ ok: true, json: async () => resolved });
+        await screen.findByText('Carried from 2026');
+        expect(within(screen.getByText('Household Total').closest('tr')).getByText(payload.paymentSummary.combinedAnnualTotal === 0 ? '$0.00' : '$220.00')).toBeVisible();
+        if (payload.paymentSummary.combinedAnnualTotal === 0) {
+            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$120.00')).toBeVisible();
+            expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
+        } else expect(screen.getByText('−$30.00')).toBeVisible();
+    });
+
+    it('surfaces resolver failure instead of rendering stale summary numbers', async () => {
+        mockPublicSharesHit(preCarriedShareCache.fixtures[0].payload);
+        global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'This link is no longer valid.' }) });
+        render(<ShareView />);
+        expect(await screen.findByText('This link is no longer valid.')).toBeVisible();
+        expect(screen.queryByText('Household Total')).toBeNull();
+    });
+
+    it('accepts a fresh no-carry resolver result without adding a section', async () => {
+        const fixture = preCarriedShareCache.fixtures[0];
+        mockPublicSharesHit(fixture.payload);
+        const resolved = buildPublicShareData(fixture.members, fixture.bills, [], 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, []);
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => resolved });
+        render(<ShareView />);
+        expect(await screen.findByText('$300.00 due for 2027')).toBeVisible();
+        expect(screen.queryByText(/Carried from/)).toBeNull();
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps links without summary scope on the cache path', async () => {
+        mockPublicSharesHit({ ...preCarriedShareCache.fixtures[0].payload, scopes: ['paymentMethods:read'] });
+        global.fetch = vi.fn();
+        render(<ShareView />);
+        await screen.findByText(/Member Household/);
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(mockUpdateDoc).toHaveBeenCalledTimes(1);
     });
 });
