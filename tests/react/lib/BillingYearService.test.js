@@ -1667,6 +1667,16 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(mockStore[PATH].payments).toHaveLength(1);
     });
 
+    it('does not list defaults the load filled in as unsaved changes', async () => {
+        seedYear({ familyMembers: [{ id: 1, name: 'Ada' }], bills: [{ id: 101, name: 'Internet', amount: 60, members: [1] }] });
+        const s = await loadedService();
+        otherSessionSaves();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock.baselineKind).toBe('loaded');
+        expect(s.getState().writeBlock.changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Bea']);
+    });
+
     it('stops the queue for the year: later enqueues reject with the same outcome and write nothing', async () => {
         seedYear();
         const s = await loadedService();

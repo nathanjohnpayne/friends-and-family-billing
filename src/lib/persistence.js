@@ -230,3 +230,17 @@ export function plainYearPayload(payload) {
     for (const field of ['createdAt', 'updatedAt']) delete copy[field];
     return canonicalValue(copy) || {};
 }
+
+/**
+ * The JSON-safe save payload a stored year document normalizes to (defaults filled
+ * as the app loads it), without mutating it: the first last-committed baseline, so
+ * a field default the load adds is never listed as an unsaved change.
+ * @param {Object} rawData  Firestore document data
+ * @param {string} yearId
+ * @returns {Object}
+ */
+export function loadedYearPayload(rawData, yearId) {
+    const n = normalizeYearData(canonicalValue(rawData || {}) || {}, yearId);
+    return plainYearPayload(buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings,
+        n.creditAdjustments, n.owedAdjustments));
+}

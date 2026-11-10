@@ -12,7 +12,7 @@ import {
     collection, doc, getDocs, getDoc, setDoc, serverTimestamp, runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase.js';
-import { normalizeYearData, buildSavePayload, buildInitialYearData, fingerprintStoredYear, plainYearPayload } from './persistence.js';
+import { normalizeYearData, buildSavePayload, buildInitialYearData, fingerprintStoredYear, plainYearPayload, loadedYearPayload } from './persistence.js';
 import { classifyYearWrite, newWriteId, isUncertainWriteError, isBlockingWriteError, isOfflineWriteError, YearWriteError, YEAR_WRITE_OUTCOMES } from './year-write.js';
 import { summarizeUnsavedChanges, persistUnsavedRecord } from './unsaved-changes.js';
 import { plainTextToDoc } from './template-doc.js';
@@ -252,21 +252,21 @@ export class BillingYearService {
     /**
      * @private Record what this tab loaded for a year document: its rev (0 when
      * absent, undefined when unversioned), the fingerprint of an unversioned
-     * snapshot, and the first baseline. A read older than a write this tab has since
-     * committed does not move the version back.
+     * snapshot, and the first baseline. The load replaces the in-memory state, so its
+     * rev always becomes the expectation (even one older than a write this tab
+     * committed meanwhile: the next write is then refused as stale rather than
+     * writing the older state over it); an unsettled lost response is settled by it.
      */
     _trackLoadedYear(yearId, rawData) {
         const uid = this._user ? this._user.uid : null;
-        const known = this._yearVersions.get(yearId);
         const exists = rawData != null;
         const rev = exists ? rawData.rev : 0;
-        if (known && known.uid === uid && Number.isInteger(known.rev) && Number.isInteger(rev) && rev < known.rev) return;
         this._yearVersions.set(yearId, {
             uid,
             rev,
             fingerprint: exists && rev === undefined ? fingerprintStoredYear(rawData, yearId) : null,
             pending: null,
-            baseline: { payload: exists ? plainYearPayload(rawData) : null, at: new Date().toISOString(), kind: 'loaded' }
+            baseline: { payload: exists ? loadedYearPayload(rawData, yearId) : null, at: new Date().toISOString(), kind: 'loaded' }
         });
     }
 
