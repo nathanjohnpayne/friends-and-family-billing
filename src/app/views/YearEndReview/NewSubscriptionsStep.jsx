@@ -14,7 +14,8 @@ function NewBillRow({ row, item, source, nextYearLabel, months, actions }) {
     const result = item.result;
     const unit = row.frequency === 'annual' ? 'year' : 'month';
     const toggleMember = memberId => {
-        const members = row.members.includes(memberId) ? row.members.filter(id => id !== memberId) : [...row.members, memberId];
+        const current = row.members.filter(id => source.familyMembers.some(member => member.id === id));
+        const members = current.includes(memberId) ? current.filter(id => id !== memberId) : [...current, memberId];
         set({ members });
     };
     return (

@@ -279,6 +279,7 @@ function deriveNewBill(row, ctx) {
     else if (!isPositive(row.amount)) err('amount', 'Enter a price greater than $0.00.');
     if (monthMissing(row, 'firstMonth')) err('firstMonth', 'Choose the first month of service.');
     if (!Array.isArray(row.members) || row.members.length === 0) err('members', 'Choose at least one member for a new subscription.');
+    else if (row.members.some(memberId => !ctx.familyMembers.some(member => member.id === memberId))) err('members', 'A selected member no longer exists. Choose the members again.');
     if (row.override !== undefined && row.override !== null && !(isPositive(row.override) && toCents(row.override) > 0)) {
         err('override', 'Enter an amount greater than $0.00. An override of $0.00 is not allowed.');
     }
@@ -294,7 +295,7 @@ function deriveNewBill(row, ctx) {
 function deriveCharge(row, ctx) {
     const out = { rowId: row.rowId, errors: {} };
     if (!ctx.familyMembers.some(member => member.id === row.memberId)) out.errors.memberId = 'Choose a member.';
-    if (!isPositive(row.amount)) out.errors.amount = 'Enter an amount greater than zero.';
+    if (!isPositive(row.amount) || toCents(row.amount) <= 0) out.errors.amount = 'Enter an amount greater than zero.';
     if (typeof row.description !== 'string' || !row.description.trim()) out.errors.description = 'Enter a description.';
     if (typeof row.incurredDate !== 'string' || !row.incurredDate) out.errors.incurredDate = 'Choose the date this charge was incurred.';
     if (Object.keys(out.errors).length) return out;

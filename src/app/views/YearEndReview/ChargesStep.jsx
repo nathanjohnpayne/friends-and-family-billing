@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import { localDateString } from '../../../lib/validation.js';
+import { toCents } from '../../../lib/year-end-review.js';
 import { Field, NumberField } from './fields.jsx';
 import { deferredCharges, formatDate, householdsOf, memberName, money } from './yearEndReviewModel.js';
 
@@ -19,7 +20,7 @@ function Composer({ household, onAdd, onCancel }) {
     function submit(event) {
         event.preventDefault();
         const next = {};
-        if (!(typeof amount === 'number' && amount > 0)) next.amount = 'Enter an amount greater than zero.';
+        if (!(typeof amount === 'number' && amount > 0 && toCents(amount) > 0)) next.amount = 'Enter an amount greater than zero.';
         if (!description.trim()) next.description = 'Enter a description.';
         if (!incurredDate) next.incurredDate = 'Choose the date this charge was incurred.';
         setErrors(next);

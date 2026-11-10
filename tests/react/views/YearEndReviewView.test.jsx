@@ -373,6 +373,30 @@ describe('Step 2 — new subscriptions', () => {
     });
 });
 
+describe('review findings', () => {
+    it('a restored new subscription whose member was removed is an error that disables Next', async () => {
+        seedDraft({ newBills: [{ rowId: 11, billId: 12, name: 'Lumen', amount: 9.99, frequency: 'monthly', website: '', members: [999], firstMonth: '2026-09' }] });
+        renderPage();
+        await userEvent.setup().click(nextButton());
+        expect(screen.getByText('A selected member no longer exists. Choose the members again.')).toBeInTheDocument();
+        expect(nextButton()).toBeDisabled();
+    });
+
+    it('a charge amount that rounds to zero cents is refused', async () => {
+        const user = userEvent.setup();
+        renderPage();
+        await user.click(nextButton());
+        await user.click(nextButton());
+        const okafor = within(screen.getByTestId('household-' + MEMBER.ada));
+        await user.click(okafor.getByRole('button', { name: 'Add charge for Okafor household' }));
+        await user.type(okafor.getByLabelText('Amount ($)'), '0.001');
+        await user.type(okafor.getByLabelText('Description'), 'Tiny');
+        await user.click(okafor.getByRole('button', { name: 'Add to review' }));
+        expect(okafor.getByText('Enter an amount greater than zero.')).toBeInTheDocument();
+        expect(stored().charges).toEqual([]);
+    });
+});
+
 describe('Step 3 — member charges', () => {
     async function openCharges(user) {
         await user.click(nextButton());
