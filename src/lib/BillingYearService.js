@@ -833,19 +833,17 @@ export class BillingYearService {
     /** @private _loadYearData's body, after the queue has settled. */
     async _loadYearDataNow(yearId) {
         if (!this._user) return;
-        // Only the latest load publishes (#607 review): with overlapping loads an older
-        // read can finish last, and its state must never be installed beside the newer
-        // load's recorded rev (a full-document write would then carry the older state
-        // at the newer rev). A load superseded before it records its version records
-        // nothing; one superseded later installs nothing, and the newer load (which
-        // records its version after this one) publishes its own state.
+        // A load's version and its state are published together, synchronously, and
+        // only by the latest load (#607 review). With overlapping loads an older read
+        // can finish last, and a newer load can fail: either way the in-memory state
+        // and the recorded rev always come from the same read, so a full-document write
+        // can never carry one read's state at another read's rev. A superseded load
+        // records and installs nothing.
         this._loadSeq = (this._loadSeq || 0) + 1;
         const loadSeq = this._loadSeq;
         const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
         const yearDoc = await getDoc(yearDocRef);
-        if (loadSeq !== this._loadSeq) return;
-        this._trackLoadedYear(yearId, yearDoc.exists() ? (yearDoc.data() || {}) : null);
-
+        const loadedRaw = yearDoc.exists() ? (yearDoc.data() || {}) : null;
         if (yearDoc.exists()) {
             const normalized = normalizeYearData(yearDoc.data(), yearId);
             // The template and QR migrations below edit settings; edit a copy, never
@@ -876,6 +874,7 @@ export class BillingYearService {
                 }
             }
             if (loadSeq !== this._loadSeq) return;
+            this._trackLoadedYear(yearId, loadedRaw);
 
             this._setState({
                 activeYear: normalized.year,
@@ -888,6 +887,8 @@ export class BillingYearService {
                 settings: normalized.settings
             });
         } else {
+            if (loadSeq !== this._loadSeq) return;
+            this._trackLoadedYear(yearId, null);
             this._setState({
                 activeYear: { id: yearId, label: yearId, status: 'open', createdAt: null, archivedAt: null },
                 familyMembers: [], bills: [], payments: [],

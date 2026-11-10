@@ -2374,6 +2374,46 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji', 'Priya']);
     });
 
+    it('overlapping loads: when the newer load fails, the superseded one records no version beside the old state', async () => {
+        seedYear({ settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [{ id: 'm1', type: 'venmo', hasQrCode: true }] } });
+        const s = await loadedService();
+        // Another device adds a member (rev 2) after this tab loaded rev 1.
+        mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other',
+            familyMembers: [...mockStore[PATH].familyMembers, { id: 3, name: 'Priya', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }] };
+        const { getDoc } = await import('firebase/firestore');
+        const original = getDoc.getMockImplementation();
+        let release;
+        let gate = new Promise(resolve => { release = resolve; });
+        let failNextYearRead = false;
+        getDoc.mockImplementation(async ref => {
+            if (ref.path.startsWith('publicQrCodes/') && gate) {
+                const wait = gate;
+                gate = null;
+                await wait;
+            }
+            if (ref.path === PATH && failNextYearRead) {
+                failNextYearRead = false;
+                throw firestoreError('unavailable');
+            }
+            return original(ref);
+        });
+        try {
+            const older = s._loadYearData('2026'); // reads rev 2, then waits on its QR restore
+            await vi.waitFor(() => expect(gate).toBeNull());
+            failNextYearRead = true;
+            await expect(s._loadYearData('2026')).rejects.toMatchObject({ code: 'unavailable' });
+            release();
+            await older;
+        } finally {
+            getDoc.mockImplementation(original);
+        }
+        // The tab still holds rev 1's state with rev 1's version: a write is refused, never written over rev 2.
+        expect(s.getState().familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji']);
+        await expect(s.setYearStatus('settling')).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        expect(mockStore[PATH]).toMatchObject({ rev: 2, status: 'open' });
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji', 'Priya']);
+    });
+
     it('a household change undone after an offline failure is never retried; unrelated unsaved edits still are', async () => {
         seedYear();
         const s = await loadedService();
