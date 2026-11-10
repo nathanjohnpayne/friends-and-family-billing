@@ -3,11 +3,17 @@
  * Port of updateSummary() from main.js:1914.
  */
 import { useState } from 'react';
-import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials, getHouseholdDeferredCharges, getHouseholdOpeningBalance, CREDIT_EPSILON } from '../../lib/calculations.js';
+import { calculateAnnualSummary, getPaymentTotalForMember, isLinkedToAnyone, getHouseholdFinancials } from '../../lib/calculations.js';
 import { getInitials, getGravatarUrl, formatAnnualSummaryCurrency } from '../../lib/formatting.js';
 import StatusBadge, { StatusGlyph, getPaymentStatus } from './StatusBadge.jsx';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import CompanyLogo from './CompanyLogo.jsx';
+import { getHouseholdName } from '../../lib/household.js';
+import Dialog from './Dialog.jsx';
+import FinancialUnavailable from './FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '../../lib/financial-availability.js';
+import { useFinancialAccess } from '../hooks/useFinancialAccess.js';
+import { projectHouseholdDisplay } from '../../lib/financial-display.js';
 
 /** Avatar with Gravatar fallback: manual upload → Gravatar → initials. */
 function MemberAvatar({ member }) {
@@ -48,12 +54,13 @@ function isOpenReviewRequest(d) {
  *
  * @param {{ familyMembers: Array, bills: Array, payments: Array, disputes?: Array, readOnly: boolean, onRecordPayment?: function, onTextInvoice?: function, onEmailInvoice?: function, onGenerateShareLink?: function, onViewHistory?: function }} props
  */
-export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+export default function SettlementBoard({ familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], disputes = [], readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges, getFinancialAvailability, getFinancialSource }) {
     const [filter, setFilter] = useState('all');
 
     if (familyMembers.length === 0) return null;
 
-    const summary = calculateAnnualSummary(familyMembers, bills);
+    const summary = calculateAnnualSummary(familyMembers, bills.filter(bill => bill.members?.length && typeof bill.amount === 'number' && Number.isFinite(bill.amount)));
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
 
     // Only show parent/independent members as top-level rows (mirrors main.js:1932)
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
@@ -66,13 +73,14 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         const data = summary[member.id];
         if (!data) return null;
 
-        let billsTotal = data.total;
+        const financials = getHouseholdFinancials(member, source, { reopenedAdjustmentIds });
+        const display = projectHouseholdDisplay(source, member, { reopenedAdjustmentIds });
+        const available = financials.ok !== false && display.ok;
         const linkedData = [];
 
         (member.linkedMembers || []).forEach(linkedId => {
             const ls = summary[linkedId];
             if (ls) {
-                billsTotal += ls.total;
                 linkedData.push(ls);
             }
         });
@@ -81,11 +89,8 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // lowers the household's owed/annual total, a carried charge (positive) raises
         // it. Floored at 0 to match getHouseholdFinancials. combinedTotal is the
         // household's effective owed for THIS year (bills ± carried opening balance).
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const combinedTotal = Math.max(0, billsTotal + openingBalance);
-
-        const payment = getPaymentTotalForMember(payments, member.id)
-            + (member.linkedMembers || []).reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
+        const combinedTotal = available ? display.annual : undefined;
+        const payment = available ? display.P : undefined;
 
         // Household-grain credit (ADR 0001): Net Contribution = gross paid minus
         // recorded refunds/carry-forwards. Status, the collectable balance, and the
@@ -107,18 +112,25 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
         // `combinedTotal` (above) stays the gross bill split ± the carried opening balance
         // for the displayed "Annual" figure; service credits and billed charges follow
         // Option B and surface only in the balance, not the bill's own amount.
-        const { owed, netContribution, credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
-        const balance = owed - netContribution;
-        const netForStatus = Math.abs(netContribution - owed) <= CREDIT_EPSILON ? owed : netContribution;
-        const status = getPaymentStatus(owed, netForStatus) || 'settled';
+        const { owed, credit } = financials;
+        const balance = financials.balance;
+        const status = !available ? 'unavailable' : financials.cents.balance > 0
+            ? (financials.cents.N > 0 ? 'partial' : 'outstanding')
+            : financials.cents.balance < 0 ? 'credit' : 'settled';
 
         // Deferred Usage Charges (#317) — household-grain pending count/total.
         // These are NOT-YET-DUE and deliberately excluded from balance/status above.
-        const pendingCharges = getHouseholdDeferredCharges(member, owedAdjustments);
+        const pendingCount = owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
+            && [member.id, ...(member.linkedMembers || [])].includes(row.memberId)).length;
+        const pendingCharges = available ? { count: pendingCount, total: display.deferredCents } : { count: pendingCount };
+
 
         const openReview = [member.id, ...(member.linkedMembers || [])].some(id => reviewMemberIds.has(String(id)));
 
-        return { member, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview };
+        const householdName = linkedData.length > 0 ? getHouseholdName(member, familyMembers) : '';
+        return available
+            ? { member, available, data, combinedTotal, owed, linkedData, payment, balance, credit, status, pendingCharges, openReview, householdName }
+            : { member, available, data, linkedData, status, pendingCharges: { count: pendingCharges.count }, openReview, householdName };
     }).filter(Boolean);
 
     // Sort: outstanding → partial → settled → credit (mirrors main.js:1964)
@@ -136,6 +148,7 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
 
     // Count households with linked members
     const linkedGroupCount = rows.filter(r => r.linkedData.length > 0).length;
+    const needsCorrectionCount = rows.filter(r => !r.available).length;
 
     const filtered = filter === 'all' ? rows
         : filter === 'review' ? rows.filter(r => r.openReview)
@@ -166,8 +179,9 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                             {f.label} <span className="settlement-filter-count">{counts[f.key] ?? 0}</span>
                         </button>
                     ))}
+                    {needsCorrectionCount > 0 && <span className="settlement-filter-info">Needs correction {needsCorrectionCount}</span>}
                     {linkedGroupCount > 0 && (
-                        <span className="settlement-filter-info">Linked Groups {linkedGroupCount}</span>
+                        <span className="settlement-filter-info">Households {linkedGroupCount}</span>
                     )}
                 </div>
             </div>
@@ -180,6 +194,11 @@ export default function SettlementBoard({ familyMembers, bills, payments, credit
                         <HouseholdCard
                             key={row.member.id}
                             row={row}
+                            getSource={() => getFinancialSource ? getFinancialSource() : source}
+                            reopenedAdjustmentIds={reopenedAdjustmentIds}
+                            getAvailability={() => getFinancialAvailability
+                                ? getFinancialAvailability(row.member.id)
+                                : getHouseholdFinancialAvailability({ familyMembers, bills, payments, creditAdjustments, owedAdjustments }, row.member.id, { reopenedAdjustmentIds })}
                             payments={payments}
                             readOnly={readOnly}
                             onRecordPayment={onRecordPayment}
@@ -247,7 +266,8 @@ function hasSameBillSet(dataA, dataB) {
     return idsA.every((id, i) => id === idsB[i]);
 }
 
-function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
+/** Keep held household context visible while withholding money and financial entry points. */
+function HouseholdCard({ row, getSource, reopenedAdjustmentIds, getAvailability, payments, readOnly, onRecordPayment, onIssueRefund, onTextInvoice, onEmailInvoice, onGenerateShareLink, onManageShareLinks, onViewHistory, onAddCharge, onBillCharges }) {
     const [expanded, setExpanded] = useState(false);
     const [linkedExpanded, setLinkedExpanded] = useState({});
     const [paymentOpen, setPaymentOpen] = useState(false);
@@ -266,15 +286,17 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         setLinkedExpanded(prev => ({ ...prev, [memberId]: !prev[memberId] }));
     }
 
-    const { member, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview } = row;
+    const { member, available, data, combinedTotal, linkedData, payment, balance, credit, status, pendingCharges, openReview, householdName } = row;
+    const access = useFinancialAccess(getAvailability, member.id);
     const hasLinked = linkedData.length > 0;
     const hasPendingCharges = pendingCharges && pendingCharges.count > 0;
-    // balance is the net shortfall (owed − Net Contribution); a sub-cent residue
-    // reads as settled, matching the status badge and the credit epsilon.
-    const showPaymentAction = !readOnly && balance > CREDIT_EPSILON;
+    // The checked dollar alias is positive exactly when canonical balance cents
+    // are positive; every outstanding cent offers the existing payment action.
+    const showPaymentAction = !readOnly && available && balance > 0;
     // A household with a Credit can be refunded (#318); the refund is issued to the primary member.
-    const showRefundAction = !readOnly && credit > CREDIT_EPSILON;
+    const showRefundAction = !readOnly && available && credit > 0;
 
+    /** Prefill the existing credit; submission still rechecks live household availability. */
     function openRefund() {
         setRefundAmount(credit.toFixed(2));
         setRefundMethod('venmo');
@@ -290,16 +312,29 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         setRefundError('');
     }
 
+    /** Guard the existing refund parser/cap without changing its amount or eligibility rules. */
     function handleIssueRefund(e) {
         e.preventDefault();
+        if (access.begin() === null) return;
         setRefundError('');
         const amt = Math.round((parseFloat(refundAmount) || 0) * 100) / 100;
         if (!amt || amt <= 0) {
             setRefundError('Enter a valid amount.');
             return;
         }
-        if (amt > credit + CREDIT_EPSILON) {
-            setRefundError('Refund cannot exceed the credit of ' + formatAnnualSummaryCurrency(credit) + '.');
+        const source = getSource();
+        const current = source.familyMembers.find(row => row.id === member.id);
+        if (!current || isLinkedToAnyone(source.familyMembers, current.id)) { setRefundError(FINANCIAL_UNAVAILABLE); return; }
+        const before = getHouseholdFinancials(current, source, { reopenedAdjustmentIds });
+        // A prospective UI record is never persisted. Choose a fresh private id;
+        // the service independently validates its actual finalized ledger entry.
+        let id = 'refund-preview';
+        while ((source.creditAdjustments || []).some(row => row && String(row.id) === id)) id += '_';
+        const candidate = getHouseholdFinancials(current, { ...source,
+            creditAdjustments: [...(source.creditAdjustments || []), { id, memberId: member.id, amount: amt, type: 'refund', status: 'recorded' }] }, { reopenedAdjustmentIds });
+        if (!before.ok || !candidate.ok) { setRefundError(FINANCIAL_UNAVAILABLE); return; }
+        if (before.cents.credit <= 0 || candidate.cents.balance > 0) {
+            setRefundError('Refund cannot exceed the credit of ' + formatAnnualSummaryCurrency(before.credit) + '.');
             return;
         }
         if (!refundReason.trim()) {
@@ -316,8 +351,10 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
         }
     }
 
+    /** Guard payment entry while preserving positive amounts and permitted overpayment. */
     function handleRecordPayment(e) {
         e.preventDefault();
+        if (access.begin() === null) return;
         setPaymentError('');
         const amt = parseFloat(paymentAmount);
         if (!amt || amt <= 0) {
@@ -354,7 +391,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
     }
 
     return (
-        <div className={'settlement-card settlement-card--' + status}>
+        <div role="region" aria-label={'Settlement for ' + member.name} className={'settlement-card settlement-card--' + status}>
             {/* ── Card Header ─────────────────────────────────── */}
             <div className="settlement-card-main" onClick={() => setExpanded(!expanded)}>
                 <div className="settlement-card-left">
@@ -370,10 +407,10 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                         </div>
                         <span className="settlement-card-meta">
                             {hasLinked
-                                ? 'Household includes ' + linkedData.length + ' linked member' + (linkedData.length > 1 ? 's' : '')
+                                ? (householdName ? householdName + ' household' : 'Household') + ' \u00b7 ' + (linkedData.length + 1) + ' members \u00b7 contact ' + member.name
                                 : 'Individual'}
                         </span>
-                        {hasPendingCharges && (
+                        {available && hasPendingCharges && (
                             <span className="settlement-card-pending" title="Deferred usage charges — not yet billed">
                                 Pending charges: {formatAnnualSummaryCurrency(pendingCharges.total)}
                                 {' '}
@@ -386,7 +423,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                 </div>
                 <div className="settlement-card-right">
                     {/* Summary boxes */}
-                    <div className="settlement-summary-boxes">
+                    {!available ? <FinancialUnavailable /> : <div className="settlement-summary-boxes">
                         <div className="settlement-summary-box">
                             <span className="settlement-summary-label">Annual</span>
                             <span className="settlement-summary-value">{formatAnnualSummaryCurrency(combinedTotal)}</span>
@@ -403,11 +440,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                         ) : (
                             <div className="settlement-summary-box">
                                 <span className="settlement-summary-label">Balance</span>
-                                <span className={'settlement-summary-value' + (balance > CREDIT_EPSILON ? ' settlement-summary-balance' : ' settled-zero')}>{balance > CREDIT_EPSILON ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
+                                <span className={'settlement-summary-value' + (balance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{balance > 0 ? formatAnnualSummaryCurrency(balance) : 'Paid'}</span>
                             </div>
                         )}
-                    </div>
-                    <StatusBadge status={status} />
+                    </div>}
+                    {available && <StatusBadge status={status} />}
                     {openReview && <StatusBadge status="review" />}
                     <span className="settlement-expand-toggle">
                         {expanded ? 'Hide details \u25B2' : 'Details \u25BC'}
@@ -418,10 +455,11 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
             {/* ── Expanded Detail ─────────────────────────────── */}
             {expanded && (
                 <div className="settlement-card-detail">
-                    {/* 1. Primary member bill breakdown — always first */}
-                    <div className="settlement-breakdown">
+                    {/* 1. The household contact's bill breakdown — always first */}
+                    {available && <div className="settlement-breakdown">
                         <div className="settlement-breakdown-header">
-                            {hasLinked ? 'Primary Member Calculation' : 'Bill Breakdown for ' + member.name}
+                            {'Bill Breakdown for ' + member.name}
+                            {hasLinked && <span className="household-contact-tag">Household contact</span>}
                         </div>
                         {data.bills.length === 0 ? (
                             <p className="settlement-breakdown-empty">No bills assigned</p>
@@ -436,12 +474,12 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 </div>
                             </>
                         )}
-                    </div>
+                    </div>}
 
-                    {/* 2. Linked members — shown after primary breakdown */}
+                    {/* 2. The household's other members — shown after the contact's breakdown */}
                     {hasLinked && (
                         <div className="settlement-linked-section">
-                            <div className="settlement-section-label">Linked Members</div>
+                            <div className="settlement-section-label">Other Household Members</div>
                             {linkedData.map(ls => {
                                 const childPayment = getPaymentTotalForMember(payments, ls.member.id);
                                 const childBalance = ls.total - childPayment;
@@ -460,12 +498,12 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                                 <MemberAvatar member={ls.member} />
                                             </div>
                                             <strong>{ls.member.name}</strong>
-                                            {childStatus && <StatusBadge status={childStatus} />}
+                                            {available && childStatus && <StatusBadge status={childStatus} />}
                                             <span className="settlement-linked-toggle-hint" aria-hidden="true">
                                                 {isLinkedExpanded ? '\u25B2' : '\u25BC'}
                                             </span>
                                         </div>
-                                        <div className="settlement-summary-boxes settlement-summary-boxes--linked">
+                                        {available && <div className="settlement-summary-boxes settlement-summary-boxes--linked">
                                             <div className="settlement-summary-box">
                                                 <span className="settlement-summary-label">Annual</span>
                                                 <span className="settlement-summary-value">{formatAnnualSummaryCurrency(ls.total)}</span>
@@ -478,8 +516,8 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                                 <span className="settlement-summary-label">Balance</span>
                                                 <span className={'settlement-summary-value' + (childBalance > 0 ? ' settlement-summary-balance' : ' settled-zero')}>{childBalance > 0 ? formatAnnualSummaryCurrency(childBalance) : 'Paid'}</span>
                                             </div>
-                                        </div>
-                                        {isLinkedExpanded && (
+                                        </div>}
+                                        {available && isLinkedExpanded && (
                                             <div className="settlement-linked-breakdown">
                                                 {sameBills ? (
                                                     <p className="settlement-same-bills-note">Same bills as {member.name}</p>
@@ -503,7 +541,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                     )}
 
                     {/* 3. Household / Individual Total */}
-                    {hasLinked && (
+                    {available && hasLinked && (
                         <div className="settlement-breakdown">
                             <div className="settlement-breakdown-row settlement-breakdown-grand-total">
                                 <span>Household Total</span>
@@ -544,7 +582,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 Add Charge
                             </button>
                         )}
-                        {!readOnly && onBillCharges && hasPendingCharges && (
+                        {available && !readOnly && onBillCharges && hasPendingCharges && (
                             <button
                                 className="btn btn-tertiary btn-sm"
                                 onClick={() => onBillCharges(member.id)}
@@ -553,7 +591,7 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                                 Bill Charges
                             </button>
                         )}
-                        {member.phone && (
+                        {available && member.phone && (
                             <button
                                 className="btn btn-tertiary btn-sm"
                                 onClick={() => onTextInvoice && onTextInvoice(member.id)}
@@ -562,12 +600,12 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                             </button>
                         )}
                         <ActionMenu label={'More actions for ' + member.name}>
-                            <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= CREDIT_EPSILON)}>
+                            {available && <ActionMenuItem onClick={() => onEmailInvoice && onEmailInvoice(member.id, balance <= 0)}>
                                 Email Invoice
-                            </ActionMenuItem>
-                            <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
+                            </ActionMenuItem>}
+                            {available && <ActionMenuItem onClick={() => onGenerateShareLink && onGenerateShareLink(member.id)}>
                                 Generate Share Link
-                            </ActionMenuItem>
+                            </ActionMenuItem>}
                             <ActionMenuItem onClick={() => onManageShareLinks && onManageShareLinks(member.id)}>
                                 Manage Share Links
                             </ActionMenuItem>
@@ -576,142 +614,144 @@ function HouseholdCard({ row, payments, readOnly, onRecordPayment, onIssueRefund
                 </div>
             )}
 
-            {paymentOpen && (
-                <div className="dialog-overlay" onClick={cancelPayment}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Record Payment</div>
-                        <form onSubmit={handleRecordPayment}>
-                            <p className="payment-dialog-for">
-                                For: <strong>{member.name}</strong>
-                                {balance > CREDIT_EPSILON && (
-                                    <span className="payment-dialog-balance">
-                                        {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
-                                    </span>
-                                )}
-                            </p>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-amount-' + member.id}>Amount ($)</label>
-                                    <input
-                                        id={'pay-amount-' + member.id}
-                                        className="composer-input"
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        placeholder="0.00"
-                                        value={paymentAmount}
-                                        onChange={e => setPaymentAmount(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-method-' + member.id}>Method</label>
-                                    <select
-                                        id={'pay-method-' + member.id}
-                                        className="composer-input"
-                                        value={paymentMethod}
-                                        onChange={e => setPaymentMethod(e.target.value)}
-                                    >
-                                        {PAYMENT_METHODS.map(m => (
-                                            <option key={m.value} value={m.value}>{m.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'pay-note-' + member.id}>Note (optional)</label>
-                                    <input
-                                        id={'pay-note-' + member.id}
-                                        className="composer-input"
-                                        type="text"
-                                        placeholder="e.g., Q1 payment"
-                                        value={paymentNote}
-                                        onChange={e => setPaymentNote(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                            {hasLinked && (
-                                <div className="checkbox-item payment-distribute-option">
-                                    <input
-                                        type="checkbox"
-                                        id={'pay-distribute-' + member.id}
-                                        checked={distribute}
-                                        onChange={e => setDistribute(e.target.checked)}
-                                    />
-                                    <label htmlFor={'pay-distribute-' + member.id}>
-                                        Distribute across household proportionally
-                                    </label>
-                                </div>
-                            )}
-                            {paymentError && <p className="composer-error">{paymentError}</p>}
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink">Save Payment</button>
-                            </div>
-                        </form>
+            {paymentOpen && available && (
+                <Dialog
+                    onClose={cancelPayment}
+                    title="Record Payment"
+                    onSubmit={handleRecordPayment}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelPayment}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink">Save Payment</button>
+                        </>
+                    )}
+                >
+                    <p className="payment-dialog-for">
+                        For: <strong>{member.name}</strong>
+                        {balance > 0 && (
+                            <span className="payment-dialog-balance">
+                                {' '}(Balance: {formatAnnualSummaryCurrency(balance)})
+                            </span>
+                        )}
+                    </p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-amount-' + member.id}>Amount ($)</label>
+                            <input
+                                id={'pay-amount-' + member.id}
+                                className="composer-input"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                placeholder="0.00"
+                                value={paymentAmount}
+                                onChange={e => setPaymentAmount(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-method-' + member.id}>Method</label>
+                            <select
+                                id={'pay-method-' + member.id}
+                                className="composer-input"
+                                value={paymentMethod}
+                                onChange={e => setPaymentMethod(e.target.value)}
+                            >
+                                {PAYMENT_METHODS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'pay-note-' + member.id}>Note (optional)</label>
+                            <input
+                                id={'pay-note-' + member.id}
+                                className="composer-input"
+                                type="text"
+                                placeholder="e.g., Q1 payment"
+                                value={paymentNote}
+                                onChange={e => setPaymentNote(e.target.value)}
+                            />
+                        </div>
                     </div>
-                </div>
+                    {hasLinked && (
+                        <div className="checkbox-item payment-distribute-option">
+                            <input
+                                type="checkbox"
+                                id={'pay-distribute-' + member.id}
+                                checked={distribute}
+                                onChange={e => setDistribute(e.target.checked)}
+                            />
+                            <label htmlFor={'pay-distribute-' + member.id}>
+                                Distribute across household proportionally
+                            </label>
+                        </div>
+                    )}
+                    {paymentError && <p className="composer-error">{paymentError}</p>}
+                </Dialog>
             )}
 
-            {refundOpen && (
-                <div className="dialog-overlay" onClick={cancelRefund}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Issue Refund</div>
-                        <form onSubmit={handleIssueRefund}>
-                            <p className="payment-dialog-for">
-                                For: <strong>{member.name}</strong>
-                                <span className="payment-dialog-balance">
-                                    {' '}(Credit: {formatAnnualSummaryCurrency(credit)})
-                                </span>
-                            </p>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-amount-' + member.id}>Refund amount ($)</label>
-                                    <input
-                                        id={'refund-amount-' + member.id}
-                                        className="composer-input"
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        max={credit.toFixed(2)}
-                                        placeholder="0.00"
-                                        value={refundAmount}
-                                        onChange={e => setRefundAmount(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-method-' + member.id}>Method</label>
-                                    <select
-                                        id={'refund-method-' + member.id}
-                                        className="composer-input"
-                                        value={refundMethod}
-                                        onChange={e => setRefundMethod(e.target.value)}
-                                    >
-                                        {PAYMENT_METHODS.map(m => (
-                                            <option key={m.value} value={m.value}>{m.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="payment-field-group">
-                                    <label htmlFor={'refund-reason-' + member.id}>Reason</label>
-                                    <input
-                                        id={'refund-reason-' + member.id}
-                                        className="composer-input"
-                                        type="text"
-                                        placeholder="e.g., Returned Q1 overpayment"
-                                        value={refundReason}
-                                        onChange={e => setRefundReason(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                            {refundError && <p className="composer-error">{refundError}</p>}
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelRefund}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink">Save Refund</button>
-                            </div>
-                        </form>
+            {refundOpen && available && (
+                <Dialog
+                    onClose={cancelRefund}
+                    title="Issue Refund"
+                    onSubmit={handleIssueRefund}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={cancelRefund}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink">Save Refund</button>
+                        </>
+                    )}
+                >
+                    <p className="payment-dialog-for">
+                        For: <strong>{member.name}</strong>
+                        <span className="payment-dialog-balance">
+                            {' '}(Credit: {formatAnnualSummaryCurrency(credit)})
+                        </span>
+                    </p>
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-amount-' + member.id}>Refund amount ($)</label>
+                            <input
+                                id={'refund-amount-' + member.id}
+                                className="composer-input"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                max={credit.toFixed(2)}
+                                placeholder="0.00"
+                                value={refundAmount}
+                                onChange={e => setRefundAmount(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-method-' + member.id}>Method</label>
+                            <select
+                                id={'refund-method-' + member.id}
+                                className="composer-input"
+                                value={refundMethod}
+                                onChange={e => setRefundMethod(e.target.value)}
+                            >
+                                {PAYMENT_METHODS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="payment-field-group">
+                            <label htmlFor={'refund-reason-' + member.id}>Reason</label>
+                            <input
+                                id={'refund-reason-' + member.id}
+                                className="composer-input"
+                                type="text"
+                                placeholder="e.g., Returned Q1 overpayment"
+                                value={refundReason}
+                                onChange={e => setRefundReason(e.target.value)}
+                            />
+                        </div>
                     </div>
-                </div>
+                    {refundError && <p className="composer-error">{refundError}</p>}
+                </Dialog>
             )}
         </div>
     );

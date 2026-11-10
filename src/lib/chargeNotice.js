@@ -10,6 +10,11 @@
 
 import { localDateString } from './validation.js';
 import { formatAnnualSummaryCurrency } from './formatting.js';
+import { exactNumber, sumExact, multiplyExact, rational, quantizeDollarsToCents, allocateCents, MoneyIntegrityError } from './money.js';
+import { snapshotDollars } from './household-money.js';
+import { financialUnavailable } from './financial-display.js';
+import { sumMoneyCents } from './calculations.js';
+import { FINANCIAL_UNAVAILABLE } from './financial-availability.js';
 
 /** Discriminator for a Charge Notice in the shared `disputes` subcollection (ADR 0002). */
 export const CHARGE_NOTICE_KIND = 'charge_notice';
@@ -70,30 +75,36 @@ export function selectBillableCharges(owedAdjustments, memberId, range = {}) {
  * Only member-safe display fields are surfaced. Mirrors the shape of the share-page
  * pending-charges payload so the preview and the member's view read the same.
  *
- * The grand `total` is rounded ONCE over the raw amounts — the exact formula
- * buildChargeNoticeDoc uses for the persisted `amount` — so the admin preview
- * total can never diverge from the dispute document for fractional-cent charges
- * (PR #328 review r3447513513). The per-row `runningTotal` stays a rounded
- * cumulative display figure.
+ * The selected set is its own exact allocation parent. One projection serves
+ * preview and newly persisted snapshots; running totals sum allocated cents.
+ * Historical Notice snapshots are rendered as stored and never reallocated.
  *
  * @param {Array} charges  the output of selectBillableCharges
  * @returns {{ charges: Array<{ id: *, description: string, amount: number, incurredDate: string, runningTotal: number }>, total: number, count: number }}
  */
 export function summarizeChargePreview(charges) {
-    const list = charges || [];
-    let running = 0;
-    const rows = list.map(a => {
-        running = Math.round((running + (a.amount || 0)) * 100) / 100;
-        return {
-            id: a.id,
-            description: a.description || '',
-            amount: a.amount || 0,
-            incurredDate: a.incurredDate || '',
-            runningTotal: running
-        };
-    });
-    const total = Math.round(list.reduce((sum, a) => sum + (a.amount || 0), 0) * 100) / 100;
-    return { charges: rows, total, count: rows.length };
+    try {
+        if (!Array.isArray(charges)) return financialUnavailable();
+        const values = charges.map(row => {
+            if (!(typeof row?.amount === 'number' && Number.isFinite(row.amount))) {
+                throw new MoneyIntegrityError('INVALID_NUMBER', 'Selected charge amount must be a finite Number');
+            }
+            return exactNumber(row.amount);
+        });
+        const cents = quantizeDollarsToCents(sumExact(values));
+        const allocated = allocateCents(charges.map((row, index) => ({ id: row.id,
+            exactCents: multiplyExact(values[index], rational(100n)) })), cents);
+        let running = 0;
+        const rows = charges.map((row, index) => {
+            running = sumMoneyCents([running, allocated[index].cents]);
+            return { id: row.id, description: row.description || '', incurredDate: row.incurredDate || '',
+                amount: snapshotDollars(allocated[index].cents, row.id), runningTotal: snapshotDollars(running, row.id) };
+        });
+        return { ok: true, issuable: cents > 0, cents, charges: rows, total: snapshotDollars(cents, 'notice'), count: rows.length };
+    } catch (error) {
+        if (!(error instanceof MoneyIntegrityError)) throw error;
+        return financialUnavailable();
+    }
 }
 
 /**
@@ -116,13 +127,11 @@ export function buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, cha
     if (list.length === 0) {
         throw new Error('A Charge Notice has no charges to bill — nothing to invoice.');
     }
-    const amount = Math.round(list.reduce((sum, c) => sum + (c.amount || 0), 0) * 100) / 100;
-    const lineItems = list.map(c => ({
-        id: c.id,
-        description: c.description || '',
-        amount: c.amount || 0,
-        incurredDate: c.incurredDate || ''
-    }));
+    const projection = summarizeChargePreview(list);
+    if (!projection.ok) throw new Error(FINANCIAL_UNAVAILABLE);
+    if (!projection.issuable) throw new Error('A Charge Notice must total at least one cent.');
+    const amount = projection.total;
+    const lineItems = projection.charges.map(({ id, description, amount, incurredDate }) => ({ id, description, amount, incurredDate }));
     const doc = {
         kind: CHARGE_NOTICE_KIND,
         memberId,

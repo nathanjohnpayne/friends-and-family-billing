@@ -1002,7 +1002,13 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-border);
 }
 
-/* ── Confirm Dialog ──────────────────────────────────────── */
+/* ── Dialog (#527, RD-14) ───────────────────────────────── */
+/* One container for every dialog (components/Dialog.jsx). Desktop and tablet:
+   a centred Paper card (wireframe .modal / .dlg). The title and the footer stay
+   put and only .dialog-content scrolls, so the actions never scroll away. At
+   phone width the same markup becomes a bottom sheet (see the max-width: 600px
+   block below). Dialogs are portalled to <body> in open order, so a dialog
+   opened from a dialog paints above it. */
 .dialog-overlay {
     position: fixed;
     inset: 0;
@@ -1010,6 +1016,7 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: var(--space-4, 24px);
     z-index: var(--z-dialog, 9999);
 }
 
@@ -1017,14 +1024,31 @@ img, svg { display: block; max-width: 100%; }
     background: var(--color-surface);
     border-radius: var(--radius-dialog, 14px);
     box-shadow: var(--shadow-dialog, 0 24px 60px rgba(34, 32, 29, 0.3));
-    width: 90%;
+    width: 100%;
     max-width: 440px;
-    overflow-y: auto;
-    max-height: 90vh;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: var(--space-3, 16px);
+}
+
+.dialog:focus {
+    outline: none;
+}
+
+/* Wide variant (wireframe .dlg.wide, 600 px). */
+.dialog--wide {
+    max-width: 600px;
+}
+
+/* The grab handle exists only on the phone sheet. */
+.dialog-grab {
+    display: none;
 }
 
 .dialog-title {
-    padding: var(--space-3, 16px) var(--space-4, 24px) 0;
+    padding: 0 var(--space-4, 24px);
     margin: 0;
     font-family: var(--font-family-display, Georgia, serif);
     font-size: 1.375rem;
@@ -1033,6 +1057,7 @@ img, svg { display: block; max-width: 100%; }
     line-height: var(--line-height-display, 1.1);
     overflow-wrap: anywhere;
     color: var(--color-text);
+    flex: 0 0 auto;
 }
 
 /* Display-face dialog titles (wireframe .dlg-h .ttl: Fraunces 300, 22 px).
@@ -1044,66 +1069,73 @@ img, svg { display: block; max-width: 100%; }
     font-weight: var(--font-weight-display, 300);
 }
 
-.dialog-title + * {
-    margin-top: var(--space-3, 12px);
-}
-
-.dialog-buttons {
-    padding: var(--space-3, 12px) var(--space-4, 24px) var(--space-3, 16px);
+/* Title row with an aside (a status badge, a close control): wireframe .dlg-h. */
+.dialog-head {
     display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2, 8px);
+    align-items: center;
+    gap: var(--space-2, 10px);
+    padding: 0 var(--space-4, 24px);
+    flex: 0 0 auto;
 }
 
-.dialog > p,
-.dialog > form,
-.dialog > .share-link-generate,
-.dialog > .share-link-manage,
-.dialog > .share-link-tabs,
-.dialog > .payment-history-summary,
-.dialog > .payment-history-list,
-.dialog > .payment-history-empty,
-.dialog > .invoice-summary-meta,
-.dialog > .invoice-variant-selector,
-.dialog > .payment-dialog-fields,
-.dialog > .audit-event-list,
-.dialog > .audit-empty,
-.dialog > .link-manager-hint,
-.dialog > .link-manager-list {
-    padding-left: var(--space-4, 24px);
-    padding-right: var(--space-4, 24px);
+.dialog-head .dialog-title {
+    padding: 0;
+    flex: 1;
+    min-width: 0;
 }
 
-.dialog > form {
-    padding-bottom: var(--space-3, 16px);
+.dialog-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
-.dialog > form .dialog-buttons {
+.dialog-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-3, 12px) var(--space-4, 24px) 0;
+}
+
+/* Blocks that carried their own side padding when they were direct children of
+   the card keep only their vertical rhythm inside the padded content area. */
+.dialog-content > .dialog-body-padded,
+.dialog-content > .dialog-body {
     padding-left: 0;
     padding-right: 0;
 }
 
+.dialog-content > :first-child {
+    margin-top: 0;
+}
+
+.dialog-content > :last-child {
+    margin-bottom: 0;
+}
+
 .dialog-body-padded {
-    padding: 0 var(--space-4, 24px) var(--space-3, 12px);
-}
-
-.dialog-header {
-    padding: var(--space-3, 16px) var(--space-4, 24px);
-    border-bottom: 1px solid var(--color-border);
-}
-
-.dialog-header h3 {
-    margin: 0;
-    font-family: var(--font-family-display, Georgia, serif);
-    font-size: 1.375rem;
-    font-weight: var(--font-weight-display, 300);
-    letter-spacing: var(--tracking-display, -0.02em);
-    line-height: var(--line-height-display, 1.1);
-    overflow-wrap: anywhere;
+    padding: 0 0 var(--space-3, 12px);
 }
 
 .dialog-body {
+    padding: 0;
+}
+
+.dialog-buttons {
     padding: var(--space-3, 16px) var(--space-4, 24px);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-2, 8px);
+    flex: 0 0 auto;
+}
+
+/* A secondary control pinned to the footer's start (wireframe .dlg-f .left). */
+.dialog-buttons .dialog-buttons-start {
+    margin-right: auto;
 }
 
 .confirmation-message {
@@ -1111,14 +1143,6 @@ img, svg { display: block; max-width: 100%; }
     font-size: 0.875rem;
     color: var(--color-text-secondary);
     line-height: 1.5;
-}
-
-.dialog-footer {
-    padding: var(--space-3, 16px) var(--space-4, 24px);
-    border-top: 1px solid var(--color-border);
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2, 8px);
 }
 
 /* ── Toast ───────────────────────────────────────────────── */
@@ -1967,6 +1991,22 @@ img, svg { display: block; max-width: 100%; }
     margin-bottom: var(--space-1, 4px);
 }
 
+/* The household contact (#528): a neutral label, not a rank — Graphite text on
+   a Stone hairline pill, beside the contact's name on the board and Members. */
+.household-contact-tag {
+    display: inline-block;
+    margin-left: var(--space-2, 8px);
+    padding: 1px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-text-secondary);
+    vertical-align: 1px;
+}
+
 .settlement-breakdown-row {
     display: flex;
     justify-content: space-between;
@@ -2202,12 +2242,6 @@ img, svg { display: block; max-width: 100%; }
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2, 8px);
-}
-
-/* ── Wide Dialog ───────────────────────────────────────── */
-.dialog--wide {
-    max-width: 560px;
-    width: 90vw;
 }
 
 /* ── Payment History ───────────────────────────────────── */
@@ -2868,7 +2902,7 @@ img, svg { display: block; max-width: 100%; }
 /* ── Invoicing Hint Variants ─────────────────────────── */
 
 .invoicing-hint--dialog {
-    margin: 0 24px 8px;
+    margin: 0 0 8px;
     font-size: 0.82rem;
 }
 
@@ -3369,23 +3403,6 @@ img, svg { display: block; max-width: 100%; }
 }
 
 /* Dispute Detail Dialog */
-.dispute-detail-dialog {
-    padding: var(--space-3, 16px) var(--space-4, 24px) var(--space-3, 16px);
-}
-
-.dispute-detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-3, 12px);
-}
-
-.dispute-detail-title {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2, 8px);
-}
-
 .dispute-detail-meta {
     display: flex;
     gap: var(--space-1, 4px);
@@ -3420,10 +3437,8 @@ img, svg { display: block; max-width: 100%; }
     font-style: italic;
 }
 
-.dispute-detail-actions {
-    display: flex;
-    gap: var(--space-2, 8px);
-    padding-top: var(--space-3, 12px);
+.dialog-buttons.dispute-detail-actions {
+    justify-content: flex-start;
     border-top: 1px solid var(--color-border);
 }
 
@@ -4362,6 +4377,84 @@ img, svg { display: block; max-width: 100%; }
         color: var(--color-text-inverse);
         border-color: var(--color-ink);
         box-shadow: none;
+    }
+}
+
+/* Phone dialogs are bottom sheets (RD-14; wireframe phone .modal / .dlg /
+   .grab / .dlg-f). The sheet is anchored to the bottom edge, its footer
+   buttons share the full width with the primary action last (nearest the
+   right thumb), and a footer start control takes its own row above them.
+   92dvh keeps the footer above the on-screen keyboard where dvh is
+   supported; 92vh is the fallback. */
+@media (max-width: 600px) {
+    .dialog-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .dialog,
+    .dialog--wide {
+        width: 100%;
+        max-width: none;
+        max-height: 92vh;
+        max-height: 92dvh;
+        border-radius: 20px 20px 0 0;
+        padding-top: 10px;
+        animation: dialog-sheet-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .dialog-grab {
+        display: block;
+        flex: 0 0 auto;
+        width: 40px;
+        height: 5px;
+        border-radius: 3px;
+        background: var(--color-stone);
+        margin: 0 auto 14px;
+    }
+
+    .dialog-title,
+    .dialog-head {
+        padding-left: 18px;
+        padding-right: 18px;
+    }
+
+    .dialog-head .dialog-title {
+        padding: 0;
+    }
+
+    .dialog-content {
+        padding-left: 18px;
+        padding-right: 18px;
+    }
+
+    .dialog-buttons {
+        padding: var(--space-3, 16px) 18px calc(24px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Wireframe phone .btn: 44 px touch targets, whatever size the desktop
+       footer uses. */
+    .dialog-buttons > .btn {
+        flex: 1 1 auto;
+        min-height: 44px;
+    }
+
+    .dialog-buttons .dialog-buttons-start {
+        flex: 0 0 100%;
+        margin: 0 0 6px;
+        text-align: center;
+    }
+}
+
+@keyframes dialog-sheet-in {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dialog,
+    .dialog--wide {
+        animation: none;
     }
 }
 

@@ -86,6 +86,44 @@ describe('monthRange', () => {
 });
 
 describe('summarizeChargePreview', () => {
+    it.each([.005, .004])('projects each selected %s set as its own parent and leaves source unchanged', amount => {
+        const charges = [{ id: 'a', amount, description: 'January', incurredDate: '2026-01-01' },
+            { id: 'b', amount, description: 'February', incurredDate: '2026-02-01' }];
+        for (const charge of charges) {
+            const single = summarizeChargePreview([charge]);
+            expect(single.total).toBe(amount === .005 ? .01 : 0);
+            expect(single.issuable).toBe(amount === .005);
+            if (!single.issuable) expect(() => buildChargeNoticeDoc({ charges: [charge] })).toThrow(/one cent/);
+        }
+        for (const selection of [charges, [...charges].reverse()]) {
+            const projection = summarizeChargePreview(selection);
+            expect(projection.total).toBe(.01);
+            expect(projection.charges.map(row => [row.id, row.amount]).sort()).toEqual([['a', .01], ['b', 0]]);
+            expect(projection.charges.at(-1).runningTotal).toBe(.01);
+            const doc = buildChargeNoticeDoc({ charges: selection });
+            expect(doc.amount).toBe(.01);
+            expect(doc.charges.map(row => row.amount)).toEqual(projection.charges.map(row => row.amount));
+        }
+        expect(charges.map(row => row.amount)).toEqual([amount, amount]);
+    });
+
+    it.each([NaN, Infinity, '1', null, undefined, true])('withholds invalid selected money %s without rows/total', amount => {
+        expect(summarizeChargePreview([{ id: 'a', amount }])).toEqual({ ok: false, kind: 'financial-unavailable', householdId: null });
+        expect(() => buildChargeNoticeDoc({ charges: [{ id: 'a', amount }] })).toThrow(/unavailable/);
+    });
+
+    it('preserves signed finite selected arithmetic without adding a deferred-source sign policy', () => {
+        const projection = summarizeChargePreview([{ id: 'a', amount: -.005 }, { id: 'b', amount: .02 }]);
+        expect(projection).toMatchObject({ ok: true, cents: 2, total: .02, issuable: true });
+        expect(projection.charges.map(row => row.amount)).toEqual([0, .02]);
+        expect(summarizeChargePreview([{ id: 'a', amount: 0 }])).toMatchObject({ ok: true, issuable: false, total: 0 });
+        expect(summarizeChargePreview([{ id: 'a', amount: -.01 }])).toMatchObject({ ok: true, issuable: false, total: -.01 });
+    });
+
+    it('holds duplicate canonical ids instead of inventing a row order', () => {
+        expect(summarizeChargePreview([{ id: 1, amount: .005 }, { id: '1', amount: .005 }]).ok).toBe(false);
+    });
+
     it('returns count, total, and per-charge running totals', () => {
         const charges = [
             { id: 'o1', description: 'A', amount: 10, incurredDate: '2026-06-03' },
@@ -98,8 +136,8 @@ describe('summarizeChargePreview', () => {
     });
 
     it('is empty for no charges', () => {
-        expect(summarizeChargePreview([])).toEqual({ charges: [], total: 0, count: 0 });
-        expect(summarizeChargePreview(undefined)).toEqual({ charges: [], total: 0, count: 0 });
+        expect(summarizeChargePreview([])).toEqual({ ok: true, issuable: false, cents: 0, charges: [], total: 0, count: 0 });
+        expect(summarizeChargePreview(undefined)).toEqual({ ok: false, kind: 'financial-unavailable', householdId: null });
     });
 
     it('preview total equals the persisted doc amount for fractional-cent charges (PR #328 r3447513513)', () => {
@@ -113,6 +151,9 @@ describe('summarizeChargePreview', () => {
         ];
         const preview = summarizeChargePreview(charges);
         const doc = buildChargeNoticeDoc({ memberId: 1, memberName: 'Alice', chargeNoticeId: 'cn_1', charges });
+        expect(preview.charges.map(({ id, amount }) => ({ id, amount }))).toEqual(doc.charges.map(({ id, amount }) => ({ id, amount })));
+        expect(preview.charges.map(c => c.amount)).toEqual([0.34, 0.33, 0.33]);
+        expect(preview.charges.map(c => c.runningTotal)).toEqual([0.34, 0.67, 1]);
         expect(preview.total).toBe(doc.amount);
         expect(preview.total).toBe(1); // 0.334 + 0.333 + 0.333 = 1.00 rounded once
     });

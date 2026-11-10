@@ -18,6 +18,7 @@
  */
 import { useEffect, useState } from 'react';
 import { localDateString } from '../../lib/validation.js';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{
@@ -53,15 +54,6 @@ export default function ServiceCreditDialog({ open, bill, billMembers = [], onSu
         }
     }, [open, bill?.id]);
 
-    // Close on Escape.
-    useEffect(() => {
-        if (!open) return;
-        function handleKey(e) {
-            if (e.key === 'Escape') onClose();
-        }
-        document.addEventListener('keydown', handleKey);
-        return () => document.removeEventListener('keydown', handleKey);
-    }, [open, onClose]);
 
     if (!open) return null;
 
@@ -99,109 +91,106 @@ export default function ServiceCreditDialog({ open, bill, billMembers = [], onSu
         }
     }
 
-    function handleOverlayClick(e) {
-        if (e.target === e.currentTarget) onClose();
-    }
-
     return (
-        <div className="dialog-overlay visible" onClick={handleOverlayClick} role="presentation">
-            <div className="dialog" role="dialog" aria-modal="true" aria-label="Issue Service Credit">
-                <div className="dialog-title">Issue Service Credit</div>
-                <form onSubmit={handleSubmit}>
-                    <p className="payment-dialog-for">
-                        For bill: <strong>{bill ? bill.name : ''}</strong>
-                    </p>
-                    <p className="share-hint">
-                        Lowers the owed for the affected members for a service that was canceled,
-                        reduced, or had an issue. This does not change the bill itself.
-                    </p>
-                    <div className="payment-dialog-fields">
-                        <div className="payment-field-group">
-                            <label htmlFor="service-credit-amount">Amount ($)</label>
-                            <input
-                                id="service-credit-amount"
-                                className="composer-input"
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                placeholder="0.00"
-                                value={amount}
-                                onChange={e => setAmount(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="service-credit-reason">Reason</label>
-                            <input
-                                id="service-credit-reason"
-                                className="composer-input"
-                                type="text"
-                                placeholder="e.g. Service outage credit"
-                                value={reason}
-                                onChange={e => setReason(e.target.value)}
-                            />
-                        </div>
-                        <div className="payment-field-group">
-                            <label htmlFor="service-credit-date">Incurred date</label>
-                            <input
-                                id="service-credit-date"
-                                className="composer-input"
-                                type="date"
-                                value={incurredDate}
-                                onChange={e => setIncurredDate(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Apply-to choice: whole bill (split) vs a single member. */}
-                    <fieldset className="service-credit-scope">
-                        <legend className="service-credit-scope-legend">Apply to</legend>
-                        <div className="checkbox-item">
-                            <input
-                                type="radio"
-                                id="service-credit-scope-bill"
-                                name="service-credit-scope"
-                                checked={scope === 'bill'}
-                                onChange={() => setScope('bill')}
-                            />
-                            <label htmlFor="service-credit-scope-bill">
-                                Whole bill (split among {bill && bill.members ? bill.members.length : billMembers.length} members)
-                            </label>
-                        </div>
-                        <div className="checkbox-item">
-                            <input
-                                type="radio"
-                                id="service-credit-scope-member"
-                                name="service-credit-scope"
-                                checked={scope === 'member'}
-                                onChange={() => setScope('member')}
-                            />
-                            <label htmlFor="service-credit-scope-member">A specific member</label>
-                        </div>
-                        {scope === 'member' && (
-                            <div className="payment-field-group">
-                                <label htmlFor="service-credit-member">Member</label>
-                                <select
-                                    id="service-credit-member"
-                                    className="composer-input"
-                                    value={memberId}
-                                    onChange={e => setMemberId(e.target.value)}
-                                >
-                                    {billMembers.map(m => (
-                                        <option key={m.id} value={String(m.id)}>{m.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                    </fieldset>
-
-                    {error && <p className="composer-error">{error}</p>}
-                    <div className="dialog-buttons">
-                        <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-ink">Save Credit</button>
-                    </div>
-                </form>
+        <Dialog
+            onClose={onClose}
+            title="Issue Service Credit"
+            onSubmit={handleSubmit}
+            footer={(
+                <>
+                    <button type="button" className="btn btn-sm btn-header-secondary" onClick={onClose}>Cancel</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Save Credit</button>
+                </>
+            )}
+        >
+            <p className="payment-dialog-for">
+                For bill: <strong>{bill ? bill.name : ''}</strong>
+            </p>
+            <p className="share-hint">
+                Lowers the owed for the affected members for a service that was canceled,
+                reduced, or had an issue. This does not change the bill itself.
+            </p>
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label htmlFor="service-credit-amount">Amount ($)</label>
+                    <input
+                        id="service-credit-amount"
+                        className="composer-input"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        autoFocus
+                    />
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="service-credit-reason">Reason</label>
+                    <input
+                        id="service-credit-reason"
+                        className="composer-input"
+                        type="text"
+                        placeholder="e.g. Service outage credit"
+                        value={reason}
+                        onChange={e => setReason(e.target.value)}
+                    />
+                </div>
+                <div className="payment-field-group">
+                    <label htmlFor="service-credit-date">Incurred date</label>
+                    <input
+                        id="service-credit-date"
+                        className="composer-input"
+                        type="date"
+                        value={incurredDate}
+                        onChange={e => setIncurredDate(e.target.value)}
+                    />
+                </div>
             </div>
-        </div>
+
+            {/* Apply-to choice: whole bill (split) vs a single member. */}
+            <fieldset className="service-credit-scope">
+                <legend className="service-credit-scope-legend">Apply to</legend>
+                <div className="checkbox-item">
+                    <input
+                        type="radio"
+                        id="service-credit-scope-bill"
+                        name="service-credit-scope"
+                        checked={scope === 'bill'}
+                        onChange={() => setScope('bill')}
+                    />
+                    <label htmlFor="service-credit-scope-bill">
+                        Whole bill (split among {bill && bill.members ? bill.members.length : billMembers.length} members)
+                    </label>
+                </div>
+                <div className="checkbox-item">
+                    <input
+                        type="radio"
+                        id="service-credit-scope-member"
+                        name="service-credit-scope"
+                        checked={scope === 'member'}
+                        onChange={() => setScope('member')}
+                    />
+                    <label htmlFor="service-credit-scope-member">A specific member</label>
+                </div>
+                {scope === 'member' && (
+                    <div className="payment-field-group">
+                        <label htmlFor="service-credit-member">Member</label>
+                        <select
+                            id="service-credit-member"
+                            className="composer-input"
+                            value={memberId}
+                            onChange={e => setMemberId(e.target.value)}
+                        >
+                            {billMembers.map(m => (
+                                <option key={m.id} value={String(m.id)}>{m.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+            </fieldset>
+
+            {error && <p className="composer-error">{error}</p>}
+        </Dialog>
     );
 }

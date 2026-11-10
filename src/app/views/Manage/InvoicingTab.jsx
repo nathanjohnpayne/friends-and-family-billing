@@ -13,7 +13,7 @@ import { isYearReadOnly } from '../../../lib/validation.js';
 import { detectDuplicatePaymentText } from '../../../lib/validation.js';
 import {
     buildInvoiceSubject, getInvoiceSummaryContext,
-    buildInvoiceTemplateEmailPayload, renderInvoiceTemplate,
+    buildInvoiceTemplateEmailPayload,
     docToPlainTextWithTokens, plainTextToDoc
 } from '../../../lib/invoice.js';
 import { generateRawToken, hashToken } from '../../../lib/validation.js';
@@ -25,6 +25,10 @@ import { BLOCK_TOKENS } from '../../components/BlockTokenNode.js';
 import PaymentMethodsManager from '../../components/PaymentMethodsManager.jsx';
 import { syncPaymentMethodsToShares } from '../../../lib/paymentMethodsSync.js';
 import ShareLinkDialog from '../../components/ShareLinkDialog.jsx';
+import Dialog from '../../components/Dialog.jsx';
+import FinancialUnavailable from '../../components/FinancialUnavailable.jsx';
+import { getHouseholdFinancialAvailability } from '../../../lib/financial-availability.js';
+import { useFinancialAccess } from '../../hooks/useFinancialAccess.js';
 
 /** All tokens for the unified chip bar. */
 const ALL_TOKEN_FIELDS = [
@@ -32,8 +36,9 @@ const ALL_TOKEN_FIELDS = [
     ...BLOCK_TOKENS.map(t => ({ id: t.id, label: t.label, isBlock: true, description: t.description })),
 ];
 
+/** Keep template editing available while private household guards govern invoice output. */
 export default function InvoicingTab() {
-    const { familyMembers, bills, payments, owedAdjustments = [], activeYear, loading, service } = useBillingData();
+    const { familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], activeYear, loading, service } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
     const readOnly = isYearReadOnly(activeYear);
@@ -48,6 +53,7 @@ export default function InvoicingTab() {
                 familyMembers={familyMembers}
                 bills={bills}
                 payments={payments}
+                creditAdjustments={creditAdjustments}
                 owedAdjustments={owedAdjustments}
                 activeYear={activeYear}
                 readOnly={readOnly}
@@ -77,7 +83,8 @@ function deriveBodyText(settings) {
 
 // ── Email Template Editor ───────────────────────────────────────────
 
-function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAdjustments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
+/** Keep template editing available while binding invoice actions to the selected household. */
+function EmailTemplateSection({ settings, familyMembers, bills, payments, creditAdjustments, owedAdjustments, activeYear, readOnly, userId, userEmail, billingYearId, service, showToast }) {
     const [activeTab, setActiveTab] = useState('edit');
     const [bodyDoc, setBodyDoc] = useState(() => deriveBodyDoc(settings));
     const [bodyText, setBodyText] = useState(() => deriveBodyText(settings));
@@ -91,8 +98,29 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
     const [generatingLink, setGeneratingLink] = useState(false);
     const [shareLinkDialog, setShareLinkDialog] = useState(false);
     const [testEmailOpen, setTestEmailOpen] = useState(false);
+    const [testEmailPreviewKey, setTestEmailPreviewKey] = useState(null);
     const [testEmailTo, setTestEmailTo] = useState('');
     const [testEmailSending, setTestEmailSending] = useState(false);
+
+    const previewMember = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
+    const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
+    const projectedContext = previewMember
+        ? getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings, owedAdjustments, creditAdjustments)
+        : { ok: false };
+    /** Read service state at action time so stale previews cannot authorize financial output. */
+    const getAvailability = () => ({ available: projectedContext.ok && getHouseholdFinancialAvailability(
+        { familyMembers, bills, payments, creditAdjustments, owedAdjustments, ...service.getState() }, previewMember?.id).available });
+    const previewKey = String(billingYearId) + ':' + previewMember?.id + ':' + JSON.stringify(projectedContext);
+    const access = useFinancialAccess(getAvailability, previewKey);
+
+    // A hidden dialog must not reappear for a different household with an old
+    // recipient. Reopening starts explicitly with the administrator's address.
+    useEffect(() => {
+        setTestEmailOpen(false);
+        setTestEmailPreviewKey(null);
+        setTestEmailTo('');
+        setTestEmailSending(false);
+    }, [previewKey, access.available]);
 
     // Editor refs
     const bodyEditorRef = useRef(null);
@@ -157,21 +185,27 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
         }).run();
     }, []);
 
+    /** Recheck after hashing and each write before invoking another writer or copying the link. */
     async function handleGeneratePreviewLink() {
+        const ticket = access.begin();
+        if (ticket === null) return;
         const member = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
         if (!userId || !billingYearId || !member) return;
         setGeneratingLink(true);
         try {
             const rawToken = generateRawToken();
             const tokenHash = await hashToken(rawToken);
+            if (!access.canContinue(ticket)) return;
             const scopes = buildShareScopes(true, true);
             const expiresAt = computeExpiryDate(365);
             const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, expiresAt, scopes);
             await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
+            if (!access.canContinue(ticket)) return;
             const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings, owedAdjustments);
             if (publicData) {
                 await setDoc(doc(db, 'publicShares', tokenHash), { ...publicData, updatedAt: serverTimestamp() });
             }
+            if (!access.canContinue(ticket)) return;
             const url = buildShareUrl(window.location.origin, rawToken);
             setPreviewShareUrl(url);
             service.updateSettings({ invoiceShareUrl: url });
@@ -180,26 +214,71 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
         } catch (err) {
             console.error('Failed to generate share link:', err);
             showToast('Failed to generate share link: ' + err.message, { kind: 'failure' });
+        } finally {
+            setGeneratingLink(false);
         }
-        setGeneratingLink(false);
+    }
+
+    /** Bind an explicit send session to this preview and reset its recipient to the administrator. */
+    function openTestEmail() {
+        if (access.begin() === null) return;
+        setTestEmailTo(userEmail || '');
+        setTestEmailPreviewKey(previewKey);
+        setTestEmailOpen(true);
     }
 
     // Build preview context for the selected member
-    const previewMember = familyMembers.find(m => m.id === previewMemberId) || familyMembers[0];
     let previewCtx = null;
     let previewEmailPayload = null;
     let previewBodyHTML = '';
-    if (previewMember) {
-        const previewSettings = { ...settings, emailMessage: bodyText, emailMessageDocument: bodyDoc };
-        const ctx = getInvoiceSummaryContext(familyMembers, bills, payments, previewMember.id, activeYear, previewSettings, owedAdjustments);
-        if (ctx) {
+    if (previewMember && access.available) {
+        const ctx = projectedContext;
+        if (ctx.ok) {
             previewCtx = ctx;
             previewEmailPayload = buildInvoiceTemplateEmailPayload(ctx, previewShareUrl);
-            previewBodyHTML = previewEmailPayload.html || renderInvoiceTemplate(ctx, previewShareUrl);
+            if (previewEmailPayload.ok) previewBodyHTML = previewEmailPayload.html;
+            else previewCtx = null;
         }
     }
 
     const hasDuplicate = detectDuplicatePaymentText(bodyText);
+
+    /**
+     * Queue only the selected preview's explicitly opened send session. Recheck
+     * before the writer and after its await before changing the dialog; a prior
+     * request already queued while valid is not cancelled or allowed to update a different preview identity.
+     */
+    async function handleSendTestEmail(e) {
+        e.preventDefault();
+        const ticket = access.begin();
+        if (ticket === null) return;
+        if (!testEmailTo.trim()) return;
+        setTestEmailSending(true);
+        try {
+            const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
+            const renderedSubject = buildInvoiceSubject(previewCtx?.currentYear, previewCtx?.member, subjectText, previewCtx);
+            if (!payload.ok || !renderedSubject.ok) return;
+            const subject = '[Test] ' + renderedSubject.value;
+            // Only the markdown body is queued; the mail function renders
+            // HTML server-side (queue docs cannot carry raw HTML).
+            if (!access.canContinue(ticket)) return;
+            await queueEmail({
+                to: testEmailTo.trim(),
+                subject,
+                body: payload.markdown,
+                uid: userId
+            });
+            if (!access.canContinue(ticket)) return;
+            setTestEmailOpen(false);
+            showToast('Test email sent to ' + testEmailTo.trim());
+        } catch (err) {
+            if (!access.canContinue(ticket)) return;
+            setTestEmailOpen(false);
+            showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
+        } finally {
+            if (access.canContinue(ticket)) setTestEmailSending(false);
+        }
+    }
 
     return (
         <div className="invoicing-section">
@@ -229,10 +308,10 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                             Save template
                         </button>
                     )}
-                    {activeTab === 'preview' && (
+                    {activeTab === 'preview' && access.available && (
                         <button
                             className="template-header-action-btn"
-                            onClick={() => { setTestEmailTo(userEmail || ''); setTestEmailOpen(true); }}
+                            onClick={openTestEmail}
                         >
                             Send test email
                         </button>
@@ -243,13 +322,14 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
             {/* ── Unified card ── */}
             <div className="template-card">
                 {/* Preview: metadata bar (To + Link) */}
-                {activeTab === 'preview' && previewCtx && (
+                {activeTab === 'preview' && previewMember && (
                     <div className="template-preview-meta">
                         <span className="template-preview-label">To</span>
                         <div className="template-preview-val">
-                            {previewCtx.member.email || previewCtx.member.name}
+                            {previewMember.email || previewMember.name}
                             <select
                                 className="template-preview-member-sel"
+                                aria-label="Preview member"
                                 value={previewMemberId || ''}
                                 onChange={e => setPreviewMemberId(Number(e.target.value))}
                             >
@@ -260,13 +340,14 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                         </div>
                         <span className="template-preview-label">Link</span>
                         <div className="template-preview-val template-preview-link-row">
-                            {previewShareUrl ? (
+                            {!access.available ? <><span>Unavailable</span><button type="button" className="template-preview-manage-btn" onClick={() => setShareLinkDialog(true)}>Manage</button></> : previewShareUrl ? (
                                 <>
                                     <span className="template-preview-url">{previewShareUrl}</span>
                                     <button
                                         className="template-preview-copy-btn"
                                         type="button"
                                         onClick={() => {
+                                            if (access.begin() === null) return;
                                             navigator.clipboard.writeText(previewShareUrl).then(
                                                 () => showToast('Link copied!'),
                                                 () => showToast('Failed to copy', { kind: 'failure' })
@@ -309,8 +390,8 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
                         </div>
                         {activeTab === 'preview' && (
                             <span className="template-subject-preview-text">
-                                {previewCtx
-                                    ? buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx)
+                                {!access.available ? 'Unavailable' : previewCtx
+                                    ? buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx).value
                                     : subjectText || '\u2014'}
                             </span>
                         )}
@@ -359,7 +440,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
 
                 {/* Preview: rendered body */}
                 {activeTab === 'preview' && (
-                    previewCtx ? (
+                    !access.available ? <FinancialUnavailable /> : previewCtx ? (
                         <div className="template-preview-body invoice-preview-message"
                             dangerouslySetInnerHTML={{ __html: previewBodyHTML }} />
                     ) : (
@@ -370,88 +451,66 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, owedAd
 
             {/* ── Modals ── */}
             {paymentMethodsModal && (
-                <div className="dialog-overlay" onClick={() => setPaymentMethodsModal(false)}>
-                    <div className="dialog dialog--wide" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Payment Methods</div>
-                        <p className="invoicing-hint invoicing-hint--dialog">
-                            Changes here update the payment methods block used in invoice emails.
-                        </p>
-                        <div className="dialog-body-padded">
-                            <PaymentMethodsManager
-                                settings={settings}
-                                readOnly={readOnly}
-                                onUpdate={methods => {
-                                    service.updateSettings({ paymentMethods: methods });
-                                    // Same share sync as the Settings page: publicShares
-                                    // paymentMethods + publicQrCodes for the signed-in owner.
-                                    syncPaymentMethodsToShares(userId || null, methods);
-                                }}
-                            />
-                        </div>
-                        <div className="dialog-buttons">
-                            <button className="btn btn-sm btn-ink" onClick={() => setPaymentMethodsModal(false)}>Done</button>
-                        </div>
+                <Dialog
+                    onClose={() => setPaymentMethodsModal(false)}
+                    wide
+                    title="Payment Methods"
+                    footer={<button className="btn btn-sm btn-ink" onClick={() => setPaymentMethodsModal(false)}>Done</button>}
+                >
+                    <p className="invoicing-hint invoicing-hint--dialog">
+                        Changes here update the payment methods block used in invoice emails.
+                    </p>
+                    <div className="dialog-body-padded">
+                        <PaymentMethodsManager
+                            settings={settings}
+                            readOnly={readOnly}
+                            onUpdate={methods => {
+                                service.updateSettings({ paymentMethods: methods });
+                                // Same share sync as the Settings page: publicShares
+                                // paymentMethods + publicQrCodes for the signed-in owner.
+                                syncPaymentMethodsToShares(userId || null, methods);
+                            }}
+                        />
                     </div>
-                </div>
+                </Dialog>
             )}
 
-            {testEmailOpen && previewCtx && (
-                <div className="dialog-overlay" onClick={() => setTestEmailOpen(false)}>
-                    <div className="dialog" onClick={e => e.stopPropagation()}>
-                        <div className="dialog-title">Send Test Email</div>
-                        <form onSubmit={async e => {
-                            e.preventDefault();
-                            if (!testEmailTo.trim()) return;
-                            setTestEmailSending(true);
-                            try {
-                                const payload = previewEmailPayload || buildInvoiceTemplateEmailPayload(previewCtx, previewShareUrl);
-                                const subject = '[Test] ' + buildInvoiceSubject(previewCtx.currentYear, previewCtx.member, subjectText, previewCtx);
-                                // Only the markdown body is queued; the mail function renders
-                                // HTML server-side (queue docs cannot carry raw HTML).
-                                await queueEmail({
-                                    to: testEmailTo.trim(),
-                                    subject,
-                                    body: payload.markdown,
-                                    uid: userId
-                                });
-                                setTestEmailOpen(false);
-                                showToast('Test email sent to ' + testEmailTo.trim());
-                            } catch (err) {
-                                setTestEmailOpen(false);
-                                showToast('Send failed: ' + (err.message || 'Unknown error'), { kind: 'failure' });
-                            } finally {
-                                setTestEmailSending(false);
-                            }
-                        }}>
-                            <div className="payment-dialog-fields">
-                                <div className="payment-field-group">
-                                    <label htmlFor="test-email-to">Send to</label>
-                                    <input
-                                        id="test-email-to"
-                                        className="composer-input"
-                                        type="email"
-                                        value={testEmailTo}
-                                        onChange={e => setTestEmailTo(e.target.value)}
-                                        autoFocus
-                                    />
-                                </div>
-                            </div>
-                            <p className="invoicing-hint invoicing-hint--dialog">
-                                Sends the current preview (including unsaved edits) with [Test] in the subject.
-                            </p>
-                            <div className="dialog-buttons">
-                                <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
-                                <button type="submit" className="btn btn-sm btn-ink" disabled={testEmailSending || !testEmailTo.trim()}>
-                                    {testEmailSending ? 'Sending\u2026' : 'Send'}
-                                </button>
-                            </div>
-                        </form>
+            {testEmailOpen && testEmailPreviewKey === previewKey && previewCtx && (
+                <Dialog
+                    onClose={() => setTestEmailOpen(false)}
+                    title="Send Test Email"
+                    onSubmit={handleSendTestEmail}
+                    footer={(
+                        <>
+                            <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => setTestEmailOpen(false)}>Cancel</button>
+                            <button type="submit" className="btn btn-sm btn-ink" disabled={testEmailSending || !testEmailTo.trim()}>
+                                {testEmailSending ? 'Sending\u2026' : 'Send'}
+                            </button>
+                        </>
+                    )}
+                >
+                    <div className="payment-dialog-fields">
+                        <div className="payment-field-group">
+                            <label htmlFor="test-email-to">Send to</label>
+                            <input
+                                id="test-email-to"
+                                className="composer-input"
+                                type="email"
+                                value={testEmailTo}
+                                onChange={e => setTestEmailTo(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
                     </div>
-                </div>
+                    <p className="invoicing-hint invoicing-hint--dialog">
+                        Sends the current preview (including unsaved edits) with [Test] in the subject.
+                    </p>
+                </Dialog>
             )}
 
             {shareLinkDialog && previewMember && (
                 <ShareLinkDialog
+                    getAvailability={getAvailability}
                     open
                     memberId={previewMember.id}
                     memberName={previewMember.name}

@@ -38,7 +38,8 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │   │   │   ├── AppShell.jsx       # Authenticated layout shell (NavBar + content)
 │   │   │   ├── BillAuditHistoryDialog.jsx  # Per-bill event timeline dialog
 │   │   │   ├── BillingYearSelector.jsx     # Year dropdown with lifecycle controls
-│   │   │   ├── ConfirmDialog.jsx  # Modal confirmation dialog
+│   │   │   ├── ConfirmDialog.jsx  # Modal confirmation dialog (on Dialog)
+│   │   │   ├── Dialog.jsx         # The one modal primitive: card, phone bottom sheet, focus trap, stacking
 │   │   │   ├── DisputeDetailDialog.jsx     # Dispute detail with evidence, resolution
 │   │   │   ├── EmailInvoiceDialog.jsx      # Email invoice composer with variants
 │   │   │   ├── EmptyState.jsx     # Empty list placeholder
@@ -81,10 +82,15 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 │       ├── SaveQueue.js           # Serialized Firestore write queue
 │       ├── billing-year.js        # Year lifecycle utilities
 │       ├── year-end-review.js     # Pure review math, record factories, preview, draft validation
+│       ├── money.js               # Unused exact-money ESM entry; re-exports functions/money.mjs
+│       ├── financial-availability.js # Private availability over exact household financial results
+│       ├── financial-display.js      # Private checked display aliases/allocated rows and unavailable result
+│       ├── household-money.js     # Exact source-domain/carry ESM entry; functions/household-money.mjs
 │       ├── calculations.js        # Bill splitting math, settlement metrics
 │       ├── constants.js           # Shared constants
 │       ├── firebase.js            # Modular Firebase init (reads .env.local)
 │       ├── formatting.js          # Number/date/currency formatting
+│       ├── household.js           # Household contact/name helpers and the household edit plan (ADR 0011)
 │       ├── invoice.js             # Invoice text/HTML generation
 │       ├── persistence.js         # Firestore read/write operations
 │       ├── share.js               # Share token, public share data
@@ -97,6 +103,10 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── app/                           # BUILD OUTPUT (gitignored) — Vite builds here
 ├── functions/
 │   ├── index.js                   # Cloud Functions v2 entry point (sendEmail, resolveShareToken, submitDispute, etc.)
+│   ├── money.mjs                  # Unused ADR 0010 exact rational math and generic cent allocator
+│   ├── money.js                   # Node 24 CJS entry for money.mjs (no top-level await)
+│   ├── household-money.mjs        # Exact household sources, holds, carry and review money edges
+│   ├── household-money.js         # Node 24 CJS entry for household-money.mjs
 │   ├── billing.js                 # Shared billing utilities for Cloud Functions
 │   └── package.json               # Cloud Functions dependencies (firebase-admin, firebase-functions, resend)
 ├── tests/react/                   # Vitest + React Testing Library test suite
@@ -130,6 +140,47 @@ Family Bill Splitter is a cloud-based web application for coordinating and settl
 ├── CONTRIBUTING.md                # Contribution guidelines
 └── .ai_context.md                 # Supplemental AI agent context
 ```
+
+The private `financial-availability.js` boundary strips money/source evidence before
+UI entry-point guards consume availability. Authenticated settlement, service
+refund caps, close/rollover and review money edges now use complete raw sources
+through the exact household adapter (ADR 0010). A finalized whole-year carry plan
+binds actual ids, source markings and next-year seeds before validation/writes.
+Member audit/display helpers retain their independent raw grain. Authenticated
+M3 household/invoice consumers use `financial-display.js` checked cents and
+explicit unavailable output results; ordinary invoice balance excludes B and
+subtracts N under null reopening. Selected Notice projection serves preview and
+new snapshots only, with complete pre-mutation candidate validation and a
+synchronous presentation snapshot before transport. Notice post-await invalidation
+and recovery remain #651 work. Public writers remain legacy
+pending M4; mixed numerical versions are source-only and must not deploy.
+See the [approved serial #634 scope](../../plans/629-cent-rounding-rollout.md#m2b-coherent-activation-of-existing-financial-gates-after-m2a).
+
+The [bounded #648 owner amendment](https://github.com/nathanjohnpayne/friends-and-family-billing/pull/649#issuecomment-6717695902)
+restores #635's accepted exact own-parent Notice projection and complete
+pre-mutation candidate guards, raw-zero dialog visibility and one synchronous
+post-billing source snapshot frozen before transport. Ordinary-invoice async
+guards stay unchanged. Main `4b223cb` already activates #644 exact authority;
+legacy Notice sub-cent divergence and zero-after-billing holds are current source
+defects, without verified deployment/live-data evidence. Retain this subset in
+the earliest financial release under the existing complete-set gates.
+
+[Plan #648](../../plans/648-charge-notice-recovery.md) owns the eleven-path inventory,
+test ownership and fresh M check. #651/R1–R4 retain post-await checks, fresh
+recovery, atomic versioned production and scoped sender/rules. **Known limitation
+until #651:** stale/failed asynchronous Notice delivery and legacy save uncertainty
+remain; a queued-write return is not durable confirmation. Keep #648's restored
+design blocker until amended #649 merges, then remove only #648 after readback;
+no reverse #635 implementation dependency on #651–#655/#614/#638 is introduced.
+[ADR 0012](../adr/0012-charge-notice-recovery.md) remains Proposed until new exact-head
+review/merge. Documentation/ticket scope establishes no runtime conformance or
+source implementation, merge/deploy, live read/report, repair/migration or #614 acknowledgment.
+
+Source interoperability and client activation are not Functions artifact admission.
+Their `.js` and `.mjs` Functions modules are not yet registered in the deployment artifact allowlists; that
+registration and its packaging/security tests are tracked in
+[#638](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/638),
+after M2a and before M4 Functions activation.
 
 ### Application Routes
 
@@ -362,11 +413,12 @@ Central service owning all billing state. React subscribes via `useSyncExternalS
 - Parents cannot be children of other members
 
 #### ShareLinkService (src/lib/ShareLinkService.js)
-Manages the full share link lifecycle: create, revoke, update scopes, refresh public share data. Coordinates between `shareTokens` and `publicShares` Firestore collections.
+Manages the full share link lifecycle: create, revoke, update scopes, refresh public share data. Coordinates between `shareTokens` and `publicShares` Firestore collections. `rebuildMemberShareDocs()` rewrites the cached `publicShares` documents of given members' active links from current state (used after a household contact change, ADR 0011).
 
 #### Business Logic (src/lib/)
 - `calculations.js` — `calculateAnnualSummary()`, `calculateSettlementMetrics()`, `getPaymentTotalForMember()`, `getBillAnnualAmount()`, `getBillMonthlyAmount()`
 - `validation.js` — `isValidE164()`, `isYearReadOnly()`, `yearReadOnlyMessage()`
+- `household.js` — `planHouseholdEdit()`, `findHouseholdContactId()`, `getHouseholdMemberIds()`, `getHouseholdName()`, `defaultHouseholdName()`; the mutation is `BillingYearService.saveHousehold()` / `changeHouseholdContact()` (ADR 0011)
 - `share.js` — `generateRawToken()`, `hashToken()`, `buildPublicShareData()`, `refreshPublicShares()`
 - `invoice.js` — `buildInvoiceSubject()`, `buildInvoiceBody()`, `buildFullInvoiceText()`, `getInvoiceSummaryContext()`, `renderInvoiceTemplate()`, `buildInvoiceTemplateEmailPayload()`; `renderInvoiceTemplate()` is the canonical HTML path for Invoicing preview and template-generated email output
 - `sms.js` — `buildSmsDeepLink()`, `openSmsComposer()`
@@ -435,7 +487,7 @@ Design tokens are defined in `design-tokens.css` and consumed by `src/app/shell.
 - **Core components:** `.card`, `.btn` pills (`.btn-primary` = Ember fill with Ink text, never white; `.btn-secondary`, `.btn-tertiary`, `.btn-ink`, `.btn-destructive`), `.member-card`, `.bill-card`
 - **Radii and shadows:** `--radius-card` 12 px, `--radius-input` 8 px, `--radius-alert` 8 px, `--radius-button` pill; `--shadow-card` / `--shadow-menu` / `--shadow-dialog` / `--shadow-toast` are Ink-tinted and whisper-light. `tests/react/shellPrimitives.test.js` pins these and the no-white-on-Ember rule.
 - **Settlement components:** `.settlement-board`, `.settlement-card`, `.settlement-filter-chip` (the `.filter-chip` primitive), `.balance-indicator`
-- **Dialog components:** `.dialog-overlay`, `.dialog-content`, `.confirm-dialog`
+- **Dialog components:** every dialog renders through `src/app/components/Dialog.jsx` (`.dialog-overlay` > `.dialog` > `.dialog-title`, scrolling `.dialog-content`, fixed `.dialog-buttons` footer). At 600 px and below the same markup is a bottom sheet with a `.dialog-grab` handle and full-width 44 px footer buttons (RD-14). No component keeps its own overlay markup.
 - **Shared components:** `.action-menu`, `.status-badge`, `.empty-state`, `.inline-alert` (`--error/--success/--warning/--info`), `.change-toast` (`--failure`)
 - **Lifecycle components:** `.lifecycle-bar`, `.lifecycle-step`
 - **Avatar size:** 48x48px circle (32x32px in invoices)

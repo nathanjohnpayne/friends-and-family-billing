@@ -1,3 +1,4 @@
+import { assertYearFinanciallyAvailable, requireFinancialAvailability } from './financial-availability.js';
 /**
  * BillingYearService — manages billing year lifecycle (list, load, switch,
  * create, archive) against Firestore.
@@ -8,15 +9,17 @@
  * Depends on: Firestore (modular SDK), SaveQueue, extracted pure helpers.
  */
 import {
-    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch
+    collection, doc, getDocs, getDoc, setDoc, serverTimestamp, writeBatch, runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
-import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials, getHouseholdOpeningBalance, CREDIT_EPSILON } from './calculations.js';
-import { selectBillableCharges } from './chargeNotice.js';
+import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials } from './calculations.js';
+import { selectBillableCharges, summarizeChargePreview } from './chargeNotice.js';
+import { planHouseholdEdit, findHouseholdContactId, getHouseholdMemberIds, revertHouseholdFields } from './household.js';
+import { rebuildMemberShareDocs } from './ShareLinkService.js';
 import { SaveQueue } from './SaveQueue.js';
 import { splitCents } from './year-end-review.js';
 
@@ -98,6 +101,14 @@ export class BillingYearService {
         };
 
         this._saveQueue = new SaveQueue();
+        /** @private Serializes household operations (save + share rebuild), #528. */
+        this._householdChain = Promise.resolve();
+        /** @private Household operations requested and not yet settled. */
+        this._householdPending = 0;
+        this._yearOpPending = 0;
+        /** @private Latest year-document snapshot enqueued, per year id, with a sequence number. */
+        this._queuedYearSnapshots = new Map();
+        this._yearSnapshotSeq = 0;
 
         /** @type {Set<() => void>} */
         this._listeners = new Set();
@@ -295,13 +306,54 @@ export class BillingYearService {
             return Promise.resolve();
         }
 
-        return this._saveQueue.enqueue(async () => {
-            const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+        return this._saveQueue.enqueue(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+    }
+
+    /** @private The write function save() enqueues, over a snapshot of the state. */
+    _yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments) {
+        const uid = this._user.uid;
+        this._yearSnapshotSeq += 1;
+        this._queuedYearSnapshots.set(activeYear.id, {
+            seq: this._yearSnapshotSeq,
+            uid,
+            args: [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]
+        });
+        return async () => {
+            const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
             if (!payload.createdAt) payload.createdAt = serverTimestamp();
             payload.updatedAt = serverTimestamp();
             await setDoc(yearDocRef, payload);
+        };
+    }
+
+    /**
+     * @private Like save(), but rejects when this write fails. The SaveQueue keeps its
+     * chain alive by swallowing write errors (after logging them and notifying
+     * subscribers), so a caller that must not continue after a failed write — one
+     * that then publishes share documents from the new state — observes the outcome
+     * here. Resolves without writing in the same cases save() does (E2E, no user or
+     * year, closed or archived year).
+     */
+    async _saveConfirmed() {
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        if (this._e2eMode || !this._user || !activeYear) return;
+        if (activeYear.status === 'closed' || activeYear.status === 'archived') return;
+        await this._enqueueConfirmed(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+    }
+
+    /** @private Enqueue a write and reject when that write fails (see _saveConfirmed). */
+    async _enqueueConfirmed(write) {
+        let failure = null;
+        await this._saveQueue.enqueue(async () => {
+            try {
+                await write();
+            } catch (err) {
+                failure = err;
+                throw err; // the queue still logs it and notifies save:error subscribers
+            }
         });
+        if (failure) throw failure;
     }
 
     /**
@@ -311,8 +363,17 @@ export class BillingYearService {
      */
     async setYearStatus(newStatus) {
         if (!this._user) return;
+        // Its write carries the in-memory billing events, and closing the year would
+        // stop a failed household change's compensating save (#528).
+        this._guardHouseholdGraph();
+        return this._runYearOperation(() => this._setYearStatusNow(newStatus));
+    }
+
+    /** @private setYearStatus's body; always called through _runYearOperation. */
+    async _setYearStatusNow(newStatus) {
         const { activeYear, billingYears, billingEvents } = this._state;
         if (!activeYear || activeYear.status === newStatus) return;
+        if (newStatus === 'closed') assertYearFinanciallyAvailable(this._state);
 
         // Emit YEAR_STATUS_CHANGED event (mirrors legacy main.js:386)
         const previousStatus = activeYear.status;
@@ -389,6 +450,31 @@ export class BillingYearService {
      */
     async createYear(yearId, options = {}) {
         if (!this._user) return;
+        // The rollover snapshots the household into the new year and the prior year's
+        // carry marking; a household change still being saved could be rolled back
+        // after that snapshot (#528).
+        this._guardHouseholdGraph();
+        return this._runYearOperation(() => this._createYearNow(yearId, options));
+    }
+
+    /**
+     * @private While a year-level operation (Start New Year including its switch into
+     * the new year, or a status change) is running, household operations are refused
+     * (#528): they would snapshot a year whose status, events or carry markings are
+     * about to change, and their write could overwrite the operation's.
+     */
+    async _runYearOperation(operation) {
+        this._yearOpPending += 1;
+        try {
+            return await operation();
+        } finally {
+            this._yearOpPending -= 1;
+        }
+    }
+
+    /** @private createYear's body; always called through _runYearOperation. */
+    async _createYearNow(yearId, options) {
+        assertYearFinanciallyAvailable(this._state);
         const { activeYear, billingYears, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
 
         if (isYearLabelDuplicate(billingYears, yearId)) {
@@ -397,11 +483,13 @@ export class BillingYearService {
 
         // Compute what carries from the prior (current) year. A credit re-opened by
         // an active not_received (#319, ADR 0003) is held back from the carry.
-        const carry = buildCarryForwardSummary(
-            familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
-            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
-        );
-        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : null;
+        const priorLabel = activeYear ? (activeYear.label || activeYear.id) : 'prev';
+        const creditDispositionIds = new Map(familyMembers.filter(member => !isLinkedToAnyone(familyMembers, member.id))
+            .map(member => [member.id, generateCreditAdjustmentId()]));
+        const carry = buildCarryForwardSummary(familyMembers, bills, payments || [], creditAdjustments || [], owedAdjustments || [],
+            { reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set(), fromYearLabel: priorLabel,
+                nextYearLabel: yearId, creditDispositionIds, now: new Date().toISOString() });
+        requireFinancialAvailability(carry);
 
         // 1. Build the new-year seed (netted opening balances) — do NOT write inline.
         const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
@@ -415,7 +503,7 @@ export class BillingYearService {
         if (activeYear && carry.memberCount > 0) {
             const marked = applyCarryForwardToPriorYear(
                 creditAdjustments || [], owedAdjustments || [], carry,
-                { nextYearLabel: yearId, userId: this._user.uid, idFactory: () => generateCreditAdjustmentId() }
+                { nextYearLabel: yearId, userId: this._user.uid }
             );
             const priorEvent = {
                 id: generateEventId(),
@@ -564,38 +652,44 @@ export class BillingYearService {
             fields = { ...fields, phone };
         }
 
-        // One-parent household invariant (mirrors main.js:1028–1031)
-        // A member can only be linked to ONE parent, and parents can't be children.
+        // One-household invariant (mirrors main.js:1028–1031): a member belongs to at
+        // most one household, and only a household contact (the stored primary) lists
+        // members. Copy is neutral — households are peers (#528, ADR 0011).
         if (fields.linkedMembers !== undefined) {
+            this._guardHouseholdGraph();
             const member = familyMembers[idx];
-            for (const childId of fields.linkedMembers) {
-                if (childId === memberId) {
-                    throw new Error('A member cannot be linked to themselves.');
+            for (const otherId of fields.linkedMembers) {
+                if (otherId === memberId) {
+                    throw new Error('A member cannot be added to their own household twice.');
                 }
-                const child = familyMembers.find(m => m.id === childId);
-                if (!child) {
-                    throw new Error('Linked member not found.');
+                const other = familyMembers.find(m => m.id === otherId);
+                if (!other) {
+                    throw new Error('Household member not found.');
                 }
-                // Child must not be a parent (has its own linked members)
-                if (child.linkedMembers && child.linkedMembers.length > 0) {
-                    throw new Error(child.name + ' is a parent and cannot be linked as a child.');
+                // The member must not be the contact of a household of their own
+                if (other.linkedMembers && other.linkedMembers.length > 0) {
+                    throw new Error(other.name + ' already has a household of their own.');
                 }
-                // Child must not already be linked to a DIFFERENT parent
-                const existingParent = familyMembers.find(m =>
-                    m.id !== memberId && m.linkedMembers.includes(childId)
+                // The member must not already be in a DIFFERENT household
+                const existingContact = familyMembers.find(m =>
+                    m.id !== memberId && m.linkedMembers.includes(otherId)
                 );
-                if (existingParent) {
-                    throw new Error(child.name + ' is already linked to ' + existingParent.name + '.');
+                if (existingContact) {
+                    throw new Error(other.name + ' is already in ' + existingContact.name + '\u2019s household.');
                 }
             }
-            // The parent being updated must not themselves be a child of someone else
+            // The member being updated must not already be in someone else's household
             if (fields.linkedMembers.length > 0 && isLinkedToAnyone(familyMembers, memberId)) {
-                throw new Error(member.name + ' is linked as a child and cannot have their own linked members.');
+                throw new Error(member.name + ' is already in another household.');
             }
         }
 
         const updated = [...familyMembers];
         updated[idx] = { ...updated[idx], ...fields };
+        // A dissolved household keeps no name (the name lives on the contact's record).
+        if (fields.linkedMembers !== undefined && fields.linkedMembers.length === 0) {
+            delete updated[idx].householdName;
+        }
         this._setState({ familyMembers: updated });
         this.save();
     }
@@ -607,15 +701,26 @@ export class BillingYearService {
      */
     removeMember(memberId) {
         this._guardReadOnly();
+        this._guardHouseholdGraph();
         const { familyMembers, bills, payments } = this._state;
+
+        // The household contact cannot leave a household without a replacement
+        // (#528): choose a new contact first, then remove the member.
+        const target = familyMembers.find(m => m.id === memberId);
+        if (target && (target.linkedMembers || []).length > 0) {
+            throw new Error('Choose a new household contact for ' + target.name + '\u2019s household before removing them.');
+        }
 
         // Unlink from other members
         const updatedMembers = familyMembers
             .filter(m => m.id !== memberId)
-            .map(m => ({
-                ...m,
-                linkedMembers: m.linkedMembers.filter(id => id !== memberId)
-            }));
+            .map(m => {
+                const linkedMembers = m.linkedMembers.filter(id => id !== memberId);
+                const next = { ...m, linkedMembers };
+                // A dissolved household keeps no name (ADR 0011).
+                if (linkedMembers.length === 0) delete next.householdName;
+                return next;
+            });
 
         // Remove from all bills
         const updatedBills = bills.map(b => ({
@@ -632,6 +737,287 @@ export class BillingYearService {
             payments: updatedPayments
         });
         this.save();
+    }
+
+    /**
+     * Create, edit or dissolve a household, and choose its contact (#528, ADR 0011).
+     *
+     * The contact becomes the stored primary and every other member becomes its
+     * linked member. Members may come from the household being edited or be
+     * individuals; members left out become individuals. Every payment, charge and
+     * credit stays on the member it was recorded for, and household figures sum the
+     * whole member set, so the household's totals are unchanged by a contact change.
+     * The optional household name is stored on the contact's record.
+     *
+     * After saving, the cached share documents of the previous and the new contact
+     * are rebuilt so both members' links show their current shape.
+     *
+     * @param {{ contactId: *, memberIds: Array, householdName?: string }} edit
+     *   memberIds: every member of the household, contact included.
+     *   householdName: a string sets it ('' clears it); omit to keep the current name.
+     * @returns {Promise<{ contactId: *, previousContactId: *, memberIds: Array,
+     *   released: Array, householdName: string, shareDocsRebuilt: number|null }>}
+     *   shareDocsRebuilt is null when the share rebuild failed (the household change
+     *   itself is saved either way).
+     * @throws when the billing-year write fails; the change is then rolled back and no
+     *   share document is rebuilt.
+     */
+    saveHousehold(edit) {
+        return this._serializeHousehold(() => this._saveHouseholdNow(edit));
+    }
+
+    /**
+     * @private While a household operation is pending, other edits to the household
+     * link graph are refused (#528): a failed operation rolls back its own links, and
+     * that is only safe when nothing else changed the graph meanwhile. Mutations that
+     * read the household to decide who a ledger row belongs to (a Refund, a payment
+     * distributed across a household, billing a household's deferred charges) are refused too, so no row is built from a
+     * household that is then rolled back, and so are year-level operations that
+     * snapshot the year (Start New Year, a status change).
+     */
+    _guardHouseholdGraph() {
+        if (this._householdPending > 0) {
+            throw new Error('A household change is still being saved. Try again in a moment.');
+        }
+        // Start New Year snapshots the household and a status change rewrites the
+        // year; a link edit landing meanwhile would be lost or would overwrite them.
+        if (this._yearOpPending > 0) {
+            throw new Error('The billing year is being updated. Try again in a moment.');
+        }
+    }
+
+    /** @private The (user, year) a household operation was requested in. */
+    _householdContext() {
+        return {
+            uid: this._user ? this._user.uid : null,
+            yearId: this._state.activeYear ? this._state.activeYear.id : null
+        };
+    }
+
+    /**
+     * @private Run household operations one at a time. Each operation's save AND
+     * share rebuild finish before the next one plans against the then-current state,
+     * so an older rebuild can never overwrite the cache a newer edit wrote. A failed
+     * operation does not block the next.
+     */
+    _serializeHousehold(operation) {
+        if (this._yearOpPending > 0) {
+            return Promise.reject(new Error('The billing year is being updated. Try the household change again in a moment.'));
+        }
+        // Bind the operation to the user and year it was requested in. If either has
+        // changed by the time its turn comes (e.g. the administrator switched years
+        // while an earlier operation was running), it is rejected rather than applied
+        // to another year's household — member ids survive Start New Year.
+        const requested = this._householdContext();
+        const guarded = () => {
+            const now = this._householdContext();
+            if (now.uid !== requested.uid || now.yearId !== requested.yearId) {
+                throw new Error('The billing year changed before the household change ran; it was not applied.');
+            }
+            return operation();
+        };
+        this._householdPending += 1;
+        const run = this._householdChain.then(guarded, guarded);
+        const settle = () => { this._householdPending -= 1; };
+        run.then(settle, settle);
+        this._householdChain = run.catch(() => {});
+        return run;
+    }
+
+    /** @private saveHousehold's body; always called through _serializeHousehold. */
+    async _saveHouseholdNow(edit) {
+        this._guardReadOnly();
+        const editedYearId = this._state.activeYear ? this._state.activeYear.id : null;
+        const plan = planHouseholdEdit(this._state.familyMembers, edit || {});
+
+        let billingEvents = this._state.billingEvents || [];
+        let addedEventId = null;
+        if (plan.previousContactId !== plan.contactId) {
+            const byId = new Map(this._state.familyMembers.map(m => [m.id, m]));
+            billingEvents = this._emitEvent('HOUSEHOLD_CONTACT_CHANGED', {
+                previousContactId: plan.previousContactId,
+                previousContactName: byId.get(plan.previousContactId)?.name || '',
+                contactId: plan.contactId,
+                contactName: byId.get(plan.contactId)?.name || '',
+                memberIds: plan.memberIds
+            });
+            addedEventId = billingEvents[billingEvents.length - 1].id;
+        }
+
+        const previousMembers = this._state.familyMembers;
+        this._setState({ familyMembers: plan.familyMembers, billingEvents });
+        // Bind the share rebuild to the year being edited: capture its inputs now,
+        // before awaiting persistence, so a year switch while the write is pending
+        // cannot point the rebuild at another year's links.
+        const shareInputs = this._shareRebuildInputs();
+        // _saveConfirmed builds its write synchronously, so the snapshot sequence read
+        // right after the call is this edit's own write.
+        const confirmed = this._saveConfirmed();
+        const ownSeq = this._yearSnapshotSeq;
+        try {
+            await confirmed;
+        } catch (err) {
+            // Do not publish share documents for a household that was not persisted.
+            // Undo only this edit, in two places, then report the failure:
+            //
+            // 1. Local state, if it is still the edited year: put back the household
+            //    fields this edit changed (all of them or none, see
+            //    revertHouseholdFields) and remove only the event it appended. A
+            //    mutation that landed meanwhile — a member's name or email edit, a
+            //    payment and its PAYMENT_RECORDED event — is kept. After a year switch
+            //    the state belongs to another year (member ids survive Start New Year)
+            //    and is left alone; after a reload it no longer holds the edit.
+            //
+            // 2. The stored year document: a write enqueued behind ours (e.g.
+            //    recordPayment's save) holds the rejected household and will persist
+            //    it. _compensateQueuedYearWrite waits for it and then reverts only the
+            //    household fields and the event in the stored document, leaving
+            //    everything else (including another client's changes) as stored.
+            const message = 'The household change could not be saved: ' + (err && err.message ? err.message : 'unknown error');
+            const currentYearId = this._state.activeYear ? this._state.activeYear.id : null;
+            let localConflict = false;
+            if (currentYearId === editedYearId) {
+                const rollback = {};
+                try {
+                    const restoredMembers = revertHouseholdFields(this._state.familyMembers, plan.familyMembers, previousMembers);
+                    if (restoredMembers) rollback.familyMembers = restoredMembers;
+                } catch (revertErr) {
+                    if (revertErr.code !== 'household-revert-conflict') throw revertErr;
+                    localConflict = true;
+                }
+                const events = this._state.billingEvents || [];
+                if (addedEventId && events.some(e => e.id === addedEventId)) {
+                    rollback.billingEvents = events.filter(e => e.id !== addedEventId);
+                }
+                if (rollback.familyMembers || rollback.billingEvents) this._setState(rollback);
+            }
+            await this._compensateOrReport(message, () =>
+                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
+            if (localConflict) {
+                throw new Error(message + '. The household could not be restored here because it changed meanwhile; reload before making further changes.');
+            }
+            throw new Error(message);
+        }
+        const shareDocsRebuilt = await this._rebuildShareDocs(plan.affectedContactIds, shareInputs);
+
+        return {
+            contactId: plan.contactId,
+            previousContactId: plan.previousContactId,
+            memberIds: plan.memberIds,
+            released: plan.released,
+            householdName: plan.householdName,
+            shareDocsRebuilt
+        };
+    }
+
+    /**
+     * @private Run a failed household change's compensating write and wait for it.
+     * If it fails too, a write queued meanwhile may have persisted the rejected
+     * household, so the reported error says so and asks for a reload.
+     */
+    async _compensateOrReport(message, compensate) {
+        try {
+            await compensate();
+        } catch (err) {
+            throw new Error(message + '. Restoring the saved household also failed ('
+                + (err && err.message ? err.message : 'unknown error')
+                + '); reload before making further changes.');
+        }
+    }
+
+    /**
+     * @private After a failed household write that the local state can no longer
+     * undo (the year was switched or reloaded meanwhile, or is now read-only): if a
+     * later write for the edited year was enqueued behind it, that write holds the
+     * rejected household. Once it has landed (this runs in the SaveQueue behind it),
+     * read the stored year document in a transaction and revert only this edit's
+     * household fields and event there. Every other field — status, lifecycle
+     * events, ledger rows, including changes another client made meanwhile — is left
+     * exactly as stored, and the current (other) year's state is never written.
+     */
+    async _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
+        const latest = this._queuedYearSnapshots.get(yearId);
+        if (!latest || latest.seq <= ownSeq || !this._user || latest.uid !== this._user.uid) return;
+        const yearDocRef = doc(db, 'users', latest.uid, 'billingYears', yearId);
+        await this._enqueueConfirmed(() => runTransaction(db, async (tx) => {
+            const snap = await tx.get(yearDocRef);
+            if (!snap.exists()) return;
+            const stored = snap.data() || {};
+            const restoredMembers = revertHouseholdFields(stored.familyMembers || [], plannedMembers, previousMembers);
+            const events = stored.billingEvents || [];
+            const restoredEvents = addedEventId && events.some(e => e.id === addedEventId)
+                ? events.filter(e => e.id !== addedEventId)
+                : null;
+            if (!restoredMembers && !restoredEvents) return;
+            const patch = { updatedAt: serverTimestamp() };
+            if (restoredMembers) patch.familyMembers = restoredMembers;
+            if (restoredEvents) patch.billingEvents = restoredEvents;
+            tx.update(yearDocRef, patch);
+        }));
+    }
+
+    /**
+     * Make a member the contact of the household they are in (#528). Membership and
+     * the household name are unchanged.
+     * @param {*} memberId  the new household contact
+     * @returns {Promise<Object>} saveHousehold's result
+     */
+    changeHouseholdContact(memberId) {
+        // The household is read when the operation runs (after any pending household
+        // operation), not when it is requested.
+        return this._serializeHousehold(() => {
+            this._guardReadOnly();
+            const { familyMembers } = this._state;
+            const currentContactId = findHouseholdContactId(familyMembers, memberId);
+            if (currentContactId === null) throw new Error('Member not found.');
+            const currentContact = familyMembers.find(m => m.id === currentContactId);
+            if ((currentContact.linkedMembers || []).length === 0) {
+                throw new Error(currentContact.name + ' is not in a household.');
+            }
+            return this._saveHouseholdNow({
+                contactId: memberId,
+                memberIds: getHouseholdMemberIds(currentContact)
+            });
+        });
+    }
+
+    /** @private Snapshot of the active year's state that a share rebuild reads. */
+    _shareRebuildInputs() {
+        const { activeYear, familyMembers, bills, payments, owedAdjustments, settings } = this._state;
+        return {
+            userId: this._user ? this._user.uid : null,
+            activeYear,
+            familyMembers,
+            bills,
+            payments,
+            owedAdjustments: owedAdjustments || [],
+            settings: settings || {}
+        };
+    }
+
+    /**
+     * @private Rebuild the cached share documents for these members' active links,
+     * from the given snapshot (see _shareRebuildInputs). Returns the number
+     * rewritten, or null when the rebuild failed.
+     */
+    async _rebuildShareDocs(memberIds, inputs) {
+        if (this._e2eMode || !inputs || !inputs.userId || !inputs.activeYear) return 0;
+        try {
+            return await rebuildMemberShareDocs({
+                userId: inputs.userId,
+                billingYearId: inputs.activeYear.id,
+                memberIds,
+                familyMembers: inputs.familyMembers,
+                bills: inputs.bills,
+                payments: inputs.payments,
+                owedAdjustments: inputs.owedAdjustments,
+                activeYear: inputs.activeYear,
+                settings: inputs.settings
+            });
+        } catch (err) {
+            console.error('Error rebuilding share documents after a household change:', err);
+            return null;
+        }
     }
 
     // ── Bills ──
@@ -824,6 +1210,9 @@ export class BillingYearService {
             };
         }
 
+        // Guard every distribution request: a pending contact change may have cleared
+        // this member's links, which would record the payment unsplit.
+        if (data.distribute) this._guardHouseholdGraph();
         if (data.distribute && member.linkedMembers && member.linkedMembers.length > 0) {
             const summary = calculateAnnualSummary(familyMembers, bills);
             let combinedTotal = summary[data.memberId] ? summary[data.memberId].total : 0;
@@ -1107,11 +1496,12 @@ export class BillingYearService {
      *
      * Append-only: a credit is voided via a later status change, NEVER deleted
      * (mirrors recordUsageCharge / the payments-ledger discipline). Emits a
-     * SERVICE_CREDIT_RECORDED billing event. Does not touch recordPayment /
-     * reversePayment, the payments[] ledger, or the bill.
+     * SERVICE_CREDIT_RECORDED billing event. Zero split shares create no records;
+     * the event retains every target share, including zeros. Does not touch
+     * recordPayment / reversePayment, the payments[] ledger, or the bill.
      *
      * @param {{ billId: *, amount: number, reason: string, memberId?: *, incurredDate?: string }} data
-     * @returns {Array<Object>} the new owedAdjustments[] records (one per affected member)
+     * @returns {Array<Object>} the new owedAdjustments[] records (one per positive-share target)
      */
     recordServiceCredit(data) {
         this._guardReadOnly();
@@ -1150,8 +1540,10 @@ export class BillingYearService {
         const incurredDate = data.incurredDate || localDateString();
         const createdAt = new Date().toISOString();
 
+        const shares = splitCents(totalCents, targetIds);
         const records = [];
-        splitCents(totalCents, targetIds).forEach(({ memberId, cents: shareCents }) => {
+        shares.forEach(({ memberId, cents: shareCents }) => {
+            if (shareCents === 0) return;
             records.push({
                 id: generateUniqueAdjustmentId(),
                 memberId,
@@ -1172,7 +1564,8 @@ export class BillingYearService {
             reason,
             incurredDate,
             memberId: data.memberId !== undefined && data.memberId !== null ? data.memberId : null,
-            memberCount: records.length
+            memberCount: targetIds.length,
+            shares: shares.map(({ memberId, cents }) => ({ memberId, amount: cents / 100 }))
         });
 
         this._setState({
@@ -1209,6 +1602,8 @@ export class BillingYearService {
      */
     billDeferredCharges(data) {
         this._guardReadOnly();
+        // Selects charges at the household grain from the contact's links (#528).
+        this._guardHouseholdGraph();
         const { owedAdjustments, familyMembers } = this._state;
 
         const member = familyMembers.find(m => m.id === data.memberId);
@@ -1226,10 +1621,15 @@ export class BillingYearService {
             throw new Error('No deferred charges to bill for this member in the selected period.');
         }
 
+        requireFinancialAvailability(getHouseholdFinancials(member, this._state));
+        const preview = summarizeChargePreview(selected);
+        requireFinancialAvailability(preview);
+        if (!preview.issuable) throw new Error('A Charge Notice must total at least one cent.');
+
         const chargeNoticeId = generateChargeNoticeId();
         const billedAt = new Date().toISOString();
         const billedIds = new Set(selected.map(c => c.id));
-        const amount = Math.round(selected.reduce((sum, c) => sum + (c.amount || 0), 0) * 100) / 100;
+        const amount = preview.total;
 
         // Append-only flip: replace each selected record with a billed copy; all
         // other records pass through untouched.
@@ -1238,6 +1638,10 @@ export class BillingYearService {
                 ? { ...a, status: 'billed', chargeNoticeId, billedAt }
                 : a
         );
+
+        // B may overflow only after the selected deferred rows enter it. Validate
+        // the actual finalized status/id candidate before any event/state/save effect.
+        requireFinancialAvailability(getHouseholdFinancials(member, { ...this._state, owedAdjustments: updatedAdjustments }));
 
         const events = this._emitEvent('CHARGES_BILLED', {
             chargeNoticeId,
@@ -1274,12 +1678,13 @@ export class BillingYearService {
      */
     issueRefund(data) {
         this._guardReadOnly();
+        this._guardHouseholdGraph();
         const { familyMembers, bills, payments, creditAdjustments, owedAdjustments } = this._state;
         const member = familyMembers.find(m => m.id === data.memberId);
         if (!member) throw new Error('Member not found.');
         // A Refund is a household disposition (ADR 0001) — issued to the primary member.
         if (isLinkedToAnyone(familyMembers, member.id)) {
-            throw new Error('Refunds are issued to the household primary member.');
+            throw new Error('Refunds are issued to the household contact.');
         }
 
         const amount = Math.round((parseFloat(data.amount) || 0) * 100) / 100;
@@ -1293,16 +1698,11 @@ export class BillingYearService {
         // because doing so would inflate the credit and permit a double-refund. owedAdjustments
         // is passed as the 6th arg so a credit produced by a Service Credit (#321, reduced
         // owed) is still refundable through this same pipeline — no separate disposition path.
-        // openingBalance is the 7th arg so a household that carried in a credit (#322) has
-        // its refundable credit computed exactly as the board shows (the carry lowered owed).
-        const summary = calculateAnnualSummary(familyMembers, bills);
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, openingBalance);
-        if (credit <= CREDIT_EPSILON) throw new Error('This household has no credit to refund.');
-        if (amount > credit + CREDIT_EPSILON) {
-            throw new Error('Refund cannot exceed the household credit of ' + credit.toFixed(2) + '.');
-        }
-
+        // Read raw source under the service's null reopening context. Validate the
+        // entire candidate R component with the actual new id before any append.
+        const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+        const before = requireFinancialAvailability(getHouseholdFinancials(member, source));
+        if (before.cents.credit <= 0) throw new Error('This household has no credit to refund.');
         const entry = {
             id: generateCreditAdjustmentId(),
             memberId: member.id,
@@ -1313,6 +1713,11 @@ export class BillingYearService {
             status: 'recorded',
             createdAt: new Date().toISOString()
         };
+        const candidate = requireFinancialAvailability(getHouseholdFinancials(member,
+            { ...source, creditAdjustments: [...(creditAdjustments || []), entry] }));
+        if (candidate.cents.balance > 0) {
+            throw new Error('Refund cannot exceed the household credit of ' + before.credit.toFixed(2) + '.');
+        }
         const event = {
             id: generateEventId(),
             timestamp: new Date().toISOString(),

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 const mockService = {
@@ -138,6 +139,18 @@ describe('BillingYearSelector', () => {
         });
         // The selector passes the re-opened credit set (#319/#322) as options.
         expect(mockService.createYear).toHaveBeenCalledWith('2027', expect.objectContaining({
+            reopenedAdjustmentIds: expect.any(Set)
+        }));
+    });
+
+    it('submits the new-year label on Enter through the dialog form', async () => {
+        const user = userEvent.setup();
+        renderSelector();
+        await user.click(screen.getByText('Start New Year'));
+        const input = screen.getByLabelText('Billing year label');
+        await user.clear(input);
+        await user.type(input, '2028{Enter}');
+        expect(mockService.createYear).toHaveBeenCalledWith('2028', expect.objectContaining({
             reopenedAdjustmentIds: expect.any(Set)
         }));
     });

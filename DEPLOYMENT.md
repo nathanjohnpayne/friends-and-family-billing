@@ -59,6 +59,34 @@ Never use `op-preflight --mode all`/deploy exports, `npm run deploy`, local pred
 
 ## Functions guarantee and limits
 
+The producer emits artifact metadata schema `2`. Its exact Functions source set
+is `index.js`, `billing.js`, `package.json`, `package-lock.json`, `functions.yaml`,
+`money.js`, `money.mjs`, `household-money.js` and `household-money.mjs`. The
+household wrapper loads `household-money.mjs`, which imports `money.mjs`; the
+separate `money.js` wrapper loads `money.mjs`. Further dependencies require
+explicit reviewed admission. No caller-supplied list or wildcard registers files.
+
+The trusted consumer also accepts retained schema `1` artifacts with exactly the
+original five files (`index.js`, `billing.js`, `package.json`, `package-lock.json`,
+`functions.yaml`). Schema/file-set mismatches and unknown schemas fail closed.
+Both variants retain the same repository, revision, digest, attestation and tool
+checks; every admitted source file except generated `functions.yaml` is compared
+with the original git bytes at that full revision, even for other deploy targets.
+The declared schema stays bound through the selected-stage copy, credential
+consumer and final Firebase launch; a reduced schema 2 tree cannot become schema 1.
+Copied files must match the selected target's original attested metadata hashes;
+copied bytes never establish replacement expected hashes for later checks.
+Compatibility permits a separately approved rollback only while the original
+artifact and its provenance remain available; it extends no retention window or
+deployment authority. Retention/rebuild policy follow-up remains [#626](https://github.com/nathanjohnpayne/friends-and-family-billing/issues/626).
+
+Inside the credential-free build container, the producer extracts its emitted tar
+into a fresh directory and runs `check-functions-modules.cjs` against those bytes.
+It proves both Node24 CJS/ESM entrypoints and their required transitive module.
+This candidate-loading proof is build/test-only; deployment never invokes it.
+Admitting these unused modules does not activate public writers or authorize a
+partial financial release, deployment, live report or migration (#629/#636).
+
 Functions deployment uploads **attested source and a precomputed discovery manifest**, not a prebuilt container image. The verified extraction contains no `node_modules`, `.npmrc`, `.bin`, environment files or lifecycle scripts. Node24 SDK resolution is checked against source ancestors/global paths; any resolvable SDK is refused. The pinned CLI's local build is a no-op and its discover step reads the validated manifest instead of importing the candidate Functions module. Missing, changed or unreadable manifests fail closed before discovery fallback.
 
 The trusted CLI re-zips validated source as data. Google then builds the container remotely from that uploaded source. The isolation guarantee covers local build/deploy separation and the attested uploaded source; it makes no claim that the provider's remote build account lacks provider credentials.

@@ -1,3 +1,4 @@
+import { buildCarryForwardSummary } from '@/lib/billing-year.js';
 import { describe, it, expect } from 'vitest';
 import { normalizeYearData } from '../../../src/lib/persistence.js';
 import {
@@ -255,6 +256,9 @@ describe('record factories and next-year preview', () => {
         const row = { rowId: 'charge1', memberId: 2, amount: 30.125, description: ' Activation fee ', incurredDate: '2026-11-03' };
         expect(buildUsageChargeRecord(row, recordCtx)).toMatchObject({ id: 'oadj_uc_2026_charge1', amount: 30.13, description: 'Activation fee', status: 'deferred' });
         expect(buildUsageChargeRecord(row, recordCtx)).not.toHaveProperty('basis');
+        // Own-parent Notice policy depends on the review writer persisting whole cents.
+        const persisted = buildUsageChargeRecord(row, recordCtx).amount;
+        expect(persisted).toBe(Math.round(persisted * 100) / 100);
         expect(() => buildUsageChargeRecord({ ...row, existingAdjustmentId: 'existing' }, recordCtx)).toThrow('reused');
         expect(() => buildUsageChargeRecord({ ...row, incurredDate: '2026-02-30' }, recordCtx)).toThrow('valid incurred');
         expect(() => buildUsageChargeRecord({ ...row, amount: 0 }, recordCtx)).toThrow();
@@ -263,15 +267,23 @@ describe('record factories and next-year preview', () => {
         const households = [{ id: 1, name: 'Okafor', linkedMembers: [2, 3] }, { id: 2, linkedMembers: [] }, { id: 3, linkedMembers: [] }, { id: 4, name: 'Rosa', linkedMembers: [] }];
         const sourceBills = [{ ...bill, amount: 88 }, { ...bill, id: 22, amount: 32, members: [4] }];
         const nextBills = [{ ...bill, amount: 88 }, { ...bill, id: 22, amount: 388, billingFrequency: 'annual', members: [4] }];
-        const carry = { households: [{ primaryMemberId: 1, openingBalance: 15, items: [{ amount: -26, detail: [{ amount: -4 }, { amount: -22 }] }, { amount: 12 }, { amount: 12 }, { amount: 12 }, { amount: 5 }] },
-            { primaryMemberId: 4, openingBalance: -28, items: [{ amount: -28 }] }] };
+        const carry = buildCarryForwardSummary(households, [], [
+            { id: 'p1', memberId: 1, amount: 26 }, { id: 'p4', memberId: 4, amount: 28 }
+        ], [], [12, 12, 12, 5].map((amount, index) => ({ id: 'charge-' + index, memberId: 1,
+            kind: 'usage_charge', status: 'deferred', amount })), { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true });
         const preview = buildHouseholdPreview({ familyMembers: households, sourceBills, nextBills, carry });
         expect(preview[0]).toMatchObject({ sourceBillTotal: 1056, nextBillTotal: 1056, carriedTotal: 15, carriedCharges: 41, carriedCredit: -26, firstInvoiceTotal: 1071, remainingCredit: 0 });
         expect(preview[1]).toMatchObject({ nextBillTotal: 388, carriedTotal: -28, firstInvoiceTotal: 360, subscriptionDelta: 4 });
         expect(preview[0].carriedCharges + preview[0].carriedCredit).toBe(preview[0].carriedTotal);
-        const unused = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [], carry: { households: [{ primaryMemberId: 1, openingBalance: -132, items: [{ amount: -132 }] }] } });
+        const unusedCarry = buildCarryForwardSummary(familyMembers, [], [], [], [{ id: 'incoming', memberId: 1,
+            kind: 'carry_opening', status: 'carried_in', amount: -132 }],
+            { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true, carryUnusedOpeningCredit: true });
+        const unused = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [], carry: unusedCarry });
         expect(unused[0]).toMatchObject({ firstInvoiceTotal: 0, remainingCredit: 132 });
-        expect(() => buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [], carry: { households: [{ primaryMemberId: 1, openingBalance: 1, items: [] }] } })).toThrow('sum');
+        const held = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [],
+            carry: { ok: false, households: [], holds: [{ code: 'CARRY_INVARIANT' }] } });
+        expect(held[0]).toMatchObject({ ok: false });
+        expect(held[0]).not.toHaveProperty('firstInvoiceTotal');
     });
 });
 

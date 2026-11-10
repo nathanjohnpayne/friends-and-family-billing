@@ -1,3 +1,6 @@
+import { projectHouseholdDisplay } from '../../../lib/financial-display.js';
+import { snapshotDollars } from '../../../lib/household-money.js';
+import { MoneyIntegrityError } from '../../../lib/money.js';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillingData } from '../../hooks/useBillingData.js';
@@ -7,7 +10,8 @@ import { useDisputes } from '../../hooks/useDisputes.js';
 import { useRefundNotices } from '../../hooks/useRefundNotices.js';
 import { issueRefundNotice } from '@/lib/RefundNoticeService.js';
 import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
-import { calculateSettlementMetrics, getHouseholdDeferredCharges, isLinkedToAnyone } from '@/lib/calculations.js';
+import { calculateSettlementMetrics, sumMoneyCents, isLinkedToAnyone } from '@/lib/calculations.js';
+import { getYearFinancialAvailability, getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '@/lib/financial-availability.js';
 import { formatAnnualSummaryCurrency } from '@/lib/formatting.js';
 import { isYearReadOnly } from '@/lib/validation.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
@@ -71,17 +75,35 @@ export default function DashboardView() {
     // owed, and a carried opening balance (#322) folds into owed and raises
     // totalCreditsOwed when it is a carried credit. The #319 reopened-credit set raises
     // totalCreditsOwed too. Deferred charges (#317) do not affect the gate.
+    const financialSource = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    const availability = getYearFinancialAvailability(financialSource, { reopenedAdjustmentIds: reopenedAdjustments });
     const metrics = calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments, reopenedAdjustments, owedAdjustments);
+    const hasHolds = !metrics.ok;
+    /** Preserve each caller's reopening context while reading live state at its action boundary. */
+    const getAvailability = (memberId, reopenedAdjustmentIds = null) => getHouseholdFinancialAvailability(
+        { ...financialSource, ...service.getState() }, memberId, { reopenedAdjustmentIds });
 
     // Deferred-charges indicator (#322): aggregate still-deferred Usage Charges
     // across households (ADR 0001 grain). These auto-carry into next year at
     // close/rollover (ADR 0006), so the dashboard surfaces them as a heads-up.
-    const deferred = familyMembers
-        .filter(m => !isLinkedToAnyone(familyMembers, m.id))
-        .reduce((acc, m) => {
-            const { count, total } = getHouseholdDeferredCharges(m, owedAdjustments);
-            return { count: acc.count + count, total: acc.total + total };
-        }, { count: 0, total: 0 });
+    const deferred = (() => {
+        let count = 0;
+        let unavailable = hasHolds;
+        const cents = [];
+        for (const member of familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id))) {
+            count += owedAdjustments.filter(row => row && row.kind === 'usage_charge' && row.status === 'deferred'
+                && [member.id, ...(member.linkedMembers || [])].includes(row.memberId)).length;
+            if (!hasHolds) {
+                const display = projectHouseholdDisplay(financialSource, member);
+                if (!display.ok) unavailable = true;
+                else cents.push(display.cents.deferredCents);
+            }
+        }
+        if (unavailable) return { ok: false, count };
+        try { return { ok: true, count, total: snapshotDollars(sumMoneyCents(cents), 'deferred') }; }
+        catch (error) { if (!(error instanceof MoneyIntegrityError)) throw error; return { ok: false, count }; }
+    })();
+    const aggregatesUnavailable = hasHolds || !deferred.ok;
 
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
@@ -89,10 +111,10 @@ export default function DashboardView() {
     const remaining = metrics.totalMembers - metrics.paidCount;
     // Every household settled and nothing outstanding: the close-gate state,
     // not the rounded display percentage (which reads 100 below a 0.5% shortfall).
-    const allSettled = remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
-    const isReadyToClose = currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
+    const allSettled = !hasHolds && remaining === 0 && metrics.totalMembers > 0 && metrics.totalOutstanding === 0;
+    const isReadyToClose = !hasHolds && currentStatus === 'settling' && remaining === 0 && metrics.totalMembers > 0;
 
-    const statusHeadline = isReadyToClose
+    const statusHeadline = aggregatesUnavailable ? 'Unavailable' : isReadyToClose
         ? 'Settlement complete'
         : currentStatus === 'open'
             ? (metrics.percentage === 100 ? 'Ready to start settlement' : 'Planning in progress')
@@ -115,7 +137,7 @@ export default function DashboardView() {
             label: 'Close Year',
             newStatus: 'closed',
             enabled: isReadyToClose,
-            hint: isReadyToClose
+            hint: aggregatesUnavailable ? 'Unavailable' : isReadyToClose
                 ? 'All members settled\u2014ready to close'
                 : remaining + ' member' + (remaining === 1 ? '' : 's') + ' still outstanding',
             title: 'Close Year',
@@ -133,7 +155,9 @@ export default function DashboardView() {
 
     // Settlement message
     let settlementMessage = '';
-    if (currentStatus === 'archived') {
+    if (aggregatesUnavailable) {
+        settlementMessage = 'Unavailable';
+    } else if (currentStatus === 'archived') {
         settlementMessage = 'Archived year. Records are preserved for reference and cannot be modified.';
     } else if (currentStatus === 'closed') {
         settlementMessage = metrics.totalOutstanding > 0
@@ -179,12 +203,13 @@ export default function DashboardView() {
                 )}
 
                 <div className="kpi-grid">
-                    <KpiCard label="Outstanding" value={metrics.totalOutstanding > 0 ? '$' + metrics.totalOutstanding.toFixed(2) : 'Paid'}
-                        valueClass={metrics.totalOutstanding > 0 ? 'outstanding' : 'settled-zero'} />
-                    <KpiCard label="Owed to Members" value={metrics.totalCreditsOwed > 0 ? '$' + metrics.totalCreditsOwed.toFixed(2) : 'None'}
-                        valueClass={metrics.totalCreditsOwed > 0 ? 'credit' : 'settled-zero'}
+                    <KpiCard label="Outstanding" value={aggregatesUnavailable ? 'Unavailable' : metrics.totalOutstanding > 0 ? '$' + metrics.totalOutstanding.toFixed(2) : 'Paid'}
+                        valueClass={aggregatesUnavailable ? '' : metrics.totalOutstanding > 0 ? 'outstanding' : 'settled-zero'} />
+                    <KpiCard label="Owed to Members" value={aggregatesUnavailable ? 'Unavailable' : metrics.totalCreditsOwed > 0 ? '$' + metrics.totalCreditsOwed.toFixed(2) : 'None'}
+                        valueClass={aggregatesUnavailable ? '' : metrics.totalCreditsOwed > 0 ? 'credit' : 'settled-zero'}
                         subtitle="Unresolved credits" />
-                    <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers} />
+                    <KpiCard label="Settled" value={metrics.paidCount + ' / ' + metrics.totalMembers}
+                        subtitle={hasHolds && availability.needsCorrectionCount > 0 ? availability.needsCorrectionCount + ' household' + (availability.needsCorrectionCount === 1 ? ' needs' : 's need') + ' correction' : undefined} />
                     <KpiCard
                         label="Open Reviews"
                         value={String(openDisputeCount)}
@@ -195,7 +220,7 @@ export default function DashboardView() {
 
                 {deferred.count > 0 && (
                     <div className="admin-hint" data-testid="deferred-charges-indicator">
-                        Deferred charges: {formatAnnualSummaryCurrency(deferred.total)}{' '}
+                        Deferred charges: {aggregatesUnavailable ? 'Unavailable' : formatAnnualSummaryCurrency(deferred.total)}{' '}
                         ({deferred.count} {deferred.count === 1 ? 'charge' : 'charges'}) not yet billed—these carry forward to next year.
                     </div>
                 )}
@@ -203,18 +228,18 @@ export default function DashboardView() {
                 <div className="progress-block">
                     <div className="progress-header">
                         <span className="progress-title">{statusHeadline}</span>
-                        <span className="progress-figure">{metrics.percentage}% settled</span>
+                        <span className="progress-figure">{aggregatesUnavailable ? 'Unavailable' : metrics.percentage + '% settled'}</span>
                     </div>
                     <div className="progress-track">
                         <div
                             className={'progress-fill' + (allSettled ? ' progress-fill--done' : '')}
-                            style={{ width: metrics.percentage + '%' }}
+                            style={{ width: aggregatesUnavailable ? '0%' : metrics.percentage + '%' }}
                         />
                     </div>
                     {settlementMessage && <p className="settlement-message">{settlementMessage}</p>}
                 </div>
 
-                {remaining > 0 && currentStatus === 'settling' && (
+                {!hasHolds && remaining > 0 && currentStatus === 'settling' && (
                     <div className="admin-hint">
                         {remaining} member{remaining === 1 ? '' : 's'} still outstanding. Send reminders via share links.
                     </div>
@@ -222,6 +247,8 @@ export default function DashboardView() {
             </div>
 
             <SettlementBoard
+                getFinancialSource={() => ({ ...financialSource, ...service.getState() })}
+                getFinancialAvailability={memberId => getAvailability(memberId, reopenedAdjustments)}
                 familyMembers={familyMembers}
                 bills={bills}
                 payments={payments}
@@ -309,11 +336,13 @@ export default function DashboardView() {
 
             {dialog.type === 'emailInvoice' && (
                 <EmailInvoiceDialog
+                    getAvailability={() => getAvailability(dialog.memberId)}
                     open
                     memberId={dialog.memberId}
                     familyMembers={familyMembers}
                     bills={bills}
                     payments={payments}
+                    creditAdjustments={creditAdjustments}
                     owedAdjustments={owedAdjustments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
@@ -326,11 +355,13 @@ export default function DashboardView() {
 
             {dialog.type === 'textInvoice' && (
                 <TextInvoiceDialog
+                    getAvailability={() => getAvailability(dialog.memberId)}
                     open
                     memberId={dialog.memberId}
                     familyMembers={familyMembers}
                     bills={bills}
                     payments={payments}
+                    creditAdjustments={creditAdjustments}
                     owedAdjustments={owedAdjustments}
                     activeYear={activeYear}
                     settings={service.getState().settings || {}}
@@ -345,6 +376,7 @@ export default function DashboardView() {
                 const member = familyMembers.find(m => m.id === dialog.memberId);
                 return (
                     <ShareLinkDialog
+                        getAvailability={() => getAvailability(dialog.memberId)}
                         open
                         memberId={dialog.memberId}
                         memberName={member ? member.name : ''}
@@ -393,9 +425,14 @@ export default function DashboardView() {
                 return (
                     <ChargeNoticeDialog
                         open
+                        memberId={dialog.memberId}
+                        getAvailability={() => getAvailability(dialog.memberId)}
                         memberName={member ? member.name : ''}
                         charges={candidates}
                         onConfirm={chargeIds => {
+                            // A stale open dialog cannot authorize billing or a fresh
+                            // outbound notice after the household becomes held.
+                            if (!getAvailability(dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
                             // Bill the selected charges (deferred → billed; raises owed), then
                             // issue the outbound Charge Notice (email + share link).
                             const result = service.billDeferredCharges({ memberId: dialog.memberId, chargeIds });
@@ -404,24 +441,28 @@ export default function DashboardView() {
                             // would still mark them deferred and the minted share link would show
                             // the just-billed charges as pending/not-yet-due.
                             const freshState = service.getState();
+                            if (freshState.activeYear?.id !== activeYear.id
+                                || !getHouseholdFinancialAvailability(freshState, dialog.memberId).available) throw new Error(FINANCIAL_UNAVAILABLE);
+                            const freshMember = freshState.familyMembers.find(row => row.id === dialog.memberId);
                             // Defer the success toast until the notice actually issues, and surface
                             // a failure to the admin rather than only console.error-ing it
                             // (PR #328 review r3447513511).
                             Promise.resolve(
                                 issueChargeNotice({
                                     userId: user ? user.uid : '',
-                                    billingYearId: activeYear.id,
-                                    yearLabel,
-                                    memberId: dialog.memberId,
-                                    memberName: member ? member.name : '',
-                                    memberEmail: member ? member.email : '',
+                                    billingYearId: freshState.activeYear.id,
+                                    yearLabel: freshState.activeYear.label || freshState.activeYear.id,
+                                    memberId: freshMember.id,
+                                    memberName: freshMember.name || '',
+                                    memberEmail: freshMember.email || '',
                                     chargeNoticeId: result.chargeNoticeId,
                                     charges: result.charges,
-                                    familyMembers,
-                                    bills,
-                                    payments,
-                                    owedAdjustments: freshState.owedAdjustments || [],
-                                    activeYear,
+                                    familyMembers: freshState.familyMembers,
+                                    bills: freshState.bills,
+                                    payments: freshState.payments,
+                                    creditAdjustments: freshState.creditAdjustments,
+                                    owedAdjustments: freshState.owedAdjustments,
+                                    activeYear: freshState.activeYear,
                                     settings: freshState.settings || {},
                                 })
                             )

@@ -1,9 +1,10 @@
 /**
- * ConfirmDialog — modal overlay with title, message, Cancel / Confirm.
+ * ConfirmDialog — title, message, Cancel / Confirm, on the shared Dialog primitive.
  * Port of showConfirmationDialog() from main.js:5076.
- * Uses a focus trap and closes on Escape or overlay click.
+ * Focus starts on the confirm button; Escape or an overlay click cancels.
  */
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import Dialog from './Dialog.jsx';
 
 /**
  * @param {{
@@ -24,35 +25,15 @@ export default function ConfirmDialog({
 }) {
     const confirmRef = useRef(null);
 
-    // Focus the confirm button on open
-    useEffect(() => {
-        if (open && confirmRef.current) confirmRef.current.focus();
-    }, [open]);
-
-    // Close on Escape
-    useEffect(() => {
-        if (!open) return;
-        function handleKey(e) {
-            if (e.key === 'Escape') onCancel();
-        }
-        document.addEventListener('keydown', handleKey);
-        return () => document.removeEventListener('keydown', handleKey);
-    }, [open, onCancel]);
-
-    if (!open) return null;
-
-    function handleOverlayClick(e) {
-        if (e.target === e.currentTarget) onCancel();
-    }
-
     return (
-        <div className="dialog-overlay visible" onClick={handleOverlayClick} role="presentation">
-            <div className="dialog confirmation-dialog" role="dialog" aria-modal="true" aria-label={title}>
-                <div className="dialog-header"><h3>{title}</h3></div>
-                <div className="dialog-body">
-                    <p className="confirmation-message">{message}</p>
-                </div>
-                <div className="dialog-footer">
+        <Dialog
+            open={open}
+            onClose={onCancel}
+            title={title}
+            className="confirmation-dialog"
+            initialFocusRef={confirmRef}
+            footer={(
+                <>
                     <button type="button" className="btn btn-secondary" onClick={onCancel}>
                         Cancel
                     </button>
@@ -64,8 +45,10 @@ export default function ConfirmDialog({
                     >
                         {confirmLabel}
                     </button>
-                </div>
-            </div>
-        </div>
+                </>
+            )}
+        >
+            <p className="confirmation-message">{message}</p>
+        </Dialog>
     );
 }

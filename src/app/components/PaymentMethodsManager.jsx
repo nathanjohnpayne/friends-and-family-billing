@@ -7,6 +7,7 @@ import { PAYMENT_METHOD_TYPES, getPaymentMethodIcon, getPaymentMethodDetail } fr
 import { isValidE164 } from '../../lib/validation.js';
 import ActionMenu, { ActionMenuItem } from './ActionMenu.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import Dialog from './Dialog.jsx';
 
 export default function PaymentMethodsManager({ settings, readOnly, onUpdate }) {
     const methods = settings.paymentMethods || [];
@@ -222,90 +223,91 @@ function PaymentMethodEditDialog({ method, onSave, onCancel }) {
     };
 
     return (
-        <div className="dialog-overlay" onClick={onCancel}>
-            <div className="dialog" onClick={e => e.stopPropagation()}>
-                <div className="dialog-title type-display">Edit {method.label}</div>
-                <form onSubmit={handleSave}>
-                    <div className="payment-dialog-fields">
-                        <div className="payment-field-group">
-                            <label>Display Label</label>
-                            <input
-                                className="composer-input"
-                                value={fields.label}
-                                onChange={e => update('label', e.target.value)}
-                            />
-                        </div>
-                        {typeDef.fields.map(f => {
-                            const def = fieldDefs[f] || { label: f, placeholder: '' };
-                            return (
-                                <div key={f} className="payment-field-group">
-                                    <label>{def.label}</label>
-                                    {(f === 'instructions' || def.multiline) ? (
-                                        <textarea
-                                            className="composer-input"
-                                            rows={2}
-                                            placeholder={def.placeholder}
-                                            value={fields[f] || ''}
-                                            onChange={e => update(f, e.target.value)}
-                                        />
-                                    ) : (
-                                        <input
-                                            className="composer-input"
-                                            type={def.type || 'text'}
-                                            placeholder={def.placeholder}
-                                            value={fields[f] || ''}
-                                            onChange={e => update(f, e.target.value)}
-                                        />
-                                    )}
-                                </div>
-                            );
-                        })}
-                        <div className="payment-field-group">
-                            <label>QR Code (optional)</label>
-                            {fields.qrCode ? (
-                                <div className="pm-qr-preview">
-                                    <img src={fields.qrCode} alt="QR Code" className="pm-qr-image" />
-                                    <div className="pm-qr-actions">
-                                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
-                                            Replace
-                                        </button>
-                                        <button type="button" className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => {
-                                            setFields(prev => ({ ...prev, qrCode: '', hasQrCode: false }));
-                                        }}>
-                                            Remove
-                                        </button>
-                                    </div>
-                                </div>
+        <Dialog
+            onClose={onCancel}
+            title={<>Edit {method.label}</>}
+            onSubmit={handleSave}
+            footer={(
+                <>
+                    <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
+                    <button type="submit" className="btn btn-sm btn-ink">Save</button>
+                </>
+            )}
+        >
+            <div className="payment-dialog-fields">
+                <div className="payment-field-group">
+                    <label>Display Label</label>
+                    <input
+                        className="composer-input"
+                        value={fields.label}
+                        onChange={e => update('label', e.target.value)}
+                    />
+                </div>
+                {typeDef.fields.map(f => {
+                    const def = fieldDefs[f] || { label: f, placeholder: '' };
+                    return (
+                        <div key={f} className="payment-field-group">
+                            <label>{def.label}</label>
+                            {(f === 'instructions' || def.multiline) ? (
+                                <textarea
+                                    className="composer-input"
+                                    rows={2}
+                                    placeholder={def.placeholder}
+                                    value={fields[f] || ''}
+                                    onChange={e => update(f, e.target.value)}
+                                />
                             ) : (
-                                <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
-                                    Upload QR Code
-                                </button>
+                                <input
+                                    className="composer-input"
+                                    type={def.type || 'text'}
+                                    placeholder={def.placeholder}
+                                    value={fields[f] || ''}
+                                    onChange={e => update(f, e.target.value)}
+                                />
                             )}
-                            <input
-                                ref={qrInputRef}
-                                type="file"
-                                accept="image/png,image/jpeg"
-                                style={{ display: 'none' }}
-                                onChange={e => {
-                                    const file = e.target.files && e.target.files[0];
-                                    if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                        setFields(prev => ({ ...prev, qrCode: reader.result, hasQrCode: true }));
-                                    };
-                                    reader.readAsDataURL(file);
-                                    e.target.value = '';
-                                }}
-                            />
                         </div>
-                    </div>
-                    {error && <p className="composer-error">{error}</p>}
-                    <div className="dialog-buttons">
-                        <button type="button" className="btn btn-sm btn-header-secondary" onClick={onCancel}>Cancel</button>
-                        <button type="submit" className="btn btn-sm btn-ink">Save</button>
-                    </div>
-                </form>
+                    );
+                })}
+                <div className="payment-field-group">
+                    <label>QR Code (optional)</label>
+                    {fields.qrCode ? (
+                        <div className="pm-qr-preview">
+                            <img src={fields.qrCode} alt="QR Code" className="pm-qr-image" />
+                            <div className="pm-qr-actions">
+                                <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
+                                    Replace
+                                </button>
+                                <button type="button" className="btn btn-sm btn-tertiary" style={{ color: 'var(--color-danger)' }} onClick={() => {
+                                    setFields(prev => ({ ...prev, qrCode: '', hasQrCode: false }));
+                                }}>
+                                    Remove
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => qrInputRef.current && qrInputRef.current.click()}>
+                            Upload QR Code
+                        </button>
+                    )}
+                    <input
+                        ref={qrInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg"
+                        style={{ display: 'none' }}
+                        onChange={e => {
+                            const file = e.target.files && e.target.files[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                setFields(prev => ({ ...prev, qrCode: reader.result, hasQrCode: true }));
+                            };
+                            reader.readAsDataURL(file);
+                            e.target.value = '';
+                        }}
+                    />
+                </div>
             </div>
-        </div>
+            {error && <p className="composer-error">{error}</p>}
+        </Dialog>
     );
 }

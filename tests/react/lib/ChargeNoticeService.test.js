@@ -15,10 +15,15 @@ vi.mock('firebase/firestore', () => ({
     collection: (...args) => mockCollection(...args),
     doc: (...args) => mockDoc(...args),
     setDoc: (...args) => mockSetDoc(...args),
-    serverTimestamp: vi.fn(() => 'SERVER_TS')
+    serverTimestamp: vi.fn(() => 'SERVER_TS'),
+    getDocs: vi.fn(), getDoc: vi.fn(), writeBatch: vi.fn(), runTransaction: vi.fn()
 }));
 
 import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
+import { BillingYearService } from '@/lib/BillingYearService.js';
+
+import { summarizeChargePreview, buildChargeNoticeDoc } from '@/lib/chargeNotice.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 
 const baseOpts = () => ({
     userId: 'user-1',
@@ -35,6 +40,7 @@ const baseOpts = () => ({
     familyMembers: [{ id: 1, name: 'Alice', linkedMembers: [] }],
     bills: [],
     payments: [],
+    creditAdjustments: [],
     owedAdjustments: [],
     activeYear: { id: '2026', label: '2026' },
     settings: {}
@@ -47,6 +53,117 @@ describe('issueChargeNotice', () => {
         vi.clearAllMocks();
         createShareLink = vi.fn(async () => ({ url: 'https://example.com/share?token=xyz', tokenHash: 'hash-xyz', rawToken: 'xyz' }));
         queueEmailFn = vi.fn(async () => ({ id: 'mail-1' }));
+    });
+
+    it.each([.004, NaN, Infinity, '1'])('rejects zero/invalid selected %s before link/prune/doc/email side effects', async amount => {
+        const opts = { ...baseOpts(), charges: [{ id: 'a', amount }] };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow();
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('rejects a different malformed admitted household record before minting a link', async () => {
+        const opts = { ...baseOpts(), creditAdjustments: [{ id: 'r', memberId: 1, amount: '1', type: 'refund', status: 'recorded' }] };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it('sends allocated new snapshot rows, preserving raw charges', async () => {
+        const opts = { ...baseOpts(), charges: ['a', 'b'].map(id => ({ id, description: id, amount: .005 })) };
+        await issueChargeNotice(opts, { createShareLink, queueEmailFn });
+        const doc = mockSetDoc.mock.calls[0][1];
+        expect(doc.amount).toBe(.01);
+        expect(doc.charges.map(row => row.amount)).toEqual([.01, 0]);
+        expect(queueEmailFn.mock.calls[0][0].body).toContain('b: $0.00');
+        expect(opts.charges.map(row => row.amount)).toEqual([.005, .005]);
+    });
+
+    it.each([
+        { activeYear: undefined, billingYearId: '2026' },
+        { activeYear: undefined, billingYearId: undefined },
+        { activeYear: {}, billingYearId: undefined }
+    ])('rejects an absent year identity before transport: %j', async identity => {
+        const opts = { ...baseOpts(), ...identity, yearLabel: '' };
+        await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow('Financial data unavailable');
+        expect(createShareLink).not.toHaveBeenCalled();
+        expect(mockSetDoc).not.toHaveBeenCalled();
+        expect(queueEmailFn).not.toHaveBeenCalled();
+    });
+
+    it.each(['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments'])(
+        'rejects incomplete raw %s before transport', async field => {
+            const opts = baseOpts();
+            delete opts[field];
+            await expect(issueChargeNotice(opts, { createShareLink, queueEmailFn })).rejects.toThrow(/unavailable/);
+            expect(createShareLink).not.toHaveBeenCalled();
+            expect(mockSetDoc).not.toHaveBeenCalled();
+            expect(queueEmailFn).not.toHaveBeenCalled();
+        });
+
+    it.each([1.005, .005, .004])('shares one %s fixture across preview, billed event, document and email', async amount => {
+        const opts = baseOpts();
+        const charges = (amount === 1.005 ? ['a'] : ['a', 'b']).map(id => ({ id, memberId: 1,
+            kind: 'usage_charge', status: 'deferred', amount, description: id, incurredDate: '2026-01-01' }));
+        const service = new BillingYearService();
+        service._setState({ activeYear: opts.activeYear, familyMembers: opts.familyMembers, owedAdjustments: charges });
+        const preview = summarizeChargePreview(charges);
+        const result = service.billDeferredCharges({ memberId: 1, chargeIds: charges.map(row => row.id) });
+        const snapshot = service.getState();
+        await issueChargeNotice({ ...opts, ...snapshot, ...result }, { createShareLink, queueEmailFn });
+        const document = mockSetDoc.mock.calls[0][1];
+        const expected = amount === 1.005 ? 1.01 : .01;
+        expect(preview.total).toBe(expected);
+        expect(result.amount).toBe(expected);
+        expect(snapshot.billingEvents.at(-1).payload.amount).toBe(expected);
+        expect(document.amount).toBe(expected);
+        expect(document.charges).toEqual(preview.charges.map(({ id, description, amount, incurredDate }) => ({ id, description, amount, incurredDate })));
+        expect(buildChargeNoticeDoc({ ...opts, charges }).charges).toEqual(document.charges);
+        expect(preview.charges.at(-1).runningTotal).toBe(expected);
+        let running = 0;
+        for (const row of preview.charges) {
+            running += Math.round(row.amount * 100);
+            expect(row.runningTotal).toBe(running / 100);
+            expect(queueEmailFn.mock.calls[0][0].body).toContain(`${row.description}: $${row.amount.toFixed(2)}`);
+        }
+        expect(queueEmailFn.mock.calls[0][0].subject).toContain(expected.toFixed(2));
+        expect(snapshot.owedAdjustments.map(row => row.amount)).toEqual(charges.map(row => row.amount));
+        if (amount === 1.005) expect(getHouseholdFinancials(snapshot.familyMembers[0], snapshot).cents.B).toBe(101);
+    });
+
+    it('freezes financial and identity presentation before awaiting link transport', async () => {
+        const opts = baseOpts();
+        opts.yearLabel = '';
+        opts.charges = [{ id: 'a', amount: 1.005, description: 'Original charge', incurredDate: '2026-01-01' }];
+        opts.settings = { paymentMethods: [{ id: 'cash', label: 'Original method' }] };
+        let finish;
+        createShareLink.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+        const pending = issueChargeNotice(opts, { createShareLink, queueEmailFn });
+        expect(createShareLink).toHaveBeenCalledOnce();
+        opts.charges[0].amount = 99;
+        opts.charges[0].description = 'Changed charge';
+        opts.memberName = 'Changed name';
+        opts.memberEmail = 'changed@example.com';
+        opts.activeYear.label = 'Changed year';
+        opts.familyMembers[0].name = 'Changed member';
+        opts.settings.paymentMethods[0].label = 'Changed method';
+        finish({ url: 'https://example.com/frozen', tokenHash: 'frozen-hash' });
+        await pending;
+        const document = mockSetDoc.mock.calls[0][1];
+        const mail = queueEmailFn.mock.calls[0][0];
+        expect(document).toMatchObject({ memberName: 'Alice', amount: 1.01,
+            charges: [{ description: 'Original charge', amount: 1.01 }] });
+        expect(mail.to).toBe('alice@example.com');
+        expect(mail.body).toContain('Original charge: $1.01');
+        expect(mail.subject).toContain('2026');
+        expect(mail.body).toContain('https://example.com/frozen');
+        expect(mail.body).not.toContain('Changed');
+        const link = createShareLink.mock.calls[0][0];
+        expect(link.familyMembers[0].name).toBe('Alice');
+        expect(link.activeYear.label).toBe('2026');
+        expect(link.settings.paymentMethods[0].label).toBe('Original method');
     });
 
     it('writes a charge_notice doc to the disputes subcollection with the billed total', async () => {

@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const FUNCTION_FILES = ['index.js', 'billing.js', 'package.json', 'package-lock.json', 'functions.yaml',
+  'money.js', 'money.mjs', 'household-money.js', 'household-money.mjs'];
 
 function requireCondition(ok, message) { if (!ok) throw new Error(message); }
 function copyTree(source, dest, root = true) {
@@ -52,7 +54,7 @@ function build() {
   const write = (name, data) => { const dest = path.join(bundle, name); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, data); };
   const json = (name, value) => write(name, JSON.stringify(value) + '\n');
   json('functions/firebase.json', { functions: { source: 'source', runtime: 'nodejs24', codebase: 'default' } });
-  for (const name of ['index.js', 'billing.js', 'package.json', 'package-lock.json', 'functions.yaml']) write('functions/source/' + name, fs.readFileSync(path.join(functionSource, name)));
+  for (const name of FUNCTION_FILES) write('functions/source/' + name, fs.readFileSync(path.join(functionSource, name)));
   const original = JSON.parse(fs.readFileSync(path.join(source, 'firebase.json')));
   requireCondition(!original.hosting.predeploy && !original.hosting.postdeploy, 'Remove local deploy hooks');
   json('hosting/firebase.json', { hosting: { ...original.hosting, public: 'public' } });
@@ -74,13 +76,17 @@ function build() {
     }
   }
   hashTree(bundle);
-  json('metadata.json', { schema: 1, repository: 'nathanjohnpayne/friends-and-family-billing', sourceSha: process.env.SOURCE_SHA, firebaseCli: '15.34.2', functionsSdk: '7.4.0', files: hashes });
+  json('metadata.json', { schema: 2, repository: 'nathanjohnpayne/friends-and-family-billing', sourceSha: process.env.SOURCE_SHA, firebaseCli: '15.34.2', functionsSdk: '7.4.0', files: hashes });
   const name = 'ffb-deploy-' + process.env.SOURCE_SHA + '.tar';
   // Explicit file entries avoid ./ names and directory metadata portability.
   command('tar', ['--format=ustar', '--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '-cf', '/output/' + name, ...Object.keys(hashes).sort(), 'metadata.json'], bundle);
+  // Execute candidate modules only here, before signing and without credentials.
+  fs.mkdirSync('/work/module-proof');
+  command('tar', ['-xf', '/output/' + name, '-C', '/work/module-proof'], '/work');
+  command('node', ['/input/scripts/check-functions-modules.cjs', '/work/module-proof/functions/source'], '/work');
   fs.writeFileSync('/output/SHA256SUMS', crypto.createHash('sha256').update(fs.readFileSync('/output/' + name)).digest('hex') + '  ' + name + '\n');
   requireCondition(fs.existsSync('/work/probe-observed'), 'Isolation probe did not run');
-  fs.writeFileSync('/output/isolation-proof.json', JSON.stringify({ sourceSha: process.env.SOURCE_SHA, productionBuild: true, manifestDiscovery: true, candidateImportedDuringDeploy: false, credentialEnvironmentDenied: true, operatorFilesystemDenied: true }) + '\n');
+  fs.writeFileSync('/output/isolation-proof.json', JSON.stringify({ sourceSha: process.env.SOURCE_SHA, productionBuild: true, manifestDiscovery: true, packagedFinancialModules: true, candidateImportedDuringDeploy: false, credentialEnvironmentDenied: true, operatorFilesystemDenied: true }) + '\n');
 }
 if (require.main === module) build();
 module.exports = { copyTree, build };

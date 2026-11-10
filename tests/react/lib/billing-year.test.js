@@ -1,3 +1,4 @@
+import { toExactCents as toCents } from '@/lib/household-money.js';
 import { describe, it, expect, vi } from 'vitest';
 import {
     calculateOutstandingBalance,
@@ -9,7 +10,7 @@ import {
     isYearLabelDuplicate,
     buildNewYearData
 } from '@/lib/billing-year.js';
-import { getHouseholdOpeningBalance, calculateAnnualSummary, getHouseholdFinancials, buildCarryForward, CREDIT_EPSILON } from '@/lib/calculations.js';
+import { getHouseholdOpeningBalance, calculateAnnualSummary, getHouseholdFinancials, buildCarryForward } from '@/lib/calculations.js';
 
 describe('calculateOutstandingBalance', () => {
     const members = [
@@ -19,7 +20,7 @@ describe('calculateOutstandingBalance', () => {
     const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }];
 
     it('returns outstanding balance across all households', () => {
-        const payments = [{ memberId: 1, amount: 300 }];
+        const payments = [{ id: 'fixture-1', memberId: 1, amount: 300 }];
         const balance = calculateOutstandingBalance(members, bills, payments);
         // Alice owes 600, paid 300 → 300 outstanding
         // Bob owes 600, paid 0 → 600 outstanding
@@ -28,15 +29,15 @@ describe('calculateOutstandingBalance', () => {
 
     it('returns 0 when everyone is paid up', () => {
         const payments = [
-            { memberId: 1, amount: 600 },
-            { memberId: 2, amount: 600 }
+            { id: 'fixture-2', memberId: 1, amount: 600 },
+            { id: 'fixture-3', memberId: 2, amount: 600 }
         ];
         expect(calculateOutstandingBalance(members, bills, payments)).toBe(0);
     });
 
     it('uses Net Contribution — a recorded disposition that nets a household below owed surfaces a shortfall', () => {
         // Bob paid 600 (= owed) but a recorded carry-forward of 100 nets him to 500.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-4', memberId: 1, amount: 600 }, { id: 'fixture-5', memberId: 2, amount: 600 }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 100, status: 'recorded' }];
         expect(calculateOutstandingBalance(members, bills, payments, creditAdjustments)).toBeCloseTo(100, 5);
     });
@@ -44,14 +45,14 @@ describe('calculateOutstandingBalance', () => {
     // ── Close-gate: blocks only on present-tense money (#320/#321/#322, ADR 0006) ──
     it('does NOT count an undisposed credit as outstanding (a surplus never blocks the close)', () => {
         // Alice overpaid by 100 (undisposed credit), Bob is fully paid. Nothing is owed.
-        const payments = [{ memberId: 1, amount: 700 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-6', memberId: 1, amount: 700 }, { id: 'fixture-7', memberId: 2, amount: 600 }];
         expect(calculateOutstandingBalance(members, bills, payments)).toBe(0);
     });
 
     it('does NOT count a deferred usage charge as outstanding (it is not present-tense money)', () => {
         // Everyone paid their bills; a deferred charge is pending, not billed, so the
         // close gate ignores it (it auto-carries instead of blocking, ADR 0006).
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-8', memberId: 1, amount: 600 }, { id: 'fixture-9', memberId: 2, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 250, status: 'deferred' }];
         // owedAdjustments IS an input post-#320/#321/#322, but a DEFERRED charge never
         // raises owed (only billed does), so outstanding stays 0.
@@ -59,14 +60,14 @@ describe('calculateOutstandingBalance', () => {
     });
 
     it('still blocks on a genuine unpaid balance (Outstanding present-tense money)', () => {
-        const payments = [{ memberId: 1, amount: 600 }]; // Bob underpaid by 600
+        const payments = [{ id: 'fixture-10', memberId: 1, amount: 600 }]; // Bob underpaid by 600
         expect(calculateOutstandingBalance(members, bills, payments)).toBeCloseTo(600, 5);
     });
 
     it('applies a carried opening balance to the outstanding figure (#322)', () => {
         // Alice (600 owed) carries a −100 credit → owes 500 net; pays 500 → settled.
         // Bob (600 owed) carries a +60 charge → owes 660; pays 600 → owes 60.
-        const payments = [{ memberId: 1, amount: 500 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-11', memberId: 1, amount: 500 }, { id: 'fixture-12', memberId: 2, amount: 600 }];
         const owedAdjustments = [
             { id: 's1', memberId: 1, kind: 'carry_opening', amount: -100, status: 'carried_in' },
             { id: 's2', memberId: 2, kind: 'carry_opening', amount: 60, status: 'carried_in' }
@@ -77,20 +78,20 @@ describe('calculateOutstandingBalance', () => {
     it('a service credit shrinks an outstanding shortfall (#321, ADR 0006 — never blocks the close more)', () => {
         // Bob owes 600, paid 500 (100 short). A 40 service credit lowers his owed to 560,
         // so outstanding drops to 60 — a −owed adjustment can only reduce present-tense debt.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const payments = [{ id: 'fixture-13', memberId: 1, amount: 600 }, { id: 'fixture-14', memberId: 2, amount: 500 }];
         const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 40, status: 'active' }];
         expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBeCloseTo(60, 5);
     });
 
     it('a service credit that clears a household shortfall removes it from outstanding entirely', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const payments = [{ id: 'fixture-15', memberId: 1, amount: 600 }, { id: 'fixture-16', memberId: 2, amount: 500 }];
         const owedAdjustments = [{ id: 'o1', memberId: 2, kind: 'service_credit', amount: 100, status: 'active' }];
         expect(calculateOutstandingBalance(members, bills, payments, [], owedAdjustments)).toBe(0);
     });
 
     it('counts an unpaid BILLED usage charge as outstanding, but not a deferred one (#320, ADR 0006)', () => {
         // Everyone paid their bills; Alice has a $40 charge.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-17', memberId: 1, amount: 600 }, { id: 'fixture-18', memberId: 2, amount: 600 }];
         const billed = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
         const deferred = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
         expect(calculateOutstandingBalance(members, bills, payments, [], billed)).toBeCloseTo(40, 5);
@@ -138,7 +139,7 @@ describe('buildCarryForwardSummary (#322)', () => {
         // One household: Alice owes 600, overpaid by 80 (credit), plus a 30 deferred charge.
         const members = [{ id: 1, name: 'Alice', linkedMembers: [] }];
         const bills = [{ id: 'b1', amount: 50, billingFrequency: 'monthly', members: [1] }];
-        const payments = [{ memberId: 1, amount: 680 }];
+        const payments = [{ id: 'fixture-19', memberId: 1, amount: 680 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 30, status: 'deferred' }];
 
         const summary = buildCarryForwardSummary(members, bills, payments, [], owedAdjustments);
@@ -151,7 +152,7 @@ describe('buildCarryForwardSummary (#322)', () => {
     it('reports nothing carrying when all households are disposed and settled', () => {
         const members = [{ id: 1, name: 'Alice', linkedMembers: [] }];
         const bills = [{ id: 'b1', amount: 50, billingFrequency: 'monthly', members: [1] }];
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-20', memberId: 1, amount: 600 }];
         const summary = buildCarryForwardSummary(members, bills, payments, [], []);
         expect(summary.memberCount).toBe(0);
         expect(summary.totalOpeningBalance).toBe(0);
@@ -242,14 +243,7 @@ describe('buildNewYearData', () => {
 
     it('seeds a per-household carry_opening record from the carry summary', () => {
         // One household carries a net opening balance of −80 (an $80 credit).
-        const carry = {
-            totalOpeningBalance: -80,
-            memberCount: 1,
-            households: [
-                { primaryMemberId: 1, credit: 80, deferredChargeTotal: 0, openingBalance: -80,
-                  creditAdjustmentIds: [], deferredChargeIds: [] }
-            ]
-        };
+        const carry = buildCarryForwardSummary(members, [], [{ id: 'payment', memberId: 1, amount: 80 }], [], [], { fromYearLabel: '2026', nextYearLabel: '2027' });
         const data = buildNewYearData(members, bills, settings, '2027', carry, '2026');
         const seeds = data.owedAdjustments.filter(a => a.kind === 'carry_opening');
         expect(seeds).toHaveLength(1);
@@ -260,21 +254,14 @@ describe('buildNewYearData', () => {
     });
 
     it('seeded opening balance flows into the new year owed (annual total) and first invoice', () => {
-        const carry = {
-            totalOpeningBalance: -80,
-            memberCount: 1,
-            households: [
-                { primaryMemberId: 1, credit: 80, deferredChargeTotal: 0, openingBalance: -80,
-                  creditAdjustmentIds: [], deferredChargeIds: [] }
-            ]
-        };
+        const carry = buildCarryForwardSummary(members, [], [{ id: 'payment', memberId: 1, amount: 80 }], [], [], { fromYearLabel: '2026', nextYearLabel: '2027' });
         const data = buildNewYearData(members, bills, settings, '2027', carry, '2026');
         // Re-derive owed for the new year using the seeded opening balance.
         const summary = calculateAnnualSummary(data.familyMembers, data.bills);
         const opening = getHouseholdOpeningBalance(data.familyMembers[0], data.owedAdjustments);
         // openingBalance is the 7th arg (5th is #319's reopenedAdjustmentIds, 6th is
         // #320/#321's owedAdjustments — the seed carry_opening rides that array too).
-        const f = getHouseholdFinancials(data.familyMembers[0], summary, data.payments, data.creditAdjustments, null, data.owedAdjustments, opening);
+        const f = getHouseholdFinancials(data.familyMembers[0], { familyMembers: data.familyMembers, bills: data.bills, payments: data.payments, creditAdjustments: data.creditAdjustments, owedAdjustments: data.owedAdjustments }, { reopenedAdjustmentIds: null });
         // Alice's household (Alice + linked Bob) owes summary[1] + summary[2] on the
         // shared Internet bill, minus the carried 80 credit.
         const householdBillsOwed = summary[1].total + summary[2].total;
@@ -283,8 +270,8 @@ describe('buildNewYearData', () => {
     });
 
     it('seeds no carry_opening records when nothing carries', () => {
-        const carry = { totalOpeningBalance: 0, memberCount: 0, households: [] };
-        const data = buildNewYearData(members, bills, settings, '2027', carry);
+        const carry = buildCarryForwardSummary(members, [], [], [], [], { fromYearLabel: '2026', nextYearLabel: '2027' });
+        const data = buildNewYearData(members, bills, settings, '2027', carry, '2026');
         expect(data.owedAdjustments.filter(a => a.kind === 'carry_opening')).toHaveLength(0);
     });
 
@@ -299,7 +286,7 @@ describe('buildNewYearData', () => {
 function reviewCarry(source, fromYearLabel = '2026', nextYearLabel = '2027') {
     const carry = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments,
         source.creditAdjustments, source.owedAdjustments,
-        { carryUnusedOpeningCredit: true, reopenedAdjustmentIds: source.reopenedAdjustmentIds });
+        { carryUnusedOpeningCredit: true, reopenedAdjustmentIds: source.reopenedAdjustmentIds, fromYearLabel, nextYearLabel, itemized: true, reviewServiceCredits: source.reviewServiceCredits || [] });
     carry.households = carry.households.map(h => ({
         ...h,
         items: buildCarryOpeningItems(h, { ...source, fromYearLabel, nextYearLabel })
@@ -311,9 +298,7 @@ function reviewCarry(source, fromYearLabel = '2026', nextYearLabel = '2027') {
 }
 
 function financials(source, member, reopenedAdjustmentIds = null) {
-    return getHouseholdFinancials(member, calculateAnnualSummary(source.familyMembers, source.bills),
-        source.payments, source.creditAdjustments, reopenedAdjustmentIds, source.owedAdjustments,
-        getHouseholdOpeningBalance(member, source.owedAdjustments));
+    return getHouseholdFinancials(member, { familyMembers: source.familyMembers, bills: source.bills, payments: source.payments, creditAdjustments: source.creditAdjustments, owedAdjustments: source.owedAdjustments }, { reopenedAdjustmentIds });
 }
 
 function carryFixture({ bills = 100, serviceCredit = 0, paid = 0, refund = 0, incoming = 0, billed = 0, deferred = 0 } = {}) {
@@ -352,22 +337,21 @@ function expectCarryInvariants(source, result) {
         const memberIds = [member.id, ...(member.linkedMembers || [])];
         const before = financials(source, member);
         const opening = getHouseholdOpeningBalance(member, source.owedAdjustments);
-        const toCents = amount => Math.round((amount + Number.EPSILON) * 100);
         const incoming = toCents(Math.abs(opening));
         const availableCharges = Math.max(0, toCents(before.grossOwed) - toCents(before.serviceCreditTotal) + (opening > 0 ? incoming : 0));
         const unused = opening < 0 ? Math.max(0, incoming - availableCharges) / 100 : 0;
         const deferred = source.owedAdjustments.filter(a => a.kind === 'usage_charge' && a.status === 'deferred' && memberIds.includes(a.memberId))
             .reduce((sum, a) => sum + a.amount, 0);
         // (a) Only the top-level items contribute; nested detail reconciles credit.
-        expect(Math.abs(seed.items.reduce((sum, item) => sum + item.amount, 0) - seed.amount)).toBeLessThan(CREDIT_EPSILON);
+        expect(seed.items.reduce((sum, item) => sum + toCents(item.amount), 0)).toBe(toCents(seed.amount));
         for (const item of seed.items.filter(item => item.kind === 'credit')) {
-            expect(Math.abs(item.detail.reduce((sum, d) => sum + d.amount, 0) - item.amount)).toBeLessThan(CREDIT_EPSILON);
+            expect(item.detail.reduce((sum, d) => sum + toCents(d.amount), 0)).toBe(toCents(item.amount));
         }
         // (b) Nothing other than deferred charges and payment/incoming credit moves.
         expect(h.unusedOpeningCredit || 0).toBe(unused);
         expect(h.credit).toBe(before.credit);
         expect(h.deferredChargeTotal).toBeCloseTo(deferred, 8);
-        expect(Math.abs(seed.amount - (deferred - before.credit - unused))).toBeLessThan(CREDIT_EPSILON);
+        expect(toCents(seed.amount)).toBe(toCents(deferred) - before.cents.credit - toCents(unused));
     }
     for (const member of source.familyMembers.filter(m => !source.familyMembers.some(p => p.linkedMembers?.includes(m.id)))) {
         const before = financials(source, member);
@@ -376,7 +360,7 @@ function expectCarryInvariants(source, result) {
         // (c) Carry uses null, including for a refund re-opened on the board.
         expect(after.credit).toBe(0);
         expect(after.owed - after.netContribution).toBeCloseTo(
-            h?.credit > CREDIT_EPSILON ? 0 : before.owed - before.netContribution, 8);
+            h?.credit > 0 ? 0 : before.owed - before.netContribution, 8);
     }
 }
 
@@ -456,7 +440,7 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         expect(result.prior.carriedCreditRecords[0].amount).toBe(10);
         const nextFinancials = financials({ ...source, ...result.next, bills: source.bills }, source.familyMembers[0]);
         expect(nextFinancials.owed).toBe(100);
-        const legacy = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments);
+        const legacy = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments, { fromYearLabel: '2026', nextYearLabel: '2027' });
         expect(buildNewYearData(source.familyMembers, [], {}, '2027', legacy, '2026').owedAdjustments).toEqual([]);
         expectCarryInvariants(source, result);
     });
@@ -486,14 +470,13 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         }));
         source.owedAdjustments = source.reviewServiceCredits;
         const ended = reviewCarry(freezeRecords(source));
-        expect(ended.next.owedAdjustments[0].items[0]).toMatchObject({
-            memberId: 1, kind: 'credit', amount: -70,
+        expect(ended.next.owedAdjustments[0].items[0]).toMatchObject({ memberId: 1, kind: 'credit', amount: -70,
             detail: [
                 { sourceId: 'sc-1', amount: -16 }, { sourceId: 'sc-2', amount: -16 },
                 { sourceId: 'sc-3', amount: -16 }, { kind: 'remainder', amount: -22 }
             ]
         });
-        const fullyPaid = { ...source, payments: [{ memberId: 1, amount: 144 }] };
+        const fullyPaid = { ...source, payments: [{ id: 'fixture-22', memberId: 1, amount: 144 }] };
         expect(reviewCarry(fullyPaid).next.owedAdjustments[0].items[0].amount).toBe(-48);
 
         const netting = {
@@ -563,8 +546,8 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         vi.setSystemTime(new Date('2026-12-31T12:00:00.000Z'));
         try {
             const source = freezeRecords(carryFixture({ paid: 120, deferred: 5, incoming: -132 }));
-            const legacy = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments);
-            expect(legacy).toEqual(buildCarryForward(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments));
+            const legacy = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments, { fromYearLabel: '2026', nextYearLabel: '2027' });
+            expect(legacy).toEqual(buildCarryForward(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments, { fromYearLabel: '2026', nextYearLabel: '2027' }));
             expect(buildNewYearData(source.familyMembers, [], {}, '2027', legacy, '2026').owedAdjustments).toEqual([{
                 id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -115, status: 'carried_in',
                 fromYear: '2026', createdAt: '2026-12-31T12:00:00.000Z'
@@ -575,8 +558,10 @@ describe('itemized review carry (#601, ADR 0009)', () => {
             expect(first.prior.carriedCreditRecords[0].id).toBe('cadj_carry_2027_1');
             expect(first.next.owedAdjustments[0].id).toBe('coadj_2026_1');
             expect(first.next.owedAdjustments[0].items.find(i => i.kind === 'credit').sourceId).toBe('cadj_carry_2027_1');
-            expect(applyCarryForwardToPriorYear([], source.owedAdjustments, legacy,
-                { nextYearLabel: '2027', idFactory: h => `custom-${h.primaryMemberId}` }).carriedCreditRecords[0].id).toBe('custom-1');
+            const custom = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments,
+                { fromYearLabel: '2026', nextYearLabel: '2027', creditDispositionIds: new Map([[1, 'custom-1']]) });
+            expect(applyCarryForwardToPriorYear([], source.owedAdjustments, custom,
+                { nextYearLabel: '2027' }).carriedCreditRecords[0].id).toBe('custom-1');
         } finally {
             vi.useRealTimers();
         }
@@ -600,17 +585,17 @@ describe('itemized review carry (#601, ADR 0009)', () => {
                 source.bills.push({ id: `bill-${h}`, name: `Bill ${h}`, amount: random(40001) / 100, billingFrequency: random(2) ? 'monthly' : 'annual', members: memberIds });
                 memberIds.forEach(memberId => {
                     const paid = random(70001) / 100;
-                    source.payments.push({ memberId, amount: paid });
+                    source.payments.push({ id: `payment-${memberId}`, memberId, amount: paid });
                     source.creditAdjustments.push({ id: `refund-${memberId}`, memberId, type: 'refund', amount: random(Math.round(paid * 100) + 1) / 100, status: random(3) ? 'recorded' : 'cancelled' });
                     source.owedAdjustments.push(
                         { id: `seed-${memberId}`, memberId, kind: 'carry_opening', amount: (random(80001) - 40000) / 100, status: 'carried_in' },
                         { id: `charge-${memberId}`, memberId, billId: `bill-${h}`, kind: 'usage_charge', amount: (1 + random(10000)) / 100, status: 'deferred', basis: random(2) ? 'price_change' : 'late_start', calc: { months: 1 + random(12) } },
-                        { id: `billed-${memberId}`, memberId, kind: 'usage_charge', amount: random(10000) / 100, status: 'billed' },
-                        { id: `old-${memberId}`, memberId, kind: 'service_credit', amount: random(30001) / 100, status: 'active' },
+                        { id: `billed-${memberId}`, memberId, kind: 'usage_charge', amount: (1 + random(10000)) / 100, status: 'billed' },
+                        { id: `old-${memberId}`, memberId, kind: 'service_credit', amount: (1 + random(30001)) / 100, status: 'active' },
                         { id: `voided-credit-${memberId}`, memberId, kind: 'service_credit', amount: 1000, status: 'voided' },
                         { id: `voided-${memberId}`, memberId, kind: 'carry_opening', amount: -1000, status: 'voided' }
                     );
-                    const credit = { id: `sc-${memberId}`, memberId, billId: `bill-${h}`, kind: 'service_credit', basis: 'ended', reason: 'Ended', amount: random(30001) / 100, status: 'active' };
+                    const credit = { id: `sc-${memberId}`, memberId, billId: `bill-${h}`, kind: 'service_credit', basis: 'ended', reason: 'Ended', amount: (1 + random(30001)) / 100, status: 'active' };
                     source.owedAdjustments.push(credit);
                     source.reviewServiceCredits.push(credit);
                 });

@@ -1,12 +1,8 @@
 // Pure calculation functions — no DOM, no Firestore, no module-scoped state.
 // All data is passed as parameters so these are independently testable.
 
-/**
- * Threshold (≈ half a cent) below which an overpayment is treated as zero.
- * Distributed-payment remainders and bill-split division can leave sub-cent
- * residue; a credit at or below this is rounding noise, not money owed back.
- */
-export const CREDIT_EPSILON = 0.005;
+import { projectHouseholdMoney, buildCarryMoneySnapshot, snapshotDollars } from './household-money.js';
+import { MoneyIntegrityError, rational, quantizeDollarsToCents } from './money.js';
 
 /**
  * Coerce an adjustment amount and add it to a running sum only when it is a
@@ -82,6 +78,7 @@ export function calculateAnnualSummary(familyMembers, bills) {
 }
 
 /**
+ * Legacy raw member/audit total; never household settlement authority.
  * @param {Array} payments
  * @param {*} memberId
  * @returns {number}
@@ -93,22 +90,8 @@ export function getPaymentTotalForMember(payments, memberId) {
 }
 
 /**
- * Sum of recorded credit adjustments (refunds + carried-forward credits) for a
- * member. These leave the payments ledger and subtract from gross payments to
- * yield Net Contribution. Cancelled adjustments are excluded. Mirrors
- * getPaymentTotalForMember so household-grain math composes the same way.
- *
- * `reopenedAdjustmentIds` (optional, #319 / ADR 0003): adjustment ids whose
- * credit has been re-opened by an active, unresolved `not_received` report.
- * While the year is open these are excluded — the optimistic refund (#318) no
- * longer counts, so the credit is owed again. Omit (or pass null/empty) and the
- * function behaves exactly as before, so existing three-argument callers and the
- * Record-Payment cap are unaffected.
- *
- * @param {Array} creditAdjustments
- * @param {*} memberId
- * @param {Set<string>|null} [reopenedAdjustmentIds]
- * @returns {number}
+ * Legacy raw per-member audit total with existing cancellation/reopening rules.
+ * Household financial authority reads exact source components directly instead.
  */
 export function getCreditAdjustmentTotalForMember(creditAdjustments, memberId, reopenedAdjustmentIds = null) {
     return (creditAdjustments || [])
@@ -221,17 +204,7 @@ function isActiveServiceCreditFor(a, memberId) {
     return !!a && a.memberId === memberId && a.kind === 'service_credit' && a.status === 'active';
 }
 
-/**
- * Sum of a member's *active* Service Credits (#321) as a positive magnitude.
- * This figure is subtracted from the member's owed by getHouseholdFinancials, so
- * a paid household's reduced owed surfaces as a Credit on the existing
- * refund/carry axis (no new disposition path). Mirrors
- * getDeferredUsageChargeTotalForMember / getCreditAdjustmentTotalForMember so the
- * household-grain math composes the same way.
- * @param {Array} owedAdjustments
- * @param {*} memberId
- * @returns {number}
- */
+/** Legacy invoice/public-display sum; not authenticated financial authority. */
 export function getServiceCreditTotalForMember(owedAdjustments, memberId) {
     return (owedAdjustments || [])
         .filter(a => isActiveServiceCreditFor(a, memberId))
@@ -251,15 +224,7 @@ function isBilledUsageChargeFor(a, memberId) {
     return !!a && a.memberId === memberId && a.kind === 'usage_charge' && a.status === 'billed';
 }
 
-/**
- * Sum of a member's *billed* Usage Charges (#320). Once a Charge Notice bills a
- * deferred charge it becomes present-tense money that raises owed (ADR 0005), so
- * this addend feeds the household's owed in getHouseholdFinancials — the mirror of
- * getDeferredUsageChargeTotalForMember, which deliberately does not.
- * @param {Array} owedAdjustments
- * @param {*} memberId
- * @returns {number}
- */
+/** Legacy per-member display sum; exact household B is projected independently. */
 export function getBilledUsageChargeTotalForMember(owedAdjustments, memberId) {
     return (owedAdjustments || [])
         .filter(a => isBilledUsageChargeFor(a, memberId))
@@ -296,100 +261,41 @@ export function getParentMember(familyMembers, memberId) {
 }
 
 /**
- * Settlement financials for one household, computed at the household grain
- * (ADR 0001): a primary member plus their linked members settle as one unit.
- * Owed, gross paid, and recorded credit adjustments are summed across the whole
- * household before differencing, so internal imbalance between members (one over,
- * one under) nets out and never surfaces as a household credit.
- *
- *   owed             = bill-derived owed − active Service Credits, floored at 0
- *   Net Contribution = gross paid − recorded refunds/carried-forward credits
- *   Credit           = max(0, Net Contribution − owed), sub-cent residue zeroed
- *
- * Service Credits (#321, ADR 0005) are the `−owed` direction of owedAdjustments[]:
- * an active service_credit LOWERS the affected members' owed. When the household
- * has already paid (Net Contribution now exceeds the reduced owed) the surplus
- * surfaces as a Credit on the EXISTING refund/carry axis above — no new
- * disposition path. owed is floored at 0 so an over-large credit becomes a Credit
- * rather than negative debt. Deferred Usage Charges in the same array are NOT
- * applied here (they are `+owed` but not yet billed); only active Service Credits
- * feed owed. Passing owedAdjustments is optional and defaults to empty, so every
- * existing four-argument caller is unaffected.
- *
- * Invariant: in valid states a household's recorded dispositions (refunds +
- * carry-forwards) are capped at its credit, enforced at the mutation/import
- * boundary by later slices, so netContribution >= owed and a settled household
- * never reads as underpaid. The settlement board and metrics nonetheless derive
- * every figure (status, balance, the Record-Payment gate, outstanding totals)
- * from netContribution, so an over-disposition degrades to an honest collectable
- * shortfall rather than splitting status from balance.
- *
- * Billed Usage Charges (#320, owedAdjustments) add to owed at the household grain:
- * once a Charge Notice bills a deferred charge it is present-tense money, so
- * unpaid → the household carries a collectable balance → Outstanding → blocks close.
- * Still-deferred charges are NOT applied here (they never raise owed).
- *
- * Opening balance (#322, ADR 0005/0006): a household's next year is seeded with
- * a single netted carry-forward `openingBalance` (a carried credit is negative
- * and lowers owed; a carried charge is positive and raises owed). It is an
- * additive modifier of the bill-derived owed, defaulting to 0 so every existing
- * call is unchanged. The bill-derived owed (after Service Credits and the opening
- * balance) is floored at 0 so neither an over-large Service Credit nor a carried
- * credit can make the bills owe the member money — any excess surfaces through the
- * normal credit path once payments land, not as negative owed. Billed Usage
- * Charges are then added on top of that floored figure (#320 is real owed, never
- * cancelled by a credit/carry).
- *
- * Both owedAdjustments (6th) and openingBalance (7th) are optional and default to
- * empty/0, so every existing 4-arg caller is unaffected (the #316 additive pattern).
- *
- * @param {{ id: *, linkedMembers?: Array }} member  the household's primary member
- * @param {Object} summary  output of calculateAnnualSummary (owed per member)
- * @param {Array} payments
- * @param {Array} [creditAdjustments]
- * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
- *   active not_received (#319, ADR 0003); excluded so the credit is owed again
- * @param {Array} [owedAdjustments]  Service Credits (−owed, #321, applied) and billed
- *   Usage Charges (+owed, #320, added); deferred Usage Charges (#317) and the
- *   `carry_opening` seed records (#322, applied via openingBalance) are ignored here
- * @param {number} [openingBalance]  netted carried-forward opening balance (#322); a
- *   carried credit is negative (owe less), a carried charge positive (owe more)
- * @returns {{ owed: number, grossOwed: number, serviceCreditTotal: number, grossPaid: number, creditAdjustmentTotal: number, billedChargeTotal: number, netContribution: number, credit: number }}
+ * Exact settlement authority over the complete raw five-array year source.
+ * Reopening only affects admitted R records; U is never a refundable credit.
+ * Success exposes integer cents plus checked dollar aliases for existing UI.
+ * Failure exposes private diagnostics and identity, with no money or source rows.
  */
-export function getHouseholdFinancials(member, summary, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = [], openingBalance = 0) {
-    const linkedIds = member.linkedMembers || [];
+export function getFinancialSourceHolds(source, householdId = null) {
+    return ['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments']
+        .filter(field => !Array.isArray(source?.[field])).map(field => ({ householdId,
+            code: 'INVALID_SOURCE', component: 'source', recordId: null, field,
+            observedType: typeof source?.[field], message: 'Complete raw year collections are required' }));
+}
 
-    let grossOwed = summary[member.id] ? summary[member.id].total : 0;
-    linkedIds.forEach(id => { if (summary[id]) grossOwed += summary[id].total; });
+/** Project one household without reconstructing source from member display totals. */
+export function getHouseholdFinancials(member, source, { reopenedAdjustmentIds = null } = {}) {
+    const holds = getFinancialSourceHolds(source, member.id);
+    if (holds.length) return { ok: false, householdId: member.id, holds };
+    const result = projectHouseholdMoney(source, member, { reopenedAdjustmentIds });
+    if (!result.ok) return result;
+    try {
+        const fields = { grossOwed: result.G, serviceCreditTotal: result.S, grossPaid: result.P,
+            creditAdjustmentTotal: result.R, billedChargeTotal: result.B, netContribution: result.N,
+            owed: result.owed, balance: result.balance, credit: result.credit };
+        return { ok: true, householdId: member.id,
+            cents: Object.fromEntries(['G', 'S', 'O', 'P', 'R', 'B', 'N', 'invoice', 'owed', 'balance', 'credit', 'U', 'deferredCents'].map(field => [field, result[field]])),
+            ...Object.fromEntries(Object.entries(fields).map(([field, cents]) => [field, snapshotDollars(cents, member.id)])) };
+    } catch (error) {
+        if (!(error instanceof MoneyIntegrityError)) throw error;
+        return { ok: false, householdId: member.id, holds: [{ householdId: member.id, code: error.code,
+            component: 'composition', recordId: member.id, field: 'amount', observedType: 'number', message: error.message }] };
+    }
+}
 
-    const serviceCreditTotal = getServiceCreditTotalForMember(owedAdjustments, member.id)
-        + linkedIds.reduce((s, id) => s + getServiceCreditTotalForMember(owedAdjustments, id), 0);
-
-    // Billed Usage Charges raise owed at the household grain (ADR 0001, #320).
-    const billedChargeTotal = getBilledUsageChargeTotalForMember(owedAdjustments, member.id)
-        + linkedIds.reduce((s, id) => s + getBilledUsageChargeTotalForMember(owedAdjustments, id), 0);
-
-    // Compose all four owed slices (ADR 0005). A Service Credit (#321) lowers the
-    // bill-derived owed and a carried opening balance (#322) adjusts it (credit −,
-    // charge +); their combined effect is floored at 0 so neither an over-large
-    // credit nor a carried credit turns owed negative — the residual rides the
-    // credit path as payments arrive. A billed Usage Charge (#320) is real owed,
-    // added on top of that floored figure (never cancelled by a credit/carry).
-    // The carry_opening seed records that produce openingBalance are a distinct
-    // `kind`, so the two helpers above ignore them — no double-count.
-    const owed = Math.max(0, grossOwed - serviceCreditTotal + (openingBalance || 0)) + billedChargeTotal;
-
-    const grossPaid = getPaymentTotalForMember(payments, member.id)
-        + linkedIds.reduce((s, id) => s + getPaymentTotalForMember(payments, id), 0);
-
-    const creditAdjustmentTotal = getCreditAdjustmentTotalForMember(creditAdjustments, member.id, reopenedAdjustmentIds)
-        + linkedIds.reduce((s, id) => s + getCreditAdjustmentTotalForMember(creditAdjustments, id, reopenedAdjustmentIds), 0);
-
-    const netContribution = grossPaid - creditAdjustmentTotal;
-    const rawCredit = netContribution - owed;
-    const credit = rawCredit > CREDIT_EPSILON ? rawCredit : 0;
-
-    return { owed, grossOwed, serviceCreditTotal, grossPaid, creditAdjustmentTotal, billedChargeTotal, netContribution, credit };
+/** Exact sum at aggregate boundaries; safe households need not imply a safe year total. */
+export function sumMoneyCents(values) {
+    return quantizeDollarsToCents(rational(values.reduce((sum, value) => sum + BigInt(value), 0n), 100n));
 }
 
 /**
@@ -412,173 +318,69 @@ export function getHouseholdOpeningBalance(member, owedAdjustments) {
 }
 
 /**
- * The carry-forward seam (#322, ADR 0005/0006/0007). Given a closing year's
- * state, compute — at the household grain (ADR 0001) — what UNDISPOSED items
- * roll into next year and net them to a single per-household opening balance.
- *
- * Two feeds, netted to one number (the issue's "credits negative, charges
- * positive"):
- *   - undisposed Credit            → carried as a NEGATIVE opening balance (owe less)
- *   - still-deferred Usage Charges → carried as a POSITIVE opening balance (owe more)
- *
- * The household's carryable Credit is its `getHouseholdFinancials` credit, which
- * already nets out recorded refunds and carry-forwards — so a credit already
- * disposed by a refund is not double-carried, and a partial refund leaves only
- * the residual to carry.
- *
- * #319 reconciliation (Refund Notices / `not_received`, ADR 0003): an active
- * `not_received` re-opens a credit — that amount is owed back THIS year, not
- * undisposed surplus, so it must not be carried. The optional
- * `reopenedAdjustmentIds` set (from `reopenedCreditAdjustmentIds`, #319) names
- * recorded refund/carry adjustments that are currently re-opened; this seam
- * treats them as still-effective FOR THE CARRY (it does not add their amount back
- * into the carried credit), so the resurfaced credit stays live this year and
- * only genuine surplus rolls forward. When the set is empty, behavior is unchanged.
- *
- * Pure: computes only; never mutates. The close/rollover path consumes the
- * returned ids to mark the old year (append-only) and the opening balances to
- * seed the new year.
- *
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Array} payments
- * @param {Array} [creditAdjustments]
- * @param {Array} [owedAdjustments]
- * @param {{ reopenedAdjustmentIds?: Set }} [options]
- * @returns {{ households: Array<{ primaryMemberId: *, credit: number, deferredChargeTotal: number, deferredChargeIds: Array, creditAdjustmentIds: Array, openingBalance: number }>, totalOpeningBalance: number, memberCount: number }}
+ * Finalize one detached whole-year carry plan using actual disposition ids before
+ * validation. Markings, stored seeds and display aliases all consume this plan.
+ * Legacy seeds omit zero net amounts; itemized review seeds retain their detail.
  */
 export function buildCarryForward(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], options = {}) {
-    const reopenedAdjustmentIds = options.reopenedAdjustmentIds || new Set();
-    const summary = calculateAnnualSummary(familyMembers, bills);
-    const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    const holds = getFinancialSourceHolds(source);
+    if (holds.length) return { ok: false, households: [], holds };
+    const plan = buildCarryMoneySnapshot(source,
+        { fromYearLabel: 'prev', nextYearLabel: 'next', ...options });
+    if (!plan.ok) return plan;
+    try {
+        return { ...plan, households: plan.households.filter(h => h.seed).map(h => ({ ...h,
+            primaryMemberId: h.householdId, credit: snapshotDollars(h.credit, h.householdId),
+            deferredChargeTotal: snapshotDollars(h.deferredCents, h.householdId),
+            unusedOpeningCredit: snapshotDollars(h.unusedOpeningCreditCents, h.householdId),
+            openingBalance: snapshotDollars(h.openingBalanceCents, h.householdId),
+            ...(options.itemized ? { items: structuredClone(h.seed.items) } : {}) })),
+            totalOpeningBalance: snapshotDollars(plan.totalOpeningBalanceCents, 'year'),
+            memberCount: plan.households.filter(h => h.seed).length };
+    } catch (error) {
+        if (!(error instanceof MoneyIntegrityError)) throw error;
+        return { ok: false, households: [], holds: [{ householdId: null, code: error.code,
+            component: 'carry-total', recordId: null, field: 'amount', observedType: 'number', message: error.message }] };
+    }
+}
 
-    const households = [];
-    let totalOpeningBalance = 0;
-
-    mainMembers.forEach(member => {
-        // Carryable credit is the household's full getHouseholdFinancials credit, so
-        // it composes ALL owed slices of the closing year: a Service Credit (#321)
-        // that reduced owed and PRODUCED a Credit rides this same axis (it must
-        // carry — ADR 0005), and the closing year's own carried-in opening balance
-        // (#322) lowers/raises owed exactly as the board shows. Billed Usage Charges
-        // (#320) raise owed and so reduce the surplus, also correctly. The credit
-        // subtracts ALL recorded refunds/carries, INCLUDING any currently re-opened
-        // by an active not_received: a re-opened refund is owed back THIS year (it
-        // re-blocks the gate, ADR 0003), not undisposed surplus, so it stays
-        // effective for the carry and only genuine residual surplus rolls forward.
-        // (reopenedAdjustmentIds only governs which records are eligible to be marked
-        // carried-forward, never the carryable amount.)
-        // priorOpeningBalance is the CLOSING year's own carried-in balance (#322), so
-        // its credit composes exactly as the board showed; distinct from `openingBalance`
-        // below, which is the NEW netted balance this seam carries OUT to next year.
-        const priorOpeningBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { credit } = getHouseholdFinancials(member, summary, payments, creditAdjustments, null, owedAdjustments, priorOpeningBalance);
-
-        const ids = [member.id, ...((member.linkedMembers) || [])];
-        const deferred = (owedAdjustments || []).filter(
-            a => a && a.kind === 'usage_charge' && a.status === 'deferred' && ids.includes(a.memberId)
-        );
-        const deferredChargeTotal = deferred.reduce((sum, a) => sum + (a.amount || 0), 0);
-        const deferredChargeIds = deferred.map(a => a.id);
-
-        // Credit-adjustment records to mark carried-forward on the old year: the
-        // active (recorded, not cancelled, not re-opened) household credit records.
-        const creditAdjustmentIds = (creditAdjustments || [])
-            .filter(a => a && a.status !== 'cancelled' && !reopenedAdjustmentIds.has(a.id) && ids.includes(a.memberId))
-            .map(a => a.id);
-
-        const hasCarryableCredit = credit > CREDIT_EPSILON;
-        const hasDeferredCharge = deferredChargeTotal > CREDIT_EPSILON;
-        if (!hasCarryableCredit && !hasDeferredCharge) return;
-
-        // Net to one opening balance: charges positive, credit negative.
-        const openingBalance = deferredChargeTotal - (hasCarryableCredit ? credit : 0);
-
-        households.push({
-            primaryMemberId: member.id,
-            credit: hasCarryableCredit ? credit : 0,
-            deferredChargeTotal,
-            deferredChargeIds,
-            creditAdjustmentIds,
-            openingBalance
-        });
-        totalOpeningBalance += openingBalance;
-    });
-
-    return { households, totalOpeningBalance, memberCount: households.length };
+/** Round the clamped satisfied/annual ratio exactly to the nearest whole percent. */
+function settlementPercentage(annualCents, outstandingCents) {
+    if (annualCents <= 0) return 0;
+    const annual = BigInt(annualCents);
+    const satisfied = annual - BigInt(outstandingCents);
+    if (satisfied <= 0n) return 0;
+    if (satisfied >= annual) return 100;
+    return Number((satisfied * 200n + annual) / (annual * 2n));
 }
 
 /**
- * Billed Usage Charges (#320, owedAdjustments) raise each household's owed, so an
- * unpaid billed charge becomes Outstanding and blocks close (ADR 0006), while
- * still-deferred charges stay out of the gate. Carried opening balances (#322) fold
- * into owed via getHouseholdOpeningBalance — a carried charge becomes collectable and
- * a carried credit lowers what is owed. Both owedAdjustments and the carry_opening
- * seeds default to empty, so every existing 4-arg caller is unaffected (the #316
- * additive pattern).
- *
- * @param {Array} familyMembers
- * @param {Array} bills
- * @param {Array} payments
- * @param {Array} [creditAdjustments]  refunds + carried-forward credits (#316)
- * @param {Set<string>|null} [reopenedAdjustmentIds]  adjustment ids re-opened by an
- *   active not_received (#319, ADR 0003); raises Net Contribution back so the
- *   household credit (totalCreditsOwed) is owed again while the year is open.
- *   Outstanding is unaffected — a re-opened credit is overpayment owed back, never
- *   underpayment — so it never inflates settlement progress.
- * @param {Array} [owedAdjustments]  owed-modifiers: Service Credits (−owed, #321) lower
- *   owed, billed Usage Charges (+owed, #320) raise it, and the `carry_opening` seed
- *   records (#322) fold a household's carried opening balance into its owed/annual
- *   total. Deferred Usage Charges (#317) in this array are still ignored (pending, not owed).
- * @returns {{ totalAnnual: number, totalPayments: number, totalOutstanding: number, totalCreditsOwed: number, paidCount: number, totalMembers: number, percentage: number }}
+ * Aggregate checked household cents, preserving structural counts on a hold.
+ * A positive cent balance is outstanding even when the household's owed is zero.
+ * Unsafe year totals withhold aggregates without inventing a held household.
  */
 export function calculateSettlementMetrics(familyMembers, bills, payments, creditAdjustments = [], reopenedAdjustmentIds = null, owedAdjustments = []) {
-    const summary = calculateAnnualSummary(familyMembers, bills);
+    const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
+    if (!Array.isArray(familyMembers)) return { ok: false, households: [], totalMembers: 0, paidCount: 0, needsCorrectionCount: 0, holds: getFinancialSourceHolds(source) };
     const mainMembers = familyMembers.filter(m => !isLinkedToAnyone(familyMembers, m.id));
-
-    let totalAnnual = 0;
-    let totalPayments = 0;
-    let totalOutstanding = 0;
-    let totalCreditsOwed = 0;
-    let paidCount = 0;
-
-    mainMembers.forEach(member => {
-        // `owed` here is the post-Service-Credit (#321), post-opening-balance (#322),
-        // plus-billed-charge (#320) owed, so totalAnnual reflects what is actually
-        // owed after bill-level reductions and the carried balance, and a paid
-        // household whose owed dropped below its Net Contribution surfaces a credit on
-        // the existing axis. owedAdjustments is the 6th arg, openingBalance the 7th.
-        const openingBalance = getHouseholdOpeningBalance(member, owedAdjustments);
-        const { owed, grossPaid, netContribution, credit } =
-            getHouseholdFinancials(member, summary, payments, creditAdjustments, reopenedAdjustmentIds, owedAdjustments, openingBalance);
-        totalAnnual += owed;
-        totalPayments += grossPaid;
-        totalCreditsOwed += credit;
-        // Outstanding is the sum of per-household NET shortfalls, not a global gross
-        // difference. A refund leaves the ledger, so it must not offset another
-        // household's debt, and one household's overpayment must not mask another's
-        // shortfall. With no adjustments netContribution === grossPaid, so for a
-        // household that is underpaid this equals the prior gross shortfall.
-        const shortfall = owed - netContribution;
-        if (shortfall > CREDIT_EPSILON) totalOutstanding += shortfall;
-        // Settled = not underpaid beyond a sub-cent tolerance (shortfall <= epsilon).
-        // Overpaid households satisfy this too (their credit is tracked separately).
-        if (owed <= 0 || netContribution >= owed - CREDIT_EPSILON) paidCount++;
-    });
-
-    // Progress = the share of total owed that is net-satisfied (totalAnnual − the
-    // net shortfall), so returned money never counts as settlement progress.
-    const percentage = totalAnnual > 0
-        ? Math.max(0, Math.min(100, Math.round(((totalAnnual - totalOutstanding) / totalAnnual) * 100)))
-        : 0;
-
-    return {
-        totalAnnual: totalAnnual,
-        totalPayments: totalPayments,
-        totalOutstanding: totalOutstanding,
-        totalCreditsOwed: totalCreditsOwed,
-        paidCount: paidCount,
-        totalMembers: mainMembers.length,
-        percentage: percentage
-    };
+    const households = mainMembers.map(member => getHouseholdFinancials(member, source, { reopenedAdjustmentIds }));
+    const valid = households.filter(row => row.ok);
+    const structure = { households, totalMembers: mainMembers.length,
+        paidCount: valid.filter(row => row.cents.balance <= 0).length,
+        needsCorrectionCount: households.length - valid.length };
+    if (valid.length !== households.length) return { ok: false, ...structure, holds: households.flatMap(row => row.holds || []) };
+    try {
+        const cents = { totalAnnual: sumMoneyCents(valid.map(row => row.cents.owed)),
+            totalPayments: sumMoneyCents(valid.map(row => row.cents.P)),
+            totalOutstanding: sumMoneyCents(valid.map(row => Math.max(0, row.cents.balance))),
+            totalCreditsOwed: sumMoneyCents(valid.map(row => row.cents.credit)) };
+        return { ok: true, ...structure, cents,
+            ...Object.fromEntries(Object.entries(cents).map(([field, value]) => [field, snapshotDollars(value, 'year')])),
+            percentage: settlementPercentage(cents.totalAnnual, cents.totalOutstanding) };
+    } catch (error) {
+        if (!(error instanceof MoneyIntegrityError)) throw error;
+        return { ok: false, ...structure, holds: [{ householdId: null, code: error.code,
+            component: 'aggregate', recordId: null, field: 'amount', observedType: 'number', message: error.message }] };
+    }
 }

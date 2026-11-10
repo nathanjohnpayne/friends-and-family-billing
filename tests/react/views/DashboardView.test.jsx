@@ -126,7 +126,7 @@ describe('DashboardView', () => {
     it('shows settling status with progress', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
-            payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
+            payments: [{ id: 'source-1', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
         });
         expect(screen.getByText('Settlement in progress')).toBeInTheDocument();
     });
@@ -135,8 +135,8 @@ describe('DashboardView', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-2', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-3', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         expect(screen.getByText('Settlement complete')).toBeInTheDocument();
@@ -153,8 +153,8 @@ describe('DashboardView', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-4', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-5', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         const btn = screen.getByRole('button', { name: 'Close Year' });
@@ -166,7 +166,7 @@ describe('DashboardView', () => {
     it('shows disabled Close Year button with hint when settling but not ready', () => {
         renderDashboard({
             activeYear: { id: '2026', label: '2026', status: 'settling' },
-            payments: [{ memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
+            payments: [{ id: 'source-6', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }]
         });
         const btn = screen.getByRole('button', { name: 'Close Year' });
         expect(btn).toBeDisabled();
@@ -192,8 +192,8 @@ describe('DashboardView', () => {
     it('shows corrected headline when open and 100% settled', () => {
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
-                { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
+                { id: 'source-7', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' },
+                { id: 'source-8', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString(), type: 'payment' }
             ]
         });
         expect(screen.getByText('Ready to start settlement')).toBeInTheDocument();
@@ -220,8 +220,8 @@ describe('DashboardView', () => {
         // Annual bill 1200 split two ways → 600 owed each. Bob overpays to 668.98 → 68.98 credit.
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+                { id: 'source-9', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { id: 'source-10', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
             ]
         });
         // Scope to the KPI card so the assertion verifies the dashboard KPI path,
@@ -245,7 +245,8 @@ describe('DashboardView', () => {
                 // getState reflects the POST-billDeferredCharges state: o1 is now 'billed'
                 // (the real service flips it synchronously). The handler must read THIS fresh
                 // state, not the stale 'deferred' prop, when minting the Charge Notice link.
-                getState: vi.fn(() => ({ settings: {}, owedAdjustments: [
+                getState: vi.fn(() => ({ activeYear: mockState.activeYear, familyMembers: mockState.familyMembers,
+                    bills: mockState.bills, payments: mockState.payments, creditAdjustments: [], settings: {}, owedAdjustments: [
                     { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 12.5, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
                 ] })),
                 recordPayment: vi.fn(), reversePayment: vi.fn(), setYearStatus: vi.fn(),
@@ -289,6 +290,39 @@ describe('DashboardView', () => {
             ]);
         });
 
+        it('uses one complete fresh post-billing source and identity for Notice issuance', async () => {
+            const user = userEvent.setup();
+            const { service, billDeferredCharges } = renderWithDeferred();
+            const fresh = { activeYear: { id: '2026', label: 'Fresh label' }, settings: { emailSubject: 'Fresh settings' },
+                familyMembers: mockState.familyMembers.map(row => row.id === 2 ? { ...row, name: 'Fresh Bob', email: 'fresh@example.com' } : row),
+                bills: [{ ...mockState.bills[0], amount: 1400 }],
+                payments: [{ id: 'fresh-payment', memberId: 2, amount: 1 }],
+                creditAdjustments: [{ id: 'fresh-refund', memberId: 2, amount: .5, type: 'refund', status: 'recorded' }],
+                owedAdjustments: [{ id: 'o1', memberId: 2, kind: 'usage_charge', status: 'billed', amount: 12.5 }] };
+            const originalBill = billDeferredCharges.getMockImplementation();
+            billDeferredCharges.mockImplementation(args => {
+                service.getState.mockReturnValue(fresh);
+                service.getState.mockClear();
+                return originalBill(args);
+            });
+            let snapshotReadsAtIssuance;
+            mockIssueChargeNotice.mockImplementationOnce(() => {
+                snapshotReadsAtIssuance = service.getState.mock.calls.length;
+                return Promise.resolve({ emailError: null });
+            });
+            await user.click(screen.getByText('Bob').closest('.settlement-card-main'));
+            await user.click(screen.getByText('Bill Charges'));
+            await user.click(screen.getByText('Bill & Notify'));
+            expect(snapshotReadsAtIssuance).toBe(1);
+            const opts = mockIssueChargeNotice.mock.calls[0][0];
+            for (const field of ['familyMembers', 'bills', 'payments', 'creditAdjustments', 'owedAdjustments', 'activeYear', 'settings']) {
+                expect(opts[field]).toBe(fresh[field]);
+            }
+            expect(opts).toMatchObject({ memberName: 'Fresh Bob', memberEmail: 'fresh@example.com', yearLabel: 'Fresh label' });
+            expect(opts).not.toHaveProperty('getState');
+            expect(opts).not.toHaveProperty('getAvailability');
+        });
+
         async function billAndNotify() {
             const user = userEvent.setup();
             renderWithDeferred();
@@ -315,8 +349,8 @@ describe('DashboardView', () => {
             // BILLED charge → Outstanding should read $40, not "Paid".
             renderDashboard({
                 payments: [
-                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                    { id: 'source-11', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { id: 'source-12', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
                 ],
                 owedAdjustments: [
                     { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2026-06-03' }
@@ -364,8 +398,8 @@ describe('DashboardView', () => {
         it('a DEFERRED charge does NOT raise the dashboard Outstanding KPI', () => {
             renderDashboard({
                 payments: [
-                    { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                    { memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
+                    { id: 'source-13', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                    { id: 'source-14', memberId: 2, amount: 600, method: 'cash', note: '', date: new Date().toISOString() }
                 ],
                 owedAdjustments: [
                     { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred', description: 'Roaming', incurredDate: '2026-06-03' }
@@ -381,8 +415,8 @@ describe('DashboardView', () => {
         // Bob overpaid (668.98 of 600) and the 68.98 refund was recorded — the credit
         // is optimistically disposed, so with no member response nothing is owed.
         const payments = [
-            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            { id: 'source-15', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { id: 'source-16', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
         ];
         const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
 
@@ -407,8 +441,8 @@ describe('DashboardView', () => {
         // Same disposed refund, but the year is closed — a not_received arriving after
         // close is corrected forward and never reanimates the frozen credit.
         const payments = [
-            { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-            { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+            { id: 'source-17', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+            { id: 'source-18', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
         ];
         const creditAdjustments = [{ id: 'cadj_1', memberId: 2, type: 'refund', amount: 68.98, status: 'recorded' }];
         refundNoticesMock.value = {
@@ -428,8 +462,8 @@ describe('DashboardView', () => {
         // Bob (id 2) overpays → household carries a 68.98 credit, so "Issue Refund" appears.
         renderDashboard({
             payments: [
-                { memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
-                { memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
+                { id: 'source-19', memberId: 1, amount: 600, method: 'cash', note: '', date: new Date().toISOString() },
+                { id: 'source-20', memberId: 2, amount: 668.98, method: 'cash', note: '', date: new Date().toISOString() }
             ]
         });
 
@@ -503,5 +537,41 @@ describe('DashboardView', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Open review 1' }));
         expect(screen.getByText('Alice')).toBeInTheDocument();
         expect(screen.queryByText('Bob')).toBeNull();
+    });
+});
+
+
+describe('Dashboard aggregate integrity', () => {
+    it('withholds unsafe year totals without claiming valid households need correction', async () => {
+        const user = userEvent.setup();
+        renderDashboard({ activeYear: { id: '2026', label: '2026', status: 'settling' }, bills: [],
+            payments: [{ id: 'large-a', memberId: 1, amount: 60000000000000 },
+                { id: 'large-b', memberId: 2, amount: 60000000000000 }] });
+        expect(screen.getByText('2 / 2')).toBeInTheDocument();
+        expect(screen.getAllByText('Unavailable').length).toBeGreaterThanOrEqual(3);
+        expect(screen.queryByText(/households? needs? correction/)).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Close Year' })).toBeDisabled();
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        await user.click(alice.getByText('Alice'));
+        expect(alice.getByRole('button', { name: 'Issue Refund' })).toBeInTheDocument();
+        expect(alice.queryByText('Financial data unavailable')).not.toBeInTheDocument();
+    });
+});
+
+
+describe('deferred display integrity counts', () => {
+    it('counts later households after an earlier Annual display overflow and preserves valid sibling actions', async () => {
+        const user = userEvent.setup();
+        renderDashboard({ bills: [{ id: 'big', name: 'Large', amount: 60000000000000, billingFrequency: 'annual', members: [1] }],
+            payments: [], owedAdjustments: [
+                { id: 'opening', memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: 60000000000000 },
+                { id: 'credit', memberId: 1, kind: 'service_credit', status: 'active', amount: 60000000000000 },
+                { id: 'a', memberId: 1, kind: 'usage_charge', status: 'deferred', amount: .01 },
+                { id: 'b', memberId: 2, kind: 'usage_charge', status: 'deferred', amount: .02 }
+            ] });
+        expect(screen.getByTestId('deferred-charges-indicator')).toHaveTextContent('Unavailable (2 charges)');
+        const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
+        await user.click(bob.getByText('Bob'));
+        expect(bob.getByRole('button', { name: 'Bill Charges' })).toBeEnabled();
     });
 });

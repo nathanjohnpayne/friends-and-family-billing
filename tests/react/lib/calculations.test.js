@@ -16,8 +16,7 @@ import {
     getHouseholdOpeningBalance,
     buildCarryForward,
     getServiceCreditTotalForMember,
-    getBilledUsageChargeTotalForMember,
-    CREDIT_EPSILON
+    getBilledUsageChargeTotalForMember
 } from '@/lib/calculations.js';
 
 describe('getBillAnnualAmount', () => {
@@ -150,7 +149,7 @@ describe('calculateSettlementMetrics', () => {
     const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }];
 
     it('calculates total annual, payments, and outstanding', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-7', memberId: 1, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalAnnual).toBe(1200);
         expect(m.totalPayments).toBe(600);
@@ -160,8 +159,8 @@ describe('calculateSettlementMetrics', () => {
 
     it('caps percentage at 100', () => {
         const payments = [
-            { memberId: 1, amount: 1000 },
-            { memberId: 2, amount: 1000 }
+            { id: 'fixture-8', memberId: 1, amount: 1000 },
+            { id: 'fixture-9', memberId: 2, amount: 1000 }
         ];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.percentage).toBe(100);
@@ -169,8 +168,8 @@ describe('calculateSettlementMetrics', () => {
 
     it('counts fully paid members', () => {
         const payments = [
-            { memberId: 1, amount: 600 },
-            { memberId: 2, amount: 600 }
+            { id: 'fixture-10', memberId: 1, amount: 600 },
+            { id: 'fixture-11', memberId: 2, amount: 600 }
         ];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.paidCount).toBe(2);
@@ -179,7 +178,7 @@ describe('calculateSettlementMetrics', () => {
     it('counts a zero-balance household (on no bill) as paid so it does not block Ready to Close', () => {
         // Only Alice is on the bill; Bob is assigned to nothing → zero balance.
         const oneOnBill = [{ id: 'b1', amount: 100, billingFrequency: 'annual', members: [1] }];
-        const payments = [{ memberId: 1, amount: 100 }];
+        const payments = [{ id: 'fixture-12', memberId: 1, amount: 100 }];
         const m = calculateSettlementMetrics(members, oneOnBill, payments);
         expect(m.paidCount).toBe(2); // both households count as paid
         expect(m.totalOutstanding).toBe(0);
@@ -193,7 +192,7 @@ describe('calculateSettlementMetrics', () => {
             { id: 3, name: 'Child', linkedMembers: [] }
         ];
         const linkedBills = [{ id: 'b1', amount: 120, billingFrequency: 'annual', members: [1, 2, 3] }];
-        const payments = [{ memberId: 1, amount: 80 }]; // parent pays 80 of combined 80 (40+40)
+        const payments = [{ id: 'fixture-13', memberId: 1, amount: 80 }]; // parent pays 80 of combined 80 (40+40)
         const m = calculateSettlementMetrics(linked, linkedBills, payments);
         expect(m.totalMembers).toBe(2); // only parent + solo (child is linked)
     });
@@ -205,10 +204,11 @@ describe('calculateSettlementMetrics', () => {
 // Credit is the net amount overpaid, computed at the household grain (ADR 0001).
 // These are read-only display calculations — no mutations are introduced here.
 
-describe('CREDIT_EPSILON', () => {
-    it('is a small sub-cent threshold (about half a cent)', () => {
-        expect(CREDIT_EPSILON).toBeGreaterThan(0);
-        expect(CREDIT_EPSILON).toBeLessThan(0.01);
+describe('exact household cent boundary', () => {
+    it('settles only a zero-cent balance and keeps a one-cent shortfall outstanding', () => {
+        const members = [{ id: 1, linkedMembers: [] }];
+        const result = calculateSettlementMetrics(members, [], [], [{ id: 'refund', memberId: 1, amount: 0.005, type: 'refund', status: 'recorded' }]);
+        expect(result).toMatchObject({ ok: true, paidCount: 0, totalOutstanding: 0.01 });
     });
 });
 
@@ -323,11 +323,11 @@ describe('getHouseholdFinancials', () => {
     ];
     // $100/month split two ways → $600/yr owed each
     const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }];
-    const summary = calculateAnnualSummary(members, bills);
+
 
     it('net contribution equals gross paid when there are no adjustments', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
-        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        const payments = [{ id: 'fixture-14', memberId: 1, amount: 600 }];
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBe(600);
         expect(f.grossPaid).toBe(600);
         expect(f.netContribution).toBe(600);
@@ -335,30 +335,30 @@ describe('getHouseholdFinancials', () => {
     });
 
     it('derives a credit from an overpayment (gross paid exceeds owed)', () => {
-        const payments = [{ memberId: 1, amount: 668.98 }]; // owed 600
-        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        const payments = [{ id: 'fixture-15', memberId: 1, amount: 668.98 }]; // owed 600
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.credit).toBeCloseTo(68.98, 5);
     });
 
     it('a recorded refund reduces net contribution so the household reads settled (zero credit)', () => {
-        const payments = [{ memberId: 1, amount: 668.98 }];
+        const payments = [{ id: 'fixture-16', memberId: 1, amount: 668.98 }];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments, owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.netContribution).toBeCloseTo(600, 5);
         expect(f.credit).toBe(0);
     });
 
     it('a carried-forward credit also reduces net contribution', () => {
-        const payments = [{ memberId: 1, amount: 650 }];
+        const payments = [{ id: 'fixture-17', memberId: 1, amount: 650 }];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'carry_forward', amount: 50, status: 'recorded' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments, owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.netContribution).toBe(600);
         expect(f.credit).toBe(0);
     });
 
-    it('treats a sub-cent rounding credit as zero (epsilon)', () => {
-        const payments = [{ memberId: 1, amount: 600.004 }]; // 0.004 < CREDIT_EPSILON
-        const f = getHouseholdFinancials(members[0], summary, payments, []);
+    it('quantizes a sub-half-cent component before deriving credit', () => {
+        const payments = [{ id: 'fixture-18', memberId: 1, amount: 600.004 }];
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.credit).toBe(0);
     });
 
@@ -369,10 +369,10 @@ describe('getHouseholdFinancials', () => {
         ];
         // $100/month split two ways → $600/yr owed each, household owes $1200
         const hhBills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }];
-        const hhSummary = calculateAnnualSummary(householdMembers, hhBills);
+
         // Primary overpays by 50, Linked underpays by 50 → household nets to exactly owed
-        const payments = [{ memberId: 1, amount: 650 }, { memberId: 3, amount: 550 }];
-        const f = getHouseholdFinancials(householdMembers[0], hhSummary, payments, []);
+        const payments = [{ id: 'fixture-19', memberId: 1, amount: 650 }, { id: 'fixture-20', memberId: 3, amount: 550 }];
+        const f = getHouseholdFinancials(householdMembers[0], { familyMembers: householdMembers, bills: hhBills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBe(1200);
         expect(f.grossPaid).toBe(1200);
         expect(f.netContribution).toBe(1200);
@@ -380,37 +380,35 @@ describe('getHouseholdFinancials', () => {
     });
 
     it('re-opens the credit when its refund is in the reopened set (#319, ADR 0003)', () => {
-        const payments = [{ memberId: 1, amount: 668.98 }]; // owed 600
+        const payments = [{ id: 'fixture-21', memberId: 1, amount: 668.98 }]; // owed 600
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         // Without re-open the refund disposes the credit (net 600, credit 0). With c1
         // re-opened, the disposition is excluded: net climbs back and the credit is owed again.
-        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments, new Set(['c1']));
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments, owedAdjustments: [] }, { reopenedAdjustmentIds: new Set(['c1']) });
         expect(f.netContribution).toBeCloseTo(668.98, 5);
         expect(f.credit).toBeCloseTo(68.98, 5);
     });
 
-    // ── Service Credits (#321, ADR 0005): a −owed adjustment, 6th arg ──
-    // Combined signature is getHouseholdFinancials(member, summary, payments,
-    // creditAdjustments, reopenedAdjustmentIds, owedAdjustments): the reopen set is
-    // 5th (#319) and owedAdjustments is 6th (#321), so these pass null for the 5th.
-    it('an active service credit lowers the household owed (6th arg)', () => {
-        const payments = [{ memberId: 1, amount: 600 }]; // exactly owed before the credit
+    // ── Service Credits (#321, ADR 0005): raw source −owed adjustments ──
+    // Complete source supplies Service Credits and the caller's reopening context.
+    it('an active service credit lowers the household owed', () => {
+        const payments = [{ id: 'fixture-22', memberId: 1, amount: 600 }]; // exactly owed before the credit
         // $90 service credit for Alice → owed 510, she has paid 600 → credit 90
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(510, 5);
         expect(f.netContribution).toBeCloseTo(600, 5);
         expect(f.credit).toBeCloseTo(90, 5);
     });
 
     it('produces a Credit on the existing axis when the member has already paid in full', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-23', memberId: 1, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 50, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         // No new disposition path: the surplus rides netContribution − owed.
         expect(f.credit).toBeCloseTo(50, 5);
     });
@@ -420,39 +418,39 @@ describe('getHouseholdFinancials', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 60, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(540, 5);
         expect(f.netContribution).toBeCloseTo(0, 5);
         expect(f.credit).toBe(0); // still owed 540, not a credit
     });
 
     it('floors owed at zero when the service credit exceeds owed (surplus becomes credit)', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-24', memberId: 1, amount: 600 }];
         // A credit larger than owed: owed floors at 0, the whole payment is now surplus.
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 750, status: 'active' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBe(0); // never negative — owed cannot go below zero
         expect(f.credit).toBeCloseTo(600, 5); // entire payment is owed back
     });
 
     it('excludes voided service credits (append-only: void via status)', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-25', memberId: 1, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'voided' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(600, 5); // voided credit does not reduce owed
         expect(f.credit).toBe(0);
     });
 
     it('ignores usage charges in the owedAdjustments arg (only service credits reduce owed)', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-26', memberId: 1, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(600, 5); // a deferred usage charge never touches owed here
         expect(f.credit).toBe(0);
     });
@@ -463,13 +461,13 @@ describe('getHouseholdFinancials', () => {
             { id: 3, name: 'Linked', linkedMembers: [] }
         ];
         const hhBills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }];
-        const hhSummary = calculateAnnualSummary(householdMembers, hhBills);
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }]; // paid 1200, owed 1200
+
+        const payments = [{ id: 'fixture-27', memberId: 1, amount: 600 }, { id: 'fixture-28', memberId: 3, amount: 600 }]; // paid 1200, owed 1200
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 30, status: 'active' },
             { id: 'o2', memberId: 3, kind: 'service_credit', amount: 20, status: 'active' }
         ];
-        const f = getHouseholdFinancials(householdMembers[0], hhSummary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(householdMembers[0], { familyMembers: householdMembers, bills: hhBills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(1150, 5); // 1200 − 50
         expect(f.credit).toBeCloseTo(50, 5); // household paid 1200, owes 1150 → 50 back
     });
@@ -477,21 +475,21 @@ describe('getHouseholdFinancials', () => {
     it('a service credit and a re-opened refund compose (reopen 5th, owedAdjustments 6th)', () => {
         // #319 ⊕ #321 interaction: owed is reduced by the service credit AND the refund
         // disposition is excluded by the reopen set, so the credit reflects both.
-        const payments = [{ memberId: 1, amount: 600 }]; // owed 600 before the credit
+        const payments = [{ id: 'fixture-29', memberId: 1, amount: 600 }]; // owed 600 before the credit
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 40, status: 'recorded' }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
         // owed = 600 − 90 = 510. Refund c1 re-opened → netContribution stays 600 (40 not subtracted).
-        const f = getHouseholdFinancials(members[0], summary, payments, creditAdjustments, new Set(['c1']), owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments, owedAdjustments }, { reopenedAdjustmentIds: new Set(['c1']) });
         expect(f.owed).toBeCloseTo(510, 5);
         expect(f.netContribution).toBeCloseTo(600, 5);
         expect(f.credit).toBeCloseTo(90, 5);
     });
 
     it('defaults owedAdjustments to empty (backward-compatible call unaffected)', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
-        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        const payments = [{ id: 'fixture-30', memberId: 1, amount: 600 }];
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBe(600);
         expect(f.credit).toBe(0);
     });
@@ -505,7 +503,7 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
     const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 2] }]; // 600 each
 
     it('reports zero credits owed when no household has overpaid', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-31', memberId: 1, amount: 600 }, { id: 'fixture-32', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalCreditsOwed).toBe(0);
     });
@@ -513,7 +511,7 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
     it('tracks totalCreditsOwed on a separate axis from outstanding', () => {
         // Alice overpays (credit 68.98), Bob pays exactly. Nothing is outstanding,
         // yet 68.98 is owed back to members — the two figures are independent.
-        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-33', memberId: 1, amount: 668.98 }, { id: 'fixture-34', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
         expect(m.totalOutstanding).toBe(0);
@@ -521,8 +519,8 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
 
     it('a recorded refund clears the credit and the household still counts as settled', () => {
         const payments = [
-            { memberId: 1, amount: 668.98 },
-            { memberId: 2, amount: 600 }
+            { id: 'fixture-35', memberId: 1, amount: 668.98 },
+            { id: 'fixture-36', memberId: 2, amount: 600 }
         ];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments);
@@ -532,22 +530,22 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
 
     it('an overpaid household counts as settled but still surfaces its credit', () => {
         const payments = [
-            { memberId: 1, amount: 668.98 },
-            { memberId: 2, amount: 600 }
+            { id: 'fixture-37', memberId: 1, amount: 668.98 },
+            { id: 'fixture-38', memberId: 2, amount: 600 }
         ];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.paidCount).toBe(2); // overpaid does not block settlement
         expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
     });
 
-    it('excludes sub-cent rounding credits from totalCreditsOwed (epsilon)', () => {
-        const payments = [{ memberId: 1, amount: 600.004 }, { memberId: 2, amount: 600 }];
+    it('excludes sub-cent rounding credits from totalCreditsOwed (component quantization)', () => {
+        const payments = [{ id: 'fixture-39', memberId: 1, amount: 600.004 }, { id: 'fixture-40', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalCreditsOwed).toBe(0);
     });
 
     it('defaults creditAdjustments to an empty array (backward-compatible 3-arg call)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-41', memberId: 1, amount: 600 }, { id: 'fixture-42', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalCreditsOwed).toBe(0);
         expect(m.paidCount).toBe(2);
@@ -557,8 +555,8 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         // Alice paid 668.98 with a 68.98 refund (net 600, settled); Bob paid 500 (owes 100).
         // The refunded money left the ledger and must not offset Bob's debt.
         const payments = [
-            { memberId: 1, amount: 668.98 },
-            { memberId: 2, amount: 500 }
+            { id: 'fixture-43', memberId: 1, amount: 668.98 },
+            { id: 'fixture-44', memberId: 2, amount: 500 }
         ];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments);
@@ -571,8 +569,8 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         // Alice overpaid (668.98 of 600, unrefunded); Bob paid 500 (owes 100). Per-household
         // net shortfalls keep Alice's surplus from masking Bob's debt or inflating progress.
         const payments = [
-            { memberId: 1, amount: 668.98 },
-            { memberId: 2, amount: 500 }
+            { id: 'fixture-45', memberId: 1, amount: 668.98 },
+            { id: 'fixture-46', memberId: 2, amount: 500 }
         ];
         const m = calculateSettlementMetrics(members, bills, payments);
         expect(m.totalOutstanding).toBeCloseTo(100, 5);       // not the global 31.02
@@ -585,7 +583,7 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
         // While the year is open the refund re-opens: the credit is owed again, yet outstanding
         // stays zero (a re-opened credit is overpayment owed back, never a shortfall) and the
         // household still counts as settled.
-        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-47', memberId: 1, amount: 668.98 }, { id: 'fixture-48', memberId: 2, amount: 600 }];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set(['c1']));
         expect(m.totalCreditsOwed).toBeCloseTo(68.98, 5);
@@ -594,7 +592,7 @@ describe('calculateSettlementMetrics — credits (Net Contribution)', () => {
     });
 
     it('keeps the refund disposed when the reopened set is empty (closed year / no active not_received)', () => {
-        const payments = [{ memberId: 1, amount: 668.98 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-49', memberId: 1, amount: 668.98 }, { id: 'fixture-50', memberId: 2, amount: 600 }];
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 68.98, status: 'recorded' }];
         const m = calculateSettlementMetrics(members, bills, payments, creditAdjustments, new Set());
         expect(m.totalCreditsOwed).toBe(0);
@@ -691,20 +689,20 @@ describe('deferred usage charges do not affect settlement', () => {
     const bills = [{ id: 101, name: 'Internet', amount: 100, billingFrequency: 'annual', members: [1] }];
 
     it('a deferred usage charge does NOT change owed, balance, or credit', () => {
-        const payments = [{ memberId: 1, amount: 100 }]; // fully settled on bills
-        const summary = calculateAnnualSummary(members, bills);
+        const payments = [{ id: 'fixture-51', memberId: 1, amount: 100 }]; // fully settled on bills
+
         // getHouseholdFinancials does read owedAdjustments (for service credits, #321),
         // but a deferred USAGE CHARGE is a +owed item that is not yet billed, so it must
         // not raise owed. Passing it in explicitly proves the isolation. Reads settled.
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(100, 5);
         expect(f.netContribution).toBeCloseTo(100, 5);
         expect(f.credit).toBe(0);
     });
 
     it('settlement metrics ignore deferred charges entirely', () => {
-        const payments = [{ memberId: 1, amount: 100 }];
+        const payments = [{ id: 'fixture-52', memberId: 1, amount: 100 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
         const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalOutstanding).toBe(0);
@@ -765,30 +763,28 @@ describe('getHouseholdFinancials — opening balance (#322)', () => {
     const members = [{ id: 1, name: 'Alice', linkedMembers: [] }];
     // $50/month → $600/yr owed
     const bills = [{ id: 'b1', amount: 50, billingFrequency: 'monthly', members: [1] }];
-    const summary = calculateAnnualSummary(members, bills);
+
 
     it('a carried credit (negative opening balance) lowers owed', () => {
         // Opening balance −100 means the household starts owing 600 − 100 = 500.
-        // openingBalance is the 7th arg (5th is #319's reopenedAdjustmentIds, 6th is
-        // #320/#321's owedAdjustments).
-        const f = getHouseholdFinancials(members[0], summary, [], [], null, [], -100);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments: [], creditAdjustments: [], owedAdjustments: [{ id: 'opening', memberId: members[0].id, kind: 'carry_opening', status: 'carried_in', amount: -100 }] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(500, 5);
     });
 
     it('a carried charge (positive opening balance) raises owed', () => {
-        const f = getHouseholdFinancials(members[0], summary, [], [], null, [], 75);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments: [], creditAdjustments: [], owedAdjustments: [{ id: 'opening', memberId: members[0].id, kind: 'carry_opening', status: 'carried_in', amount: 75 }] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(675, 5);
     });
 
-    it('defaults the opening balance to 0 (backward-compatible 5-arg call)', () => {
-        const f = getHouseholdFinancials(members[0], summary, [], [], null);
+    it('has zero opening balance when the raw ledger contains no seed', () => {
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments: [], creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(600, 5);
     });
 
     it('a carried credit makes a household that pays the reduced total read settled', () => {
         // Owed 600, opening −100 → net owed 500. Pay 500 → settled, no credit.
-        const payments = [{ memberId: 1, amount: 500 }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, [], -100);
+        const payments = [{ id: 'fixture-53', memberId: 1, amount: 500 }];
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [{ id: 'opening', memberId: members[0].id, kind: 'carry_opening', status: 'carried_in', amount: -100 }] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(500, 5);
         expect(f.netContribution).toBeCloseTo(500, 5);
         expect(f.credit).toBe(0);
@@ -810,7 +806,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
 
     it('carries an undisposed credit as a negative opening balance', () => {
         // Alice overpays by 80 (credit 80, undisposed). Bob exactly pays.
-        const payments = [{ memberId: 1, amount: 680 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-54', memberId: 1, amount: 680 }, { id: 'fixture-55', memberId: 2, amount: 600 }];
         const result = buildCarryForward(members, bills, payments, [], []);
         const alice = result.households.find(h => h.primaryMemberId === 1);
         expect(alice.credit).toBeCloseTo(80, 5);
@@ -821,7 +817,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
     });
 
     it('carries still-deferred usage charges as a positive opening balance', () => {
-        const payments = [{ memberId: 1, amount: 600 }];
+        const payments = [{ id: 'fixture-56', memberId: 1, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 30, status: 'deferred' },
             { id: 'o2', memberId: 1, kind: 'usage_charge', amount: 12.5, status: 'deferred' }
@@ -836,7 +832,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
     it('nets a credit and a deferred charge into one opening balance', () => {
         // Alice overpays by 100 (credit 100) AND has a 30 deferred charge.
         // Net opening balance = 30 − 100 = −70.
-        const payments = [{ memberId: 1, amount: 700 }];
+        const payments = [{ id: 'fixture-57', memberId: 1, amount: 700 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 30, status: 'deferred' }
         ];
@@ -849,7 +845,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
 
     it('reports the carried credit-adjustment ids so the close path can mark them', () => {
         // Alice already has a recorded refund of 20 (disposed); remaining credit is carried.
-        const payments = [{ memberId: 1, amount: 700 }]; // credit would be 100 gross
+        const payments = [{ id: 'fixture-58', memberId: 1, amount: 700 }]; // credit would be 100 gross
         const creditAdjustments = [{ id: 'c1', memberId: 1, type: 'refund', amount: 20, status: 'recorded' }];
         const result = buildCarryForward(members, bills, payments, creditAdjustments, []);
         const alice = result.households.find(h => h.primaryMemberId === 1);
@@ -860,7 +856,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
 
     it('aggregates a total opening balance and member count across households', () => {
         // Alice credit 80 (→ −80); Bob has a 50 deferred charge (→ +50).
-        const payments = [{ memberId: 1, amount: 680 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-59', memberId: 1, amount: 680 }, { id: 'fixture-60', memberId: 2, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 50, status: 'deferred' }
         ];
@@ -870,15 +866,15 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
     });
 
     it('excludes a household with nothing undisposed', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-61', memberId: 1, amount: 600 }, { id: 'fixture-62', memberId: 2, amount: 600 }];
         const result = buildCarryForward(members, bills, payments, [], []);
         expect(result.households).toHaveLength(0);
         expect(result.memberCount).toBe(0);
         expect(result.totalOpeningBalance).toBe(0);
     });
 
-    it('does not carry a sub-cent rounding credit (epsilon)', () => {
-        const payments = [{ memberId: 1, amount: 600.004 }, { memberId: 2, amount: 600 }];
+    it('does not carry a sub-cent rounding credit (component quantization)', () => {
+        const payments = [{ id: 'fixture-63', memberId: 1, amount: 600.004 }, { id: 'fixture-64', memberId: 2, amount: 600 }];
         const result = buildCarryForward(members, bills, payments, [], []);
         expect(result.households).toHaveLength(0);
     });
@@ -890,7 +886,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
         ];
         const hhBills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }]; // 600 each, 1200 household
         // Household overpays by 90 net; linked member also has a 10 deferred charge.
-        const payments = [{ memberId: 1, amount: 700 }, { memberId: 3, amount: 590 }];
+        const payments = [{ id: 'fixture-65', memberId: 1, amount: 700 }, { id: 'fixture-66', memberId: 3, amount: 590 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 3, kind: 'usage_charge', amount: 10, status: 'deferred' }
         ];
@@ -911,7 +907,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
         // inflate the carried amount), so the resurfaced credit stays live this year.
         //
         // Alice owes 600, pays 800 → gross credit 200. A 120 refund (c1) is recorded.
-        const payments = [{ memberId: 1, amount: 800 }];
+        const payments = [{ id: 'fixture-67', memberId: 1, amount: 800 }];
         const creditAdjustments = [
             { id: 'c1', memberId: 1, type: 'refund', amount: 120, status: 'recorded' }
         ];
@@ -930,7 +926,7 @@ describe('buildCarryForward — undisposed items roll to next year (#322)', () =
     });
 
     it('defaults reopenedAdjustmentIds to empty (backward-compatible call)', () => {
-        const payments = [{ memberId: 1, amount: 680 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-68', memberId: 1, amount: 680 }, { id: 'fixture-69', memberId: 2, amount: 600 }];
         const result = buildCarryForward(members, bills, payments, [], []);
         expect(result.households).toHaveLength(1);
     });
@@ -955,14 +951,13 @@ describe('settlement surfaces reflect the carried opening balance (#322)', () =>
 
     it('calculateSettlementMetrics folds the opening balance into the annual total', () => {
         // No payments yet. totalAnnual = (600 − 100) + (600 + 60) = 1160.
-        // owedAdjustments is the 6th arg (5th is #319's reopenedAdjustmentIds).
         const m = calculateSettlementMetrics(members, bills, [], [], null, owedAdjustments);
         expect(m.totalAnnual).toBeCloseTo(1160, 5);
     });
 
     it('calculateSettlementMetrics reflects the opening balance in outstanding', () => {
         // Pay Alice's reduced 500 (settled) and Bob's base 600 (still owes 60).
-        const payments = [{ memberId: 1, amount: 500 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-70', memberId: 1, amount: 500 }, { id: 'fixture-71', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalOutstanding).toBeCloseTo(60, 5); // Bob's carried charge is now due
         expect(m.paidCount).toBe(1);                   // only Alice settled
@@ -1025,17 +1020,13 @@ describe('getServiceCreditTotalForMember', () => {
         expect(getServiceCreditTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
     });
 
-    // Boundary lock for the amount parser (#366). The guard is Number.parseFloat-based,
-    // so a *leading-numeric* string is parsed to its leading number — '10abc' → 10,
-    // '12.50 USD' → 12.5 — NOT dropped. This pins that exact behavior: a future swap to
-    // a stricter parser (Number()/validated parse that rejects trailing garbage) or a
-    // looser one would flip these numbers and trip the suite, forcing a conscious choice.
-    it('parses leading-numeric strings via parseFloat (10 + 12.5 from "10abc"/"12.50 USD")', () => {
+    // Raw source strings hold the household; legacy display totals are not authority.
+    it('holds leading-numeric source strings (10 + 12.5 from "10abc"/"12.50 USD")', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: '10abc', status: 'active' },
             { id: 'o2', memberId: 1, kind: 'service_credit', amount: '12.50 USD', status: 'active' }
         ];
-        expect(getServiceCreditTotalForMember(owedAdjustments, 1)).toBeCloseTo(22.5, 5);
+        expect(getHouseholdFinancials({ id: 1, linkedMembers: [] }, { familyMembers: [{ id: 1, linkedMembers: [] }], bills: [], payments: [], creditAdjustments: [], owedAdjustments })).toMatchObject({ ok: false, holds: [{ recordId: 'o1', code: 'INVALID_NUMBER' }, { recordId: 'o2', code: 'INVALID_NUMBER' }] });
     });
 });
 
@@ -1049,7 +1040,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
     it('a service credit for a fully-paid household surfaces as a credit owed back', () => {
         // Alice paid 600 (exactly owed). A 90 service credit lowers her owed to 510,
         // so 90 is now owed back to her — totalCreditsOwed reflects it, outstanding stays 0.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-72', memberId: 1, amount: 600 }, { id: 'fixture-73', memberId: 2, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
@@ -1062,7 +1053,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
     it('a service credit reduces a partially-paid household outstanding shortfall', () => {
         // Bob owes 600, paid 500 (100 short). A 40 service credit lowers his owed to 560,
         // so his shortfall shrinks to 60. Alice is settled.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 500 }];
+        const payments = [{ id: 'fixture-74', memberId: 1, amount: 600 }, { id: 'fixture-75', memberId: 2, amount: 500 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'service_credit', amount: 40, status: 'active' }
         ];
@@ -1073,7 +1064,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
     });
 
     it('lowers totalAnnual by the active service-credit amount', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-76', memberId: 1, amount: 600 }, { id: 'fixture-77', memberId: 2, amount: 600 }];
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'service_credit', amount: 90, status: 'active' }
         ];
@@ -1082,7 +1073,7 @@ describe('calculateSettlementMetrics — service credits (#321)', () => {
     });
 
     it('defaults owedAdjustments to empty (backward-compatible 4-arg call unaffected)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-78', memberId: 1, amount: 600 }, { id: 'fixture-79', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments, []);
         expect(m.totalAnnual).toBe(1200);
         expect(m.totalCreditsOwed).toBe(0);
@@ -1139,16 +1130,13 @@ describe('getBilledUsageChargeTotalForMember', () => {
         expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(10, 5);
     });
 
-    // Boundary lock for the amount parser (#366) — same parseFloat semantics as the
-    // service-credit total. A leading-numeric string is parsed to its leading number
-    // ('10abc' → 10, '12.50 USD' → 12.5), not dropped; pinning it makes any future
-    // change to the parser's strictness fail the suite rather than silently shift money.
-    it('parses leading-numeric strings via parseFloat (10 + 12.5 from "10abc"/"12.50 USD")', () => {
+    // Raw source strings hold the household; legacy display totals are not authority.
+    it('holds leading-numeric source strings (10 + 12.5 from "10abc"/"12.50 USD")', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: '10abc', status: 'billed' },
             { id: 'o2', memberId: 1, kind: 'usage_charge', amount: '12.50 USD', status: 'billed' }
         ];
-        expect(getBilledUsageChargeTotalForMember(owedAdjustments, 1)).toBeCloseTo(22.5, 5);
+        expect(getHouseholdFinancials({ id: 1, linkedMembers: [] }, { familyMembers: [{ id: 1, linkedMembers: [] }], bills: [], payments: [], creditAdjustments: [], owedAdjustments })).toMatchObject({ ok: false, holds: [{ recordId: 'o1', code: 'INVALID_NUMBER' }, { recordId: 'o2', code: 'INVALID_NUMBER' }] });
     });
 });
 
@@ -1159,12 +1147,12 @@ describe('getHouseholdFinancials — billed usage charges raise owed (#320)', ()
     ];
     // $100/month split two ways → $600/yr each, household owes $1200
     const bills = [{ id: 'b1', amount: 100, billingFrequency: 'monthly', members: [1, 3] }];
-    const summary = calculateAnnualSummary(members, bills);
+
 
     it('a billed usage charge adds to the household owed', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }]; // bills fully paid
+        const payments = [{ id: 'fixture-80', memberId: 1, amount: 600 }, { id: 'fixture-81', memberId: 3, amount: 600 }]; // bills fully paid
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(1225, 5);            // 1200 bills + 25 billed charge
         expect(f.netContribution).toBeCloseTo(1200, 5);  // paid the bills, not the new charge
         expect(f.credit).toBe(0);
@@ -1176,29 +1164,29 @@ describe('getHouseholdFinancials — billed usage charges raise owed (#320)', ()
             { id: 'o1', memberId: 1, kind: 'usage_charge', amount: 10, status: 'billed' },
             { id: 'o2', memberId: 3, kind: 'usage_charge', amount: 5, status: 'billed' } // linked member
         ];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(1215, 5); // 1200 + 10 + 5
     });
 
     it('a DEFERRED charge does not raise owed (only billed does)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
+        const payments = [{ id: 'fixture-82', memberId: 1, amount: 600 }, { id: 'fixture-83', memberId: 3, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'deferred' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(1200, 5); // unchanged by the deferred charge
         expect(f.credit).toBe(0);
     });
 
     it('defaults owedAdjustments to empty (backward-compatible 4-arg call)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
-        const f = getHouseholdFinancials(members[0], summary, payments, []);
+        const payments = [{ id: 'fixture-84', memberId: 1, amount: 600 }, { id: 'fixture-85', memberId: 3, amount: 600 }];
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments: [] }, { reopenedAdjustmentIds: null });
         expect(f.owed).toBeCloseTo(1200, 5);
     });
 
     it('an unpaid billed charge makes an otherwise-settled household carry a balance', () => {
         // Bills fully paid, but a $25 billed charge lands → household now owes $25 net.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 3, amount: 600 }];
+        const payments = [{ id: 'fixture-86', memberId: 1, amount: 600 }, { id: 'fixture-87', memberId: 3, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 25, status: 'billed' }];
-        const f = getHouseholdFinancials(members[0], summary, payments, [], null, owedAdjustments);
+        const f = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments, creditAdjustments: [], owedAdjustments }, { reopenedAdjustmentIds: null });
         expect(f.owed - f.netContribution).toBeCloseTo(25, 5); // collectable shortfall
     });
 });
@@ -1212,7 +1200,7 @@ describe('calculateSettlementMetrics — billed charges block close (#320, ADR 0
 
     it('an unpaid billed charge raises owed and makes the household Outstanding', () => {
         // Both fully paid on bills; Alice has a $40 unpaid BILLED charge.
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-88', memberId: 1, amount: 600 }, { id: 'fixture-89', memberId: 2, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
         const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalAnnual).toBeCloseTo(1240, 5);        // 1200 bills + 40 billed charge
@@ -1221,7 +1209,7 @@ describe('calculateSettlementMetrics — billed charges block close (#320, ADR 0
     });
 
     it('a DEFERRED charge does NOT block close (stays out of settlement)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-90', memberId: 1, amount: 600 }, { id: 'fixture-91', memberId: 2, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'deferred' }];
         const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalAnnual).toBeCloseTo(1200, 5);         // unchanged
@@ -1231,7 +1219,7 @@ describe('calculateSettlementMetrics — billed charges block close (#320, ADR 0
 
     it('paying a billed charge settles the household again', () => {
         // Alice pays her bills (600) plus the 40 billed charge = 640.
-        const payments = [{ memberId: 1, amount: 640 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-92', memberId: 1, amount: 640 }, { id: 'fixture-93', memberId: 2, amount: 600 }];
         const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 40, status: 'billed' }];
         const m = calculateSettlementMetrics(members, bills, payments, [], null, owedAdjustments);
         expect(m.totalOutstanding).toBe(0);
@@ -1240,7 +1228,7 @@ describe('calculateSettlementMetrics — billed charges block close (#320, ADR 0
     });
 
     it('defaults owedAdjustments to empty (backward-compatible 4-arg call)', () => {
-        const payments = [{ memberId: 1, amount: 600 }, { memberId: 2, amount: 600 }];
+        const payments = [{ id: 'fixture-94', memberId: 1, amount: 600 }, { id: 'fixture-95', memberId: 2, amount: 600 }];
         const m = calculateSettlementMetrics(members, bills, payments, []);
         expect(m.totalAnnual).toBeCloseTo(1200, 5);
         expect(m.paidCount).toBe(2);

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SettlementBoard from '@/app/components/SettlementBoard.jsx';
 
 const members = [
@@ -72,9 +73,9 @@ describe('SettlementBoard', () => {
         expect(chipLabels.some(t => t.includes('Settled'))).toBe(true);
     });
 
-    it('shows only parent/independent members as top-level cards', () => {
+    it('shows one top-level card per household or individual', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        const cards = screen.getAllByText(/Individual|Household/);
+        const cards = screen.getAllByText(/^Individual$|· contact /);
         expect(cards.length).toBe(2);
     });
 
@@ -86,9 +87,9 @@ describe('SettlementBoard', () => {
 
     it('shows settled status when fully paid', () => {
         const payments = [
-            { memberId: 1, amount: 480, method: 'cash' },
-            { memberId: 2, amount: 480, method: 'cash' },
-            { memberId: 3, amount: 480, method: 'cash' }
+            { id: 'source-1', memberId: 1, amount: 480, method: 'cash' },
+            { id: 'source-2', memberId: 2, amount: 480, method: 'cash' },
+            { id: 'source-3', memberId: 3, amount: 480, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const badges = screen.getAllByText('Settled');
@@ -98,8 +99,9 @@ describe('SettlementBoard', () => {
     it('expands card to show bill breakdown', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        // Household members show "Primary Member Calculation" instead of "Bill breakdown for..."
-        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
+        // The household contact's breakdown is labelled with their name and a neutral tag
+        expect(screen.getByText('Bill Breakdown for Alice')).toBeInTheDocument();
+        expect(screen.getByText('Household contact')).toBeInTheDocument();
         expect(screen.getByText('Internet')).toBeInTheDocument();
     });
 
@@ -112,8 +114,8 @@ describe('SettlementBoard', () => {
 
     it('filters by status', () => {
         const payments = [
-            { memberId: 1, amount: 480, method: 'cash' },
-            { memberId: 3, amount: 480, method: 'cash' }
+            { id: 'source-4', memberId: 1, amount: 480, method: 'cash' },
+            { id: 'source-5', memberId: 3, amount: 480, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const filterButtons = screen.getAllByRole('button');
@@ -124,7 +126,7 @@ describe('SettlementBoard', () => {
     });
 
     it('counts and filters households holding a Credit', () => {
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }]; // Bob owes 480 → Credit
+        const payments = [{ id: 'source-6', memberId: 2, amount: 600, method: 'cash' }]; // Bob owes 480 → Credit
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         const creditChip = screen.getAllByRole('button').find(b => b.classList.contains('settlement-filter-chip') && b.textContent.startsWith('Credit'));
         expect(within(creditChip).getByText('1')).toBeInTheDocument();
@@ -141,9 +143,22 @@ describe('SettlementBoard', () => {
         expect(screen.getByText('No households match this filter.')).toBeInTheDocument();
     });
 
-    it('shows household label with linked member count', () => {
+    it('shows the household label with its member count and contact', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        expect(screen.getByText(/Household includes 1 linked member/)).toBeInTheDocument();
+        expect(screen.getByText('Household · 2 members · contact Alice')).toBeInTheDocument();
+    });
+
+    it('names the household from its stored name or shared surname', () => {
+        const named = [
+            { id: 1, name: 'Erik Lindqvist', email: '', phone: '', avatar: '', linkedMembers: [3], paymentReceived: 0 },
+            { id: 2, name: 'Bob', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 },
+            { id: 3, name: 'Anna Lindqvist', email: '', phone: '', avatar: '', linkedMembers: [], paymentReceived: 0 }
+        ];
+        const { rerender } = render(<SettlementBoard familyMembers={named} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.getByText('Lindqvist household · 2 members · contact Erik Lindqvist')).toBeInTheDocument();
+        const stored = named.map(m => m.id === 1 ? { ...m, householdName: 'Lake House' } : m);
+        rerender(<SettlementBoard familyMembers={stored} bills={bills} payments={[]} readOnly={false} />);
+        expect(screen.getByText('Lake House household · 2 members · contact Erik Lindqvist')).toBeInTheDocument();
     });
 
     it('shows Individual label for standalone members', () => {
@@ -201,8 +216,7 @@ describe('SettlementBoard', () => {
         const amountInput = screen.getByPlaceholderText('0.00');
         fireEvent.change(amountInput, { target: { value: '100' } });
         fireEvent.click(screen.getByText('Save Payment'));
-        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 1,
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ memberId: 1,
             amount: 100,
             method: 'cash',
             note: ''
@@ -220,9 +234,9 @@ describe('SettlementBoard', () => {
 
     it('hides Record Payment when member is fully settled', () => {
         const payments = [
-            { memberId: 1, amount: 10000, method: 'cash' },
-            { memberId: 2, amount: 10000, method: 'cash' },
-            { memberId: 3, amount: 10000, method: 'cash' }
+            { id: 'source-8', memberId: 1, amount: 10000, method: 'cash' },
+            { id: 'source-9', memberId: 2, amount: 10000, method: 'cash' },
+            { id: 'source-10', memberId: 3, amount: 10000, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -246,8 +260,7 @@ describe('SettlementBoard', () => {
         fireEvent.click(payButtons[0]);
         fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '200' } });
         fireEvent.click(screen.getByText('Save Payment'));
-        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 1,
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ memberId: 1,
             amount: 200,
             distribute: true
         }));
@@ -276,9 +289,9 @@ describe('SettlementBoard', () => {
 
     it('shows Payment History in expanded detail when settled', () => {
         const payments = [
-            { memberId: 1, amount: 10000, method: 'cash' },
-            { memberId: 2, amount: 10000, method: 'cash' },
-            { memberId: 3, amount: 10000, method: 'cash' }
+            { id: 'source-12', memberId: 1, amount: 10000, method: 'cash' },
+            { id: 'source-13', memberId: 2, amount: 10000, method: 'cash' },
+            { id: 'source-14', memberId: 3, amount: 10000, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -301,25 +314,26 @@ describe('SettlementBoard', () => {
         expect(screen.getByText(/\$120\.00 \/ month × 12 ÷ 3 members = \$480\.00/)).toBeInTheDocument();
     });
 
-    it('shows "Primary Member Calculation" label for households', () => {
+    it('labels the household contact without hierarchy wording', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        expect(screen.getByText('Primary Member Calculation')).toBeInTheDocument();
+        expect(screen.getByText('Household contact')).toBeInTheDocument();
+        expect(screen.queryByText(/Primary Member|Linked Members|parent|child/i)).toBeNull();
     });
 
-    it('shows "Linked Members" section label for households', () => {
+    it('shows the "Other Household Members" section label for households', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
-        expect(screen.getByText('Linked Members')).toBeInTheDocument();
+        expect(screen.getByText('Other Household Members')).toBeInTheDocument();
     });
 
-    it('sections appear in order: Primary Member Calculation, Linked Members, Household Total', () => {
+    it('sections appear in order: contact breakdown, Other Household Members, Household Total', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expandCard('Alice');
         const detail = document.querySelector('.settlement-card-detail');
         const html = detail.innerHTML;
-        const primaryIdx = html.indexOf('Primary Member Calculation');
-        const linkedIdx = html.indexOf('Linked Members');
+        const primaryIdx = html.indexOf('Bill Breakdown for Alice');
+        const linkedIdx = html.indexOf('Other Household Members');
         const totalIdx = html.indexOf('Household Total');
         expect(primaryIdx).toBeGreaterThan(-1);
         expect(linkedIdx).toBeGreaterThan(-1);
@@ -398,9 +412,9 @@ describe('SettlementBoard', () => {
         expect(annualLabels.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('shows Linked Groups count', () => {
+    it('shows the Households count', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
-        expect(screen.getByText(/Linked Groups 1/)).toBeInTheDocument();
+        expect(screen.getByText(/Households 1/)).toBeInTheDocument();
     });
 });
 
@@ -411,7 +425,7 @@ describe('SettlementBoard', () => {
 
 describe('SettlementBoard — household credit', () => {
     it('shows a Credit box with the overpaid amount for an overpaid household', () => {
-        const payments = [{ memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
+        const payments = [{ id: 'source-15', memberId: 2, amount: 548.98, method: 'cash' }]; // owed 480 → credit 68.98
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         // Both the summary box label and the status badge read "Credit" (RD-09).
         const bobCard = screen.getByText('Bob').closest('.settlement-card');
@@ -420,7 +434,7 @@ describe('SettlementBoard — household credit', () => {
     });
 
     it('shows a Credit badge (never Overpaid) for a household carrying an unresolved credit', () => {
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-16', memberId: 2, amount: 600, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expect(creditOnBoard().length).toBeGreaterThanOrEqual(1);
         expect(screen.queryByText(/overpaid/i)).toBeNull();
@@ -428,7 +442,7 @@ describe('SettlementBoard — household credit', () => {
 
     it('reads Settled (not Credit) when a recorded refund brings Net Contribution down to owed', () => {
         // Bob paid 600 (owed 480) but a recorded refund of 120 nets his contribution back to 480.
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-17', memberId: 2, amount: 600, method: 'cash' }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'refund', amount: 120, status: 'recorded' }];
         render(
             <SettlementBoard
@@ -447,8 +461,8 @@ describe('SettlementBoard — household credit', () => {
         // Alice (primary) + Carol (linked) each owe 480. Alice overpays 80, Carol underpays 80.
         // Household Net Contribution (960) equals owed (960): no household-level credit (ADR 0001).
         const payments = [
-            { memberId: 1, amount: 560, method: 'cash' },
-            { memberId: 3, amount: 400, method: 'cash' }
+            { id: 'source-18', memberId: 1, amount: 560, method: 'cash' },
+            { id: 'source-19', memberId: 3, amount: 400, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expect(creditOnBoard()).toHaveLength(0);
@@ -458,8 +472,8 @@ describe('SettlementBoard — household credit', () => {
         // Carol (linked) pays 560 of her 480; Alice (primary) pays 400 of hers. The household
         // nets to owed, so no household Credit exists and Carol's member badge must not invent one.
         const payments = [
-            { memberId: 1, amount: 400, method: 'cash' },
-            { memberId: 3, amount: 560, method: 'cash' }
+            { id: 'source-20', memberId: 1, amount: 400, method: 'cash' },
+            { id: 'source-21', memberId: 3, amount: 560, method: 'cash' }
         ];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} readOnly={false} />);
         expandCard('Alice');
@@ -474,7 +488,7 @@ describe('SettlementBoard — household credit', () => {
         // Bob owes 480, paid 600, but a recorded carry-forward of 200 nets him to 400 —
         // below owed (an over-disposition later slices must prevent). The board must stay
         // internally consistent: a real Balance and the Record Payment action, never "Paid".
-        const payments = [{ memberId: 2, amount: 600, method: 'cash' }];
+        const payments = [{ id: 'source-22', memberId: 2, amount: 600, method: 'cash' }];
         const creditAdjustments = [{ id: 'c1', memberId: 2, type: 'carry_forward', amount: 200, status: 'recorded' }];
         render(
             <SettlementBoard
@@ -544,7 +558,7 @@ describe('SettlementBoard — deferred usage charges', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 999, status: 'deferred', description: 'Huge', incurredDate: '2025-02-01' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // Bob fully settled on bills
+        const payments = [{ id: 'source-23', memberId: 2, amount: 480, method: 'cash' }]; // Bob fully settled on bills
         render(
             <SettlementBoard
                 familyMembers={members}
@@ -568,7 +582,7 @@ describe('SettlementBoard — deferred usage charges', () => {
         const owedAdjustments = [
             { id: 'o1', memberId: 2, kind: 'usage_charge', amount: 40, status: 'billed', description: 'Roaming', incurredDate: '2025-02-01' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }]; // settled on bills, not the billed charge
+        const payments = [{ id: 'source-24', memberId: 2, amount: 480, method: 'cash' }]; // settled on bills, not the billed charge
         render(
             <SettlementBoard
                 familyMembers={members}
@@ -706,7 +720,7 @@ describe('SettlementBoard — Bill Charges (#320)', () => {
 // Bob (independent) owes $480/yr; paying $548.98 leaves a $68.98 household credit.
 
 describe('SettlementBoard — Issue Refund', () => {
-    const overpaid = [{ memberId: 2, amount: 548.98, method: 'cash' }];
+    const overpaid = [{ id: 'source-25', memberId: 2, amount: 548.98, method: 'cash' }];
 
     it('shows Issue Refund in the expanded card for a household with a credit', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={overpaid} readOnly={false} onIssueRefund={() => {}} />);
@@ -741,8 +755,7 @@ describe('SettlementBoard — Issue Refund', () => {
         fireEvent.click(screen.getByText('Issue Refund'));
         fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Overpaid Q1' } });
         fireEvent.click(screen.getByText('Save Refund'));
-        expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({
-            memberId: 2, amount: 68.98, method: 'venmo', reason: 'Overpaid Q1'
+        expect(onIssueRefund).toHaveBeenCalledWith(expect.objectContaining({ memberId: 2, amount: 68.98, method: 'venmo', reason: 'Overpaid Q1'
         }));
     });
 
@@ -779,7 +792,7 @@ describe('SettlementBoard — carried opening balance (#322)', () => {
         const owedAdjustments = [
             { id: 's1', memberId: 2, kind: 'carry_opening', amount: -180, status: 'carried_in', fromYear: '2025' }
         ];
-        const payments = [{ memberId: 2, amount: 250, method: 'cash' }];
+        const payments = [{ id: 'source-27', memberId: 2, amount: 250, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
         const card = screen.getByText('Bob').closest('.settlement-card');
         // Annual box shows the reduced 300 (not the full 480); Balance is the 50 shortfall.
@@ -794,7 +807,7 @@ describe('SettlementBoard — carried opening balance (#322)', () => {
         const owedAdjustments = [
             { id: 's1', memberId: 2, kind: 'carry_opening', amount: 120, status: 'carried_in', fromYear: '2025' }
         ];
-        const payments = [{ memberId: 2, amount: 480, method: 'cash' }];
+        const payments = [{ id: 'source-28', memberId: 2, amount: 480, method: 'cash' }];
         render(<SettlementBoard familyMembers={members} bills={bills} payments={payments} owedAdjustments={owedAdjustments} readOnly={false} />);
         const card = screen.getByText('Bob').closest('.settlement-card');
         const annualBox = within(card).getByText('Annual').closest('.settlement-summary-box');
@@ -882,5 +895,96 @@ describe('SettlementBoard — open Review Requests (RD-03)', () => {
         render(<SettlementBoard familyMembers={members} bills={bills} payments={[]} readOnly={false} />);
         expect(screen.queryByText('Review request')).toBeNull();
         expect(screen.getByRole('button', { name: 'Open review 0' })).toBeInTheDocument();
+    });
+});
+
+
+describe('activated household cent decisions', () => {
+    const solo = [{ id: 1, name: 'Exact', linkedMembers: [] }];
+    const annual = amount => [{ id: 'annual', amount, billingFrequency: 'annual', members: [1] }];
+    it('rejects a nominal two-cent refund when the complete signed R candidate crosses a cent', async () => {
+        const user = userEvent.setup();
+        const onIssueRefund = vi.fn();
+        render(<SettlementBoard familyMembers={solo} bills={annual(600)} payments={[{ id: 'p', memberId: 1, amount: 600.01 }]}
+            creditAdjustments={[{ id: 'r', memberId: 1, amount: -0.005, type: 'refund', status: 'recorded' }]}
+            readOnly={false} onIssueRefund={onIssueRefund} />);
+        await user.click(screen.getByText('Exact'));
+        await user.click(screen.getByText('Issue Refund'));
+        await user.clear(screen.getByRole('spinbutton'));
+        await user.type(screen.getByRole('spinbutton'), '0.02');
+        await user.type(screen.getByLabelText(/Reason/), 'Candidate cap');
+        await user.click(screen.getByText('Save Refund'));
+        expect(onIssueRefund).not.toHaveBeenCalled();
+        expect(screen.getByText(/Refund cannot exceed/)).toBeInTheDocument();
+    });
+
+    it('offers payment for a one-cent shortfall and permits a positive overpayment', async () => {
+        const user = userEvent.setup();
+        const onRecordPayment = vi.fn();
+        render(<SettlementBoard familyMembers={solo} bills={annual(0.01)} payments={[]} readOnly={false} onRecordPayment={onRecordPayment} />);
+        await user.click(screen.getByText('Exact'));
+        await user.click(screen.getByText('Record Payment'));
+        await user.clear(screen.getByPlaceholderText('0.00'));
+        await user.type(screen.getByPlaceholderText('0.00'), '100');
+        await user.click(screen.getByText('Save Payment'));
+        expect(onRecordPayment).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, memberId: 1 }));
+    });
+
+    it('keeps zero-owed positive balance outstanding and zero-owed negative balance in credit', () => {
+        const props = { familyMembers: solo, bills: [], payments: [], readOnly: false };
+        const { rerender } = render(<SettlementBoard {...props} creditAdjustments={[{ id: 'r', memberId: 1, amount: 0.01, type: 'refund', status: 'recorded' }]} />);
+        const card = within(screen.getByRole('region', { name: 'Settlement for Exact' }));
+        expect(card.getByText('Outstanding')).toBeInTheDocument();
+        expect(card.queryByText('Settled')).not.toBeInTheDocument();
+        rerender(<SettlementBoard {...props} payments={[{ id: 'p', memberId: 1, amount: 0.01 }]} />);
+        expect(card.getAllByText('Credit').length).toBeGreaterThan(0);
+    });
+
+    it.each([1n, Symbol('invalid')])('renders a non-coercible source hold without running legacy display sums', amount => {
+        render(<SettlementBoard familyMembers={solo} bills={annual(1)} payments={[{ id: 'bad', memberId: 1, amount }]} readOnly={false} />);
+        expect(screen.getByText('Financial data unavailable')).toBeInTheDocument();
+    });
+
+    it('withholds real malformed-source money while retaining a valid sibling action', async () => {
+        const user = userEvent.setup();
+        render(<SettlementBoard familyMembers={[...solo, { id: 2, name: 'Sibling', linkedMembers: [] }]} bills={annual(1)}
+            payments={[{ id: 'bad', memberId: 1, amount: '1' }]} readOnly={false} />);
+        await user.click(screen.getByText('Exact'));
+        const card = within(screen.getByRole('region', { name: 'Settlement for Exact' }));
+        expect(card.getByText('Financial data unavailable')).toBeInTheDocument();
+        expect(card.queryByText(/\$/)).not.toBeInTheDocument();
+        expect(card.queryByText('Paid')).not.toBeInTheDocument();
+        expect(card.queryByText('Record Payment')).not.toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Settlement for Sibling' })).toBeInTheDocument();
+    });
+});
+
+
+describe('canonical household display with preserved member lines', () => {
+    it('shows .58 Annual beside .57 Paid and .01 due in the actual card and payment dialog', async () => {
+        const user = userEvent.setup();
+        render(<SettlementBoard familyMembers={[{ ...members[0], linkedMembers: [] }, members[1]]}
+            bills={[{ ...bills[0], amount: 1.15, billingFrequency: 'annual', members: [1, 2] }]}
+            payments={[{ id: 'p', memberId: 1, amount: .57 }]} readOnly={false} />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        expect(alice.getByText('$0.58')).toBeInTheDocument();
+        expect(alice.getByText('$0.57')).toBeInTheDocument();
+        expect(alice.getByText('$0.01')).toBeInTheDocument();
+        await user.click(alice.getByText('Alice'));
+        await user.click(alice.getByRole('button', { name: 'Record Payment' }));
+        expect(screen.getByRole('dialog')).toHaveTextContent('$0.01');
+    });
+
+    it('shows linked household 46.67 after -20 opening while keeping independent 33.33 member lines', async () => {
+        const user = userEvent.setup();
+        render(<SettlementBoard familyMembers={members} bills={[{ ...bills[0], amount: 100, billingFrequency: 'annual' }]}
+            payments={[]} owedAdjustments={[{ id: 'seed', memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -20 }]}
+            readOnly={false} />);
+        const alice = within(screen.getByRole('region', { name: 'Settlement for Alice' }));
+        expect(alice.getAllByText('$46.67').length).toBeGreaterThan(0);
+        await user.click(alice.getByText('Alice'));
+        expect(alice.getAllByText('$33.33').length).toBeGreaterThan(0);
+        expect(alice.getByText('Household Total')).toBeInTheDocument();
+        expect(alice.queryByText('$46.66')).not.toBeInTheDocument();
     });
 });
