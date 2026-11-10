@@ -330,6 +330,7 @@ export class BillingYearService {
         this._yearLoadGen.set(yearId, gen);
         const baseline = { payload: exists ? loadedYearPayload(rawData, yearId) : null, at: new Date().toISOString(), kind: 'loaded' };
         this._genBaselines.set(genKey(yearId, gen), baseline);
+        this._pruneGenerations(yearId, gen);
         this._yearVersions.set(yearId, {
             uid,
             rev,
@@ -358,8 +359,11 @@ export class BillingYearService {
             kind,
             committed: false,
             args,
-            previousOfYear: this._queuedYearSnapshots.get(yearId) || null,
-            previousOfGen: this._snapshotsByGen.get(genKey(yearId, this._loadGen(yearId))) || null
+            // Only a status change can be withdrawn (see _withdrawSnapshot), so only it
+            // links to the snapshot it replaces; the links are dropped once it settles.
+            // A save keeps no history: only the latest snapshot per year and load is held.
+            previousOfYear: kind === 'status' ? (this._queuedYearSnapshots.get(yearId) || null) : null,
+            previousOfGen: kind === 'status' ? (this._snapshotsByGen.get(genKey(yearId, this._loadGen(yearId))) || null) : null
         };
         this._queuedYearSnapshots.set(yearId, snapshot);
         this._snapshotsByGen.set(genKey(yearId, snapshot.gen), snapshot);
@@ -382,28 +386,39 @@ export class BillingYearService {
             if (snapshot.previousOfGen) this._snapshotsByGen.set(key, snapshot.previousOfGen);
             else this._snapshotsByGen.delete(key);
         }
+        if (ofYear && ofYear.seq === seq) {
+            ofYear.previousOfYear = null;
+            ofYear.previousOfGen = null;
+        }
     }
 
     /**
-     * @private Mark a snapshot committed, wherever it sits in its year's or generation's
-     * chain, and release what it superseded. Only a failed status change is ever
-     * withdrawn, and withdrawing a later snapshot falls back at most to this committed
-     * one, so its predecessors are never needed again: dropping the links keeps the
-     * retained history to the writes still outstanding plus the last committed one,
-     * instead of every state of a long session.
+     * @private After a load of a year, keep recovery data only for the new load and
+     * the one before it, and for the one before only while its latest snapshot has
+     * not committed (a write from it can still be refused). Older loads are dropped.
      */
+    _pruneGenerations(yearId, gen) {
+        for (const map of [this._snapshotsByGen, this._genBaselines]) {
+            for (const key of [...map.keys()]) {
+                const cut = key.lastIndexOf('#');
+                if (key.slice(0, cut) !== String(yearId)) continue;
+                const keyGen = Number(key.slice(cut + 1));
+                if (keyGen >= gen) continue;
+                const previousPending = keyGen === gen - 1
+                    && this._snapshotsByGen.get(genKey(yearId, keyGen))
+                    && !this._snapshotsByGen.get(genKey(yearId, keyGen)).committed;
+                if (!previousPending) map.delete(key);
+            }
+        }
+    }
+
+    /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
     _markSnapshotCommitted(yearId, seq) {
-        const heads = [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()];
-        for (const head of heads) {
-            for (const link of ['previousOfYear', 'previousOfGen']) {
-                // Sequence numbers only decrease along a chain.
-                for (let snapshot = head; snapshot && snapshot.seq >= seq; snapshot = snapshot[link]) {
-                    if (snapshot.seq !== seq) continue;
-                    snapshot.committed = true;
-                    snapshot.previousOfYear = null;
-                    snapshot.previousOfGen = null;
-                    break;
-                }
+        for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
+            if (snapshot && snapshot.seq === seq) {
+                snapshot.committed = true;
+                snapshot.previousOfYear = null;
+                snapshot.previousOfGen = null;
             }
         }
     }
@@ -761,9 +776,37 @@ export class BillingYearService {
         this._loadingYears += 1;
         try {
             await this._saveQueue.idle();
+            // A load replaces the in-memory state of the year it loads and of the year
+            // being left: a save of either that has not committed (it failed, e.g.
+            // offline) is retried first, and the load is refused while it still fails.
+            const leaving = this._state.activeYear ? this._state.activeYear.id : null;
+            await this._retryUncommittedSaves([...new Set([yearId, leaving].filter(id => id != null))]);
             await this._loadYearDataNow(yearId);
         } finally {
             this._loadingYears -= 1;
+        }
+    }
+
+    /**
+     * @private Retry the latest save of each year that did not commit, before a load
+     * replaces the state it was taken from. Throws (and reports Not saved) when it
+     * still fails, so the caller keeps the current state instead of discarding it.
+     */
+    async _retryUncommittedSaves(yearIds) {
+        const uid = this._user ? this._user.uid : null;
+        for (const yearId of yearIds) {
+            const snapshot = this._queuedYearSnapshots.get(yearId);
+            if (!snapshot || snapshot.committed || snapshot.uid !== uid || snapshot.kind !== 'save') continue;
+            if (snapshot.gen !== this._loadGen(yearId)) continue; // from an earlier load: already refused as stale
+            try {
+                await this._enqueueConfirmed([yearId], this._yearDocWrite(...snapshot.args));
+            } catch (err) {
+                const label = snapshot.args[0] && (snapshot.args[0].label || snapshot.args[0].id);
+                const message = 'Changes to ' + label + ' are not saved yet (' + (err && err.message ? err.message : 'unknown error')
+                    + '). They are kept in this tab and the year was not reloaded; try again when you are back online.';
+                if (!this._state.writeBlock) this._setState({ saveStatus: { state: 'not_saved', message, at: new Date().toISOString() } });
+                throw new Error(message);
+            }
         }
     }
 
