@@ -2458,6 +2458,34 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(s._queuedYearSnapshots.get('2026')).toMatchObject({ committed: true });
     });
 
+    it('checkReviewedRollover classifies read-only: absent → not committed, own → already completed, other → elsewhere; never writes (#609)', async () => {
+        seedYear();
+        const s = await loadedService();
+        const writesBefore = setDocCalls.length;
+        const attempt = { reconciliationId: 'rec-z', payloadFingerprint: 'yrp1_mine' };
+        // Absent destination: not committed.
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'COMMIT_UNCERTAIN', resolution: 'not_committed' });
+        // Created elsewhere (no review event).
+        mockStore['users/user-1/billingYears/2027'] = { label: '2027', status: 'open', rev: 1, billingEvents: [] };
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'elsewhere' });
+        // This reconciliation with other entries: diverged.
+        mockStore['users/user-1/billingYears/2027'].billingEvents = [{ eventType: 'YEAR_CREATED_FROM_REVIEW', timestamp: '2026-12-08T15:12:00.000Z',
+            payload: { reconciliationId: 'rec-z', payloadFingerprint: 'yrp1_other' } }];
+        await expect(s.checkReviewedRollover('2027', attempt)).rejects.toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'diverged',
+            existing: expect.objectContaining({ reconciliationId: 'rec-z', createdAt: '2026-12-08T15:12:00.000Z' }) });
+        expect(setDocCalls.length).toBe(writesBefore);
+        // This reconciliation with these entries: completed; the tab enters 2027.
+        mockStore['users/user-1/billingYears/2027'].billingEvents[0].payload.payloadFingerprint = 'yrp1_mine';
+        await expect(s.checkReviewedRollover('2027', attempt)).resolves.toEqual({ outcome: 'already_completed', yearId: '2027' });
+        expect(s.getState().activeYear.id).toBe('2027');
+        // Unreadable documents: uncertain without a resolution.
+        const { getDoc } = await import('firebase/firestore');
+        getDoc.mockRejectedValueOnce(firestoreError('unavailable'));
+        const unreadable = await s.checkReviewedRollover('2028', attempt).catch(error => error);
+        expect(unreadable).toMatchObject({ code: 'COMMIT_UNCERTAIN' });
+        expect(unreadable).not.toHaveProperty('resolution');
+    });
+
     it('when the retry of an unsaved edit is refused (Reload required), the message says to reload, not to come back online (#685 review)', async () => {
         seedYear();
         const s = await loadedService();

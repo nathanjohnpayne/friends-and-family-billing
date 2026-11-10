@@ -29,7 +29,7 @@ import NewSubscriptionsStep from './NewSubscriptionsStep.jsx';
 import ChargesStep from './ChargesStep.jsx';
 import ReviewStep, { REVIEW_STEP_READY, labelError } from './ReviewStep.jsx';
 import { useYearEndReview } from './useYearEndReview.js';
-import { CONFLICT_STATES, clearPendingAttempt, readPendingAttempt, useStartYear } from './useStartYear.js';
+import { CONFLICT_STATES, clearPendingAttempt, readPendingAttempt, resumedAttempt, useStartYear } from './useStartYear.js';
 import { COMMIT_GUARD_MISSING, hasCommitGuard } from './commitOutcome.js';
 import { previewRollover } from './reviewPreview.js';
 import { draftStorageKey, entryCounts, formatDate, readStored, removeStored, snapshotStorageKey } from './yearEndReviewModel.js';
@@ -184,6 +184,8 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
     // A remount over an unresolved attempt resumes on Step 4 in the uncertain state (#609 review).
     const [step, setStep] = useState(resume ? 4 : 1);
     const [resumedOutcome] = useState(() => (resume ? { state: 'uncertain', checked: false, yearId: resume.yearId, resumed: true } : null));
+    // The marker is captured once, at mount: later overwrites by another tab are ignored.
+    const [resumedAttemptState] = useState(() => resumedAttempt(resume, review.draft));
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [fastPath, setFastPath] = useState(false);
     const nextYearLabel = review.draft.nextYearLabel;
@@ -203,7 +205,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload, re
     const gateRef = useRef(null);
     const canStartNow = useCallback(() => gateRef.current?.canStart === true, []);
     const commit = useStartYear({ service, source, review, reopenedAdjustmentIds: reopened, summary: preview?.ok ? preview.prepared.summary : null,
-        onPin, onSuccess, canStart: canStartNow, initialOutcome: resumedOutcome });
+        onPin, onSuccess, canStart: canStartNow, initialOutcome: resumedOutcome, initialAttempt: resumedAttemptState });
     // After an uncertain outcome the destination may be this draft's own commit, so it is not
     // a "duplicate label": the service's read classifies it when Check again runs.
     const uncertain = commit.outcome?.state === 'uncertain';

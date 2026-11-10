@@ -663,6 +663,7 @@ function fakeService(overrides = {}) {
             if (yearId !== mocks.state.activeYear.id) mocks.state = { ...mocks.state, activeYear: { id: yearId, label: yearId, status: 'open' } };
         }),
         createYear: vi.fn(async () => ({ outcome: 'completed', yearId: '2027' })),
+        checkReviewedRollover: vi.fn(),
         ...overrides
     };
     mocks.service = service;
@@ -1152,6 +1153,80 @@ describe('Step 4 — an unresolved attempt is never downgraded or replaced (#609
         expect(screen.getByTestId('year-end-review-step-4')).toBeInTheDocument();
         // Discard stays available.
         expect(screen.getByRole('button', { name: 'Discard draft' })).toBeEnabled();
+    });
+
+    // Another tab restored the same draft (same reconciliationId), diverged, and wrote its own attempt.
+    const foreignMarker = { attemptId: 'att_other_tab', yearId: '2027', reconciliationId: 'rec_fixed', draftFingerprint: 'yrp1_other_entries',
+        payload: { reconciliationId: 'rec_fixed', sourceYearId: '2026', sourceFingerprint: 'yer1_other', trueUps: [], serviceCredits: [],
+            usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: { noBillChanges: true, noNewSubscriptions: true, noExtraCharges: true } },
+        at: '2026-12-08T15:00:00.000Z' };
+
+    it('another tab rewriting the marker between Start and Check again cannot substitute its payload (Codex thread 4531849162)', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN))
+            .mockResolvedValueOnce({ outcome: 'already_completed', yearId: '2027' }) });
+        seedWireframe();
+        routedPage();
+        const banner = await startUnresolved(user);
+        const sent = service.createYear.mock.calls[0][1].reconciliation;
+        window.localStorage.setItem(ATTEMPT_KEY, JSON.stringify(foreignMarker));
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        await screen.findByText('Dashboard page');
+        expect(service.createYear.mock.calls[1][1].reconciliation).toEqual(sent);
+        // Resolved: this tab's re-sent attempt (re-recorded under its own attempt id) is cleared with the draft.
+        expect(window.localStorage.getItem(ATTEMPT_KEY)).toBeNull();
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('a remounted tab reads the marker once at mount and ignores later overwrites', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN))
+            .mockResolvedValueOnce({ outcome: 'already_completed', yearId: '2027' }) });
+        seedWireframe();
+        const first = routedPage();
+        await startUnresolved(user);
+        const sent = service.createYear.mock.calls[0][1].reconciliation;
+        first.unmount();
+        routedPage();
+        const banner = screen.getByText('We can’t tell yet whether 2027 was created.').closest('[role="alert"]');
+        window.localStorage.setItem(ATTEMPT_KEY, JSON.stringify(foreignMarker));
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        await screen.findByText('Dashboard page');
+        expect(service.createYear.mock.calls[1][1].reconciliation).toEqual(sent);
+        expect(service.checkReviewedRollover).not.toHaveBeenCalled();
+    });
+
+    it('a remounted tab never re-sends a marker written from other entries: Check again classifies read-only (diverged)', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ checkReviewedRollover: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'diverged',
+            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_other', createdAt: '2026-12-08T15:12:00.000Z', summary: null } })) });
+        seedWireframe();
+        window.localStorage.setItem(ATTEMPT_KEY, JSON.stringify(foreignMarker));
+        routedPage();
+        const banner = screen.getByText('We can’t tell yet whether 2027 was created.').closest('[role="alert"]');
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        expect(await screen.findByText(/started from this draft on another tab with different entries/)).toBeInTheDocument();
+        expect(service.createYear).not.toHaveBeenCalled();
+        expect(service.checkReviewedRollover).toHaveBeenCalledWith('2027', expect.objectContaining({ reconciliationId: 'rec_fixed' }));
+        expect(window.localStorage.getItem(ATTEMPT_KEY)).toBeNull();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('a foreign marker read back as not committed: Retry then sends this tab’s own draft, never the marker’s payload', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ checkReviewedRollover: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'not_committed' })) });
+        seedWireframe();
+        window.localStorage.setItem(ATTEMPT_KEY, JSON.stringify(foreignMarker));
+        routedPage();
+        const banner = screen.getByText('We can’t tell yet whether 2027 was created.').closest('[role="alert"]');
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        const checked = (await screen.findByText(/a check found nothing was saved/)).closest('[role="alert"]');
+        expect(service.createYear).not.toHaveBeenCalled();
+        await user.click(within(checked).getByRole('button', { name: 'Retry' }));
+        await screen.findByText('Dashboard page');
+        const sent = service.createYear.mock.calls[0][1].reconciliation;
+        expect(sent).not.toEqual(foreignMarker.payload);
+        expect(sent.trueUps.map(row => row.billId)).toEqual([BILL.nl, BILL.hc]);
     });
 
     it('the label is locked while the attempt is unresolved, so Check again checks the year that was attempted', async () => {

@@ -154,9 +154,12 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
  * earlier commit may have landed), only evidence about that attempt may replace it:
  * a failure of this run's own reads or writes proves nothing about it, so the
  * outcome stays uncertain instead of turning into "nothing was saved".
+ *
+ * `readOnly` replaces createYear with the service's read-only classification
+ * (`checkReviewedRollover`), for an attempt this tab must not re-send.
  */
 export async function startReviewedYear({ service, sourceYear, sourceEvents, yearId, payload, reopenedAdjustmentIds,
-    payloadFingerprint, summary, prior = null }) {
+    payloadFingerprint, summary, prior = null, readOnly = false }) {
     const ctx = { yearId, reconciliationId: payload.reconciliationId, payloadFingerprint, summary };
     const unresolved = isUnresolved(prior);
     const stillUncertain = cause => ({ state: 'uncertain', checked: false, yearId, ...(cause ? { cause } : {}) });
@@ -178,7 +181,10 @@ export async function startReviewedYear({ service, sourceYear, sourceEvents, yea
     }
     let outcome;
     try {
-        const result = await service.createYear(yearId, { reopenedAdjustmentIds, reconciliation: payload });
+        // readOnly: settle an unresolved attempt this tab cannot re-send as its own; nothing is written.
+        const result = readOnly
+            ? await service.checkReviewedRollover(yearId, { reconciliationId: payload.reconciliationId, payloadFingerprint })
+            : await service.createYear(yearId, { reopenedAdjustmentIds, reconciliation: payload });
         outcome = classifyCommitResult({ result }, ctx);
     } catch (error) {
         outcome = classifyCommitResult({ error }, ctx);
