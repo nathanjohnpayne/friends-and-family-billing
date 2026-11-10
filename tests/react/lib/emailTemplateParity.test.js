@@ -11,7 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
-import { getInvoiceSummaryContext as getInvoiceSummaryContextResult, buildInvoiceTemplateEmailPayload } from '@/lib/invoice.js';
+import { getInvoiceSummaryContext as getInvoiceSummaryContextResult, buildInvoiceTemplateEmailPayload, buildInvoiceBody } from '@/lib/invoice.js';
+import { invoiceMembers, invoiceBills, invoiceSeeds, invoiceYear, lindqvistSeed } from '../helpers/carriedInvoiceFixture.js';
 function getInvoiceSummaryContext(members, bills, payments, id, year, settings, owed = [], refunds = []) {
     return getInvoiceSummaryContextResult(members, bills, payments, id, year, settings, owed, refunds);
 }
@@ -163,6 +164,60 @@ describe('plain-text alternative of the test email', () => {
         }
         expect(plain).toContain('our site (https://example.com/?a=1&b=2)');
         expect(plain).toContain('Alice Smith\u2019s 2026 Annual Billing Summary (' + shareUrl + ')');
+    });
+});
+
+describe('carried block parity: preview, test email and sent email (#604)', () => {
+    const carriedSettings = { ...settings, emailMessageDocument: {
+        type: 'doc', content: [
+            para(text('Hi '), { type: 'templateToken', attrs: { id: 'first_name' } }, text(',')),
+            para(text('Your household total is '), { type: 'templateToken', attrs: { id: 'household_total' } }, text('.')),
+            { type: 'blockToken', attrs: { id: 'payment_methods' } },
+            para(text('Thanks!')),
+        ] } };
+    const lindqvist = getInvoiceSummaryContext(invoiceMembers, invoiceBills, [], 1, invoiceYear, carriedSettings, invoiceSeeds);
+    const listItems = html => [...new JSDOM('<body>' + html + '</body>').window.document.querySelectorAll('ul')][0];
+
+    it('the server rendering of the test email shows the preview block line for line', () => {
+        const payload = buildInvoiceTemplateEmailPayload(lindqvist, shareUrl);
+        const client = semantics(payload.html);
+        const server = semantics(simpleMarkdownToHtml(payload.markdown));
+        expect(server.ul).toEqual(client.ul);
+        expect(server.strong).toEqual(client.strong);
+        expect(client.ul.slice(0, 5)).toEqual([
+            'Erik · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
+            'Erik · Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months: $5.00',
+            'Maja · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
+            'Maja · Activation fee (Nov 3): $30.00',
+            'Your household’s 2026 credit: −$4.00Pinecone Vault ended in August: −$4.00 (Erik)',
+        ]);
+        expect(client.strong).toEqual(expect.arrayContaining(['Carried total: +$55.00']));
+        for (const rendered of [client, server]) {
+            expect(rendered.fullText).toContain('Carried total: +$55.00 · 2027 total: $723.00 (2027 bills $668.00 + carried $55.00)');
+            expect(rendered.fullText.indexOf('Carried from 2026')).toBeLessThan(rendered.fullText.indexOf('Payment Options'));
+        }
+        expect(markdownToPlainText(payload.markdown)).toContain('Carried total: +$55.00');
+    });
+
+    it('every sent email variant renders the same item lines as the preview', () => {
+        // The sent body names the member with ": " and puts the share on a
+        // continuation line (<br> on the server); only those separators differ.
+        const previewItems = [...listItems(buildInvoiceTemplateEmailPayload(lindqvist, shareUrl).html).querySelectorAll('li')]
+            .map(li => li.textContent.replace(/ · /, ': ').replace(/\. Your share/, '.Your share'));
+        for (const variant of ['text-only', 'text-link', 'full']) {
+            const sent = buildInvoiceBody(lindqvist, variant, shareUrl, 'email');
+            const items = [...listItems(simpleMarkdownToHtml(sent.value)).querySelectorAll('li')].map(li => li.textContent);
+            expect(items).toEqual(previewItems);
+        }
+    });
+
+    it('keeps markdown-looking snapshot text literal on the server', () => {
+        const seed = { ...lindqvistSeed, items: lindqvistSeed.items.map((item, i) => i === 3 ? { ...item, description: 'Fee *2* [x]' } : item) };
+        const ctx = getInvoiceSummaryContext(invoiceMembers, invoiceBills, [], 1, invoiceYear, carriedSettings, [seed]);
+        const payload = buildInvoiceTemplateEmailPayload(ctx, shareUrl);
+        const server = semantics(simpleMarkdownToHtml(payload.markdown));
+        expect(server.em).toEqual([]);
+        expect(server.fullText).toContain('Maja · Fee *2* [x]: $30.00');
     });
 });
 

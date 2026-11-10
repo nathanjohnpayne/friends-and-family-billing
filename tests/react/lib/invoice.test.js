@@ -8,6 +8,8 @@ import {
     docToPlainTextWithTokens,
     plainTextToDoc
 } from '@/lib/invoice.js';
+import { buildCarriedItemsForShare } from '@/lib/share.js';
+import { invoiceMembers, invoiceBills, invoiceSeeds, invoiceYear, lindqvistSeed } from '../helpers/carriedInvoiceFixture.js';
 
 // Existing prose/formatting assertions consume explicitly successful API results.
 function getInvoiceSummaryContext(members, bills, payments, id, year, settings, owed = [], refunds = []) {
@@ -842,5 +844,177 @@ describe('invoice template HTML rendering', () => {
         expect(payload.text).toContain('Hello John,');
         expect(payload.text).toContain('Payment methods:');
         expect(payload.html).toContain('John Payne’s 2026 Annual Billing Summary');
+    });
+});
+
+describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
+    const shareUrl = 'https://example.com/share?token=abc';
+    const venmo = { id: 'pm_v', type: 'venmo', label: 'Venmo', enabled: true, handle: '@morgan' };
+    const configured = { emailMessage: 'Hi %first_name%,\n\nYour household total is %household_total%.\n\n%payment_methods%\n\nThanks!', paymentMethods: [venmo] };
+    const ctxFor = (id, settings = configured, seeds = invoiceSeeds) =>
+        getInvoiceSummaryContext(invoiceMembers, invoiceBills, [], id, invoiceYear, settings, seeds, []);
+    const lindqvistBlock = [
+        'CARRIED FROM 2026',
+        '- Erik: Northline Mobile went from $180 to $198 a month in July.',
+        '  Your share of six months: $12.00',
+        '- Erik: Harbor Cloud Storage went from $120 to $144 a year in March.',
+        '  Your share of ten months: $5.00',
+        '- Maja: Northline Mobile went from $180 to $198 a month in July.',
+        '  Your share of six months: $12.00',
+        '- Maja: Activation fee (Nov 3): $30.00',
+        '- Your household’s 2026 credit: −$4.00',
+        '  Pinecone Vault ended in August: −$4.00 (Erik)',
+        'CARRIED TOTAL: +$55.00',
+    ].join('\n');
+    const allOutputs = ctx => [
+        ...['text-only', 'text-link', 'full'].map(variant => buildInvoiceBody(ctx, variant, shareUrl, 'email')),
+        renderInvoiceTemplate(ctx, shareUrl), buildInvoiceTemplateEmailPayload(ctx, shareUrl).markdown,
+    ];
+
+    it('exposes the share builder lines and the canonical carried total; combinedTotal is unchanged', () => {
+        const ctx = ctxFor(1);
+        expect(ctx.carriedItems).toEqual(buildCarriedItemsForShare(invoiceMembers, invoiceBills, invoiceSeeds, 1, [2]));
+        expect(ctx.carriedTotal).toBe(55);
+        expect(ctx.combinedTotal).toBe(723);
+        expect(ctx.cents).toMatchObject({ G: 66800, O: 5500, invoice: 72300 });
+        const none = ctxFor(5);
+        expect(none.carriedItems).toBeNull();
+        expect(none.carriedTotal).toBe(0);
+        expect(none.combinedTotal).toBe(352);
+    });
+
+    it('Full renders the Lindqvist block between the bill tables and the payment summary', () => {
+        const full = buildInvoiceBody(ctxFor(1), 'full', shareUrl, 'email');
+        expect(full).toContain(lindqvistBlock);
+        const blockAt = full.indexOf('CARRIED FROM 2026');
+        expect(blockAt).toBeGreaterThan(full.indexOf("MAJA LINDQVIST'S BILLS:"));
+        expect(blockAt).toBeLessThan(full.indexOf('ANNUAL PAYMENT SUMMARY:'));
+        const summary = full.slice(full.indexOf('ANNUAL PAYMENT SUMMARY:'));
+        expect(summary).toContain('  2027 bills:                    $668.00\n  Carried from 2026:             +$55.00\n  Combined Annual Total:         $723.00\n');
+        expect(summary).toContain('Balance Remaining:             $723.00');
+        // The Full variant states the figures in the summary, so no total sentence.
+        expect(full).not.toContain('2027 total:');
+    });
+
+    it('text-only and text-link append the block after the message and before the payment methods; subject unchanged', () => {
+        const ctx = ctxFor(1);
+        for (const variant of ['text-only', 'text-link']) {
+            const body = buildInvoiceBody(ctx, variant, shareUrl, 'email');
+            expect(body).toContain(lindqvistBlock + '\n2027 total: $723.00 (2027 bills $668.00 + carried $55.00)');
+            expect(body.indexOf('Your household total is $723.00.')).toBeLessThan(body.indexOf('CARRIED FROM 2026'));
+            expect(body.indexOf('CARRIED TOTAL')).toBeLessThan(body.indexOf('Payment methods:'));
+            if (variant === 'text-link') expect(body.indexOf('Payment methods:')).toBeLessThan(body.indexOf(shareUrl));
+        }
+        const withoutCarry = ctxFor(1, configured, []);
+        expect(buildInvoiceSubject('2027', ctx.member, '', ctx)).toBe(buildInvoiceSubject('2027', withoutCarry.member, '', withoutCarry));
+        expect(buildInvoiceSubject('2027', ctx.member, '', ctx)).toBe('Annual Billing Summary 2027—Erik Lindqvist');
+    });
+
+    it('appends the block after a message without payment methods and after the default message', () => {
+        const noToken = buildInvoiceBody(ctxFor(1, { emailMessage: 'Hi %first_name%, see your total %household_total%.' }), 'text-link', shareUrl, 'email');
+        expect(noToken).toMatch(/total \$723\.00\.\n\nCARRIED FROM 2026\n/);
+        expect(noToken.indexOf('CARRIED TOTAL')).toBeLessThan(noToken.indexOf(shareUrl));
+        for (const variant of ['text-only', 'text-link']) {
+            const fallback = buildInvoiceBody(ctxFor(1, {}), variant, shareUrl, 'email');
+            expect(fallback).toContain(lindqvistBlock);
+        }
+    });
+
+    it('a net-credit household carries its credit with the detail on one line', () => {
+        const ctx = ctxFor(3);
+        expect(ctx.combinedTotal).toBe(324);
+        const body = buildInvoiceBody(ctx, 'text-only', shareUrl, 'email');
+        expect(body).toContain('CARRIED FROM 2026\n- Your 2026 credit: −$28.00\n  Pinecone Vault ended in August: −$6.00 (Rosa); Other 2026 overpayment: −$22.00\nCARRIED TOTAL: −$28.00');
+        expect(body).toContain('2027 total: $324.00 (2027 bills $352.00 − carried $28.00)');
+        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Carried from 2026:             −$28.00\n');
+    });
+
+    it('a legacy seed renders one line in every variant', () => {
+        const ctx = ctxFor(4);
+        expect(ctx.combinedTotal).toBe(382);
+        const line = 'Carried from 2026: +$30.00.';
+        for (const output of allOutputs(ctx)) {
+            const text = output.replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+            expect(text.split(line)).toHaveLength(2);
+            expect(text).not.toMatch(/CARRIED (FROM|TOTAL)|Carried total/);
+        }
+        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Carried from 2026:             +$30.00\n');
+    });
+
+    it('a household with no carried items produces no block and an unchanged payment summary', () => {
+        const ctx = ctxFor(5);
+        for (const output of allOutputs(ctx)) expect(output).not.toMatch(/carried/i);
+        const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
+        expect(full).toContain('ANNUAL PAYMENT SUMMARY:\n' + '='.repeat(80) + '\n  Combined Annual Total:         $352.00\n');
+    });
+
+    it('never uses administrator vocabulary in member-facing output', () => {
+        for (const id of [1, 3, 4]) {
+            for (const output of allOutputs(ctxFor(id))) {
+                expect(output).not.toMatch(/Other adjustments|True-up|carry_opening|reconciliation|adjustment/i);
+            }
+        }
+    });
+
+    it('SMS bodies are unchanged by a carried balance', () => {
+        for (const variant of ['text-only', 'text-link']) {
+            expect(buildInvoiceBody(ctxFor(1), variant, shareUrl, 'sms')).not.toMatch(/carried/i);
+        }
+    });
+
+    it('states unused incoming credit as what remains, apart from the floor remainder', () => {
+        const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -300,
+            items: [{ sourceId: 'cadj_carry_2027_9', kind: 'credit', basis: 'credit', memberId: 9, description: 'Your 2026 credit', amount: -300,
+                detail: [{ kind: 'unused', description: 'Unused 2025 credit', amount: -300 }] }] }];
+        const ctx = ctxFor(9, configured, seeds);
+        expect(ctx.combinedTotal).toBe(0);
+        expect(ctx.carriedItems.remainingCredit).toBe(36);
+        const body = buildInvoiceBody(ctx, 'text-only', shareUrl, 'email');
+        expect(body).toContain('2027 total: $0.00 (2027 bills $264.00 − carried $300.00; $36.00 not applied this year)');
+        expect(body).toContain('Your 2026 credit of $300.00 covers this year; $36.00 remains. It will carry into next year.');
+        const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
+        expect(full).toContain('  Not applied this year:         +$36.00\n  Combined Annual Total:         $0.00\n');
+        expect(full).toContain('$36.00 remains.');
+    });
+
+    it('lists a Service Credit in the summary so the arithmetic reconciles', () => {
+        const seeds = [lindqvistSeed, { id: 'sc1', kind: 'service_credit', status: 'active', memberId: 1, billId: 'northline', billName: 'Northline Mobile', reason: 'Outage', amount: 10 }];
+        const ctx = ctxFor(1, configured, seeds);
+        expect(ctx.combinedTotal).toBe(713);
+        expect(buildInvoiceBody(ctx, 'text-only', shareUrl, 'email')).toContain('2027 total: $713.00 (2027 bills $668.00 − service credits $10.00 + carried $55.00)');
+        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Service credits:               −$10.00\n  Carried from 2026:             +$55.00\n  Combined Annual Total:         $713.00\n');
+    });
+
+    it('places the HTML block after the message and before Payment Options, escaping snapshot text', () => {
+        const root = document.createElement('div');
+        root.innerHTML = renderInvoiceTemplate(ctxFor(1), shareUrl);
+        const text = root.textContent;
+        expect(text.indexOf('Your household total is $723.00.')).toBeLessThan(text.indexOf('Carried from 2026'));
+        expect(text.indexOf('Carried total: +$55.00')).toBeLessThan(text.indexOf('Payment Options'));
+        const items = [...root.querySelectorAll('ul')][0].querySelectorAll('li');
+        expect([...items].map(li => li.textContent)).toEqual([
+            'Erik · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
+            'Erik · Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months: $5.00',
+            'Maja · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
+            'Maja · Activation fee (Nov 3): $30.00',
+            'Your household’s 2026 credit: −$4.00Pinecone Vault ended in August: −$4.00 (Erik)',
+        ]);
+        expect(text).toContain('Carried total: +$55.00 · 2027 total: $723.00 (2027 bills $668.00 + carried $55.00)');
+
+        const hostile = { ...lindqvistSeed, items: lindqvistSeed.items.map((item, i) => i === 3 ? { ...item, description: '<img src=x onerror=1> fee' } : item) };
+        const html = renderInvoiceTemplate(ctxFor(1, configured, [hostile]), shareUrl);
+        expect(html).not.toContain('<img');
+        expect(html).toContain('&lt;img src=x onerror=1&gt; fee');
+
+        const appended = document.createElement('div');
+        appended.innerHTML = renderInvoiceTemplate(ctxFor(1, { emailMessage: 'Hello %first_name%.' }), shareUrl);
+        expect(appended.textContent.indexOf('Hello Erik.')).toBe(0);
+        expect(appended.textContent).toContain('Carried from 2026');
+    });
+
+    it('rejects a context whose carried total disagrees with canonical O', () => {
+        const ctx = ctxFor(1);
+        expect(buildInvoiceBodyResult({ ...ctx, carriedTotal: 50 }, 'full', shareUrl, 'email')).toEqual({ ok: false, kind: 'financial-unavailable', householdId: 1 });
+        expect(buildInvoiceBodyResult({ ...ctx, carriedItems: { ...ctx.carriedItems, items: [{ amount: NaN }] } }, 'full', shareUrl, 'email').ok).toBe(false);
     });
 });
