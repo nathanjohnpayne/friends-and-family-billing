@@ -1168,20 +1168,29 @@ require('./household-money-vectors.cjs')(require('../functions/household-money.j
 //
 // The scan is a static text check and deliberately strict (it fails closed):
 // every "billingYears" string under functions/ (outside comments) must be the
-// sole argument of `.collection(...)`, and the chain may continue only with a
-// read: `.doc(id).get()`, `.doc(id).collection(...)` (a subcollection such as
-// disputes), or a collection read or query (`.get()`, `.where()`, `.orderBy()`,
-// `.limit()`). A year DocumentReference held in a variable or passed to
-// tx.get/tx.set/batch, a path string containing billingYears, a constant
-// holding the name, collectionGroup('billingYears') and recursiveDelete are all
-// reported, so a new reader shape means extending this guard on purpose.
+// sole argument of `.collection(...)`, and the chain may continue only with
+// `.doc(id).collection(...)` (a subcollection such as disputes) or a plain
+// read, `.doc(id).get()` or `.get()`. A read must be bound in its own
+// statement (`const snap = await <chain>.get();`), and the snapshot may then
+// be used only through read-only accessors: `exists`, `id`, `data()` and
+// `get("field")` for a document; `empty`, `size` and
+// `docs.map((d) => d.data())` for a collection. So a write through a
+// snapshot's `ref` (`snap.ref.set(...)`, `d.ref.delete()`), a snapshot passed
+// elsewhere, a year DocumentReference held in a variable or passed to
+// tx.get/tx.set/batch, a query, a path string containing billingYears, a
+// constant holding the name, collectionGroup('billingYears'), recursiveDelete
+// and `.parent` (which climbs from a subcollection to the year document) are
+// all reported. A new reader shape means extending this guard on purpose.
 
 const fs = require('node:fs');
 
 const FUNCTIONS_DIR = path.join(__dirname, '..', 'functions');
 const FUNCTIONS_SOURCE = /\.(c|m)?[jt]s$/;
-const YEAR_COLLECTION_READS = ['.get(', '.where(', '.orderBy(', '.limit(', '.select(', '.count('];
-const YEAR_DOCUMENT_READS = ['.get(', '.collection('];
+// Read-only uses of a bound snapshot, matched right after the variable name.
+const YEAR_DOCUMENT_SNAPSHOT_USES = [/^\.exists\b/, /^\.id\b/, /^\.data\(\s*\)/, /^\.get\(\s*["'][\w.]+["']\s*\)/];
+const YEAR_COLLECTION_SNAPSHOT_USES = [/^\.empty\b/, /^\.size\b/, /^\.docs\.map\(\s*\(?\s*([A-Za-z_$][\w$]*)\s*\)?\s*=>\s*\1\.data\(\s*\)\s*\)/];
+// `const <name> = await <root>...` up to the `.collection(` that names billingYears.
+const READ_BINDING = /(?:^|[;{}])\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?[A-Za-z_$][\w$]*[^;{}=]*\.collection\(\s*$/;
 
 function listFunctionSources(dir = FUNCTIONS_DIR) {
     const files = [];
@@ -1218,7 +1227,20 @@ function closeParen(code, open) {
     return -1;
 }
 
-const startsAny = (code, i, prefixes) => prefixes.some((p) => code.startsWith(p, i));
+// Every use of `name` after `from` must match one of `uses` (a later
+// declaration of the same name is skipped, but its uses are still checked, so
+// shadowing cannot hide a write); returns the first offending index, or -1.
+function findUnsafeSnapshotUse(code, name, from, uses) {
+    const word = new RegExp(`(^|[^\\w$.])(${name.replace(/\$/g, '\\$')})(?![\\w$])`, 'g');
+    word.lastIndex = from;
+    for (let m = word.exec(code); m; m = word.exec(code)) {
+        const at = m.index + m[1].length;
+        if (/(?:^|[^\w$])(?:const|let|var)\s+$/.test(code.slice(Math.max(0, at - 12), at))) continue;
+        const rest = code.slice(at + name.length).replace(/^\s+/, '');
+        if (!uses.some((re) => re.test(rest))) return at;
+    }
+    return -1;
+}
 
 function scanYearDocumentWrites(src) {
     const code = stripComments(src);
@@ -1228,6 +1250,8 @@ function scanYearDocumentWrites(src) {
     const report = (i, why) => violations.push({ line: lineOf(i), why });
 
     for (const m of code.matchAll(/recursiveDelete/g)) report(m.index, 'recursiveDelete can delete year documents');
+    // `.parent` as a property access, not the spread `...parent`.
+    for (const m of code.matchAll(/(?<!\.)\.parent(?![\w$])/g)) report(m.index, '.parent can climb from a subcollection to a year document');
 
     for (const m of code.matchAll(/billingYears/g)) {
         const at = m.index;
@@ -1242,7 +1266,8 @@ function scanYearDocumentWrites(src) {
             report(at, 'billingYears inside a path or a longer string');
             continue;
         }
-        if (!code.slice(0, at - 1).replace(/\s+$/, '').endsWith('.collection(')) {
+        const head = code.slice(0, at - 1);
+        if (!head.replace(/\s+$/, '').endsWith('.collection(')) {
             report(at, '"billingYears" not passed directly to .collection()');
             continue;
         }
@@ -1252,14 +1277,32 @@ function scanYearDocumentWrites(src) {
             continue;
         }
         i = skipSpace(code, i + 1);
+        let isDocument = false;
         if (code.startsWith('.doc(', i)) {
             const end = closeParen(code, i + '.doc'.length);
-            if (end === -1 || !startsAny(code, skipSpace(code, end), YEAR_DOCUMENT_READS)) {
-                report(at, 'year DocumentReference not consumed by .get() or .collection()');
+            i = end === -1 ? -1 : skipSpace(code, end);
+            if (i !== -1 && code.startsWith('.collection(', i)) {
+                sites.push(lineOf(at)); // a subcollection (disputes); the year document itself is not touched
                 continue;
             }
-        } else if (!startsAny(code, i, YEAR_COLLECTION_READS)) {
-            report(at, 'billingYears CollectionReference not consumed by a read or query');
+            isDocument = true;
+        }
+        if (i === -1 || !/^\.get\(\s*\)\s*;/.test(code.slice(i))) {
+            report(at, isDocument
+                ? 'year DocumentReference not consumed by .get() or .collection()'
+                : 'billingYears CollectionReference not consumed by a plain .get()');
+            continue;
+        }
+        const binding = READ_BINDING.exec(head);
+        if (!binding) {
+            report(at, 'billingYears read not bound as `const <snapshot> = await ....get();`');
+            continue;
+        }
+        const statementEnd = code.indexOf(';', i) + 1;
+        const uses = isDocument ? YEAR_DOCUMENT_SNAPSHOT_USES : YEAR_COLLECTION_SNAPSHOT_USES;
+        const unsafe = findUnsafeSnapshotUse(code, binding[1], statementEnd, uses);
+        if (unsafe !== -1) {
+            report(unsafe, `${binding[1]} (a billingYears snapshot) used beyond its read-only accessors, e.g. through .ref`);
             continue;
         }
         sites.push(lineOf(at));
@@ -1298,6 +1341,15 @@ describe('functions/ never writes a billing-year document (#615)', () => {
         'a name constant': 'const NAME = "billingYears";\nawait db.collection("users").doc(uid).collection(NAME).doc(y).set(d);',
         'a collection group': 'const all = await db.collectionGroup("billingYears").get();',
         'a recursive delete': 'await db.recursiveDelete(db.collection("users").doc(uid));',
+        'a write through a document snapshot ref': `const snap = await ${YEARS}.doc(yearId).get();\nawait snap.ref.set(data);`,
+        'a delete through collection snapshot refs': `const yearsSnap = await ${YEARS}.get();\nawait Promise.all(yearsSnap.docs.map((d) => d.ref.delete()));`,
+        'a collection snapshot iterated with forEach': `const yearsSnap = await ${YEARS}.get();\nyearsSnap.forEach((d) => batch.delete(d.ref));`,
+        'a snapshot passed elsewhere': `const snap = await ${YEARS}.doc(yearId).get();\nawait rewrite(snap);`,
+        'an unbound read': `return ${YEARS}.doc(yearId).get().then((s) => s.ref.update({ rev: 2 }));`,
+        'a transaction read': `const snap = await tx.get(${YEARS}.doc(yearId));`,
+        'a query': `const open = await ${YEARS}.where("status", "==", "open").get();`,
+        'a write through a snapshot after a shadowing declaration': `const snap = await ${YEARS}.doc(yearId).get();\n{ const snap = other; }\nawait snap.ref.set(data);`,
+        'a climb through .parent':`const yearRef = ${YEARS}.doc(yearId).collection("disputes").parent;\nawait yearRef.delete();`,
     };
     for (const [name, src] of Object.entries(flagged)) {
         it(`reports ${name}`, () => {
@@ -1306,17 +1358,18 @@ describe('functions/ never writes a billing-year document (#615)', () => {
     }
 
     const allowed = {
-        'a document read': 'const snap = await db\n  .collection("users")\n  .doc(ownerId)\n  .collection("billingYears")\n  .doc(tokenData.billingYearId)\n  .get();',
+        'a document read': 'const snap = await db\n  .collection("users")\n  .doc(ownerId)\n  .collection("billingYears")\n  .doc(tokenData.billingYearId)\n  .get();\nif (!snap.exists) return null;\nconst members = snap.data().familyMembers || [];',
         'a disputes subcollection write': `await ${YEARS}.doc(yearId).collection("disputes").doc(id).set({ status: "open" });`,
-        'a collection read': `const yearsSnap = await ${YEARS}.get();`,
+        'a collection read': `const yearsSnap = await ${YEARS}.get();\nconst years = yearsSnap.docs.map((d) => d.data());\nif (yearsSnap.empty) return;`,
         'an identifier named billingYears': 'function f(ownEmail, billingYears) { for (const y of billingYears || []) {} }',
         'a comment naming the path': '// never writes users/<uid>/billingYears/<yearId>\n/* nor "billingYears" here */ const x = 1;',
+        'an object spread named parent': 'const row = { ...parent, children: [] };',
     };
     for (const [name, src] of Object.entries(allowed)) {
         it(`allows ${name}`, () => {
             const { sites, violations } = scanYearDocumentWrites(src);
             assert.deepEqual(violations, []);
-            if (name !== 'an identifier named billingYears' && name !== 'a comment naming the path') assert.equal(sites.length, 1);
+            assert.equal(sites.length, src.includes('"billingYears"') && !src.startsWith('//') ? 1 : 0);
         });
     }
 });
