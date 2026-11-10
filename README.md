@@ -164,7 +164,7 @@ npm run test:rules
 ./scripts/deploy-artifact.sh --sha <full-main-revision> --target functions --verify-only
 ```
 
-Production builds run in isolated CI without deploy credentials. After provenance and artifact verification, a separate consumer acquires keyless 1Password-backed impersonation for one explicitly approved target. See [DEPLOYMENT.md](DEPLOYMENT.md) for the direct entrypoint and setup.
+Production builds run in isolated CI without deploy credentials. After provenance and artifact verification, a separate consumer reads the deployer service-account key from 1Password for one explicitly approved target. See [DEPLOYMENT.md](DEPLOYMENT.md) for the direct entrypoint and setup.
 
 ### npm Scripts
 
@@ -445,10 +445,10 @@ Shares are computed from each bill's annual total divided by the number of membe
 ### Deploy auth and future-secret flow
 
 - Deploy maintainers need `firebase-tools`, `gcloud`, and the canonical helper scripts from `../mergepath/scripts/` (see [DEPLOYMENT.md](DEPLOYMENT.md) § First-Time Setup).
-- The normal maintainer flow reads the shared `Private/GCP ADC` source credential through the 1Password CLI, so routine deploy work does not need browser login once that item exists.
-- The 1Password-first deploy-auth model is intentional for this repo. Do not switch it back to ADC-first or deploy-key-based guidance unless a human explicitly requests that change.
-- `op-firebase-setup friends-and-family-billing` creates the deployer service account, grants deploy roles, and grants the current maintainer impersonation rights.
-- The direct artifact entrypoint invokes the unchanged pinned `op-firebase-deploy` only after verification. Its private temporary impersonated ADC for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` embeds the source credential; neither file enters the project/upload tree.
+- The normal maintainer flow reads the deployer service-account key document (`friends-and-family-billing — Firebase Deployer SA Key`, vault `Firebase`) through the 1Password CLI, so a deploy needs nothing but 1Password: no `gcloud` or browser login.
+- The 1Password-first deploy-auth model is intentional for this repo. The owner chose the key document over the shared user ADC on 2026-11-10, because the ADC expired whenever Google required interactive re-authentication. Do not switch it back to ADC-first guidance unless a human explicitly requests that change.
+- `op-firebase-setup friends-and-family-billing` creates the deployer service account and grants deploy roles; it is a one-time, human-owned setup step, not part of a deploy.
+- The direct artifact entrypoint invokes the unchanged pinned `op-firebase-deploy` only after verification. The private temporary key file for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` never enters the project/upload tree and is removed on every exit path.
 - For future APIs or services, commit only template files such as `.env.tpl` or `config.runtime.tpl` with `op://Private/<item>/<field>` references, then materialize gitignored runtime files with `op inject -i <template> -o <runtime-file> -f`.
 
 ## Redesign Wireframes

@@ -45,15 +45,19 @@ The first rollout for #602 is **Functions only**. Later Hosting and rules rollou
 
 ## Credential consumer
 
-Only after artifact/config/source verification does an external, isolated Python consuming subprocess read the fixed approved keyless ADC source once:
+Only after artifact/config/source verification does an external, isolated Python consuming subprocess read the fixed deployer service-account key once, from the 1Password document `friends-and-family-billing — Firebase Deployer SA Key` in the `Firebase` vault:
 
-`op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential`
+```bash
+op document get "friends-and-family-billing — Firebase Deployer SA Key" --vault Firebase
+```
 
-The accepted source is bounded `authorized_user` JSON for the existing service-account impersonation model. External-account/executable sources, service-account keys, caller-supplied credential paths/source URIs and source/service-account overrides are not accepted by this adapter. This preserves the repository's 1Password-first authentication model; it does not create IAM bindings or change who can deploy.
+This is the same model nathanpaynedotcom deploys with, adopted here by owner decision on 2026-11-10. The adapter previously read the shared user ADC (`Private/GCP ADC`), an `authorized_user` credential whose refresh token stops working whenever Google requires interactive re-authentication; a deploy then needed a browser login and a re-seeded 1Password item. The service-account key does not expire that way, so 1Password is the only thing a deploy needs.
 
-Only the trusted 1Password reader retains the operator HOME for its desktop CLI configuration; helper/Firebase receive a fresh neutral HOME. The subprocess writes the source into a private temporary file outside every project/upload directory and passes its explicit path only to the unchanged canonical helper. That helper validates the source token and constructs `impersonated_service_account` ADC for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`. The temporary impersonated ADC embeds the refresh-capable source credential; both files require the same private storage and cleanup. They are not merely short-lived access tokens. Source/helper/auth errors stop the attempt; there is no automatic fallback, refresh or retry.
+The accepted source is a bounded `service_account` JSON key whose `project_id` is `friends-and-family-billing`, whose `client_email` is `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` and whose `token_uri` is Google's token endpoint. A key for another project or account, an `authorized_user` or external-account source, an unknown or empty field, a caller-supplied credential path or document name, and any source or service-account override are refused before the helper runs. The adapter creates no IAM bindings and changes nothing about who can deploy; anyone who can read that document can deploy, so access to the `Firebase` vault is the deploy permission.
 
-The helper runs from an empty external CWD with isolated Python imports. Firebase receives a neutral HOME, trusted Node24/tool paths and only the explicit temporary ADC. Caller PATs, preflight markers, npm/Node/Python startup hooks, cached Firebase login and caller GAC do not cross the boundary. The selected staging hashes and Functions manifest/discovery are checked again before acquisition and at the Firebase launch boundary.
+Only the trusted 1Password reader retains the operator HOME for its desktop CLI configuration; helper/Firebase receive a fresh neutral HOME. The subprocess writes the key into a private temporary file outside every project/upload directory and passes its explicit path only to the unchanged canonical helper, which uses a key that belongs to the deployer account directly. The temporary file holds a long-lived private key: it has owner-only permissions and is removed on every exit path, including cancellation. Source/helper/auth errors stop the attempt.
+
+The helper runs from an empty external CWD with isolated Python imports. Firebase receives a neutral HOME, trusted Node24/tool paths and only the explicit temporary key file. Caller PATs, preflight markers, npm/Node/Python startup hooks, cached Firebase login and caller GAC do not cross the boundary. The selected staging hashes and Functions manifest/discovery are checked again before acquisition and at the Firebase launch boundary.
 
 Never use `op-preflight --mode all`/deploy exports, `npm run deploy`, local predeploy hooks, direct `firebase deploy`, or a locally rebuilt candidate as this deployment boundary. Review credentials may be used only by the GitHub download/attestation subprocess; they are not passed to the deployment consumer.
 
@@ -146,7 +150,7 @@ Verify the app after each deploy:
 ## Secrets Management
 
 - No API keys or secrets are committed to this repository.
-- Deploy auth uses the fixed 1Password-backed keyless ADC/impersonation consumer described above. Source and impersonated ADC files both contain refresh-capable credential material and remain outside upload trees.
+- Deploy auth uses the fixed 1Password deployer service-account key document described above. The temporary key file holds long-lived private-key material and remains outside upload trees.
 - For future secrets, use `op://Private/<item>/<field>` references in committed files and resolve them into gitignored runtime files with `op inject`. Never commit the resolved output.
 
 ### Cloud Functions Secrets
@@ -278,8 +282,8 @@ op signin
 # GitHub CLI
 gh auth login
 
-# Google Cloud — use 1Password-backed ADC (no interactive login needed
-# if op is authenticated and the GCP ADC item exists in 1Password)
+# Google Cloud — deploys read the deployer key document from 1Password
+# (vault Firebase); no gcloud or browser login is needed to deploy
 ```
 
 ### 3. Install trusted canonical helpers
@@ -564,7 +568,7 @@ This is a separately authorized, human-owned setup operation: it changes project
 op-firebase-setup friends-and-family-billing
 ```
 
-Only when the source credential itself needs initial creation or explicit rotation (not as routine deploy login): if `op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential` does not exist yet, seed it once by running `gcloud auth application-default login`, then copy the resulting `~/.config/gcloud/application_default_credentials.json` into the 1Password item `Private/GCP ADC`, field `credential`.
+Only when the deployer key itself needs initial creation or explicit rotation (never as routine deploy login): create a new key for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`, store its JSON as the 1Password document `friends-and-family-billing — Firebase Deployer SA Key` in the `Firebase` vault, and delete the old key in IAM. This is a human-owned operation; it needs an interactive `gcloud` login with IAM rights, and the key file must not be left on disk. The shared `Private/GCP ADC` item is no longer read by this repository's deploys.
 
 `op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
 1. Enables the IAM Credentials API
