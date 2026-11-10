@@ -12,10 +12,21 @@ import { computePayloadFingerprint } from '../../../lib/year-end-review.js';
 import { buildReconciliationPayload } from './reconciliationPayload.js';
 import { startReviewedYear } from './commitOutcome.js';
 
-/** Outcomes that leave the next year in place: the page stays pinned to show them. */
+/** Outcomes that leave the next year in place (shown with Open / Discard). */
 export const CONFLICT_STATES = ['elsewhere', 'diverged'];
 
-export function useStartYear({ service, source, review, reopenedAdjustmentIds, summary, onPin, onSuccess }) {
+/**
+ * Outcomes the page stays pinned for: the conflicts, and an uncertain outcome, whose
+ * destination may exist (possibly this draft's own commit). Unpinned, the years list
+ * would show it and the entry guard would replace the page, dropping Check again.
+ */
+export const PINNED_STATES = [...CONFLICT_STATES, 'uncertain'];
+
+/**
+ * @param {{ canStart: () => boolean }} options canStart is read at the moment of every
+ *   Start, Retry and Check again: recovery never commits inputs the Start gate rejects.
+ */
+export function useStartYear({ service, source, review, reopenedAdjustmentIds, summary, onPin, onSuccess, canStart }) {
     const [phase, setPhase] = useState('idle');
     const [outcome, setOutcome] = useState(null);
     const running = useRef(false);
@@ -35,7 +46,7 @@ export function useStartYear({ service, source, review, reopenedAdjustmentIds, s
     }, [phase]);
 
     const start = useCallback(async () => {
-        if (running.current) return;
+        if (running.current || (canStart && !canStart())) return;
         running.current = true;
         const draft = review.draft;
         const yearId = draft.nextYearLabel.trim();
@@ -65,8 +76,8 @@ export function useStartYear({ service, source, review, reopenedAdjustmentIds, s
         if (!mounted.current) return;
         setPhase('idle');
         setOutcome(result);
-        if (!CONFLICT_STATES.includes(result.state)) onPin(null);
-    }, [service, source, review, reopenedAdjustmentIds, summary, onPin, onSuccess]);
+        if (!PINNED_STATES.includes(result.state)) onPin(null);
+    }, [service, source, review, reopenedAdjustmentIds, summary, onPin, onSuccess, canStart]);
 
     const clearOutcome = useCallback(() => setOutcome(null), []);
     return { phase, outcome, start, clearOutcome, locked: phase === 'starting' };

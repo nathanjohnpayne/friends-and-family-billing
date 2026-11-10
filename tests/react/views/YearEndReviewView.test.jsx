@@ -856,6 +856,27 @@ describe('Step 4 — Start and the commit outcomes', () => {
         await screen.findByText('Dashboard page');
     });
 
+    it('Retry applies the current Start gate: an edit Start would reject turns Retry off and sends nothing (#609 review)', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_FAILED)) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText('2027 was not created.')).closest('[role="alert"]');
+        const label = screen.getByLabelText('New billing year label');
+        await user.clear(label);
+        await user.type(label, '2027-28');
+        expect(within(alert).getByRole('button', { name: 'Retry' })).toBeDisabled();
+        expect(within(screen.getByTestId('start-blockers')).getByText(/Use a four-digit year/)).toBeInTheDocument();
+        // Even a click that reaches the handler (e.g. a stale render) sends nothing.
+        fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+        expect(service.createYear).toHaveBeenCalledTimes(1);
+        await user.clear(label);
+        await user.type(label, '2027');
+        expect(within(alert).getByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
     it('COMMIT_FAILED: nothing saved, the draft kept, Retry sends the same payload', async () => {
         const user = userEvent.setup();
         const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED)).mockResolvedValueOnce(undefined) });

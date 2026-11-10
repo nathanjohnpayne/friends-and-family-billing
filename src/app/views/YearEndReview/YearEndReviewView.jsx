@@ -11,7 +11,7 @@
  * (useYearEndReview) and is cleared only on a confirmed success or an
  * explicit discard.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useToast } from '../../contexts/ToastContext.jsx';
@@ -186,8 +186,17 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) 
         showToast(result.alreadyCompleted ? `${result.yearId} was already started from this draft.` : `${result.yearId} started.`);
         navigate('/dashboard');
     }, [navigate, showToast]);
-    const commit = useStartYear({ service, source, review, reopenedAdjustmentIds: reopened, summary: preview?.ok ? preview.prepared.summary : null, onPin, onSuccess });
-    const gate = gateOf({ review, preview, billingYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale' });
+    // Start, Retry and Check again all read the gate at the moment they run (#609 review).
+    const gateRef = useRef(null);
+    const canStartNow = useCallback(() => gateRef.current?.canStart === true, []);
+    const commit = useStartYear({ service, source, review, reopenedAdjustmentIds: reopened, summary: preview?.ok ? preview.prepared.summary : null,
+        onPin, onSuccess, canStart: canStartNow });
+    // After an uncertain outcome the destination may be this draft's own commit, so it is not
+    // a "duplicate label": the service's read classifies it when Check again runs.
+    const uncertain = commit.outcome?.state === 'uncertain';
+    const knownYears = uncertain ? billingYears.filter(year => String(year.id) !== nextYearLabel.trim()) : billingYears;
+    const gate = gateOf({ review, preview, billingYears: knownYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale' });
+    gateRef.current = gate;
     const locked = commit.locked;
     const conflict = !!commit.outcome && CONFLICT_STATES.includes(commit.outcome.state);
 
@@ -207,9 +216,9 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) 
     };
     const confirmDiscard = () => {
         setConfirmingDiscard(false);
-        if (conflict) {
-            // The next year exists, so there is nothing left to review here: remove the
-            // stored draft without starting a new one and leave the page.
+        if (conflict || uncertain) {
+            // The next year exists (or may): there is nothing left to review here. Remove
+            // the stored draft without starting a new one and leave the page.
             review.actions.clearDraftAfterSuccess();
             showToast('Draft discarded. ' + sourceLabel + ' was not changed.');
             navigate('/dashboard');
@@ -247,7 +256,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) 
             {step === 3 && <ChargesStep review={review} source={source} nextYearLabel={nextYearLabel} />}
             {step === 4 && (
                 <ReviewStep review={review} source={source} nextYearLabel={nextYearLabel} preview={preview} gate={gate} commit={commit}
-                    billingYears={billingYears} reopenedAdjustmentIds={reopened} nothingChanged={nothingChanged}
+                    billingYears={knownYears} reopenedAdjustmentIds={reopened} nothingChanged={nothingChanged}
                     onGo={go} onOpenYear={openYear} onDiscard={() => setConfirmingDiscard(true)} onReload={onReload} />
             )}
 

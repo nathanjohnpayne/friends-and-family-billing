@@ -195,14 +195,14 @@ function timeOf(value) {
 }
 
 /** The commit outcome as the page reports it (spec § Outcomes). */
-function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOpen, onDiscard, onReload }) {
+function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOpen, onDiscard, onReload, canRetry }) {
     const discard = <button type="button" className="btn btn-header-secondary" onClick={onDiscard}>Discard draft</button>;
     switch (outcome.state) {
         case 'failed':
             return (
                 <div className="yer-alert yer-alert--error" role="alert">
                     <p><b>{nextYearLabel} was not created.</b> {outcome.offline ? outcome.cause : <>Nothing was saved and your draft is kept. {outcome.cause}</>}</p>
-                    <div className="yer-alert-acts">{discard}{outcome.retry !== false && <button type="button" className="btn btn-ink" onClick={onRetry}>Retry</button>}</div>
+                    <div className="yer-alert-acts">{discard}{outcome.retry !== false && <button type="button" className="btn btn-ink" disabled={!canRetry} onClick={onRetry}>Retry</button>}</div>
                 </div>
             );
         case 'elsewhere':
@@ -231,12 +231,12 @@ function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOp
             return outcome.checked ? (
                 <div className="yer-alert yer-alert--error" role="alert">
                     <p><b>{nextYearLabel} was not created.</b> The connection dropped while starting; a check found nothing was saved. Your draft is kept.</p>
-                    <div className="yer-alert-acts">{discard}<button type="button" className="btn btn-ink" onClick={onRetry}>Retry</button></div>
+                    <div className="yer-alert-acts">{discard}<button type="button" className="btn btn-ink" disabled={!canRetry} onClick={onRetry}>Retry</button></div>
                 </div>
             ) : (
                 <div className="status-banner status-banner--warning" role="alert">
                     <p><b>We can’t tell yet whether {nextYearLabel} was created.</b> The connection dropped after Start was sent. Your draft is kept. Check again before trying anything else; checking never writes {nextYearLabel} twice.</p>
-                    <div className="yer-alert-acts"><button type="button" className="btn btn-ink" onClick={onRecheck}>Check again</button></div>
+                    <div className="yer-alert-acts"><button type="button" className="btn btn-ink" disabled={!canRetry} onClick={onRecheck}>Check again</button></div>
                 </div>
             );
         default:
@@ -304,7 +304,7 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
                 {preview.ok && <Statement statement={preview.statement} sourceLabel={sourceLabel} nextYearLabel={nextYearLabel} />}
                 {commit.outcome && (
                     <Outcome outcome={commit.outcome} sourceLabel={sourceLabel} nextYearLabel={nextYearLabel}
-                        onRetry={() => commit.start()} onRecheck={() => commit.start()} onOpen={onOpenYear} onDiscard={onDiscard} onReload={onReload} />
+                        onRetry={() => commit.start()} onRecheck={() => commit.start()} onOpen={onOpenYear} onDiscard={onDiscard} onReload={onReload} canRetry={gate.canStart} />
                 )}
                 {!locked && !conflict && gate.blockers.length > 0 && (
                     <div className="status-banner status-banner--warning yer-blockers" data-testid="start-blockers">

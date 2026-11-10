@@ -10,7 +10,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 // source edit, a year created elsewhere) render without any mocked service.
 
 const mockStore = {};
-const mockTxControl = { failNextCommit: null };
+const mockTxControl = { failNextCommit: null, failGetDocPath: null };
 const holder = vi.hoisted(() => ({ service: null }));
 
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
@@ -19,7 +19,11 @@ vi.mock('firebase/firestore', () => ({
     collection: vi.fn((_db, ...segments) => ({ path: segments.join('/') })),
     query: vi.fn(ref => ref),
     where: vi.fn(() => null),
-    getDoc: vi.fn(async ref => ({ exists: () => !!mockStore[ref.path], data: () => mockStore[ref.path] || null })),
+    getDoc: vi.fn(async ref => {
+        // A plain read of one path that cannot reach the server (the rollover read-back).
+        if (mockTxControl.failGetDocPath === ref.path) throw Object.assign(new Error('offline'), { code: 'unavailable' });
+        return { exists: () => !!mockStore[ref.path], data: () => mockStore[ref.path] || null };
+    }),
     getDocs: vi.fn(async ref => {
         const prefix = ref.path + '/';
         const docs = Object.entries(mockStore)
@@ -139,6 +143,7 @@ let errSpy;
 beforeEach(() => {
     window.localStorage.clear();
     mockTxControl.failNextCommit = null;
+    mockTxControl.failGetDocPath = null;
     seedStore();
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -228,6 +233,31 @@ describe('Start through the real BillingYearService (wireframe fixture)', () => 
         expect(alert).toHaveTextContent('your draft is kept');
         expect(mockStore[PATH_27].lastWriteId).toBe('w-other');
         expect(JSON.stringify(mockStore[PATH_26])).toBe(before);
+        expect(JSON.parse(window.localStorage.getItem(KEY)).reconciliationId).toBe('rec_wireframe');
+    });
+
+    it('an existing 2027 whose completion evidence cannot be read stays on the page with Check again, never "started elsewhere" (#609 review)', async () => {
+        const user = userEvent.setup();
+        const service = await loadService();
+        seedDraft(service);
+        renderPage();
+        await openStep4(user);
+        mockStore[PATH_27] = { label: '2027', status: 'open', rev: 1, lastWriteId: 'w-other', familyMembers: [], bills: [], payments: [],
+            creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {} };
+        // The transaction sees 2027; the read-back of its events then cannot reach the server.
+        mockTxControl.failGetDocPath = PATH_27;
+        await user.click(startButton());
+        const banner = (await screen.findByText('We can’t tell yet whether 2027 was created.')).closest('[role="alert"]');
+        // The years list now shows 2027, yet the page stays: no entry-guard card replaces it.
+        expect(service.getState().billingYears.some(year => year.id === '2027')).toBe(true);
+        expect(screen.queryByText(/It was started elsewhere/)).toBeNull();
+        const recheck = within(banner).getByRole('button', { name: 'Check again' });
+        expect(recheck).toBeEnabled();
+        // Back online: Check again reads the evidence, and the service classifies it.
+        mockTxControl.failGetDocPath = null;
+        await user.click(recheck);
+        expect(await screen.findByText('2027 already exists.')).toBeInTheDocument();
+        expect(mockStore[PATH_27].lastWriteId).toBe('w-other');
         expect(JSON.parse(window.localStorage.getItem(KEY)).reconciliationId).toBe('rec_wireframe');
     });
 });
