@@ -591,6 +591,8 @@ describe('DashboardView Year-End Review prompt', () => {
         const card = screen.getByTestId(PROMPT);
         expect(within(card).getByText('Ready for 2027? Review 2026 first.')).toBeInTheDocument();
         expect(within(card).getByRole('button', { name: 'Review & start 2027' })).toBeInTheDocument();
+        expect(card).toHaveTextContent('set 2027’s prices—then start 2027');
+        expect(card.textContent).not.toContain('\\u');
     });
 
     it('is hidden on 2026-10-31 for an open year with no successor', () => {

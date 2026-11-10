@@ -217,7 +217,7 @@ export default function DashboardView() {
                             <div className="dashboard-eyebrow">Next billing year</div>
                             <h2 className="yer-prompt-title">Ready for {nextYearLabel}? Review {yearLabel} first.</h2>
                             <p className="yer-prompt-body">
-                                Catch up mid-year price changes, add subscriptions that started this year, fold in member charges, and set {nextYearLabel}{'\u2019'}s prices\u2014then start {nextYearLabel} with invoices members can read line by line.
+                                Catch up mid-year price changes, add subscriptions that started this year, fold in member charges, and set {nextYearLabel}’s prices—then start {nextYearLabel} with invoices members can read line by line.
                             </p>
                         </div>
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/year-end-review')}>
