@@ -934,7 +934,10 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         expect(ctx.combinedTotal).toBe(382);
         const line = 'Carried from 2026: +$30.00.';
         for (const output of allOutputs(ctx)) {
-            const text = output.replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+            // Read rendered text through the DOM (HTML) and drop markdown bold markers.
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = output;
+            const text = wrapper.textContent.split('**').join('');
             expect(text.split(line)).toHaveLength(2);
             expect(text).not.toMatch(/CARRIED (FROM|TOTAL)|Carried total/);
         }
@@ -1010,6 +1013,23 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         appended.innerHTML = renderInvoiceTemplate(ctxFor(1, { emailMessage: 'Hello %first_name%.' }), shareUrl);
         expect(appended.textContent.indexOf('Hello Erik.')).toBe(0);
         expect(appended.textContent).toContain('Carried from 2026');
+    });
+
+    it('renders the allocated cents of sub-cent items, so the lines conserve the carried total', () => {
+        const seeds = [{ id: 'seed_subcent', kind: 'carry_opening', status: 'carried_in', memberId: 5, fromYear: '2026', amount: 0.01,
+            items: [
+                { sourceId: 'uc_a', kind: 'usage_charge', basis: 'member', memberId: 5, description: 'Fee A', amount: 0.005 },
+                { sourceId: 'uc_b', kind: 'usage_charge', basis: 'member', memberId: 5, description: 'Fee B', amount: 0.005 },
+            ] }];
+        const ctx = ctxFor(5, configured, seeds);
+        expect(ctx.ok).toBe(true);
+        const amounts = ctx.carriedItems.items.map(item => item.amount);
+        expect(amounts.reduce((sum, amount) => sum + Math.round(amount * 100), 0)).toBe(1);
+        expect(amounts.every(amount => Number.isInteger(Math.round(amount * 100)) && Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-9)).toBe(true);
+        const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
+        expect(full.match(/Fee [AB]: \$0\.01/g)).toHaveLength(1);
+        expect(full.match(/Fee [AB]: \$0\.00/g)).toHaveLength(1);
+        expect(full).toContain('CARRIED TOTAL: +$0.01');
     });
 
     it('rejects a context whose carried total disagrees with canonical O', () => {

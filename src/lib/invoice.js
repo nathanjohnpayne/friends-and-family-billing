@@ -33,11 +33,36 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
     const numMembers = 1 + (member.linkedMembers || []).length;
     // Same gate as the share payload: absent when no seed carries anything.
-    const carried = buildCarriedItemsForShare(familyMembers, bills, owedAdjustments || [], member.id, member.linkedMembers || []);
+    const carried = buildCarriedItemsForShare(familyMembers, bills,
+        withAllocatedOpening(owedAdjustments || [], projection.rows?.opening || []), member.id, member.linkedMembers || []);
     const carriedItems = carried.total !== 0 || carried.items.length > 0 ? carried : null;
     return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
         balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {},
         carriedItems, carriedTotal: projection.O };
+}
+
+/**
+ * Replace the household's seed, item and detail amounts with the cents the
+ * canonical projection allocated to them (ADR 0010), so the share builder's
+ * lines conserve O exactly even when raw snapshot amounts carry sub-cent parts.
+ * Rows keep source order: seeds match by id, items and detail by position.
+ */
+function withAllocatedOpening(owedAdjustments, openingRows) {
+    const bySeed = new Map(openingRows.map(row => [row.id, row]));
+    const dollarsOf = row => row.cents / 100;
+    return owedAdjustments.map(record => {
+        const row = record && record.kind === 'carry_opening' ? bySeed.get(String(record.id)) : null;
+        if (!row) return record;
+        const items = Array.isArray(record.items) && Array.isArray(row.items) && row.items.length === record.items.length
+            ? record.items.map((item, i) => {
+                const itemRow = row.items[i];
+                const detail = Array.isArray(item?.detail) && Array.isArray(itemRow.detail) && itemRow.detail.length === item.detail.length
+                    ? item.detail.map((d, j) => ({ ...d, amount: dollarsOf(itemRow.detail[j]) })) : item?.detail;
+                return { ...item, amount: dollarsOf(itemRow), ...(detail !== undefined ? { detail } : {}) };
+            })
+            : record.items;
+        return { ...record, amount: dollarsOf(row), ...(items !== undefined ? { items } : {}) };
+    });
 }
 
 /** Carried fields are optional, but when present they must match canonical O. */
