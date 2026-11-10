@@ -10,6 +10,7 @@ import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { isShareTokenStale } from '../../lib/share.js';
 import { getPaymentMethodIcon, getPaymentMethodLabel, getInitials } from '../../lib/formatting.js';
+import { exactNumber, multiplyExact, divideExact, sumExact, rational, quantizeDollarsToCents } from '../../lib/money.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 import Dialog from '../components/Dialog.jsx';
 
@@ -422,14 +423,20 @@ function MemberRow({ member, canDispute, onRequestReview, defaultExpanded, isSet
     );
 }
 
-// Reconstruct raw shares from the public bill slices, preserving rounded member
-// display lines. Older cached slices fall back to their stored display totals.
+// Reconstruct raw shares from the public bill slices with the exact-money
+// primitives and quantize once, as projectHouseholdMoney quantizes G (ADR 0010),
+// preserving rounded member display lines. Older cached slices fall back to
+// their stored display totals.
 function householdBillsSubtotal(members) {
-    return Math.round(members.reduce((sum, member) => sum + (
-        member.bills?.every(bill => Number.isFinite(bill.canonicalAmount) && bill.splitCount > 0)
-            ? member.bills.reduce((total, bill) => total + bill.canonicalAmount * (bill.billingFrequency === 'annual' ? 1 : 12) / bill.splitCount, 0)
-            : (member.annualTotal ?? member.bills?.reduce((total, bill) => total + (bill.annualShare || 0), 0) ?? 0)
-    ), 0) * 100) / 100;
+    const finite = value => exactNumber(Number.isFinite(value) ? value : 0);
+    const shares = members.flatMap(member => (
+        member.bills?.every(bill => Number.isFinite(bill.canonicalAmount) && Number.isSafeInteger(bill.splitCount) && bill.splitCount > 0)
+            ? member.bills.map(bill => divideExact(
+                multiplyExact(exactNumber(bill.canonicalAmount), rational(bill.billingFrequency === 'annual' ? 1n : 12n)),
+                rational(BigInt(bill.splitCount))))
+            : [finite(member.annualTotal ?? member.bills?.reduce((total, bill) => total + (bill.annualShare || 0), 0))]
+    ));
+    return quantizeDollarsToCents(sumExact(shares)) / 100;
 }
 
 function signedCurrency(amount) {
@@ -465,7 +472,7 @@ function CarriedItemsPanel({ carried, carriedToggle }) {
                     </div>
                 ))}
                 {household.map((item, index) => <div className={'share-carried-group' + (item.amount < 0 ? ' share-carried-credit' : '')} key={index}>
-                    <div className="share-carried-line share-carried-group-heading"><strong>{item.kind === 'credit' && <svg className="share-carried-credit-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="9" /><path d="M7 12h10m-3-3 3 3-3 3" /></svg>}{item.description || item.billName}</strong><strong className="share-carried-amount">{signedCurrency(item.amount)}</strong></div>
+                    <div className="share-carried-line share-carried-group-heading"><strong className="share-carried-credit-heading">{item.kind === 'credit' && <svg className="share-carried-credit-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="9" /><path d="M7 12h10m-3-3 3 3-3 3" /></svg>}{item.description || item.billName}</strong><strong className="share-carried-amount">{signedCurrency(item.amount)}</strong></div>
                     {item.detail?.length > 0 && <div className="share-carried-detail">{item.detail.map((detail, i) => line({ ...detail, description: detail.description + (detail.memberName ? ' (' + detail.memberName + ')' : '') }, i))}</div>}
                 </div>)}
                 <div className="share-carried-line share-carried-total"><strong>Carried total</strong><strong className="share-carried-amount">{signedCurrency(carried.total)}</strong></div>

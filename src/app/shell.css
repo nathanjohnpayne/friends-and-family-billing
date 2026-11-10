@@ -4711,9 +4711,11 @@ img, svg { display: block; max-width: 100%; }
 .share-carried-group { background: var(--color-paper-tint); border: 1px solid var(--color-border-light); border-radius: var(--radius-card, 12px); padding: var(--space-2) var(--space-3); }
 .share-carried-group + .share-carried-group { margin-top: var(--space-2); }
 .share-carried-group > .share-carried-line + .share-carried-line { border-top: 1px solid var(--color-border-light); }
-.share-carried-member-heading { display: inline-flex; align-items: center; gap: var(--space-2); }
+.share-carried-member-heading,
+.share-carried-credit-heading { display: inline-flex; align-items: center; gap: var(--space-2); }
 .share-carried-initials { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--color-linen-deep); font-size: 0.65rem; }
-.share-carried-credit-icon { width: 16px; height: 16px; vertical-align: text-bottom; margin-right: var(--space-1); }
+/* The global svg reset is display:block; keep the icon inline beside its title. */
+.share-carried-credit-icon { flex: none; width: 16px; height: 16px; }
 .share-carried-toggle-state { display: block; font-size: 0.75rem; text-decoration: none; }
 .share-carried-line { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding: 6px 0; }
 .share-carried-line > :first-child { min-width: 0; overflow-wrap: anywhere; }

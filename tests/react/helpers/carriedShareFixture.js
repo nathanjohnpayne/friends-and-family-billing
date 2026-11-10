@@ -13,12 +13,12 @@ const northline = { kind: 'true_up', basis: 'price_change', billName: 'Northline
 export const carriedSeeds = [{
     id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, amount: 55, fromYear: '2026',
     items: [
-        { ...northline, memberId: 1 },
-        { kind: 'true_up', basis: 'price_change', memberId: 1, billName: 'Harbor Cloud Storage', description: 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.', amount: 5 },
-        { ...northline, memberId: 2 },
-        { kind: 'usage_charge', memberId: 2, description: 'Activation fee (Nov 3).', amount: 30 },
-        { kind: 'credit', memberId: null, description: 'Your household’s 2026 credit', amount: -4, detail: [
-            { kind: 'service_credit', memberId: 1, billName: 'Pinecone Vault', description: 'Pinecone Vault ended in August', amount: -4 },
+        { ...northline, sourceId: 'northline-erik', memberId: 1 },
+        { kind: 'true_up', basis: 'price_change', sourceId: 'harbor-erik', memberId: 1, billName: 'Harbor Cloud Storage', description: 'Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months.', amount: 5 },
+        { ...northline, sourceId: 'northline-maja', memberId: 2 },
+        { kind: 'usage_charge', sourceId: 'activation-maja', memberId: 2, description: 'Activation fee (Nov 3).', amount: 30 },
+        { kind: 'credit', sourceId: 'household-credit', memberId: null, description: 'Your household’s 2026 credit', amount: -4, detail: [
+            { kind: 'service_credit', sourceId: 'pinecone-erik', memberId: 1, billName: 'Pinecone Vault', description: 'Pinecone Vault ended in August', amount: -4 },
         ] },
     ],
 }];

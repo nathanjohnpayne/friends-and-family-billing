@@ -48,6 +48,7 @@ vi.mock('@/lib/share.js', async () => {
 
 import ShareView from '@/app/views/ShareView.jsx';
 import { buildPublicShareData } from '@/lib/share.js';
+import { getHouseholdFinancials } from '@/lib/calculations.js';
 import { buildCarriedItemsForShare as cfBuildCarriedItemsForShare } from '../../../functions/billing.js';
 import { carriedMembers, carriedBills, carriedSeeds } from '../helpers/carriedShareFixture.js';
 import preCarriedShareCache from '../helpers/preCarriedShareCache.json';
@@ -1747,7 +1748,27 @@ describe('ShareView', () => {
 
 describe('Carried share details (#603)', () => {
     const build = (members = carriedMembers, bills = carriedBills, records = carriedSeeds) => buildPublicShareData(members, bills, [], 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records);
+    // Canonical household cents on main (ADR 0010); rows are asserted against these, not summed member lines.
+    const canonical = (bills = carriedBills, records = carriedSeeds) => {
+        const financials = getHouseholdFinancials(carriedMembers[0], { familyMembers: carriedMembers, bills, payments: [], creditAdjustments: [], owedAdjustments: records }, { reopenedAdjustmentIds: null });
+        expect(financials.ok).toBe(true);
+        return financials;
+    };
+    const money = cents => '$' + (cents / 100).toFixed(2);
+    const reconRow = label => screen.getByText(label, { selector: 'td' }).closest('tr');
     beforeEach(() => { vi.clearAllMocks(); setToken('synthetic'); });
+
+    it('reconciles the Lindqvist fixture against the canonical household cents', async () => {
+        const { cents } = canonical();
+        expect(cents).toMatchObject({ G: 66800, O: 5500, owed: 72300 });
+        mockPublicSharesHit(build());
+        render(<ShareView />);
+        await screen.findByRole('region', { name: 'Carried from 2026' });
+        expect(within(reconRow('Bills subtotal')).getByText(money(cents.G))).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText('+' + money(cents.O))).toBeVisible();
+        expect(screen.queryByText('Not applied this year')).toBeNull();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
+    });
 
     it('groups linked-member lines, household credit and explanatory detail once; both toggles control one panel', async () => {
         const user = userEvent.setup();
@@ -1796,20 +1817,48 @@ describe('Carried share details (#603)', () => {
         expect(fallbackView.container.textContent).toBe(cacheText);
     });
 
-    it.each([-100, -20])('reconciles raw $100 / 3 shares for a two-member household with %s incoming', async amount => {
+    it.each([[-100, '−$100.00', 0], [-20, '−$20.00', 4667]])('reconciles raw 100-dollar / 3 shares for a two-member household with %s incoming', async (amount, carriedText, owedCents) => {
         const members = carriedMembers;
         const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }];
-        const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 6667, O: amount * 100, owed: owedCents });
         mockPublicSharesHit(build(members, bills, records));
         render(<ShareView />);
-        const row = (await screen.findByText('Bills subtotal')).closest('tr');
-        expect(within(row).getByText('$66.67')).toBeVisible();
-        expect(within(screen.getByText('Household Total').closest('tr')).getByText(amount === -100 ? '$0.00' : '$46.67')).toBeVisible();
+        await screen.findByText('Bills subtotal');
+        // $66.67 − $100.00 + $33.33 = $0.00, and −$20 => $46.67.
+        expect(within(reconRow('Bills subtotal')).getByText(money(cents.G))).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText(carriedText)).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
         if (amount === -100) {
-            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$33.33')).toBeVisible();
+            expect(within(reconRow('Not applied this year')).getByText('+$33.33')).toBeVisible();
+            expect(cents.U).toBe(3333);
             expect(screen.getByText(/credit of \$100.00 covers this year; \$33.33 remains/)).toBeVisible();
+        } else {
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+            expect(screen.queryByText(/remains\./)).toBeNull();
         }
+        expect(screen.queryByText(/Other adjustments/)).toBeNull();
+        // Rounded per-member display lines are unchanged ($33.33/yr, shown as $2.78/mo).
+        expect(screen.getAllByRole('button', { name: /\(\$2\.78\/mo\)/ })).toHaveLength(2);
         expect(screen.queryByRole('region', { name: 'Carried from 2026' })).toBeNull();
+    });
+
+    // Known remaining case owned by the public-writer alignment (#636, #672–#676), not #603.
+    // The bills row is the canonical G ($0.58 from raw $0.575). With +$0.01 the published total
+    // reconciles; with −$0.01 the legacy writer still publishes $0.56 where the canonical owed is
+    // $0.57, so the rows show a one-cent gap until #636 aligns the writers.
+    it.each([[0.01, '+$0.01', 59, '$0.59'], [-0.01, '−$0.01', 57, '$0.56']])('documents the half-cent case for net %s (#636)', async (amount, carriedText, owedCents, publishedTotal) => {
+        const bills = [{ id: 'half', name: 'Annual bill', amount: 1.15, billingFrequency: 'annual', members: [1, 3] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 58, owed: owedCents });
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        render(<ShareView />);
+        await screen.findByText('Bills subtotal');
+        expect(within(reconRow('Bills subtotal')).getByText('$0.58')).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText(carriedText)).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(publishedTotal)).toBeVisible();
     });
 
     it.each([[-20, 120, 20], [0, 100, 0]])('separates the floor remainder from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
