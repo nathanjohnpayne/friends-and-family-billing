@@ -108,6 +108,23 @@ describe('ReloadRequiredDialog', () => {
         expect(text).toContain('- Member added: Zed');
     });
 
+    it('asks for a new copy or choice when another refused year is added after the first', async () => {
+        stubClipboard();
+        const first = block({ keptOnDevice: false });
+        const { rerender } = render(<ReloadRequiredDialog writeBlock={first} onReload={() => {}} />);
+        await userEvent.click(screen.getByRole('button', { name: 'Copy details' }));
+        expect(screen.getByRole('button', { name: 'Reload' })).toBeEnabled();
+        const other = { ...block(), yearId: '2027', yearLabel: '2027', detectedAt: '2026-11-10T15:13:00', changes: [], payload: {} };
+        rerender(<ReloadRequiredDialog writeBlock={{ ...first, otherRecords: [other] }} onReload={() => {}} />);
+        expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Copy details' })).toBeInTheDocument();
+        await userEvent.click(screen.getByRole('checkbox', { name: 'Reload without copying' }));
+        expect(screen.getByRole('button', { name: 'Reload' })).toBeEnabled();
+        const third = { ...other, yearId: '2028', yearLabel: '2028' };
+        rerender(<ReloadRequiredDialog writeBlock={{ ...first, otherRecords: [other, third] }} onReload={() => {}} />);
+        expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
+    });
+
     it('explains a refused write (permission-denied) the same way', () => {
         render(<ReloadRequiredDialog writeBlock={block({ reason: 'permission-denied' })} onReload={() => {}} />);
         expect(screen.getByRole('dialog')).toHaveTextContent('The server refused this tab’s save of 2026');

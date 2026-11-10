@@ -242,6 +242,17 @@ export class BillingYearService {
         }
     }
 
+    /**
+     * @private A queued write runs only for the account that enqueued it: a write
+     * still waiting in the queue when the account changed is dropped unwritten, before
+     * it reads any of the new account's version or recovery state (#614).
+     */
+    _assertWriteEpoch(epoch) {
+        if (epoch !== this._writeEpoch) {
+            throw new Error('The signed-in account changed before this save ran; it was not written.');
+        }
+    }
+
     /** @private Forget the account-scoped write state (versions, queue stops, Reload required). */
     _resetWriteState() {
         this._writeEpoch += 1;
@@ -624,7 +635,9 @@ export class BillingYearService {
             uid,
             args: [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]
         });
+        const epoch = this._writeEpoch;
         return async () => {
+            this._assertWriteEpoch(epoch);
             const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
             await this._commitYearWrite({ ref: yearDocRef, yearId: activeYear.id, adoptable: true, buildPayload: () => withWriteTimestamps(payload) });
@@ -649,8 +662,12 @@ export class BillingYearService {
     /** @private Enqueue a write and reject when that write fails (see _saveConfirmed). */
     async _enqueueConfirmed(yearIds, write) {
         let failure = null;
+        const epoch = this._writeEpoch;
         await this._saveQueue.enqueue(async () => {
             try {
+                // Checked synchronously before the write starts, so the write captures
+                // the same account epoch it was enqueued under.
+                this._assertWriteEpoch(epoch);
                 await write();
             } catch (err) {
                 failure = err;

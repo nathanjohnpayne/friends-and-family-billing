@@ -70,12 +70,23 @@ export async function copyUnsavedDetails(record) {
     }
 }
 
+/** Identifies the exact records a copy or a "Reload without copying" choice covered. */
+export function recordsSignature(writeBlock) {
+    if (!writeBlock) return '';
+    return [writeBlock, ...(writeBlock.otherRecords || [])].map(r => r.yearId + '@' + r.detectedAt).join('|');
+}
+
 export default function ReloadRequiredDialog({ writeBlock, onReload }) {
-    const [copied, setCopied] = useState(false);
+    // Both confirmations are bound to the records they covered: a record added later
+    // (another year refused) needs a new copy or a new choice before Reload.
+    const [copiedSignature, setCopiedSignature] = useState(null);
     const [copyFallback, setCopyFallback] = useState(null);
-    const [reloadWithoutCopy, setReloadWithoutCopy] = useState(false);
+    const [skipSignature, setSkipSignature] = useState(null);
     if (!writeBlock) return null;
 
+    const signature = recordsSignature(writeBlock);
+    const copied = copiedSignature === signature;
+    const reloadWithoutCopy = skipSignature === signature;
     const kept = writeBlock.keptOnDevice;
     const canReload = kept || copied || reloadWithoutCopy;
     const year = writeBlock.yearLabel || writeBlock.yearId;
@@ -85,9 +96,10 @@ export default function ReloadRequiredDialog({ writeBlock, onReload }) {
     const reload = onReload || (() => window.location.reload());
 
     async function handleCopy() {
+        const exported = signature; // the records this copy contains, fixed before the await
         const result = await copyUnsavedDetails(writeBlock);
         if (result.copied) {
-            setCopied(true);
+            setCopiedSignature(exported);
             setCopyFallback(null);
         } else {
             setCopyFallback(result.text);
@@ -136,7 +148,7 @@ export default function ReloadRequiredDialog({ writeBlock, onReload }) {
                         <p>This list could not be kept on this device{writeBlock.storageError ? ' (' + writeBlock.storageError + ')' : ''}—copy it before you reload. Nothing is merged for you.</p>
                         {!copied && (
                             <label className="reload-required-skip">
-                                <input type="checkbox" checked={reloadWithoutCopy} onChange={e => setReloadWithoutCopy(e.target.checked)} />
+                                <input type="checkbox" checked={reloadWithoutCopy} onChange={e => setSkipSignature(e.target.checked ? signature : null)} />
                                 {' Reload without copying'}
                             </label>
                         )}

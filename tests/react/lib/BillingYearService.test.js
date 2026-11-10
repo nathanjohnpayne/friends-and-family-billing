@@ -1896,6 +1896,26 @@ describe('BillingYearService — late writes, several refused years, writes the 
         expect(window.localStorage.length).toBe(0);
     });
 
+    it('drops a queued write whose account signed out before it started', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        let release;
+        mockTxControl.beforeCommit = () => new Promise(resolve => { release = resolve; });
+        s.addMember({ name: 'Bea' }); // in flight, held at commit
+        s.addMember({ name: 'Cy' });  // waiting in the queue
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        await s.setUser(null);
+        mockTxControl.failNextCommit = null;
+        release();
+        await s._saveQueue._chain;
+        // The in-flight write committed; the waiting one never ran.
+        expect(setDocCalls.filter(c => c.path === PATH)).toHaveLength(1);
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        expect(s.getState().writeBlock).toBeNull();
+        expect(s.getState().saveStatus).toBeNull();
+        expect(window.localStorage.length).toBe(0);
+    });
+
     it('keeps a record for every year refused while the tab is read-only', async () => {
         mockStore[PATH] = doc('2026');
         mockStore[PATH_27] = doc('2027');
