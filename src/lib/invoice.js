@@ -35,7 +35,13 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
     // Same gate as the share payload: absent when no seed carries anything.
     const carried = buildCarriedItemsForShare(familyMembers, bills,
         withAllocatedOpening(owedAdjustments || [], projection.rows?.opening || []), member.id, member.linkedMembers || []);
-    const carriedItems = carried.total !== 0 || carried.items.length > 0 ? carried : null;
+    // notApplied and remainingCredit restate the share formulas over canonical
+    // cents (I = max(0, −O), A = max(0, G − S + max(0, O)), U = max(0, I − A)),
+    // so they agree with every other figure the invoice prints.
+    const { G, S, O } = projection.cents;
+    const carriedItems = carried.total !== 0 || carried.items.length > 0 ? { ...carried, total: projection.O,
+        notApplied: Math.max(0, -(G - S + O)) / 100,
+        remainingCredit: Math.max(0, Math.max(0, -O) - Math.max(0, G - S + Math.max(0, O))) / 100 } : null;
     return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
         balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {},
         carriedItems, carriedTotal: projection.O };

@@ -1015,6 +1015,24 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         expect(appended.textContent).toContain('Carried from 2026');
     });
 
+    it('derives what remains from canonical cents at a bill-split rounding boundary', () => {
+        const members = [{ id: 1, name: 'Ana Ruiz', email: 'ana@example.com', linkedMembers: [] }, { id: 2, name: 'Ben Ruiz', email: '', linkedMembers: [] }];
+        const bills = [{ id: 'b', name: 'Backup', amount: 4.27, billingFrequency: 'annual', members: [1, 2] }];
+        const seeds = [{ id: 'seed_1', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -100,
+            items: [{ sourceId: 'cadj_carry_2027_1', kind: 'credit', basis: 'credit', memberId: 1, description: 'Your 2026 credit', amount: -100,
+                detail: [{ kind: 'unused', description: 'Unused 2025 credit', amount: -100 }] }] }];
+        const ctx = getInvoiceSummaryContext(members, bills, [], 1, invoiceYear, configured, seeds, []);
+        const unusedCents = Math.max(0, -ctx.cents.O - Math.max(0, ctx.cents.G - ctx.cents.S + Math.max(0, ctx.cents.O)));
+        expect(unusedCents).toBe(9786); // the share builder's independent rounding says 9787
+        expect(ctx.carriedItems.remainingCredit).toBe(unusedCents / 100);
+        expect(ctx.carriedItems.notApplied).toBe(unusedCents / 100);
+        const remains = '$' + (unusedCents / 100).toFixed(2);
+        const body = buildInvoiceBody(ctx, 'text-only', shareUrl, 'email');
+        expect(body).toContain('; ' + remains + ' not applied this year)');
+        expect(body).toContain(remains + ' remains. It will carry into next year.');
+        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Not applied this year:         +' + remains + '\n');
+    });
+
     it('renders the allocated cents of sub-cent items, so the lines conserve the carried total', () => {
         const seeds = [{ id: 'seed_subcent', kind: 'carry_opening', status: 'carried_in', memberId: 5, fromYear: '2026', amount: 0.01,
             items: [
