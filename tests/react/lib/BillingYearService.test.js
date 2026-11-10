@@ -1916,6 +1916,44 @@ describe('BillingYearService — late writes, several refused years, writes the 
         expect(window.localStorage.length).toBe(0);
     });
 
+    it('never writes a save snapshot taken before a reload of its year', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' }); // queued from the rev-1 load
+        // Before it runs, the year is switched away from and back: another session's
+        // change (rev 2) is loaded.
+        const remote = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other', bills: [] };
+        mockStore[PATH] = remote;
+        s._trackLoadedYear('2026', remote);
+        await s._saveQueue._chain;
+        expect(mockStore[PATH]).toBe(remote);
+        const block = s.getState().writeBlock;
+        expect(block).toMatchObject({ yearId: '2026', reason: 'stale' });
+        expect(block.payload.familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        expect(block.changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Bea']);
+    });
+
+    it('keeps every year with a save still queued when the tab becomes read-only', async () => {
+        mockStore[PATH] = doc('2026');
+        mockStore[PATH_27] = doc('2027');
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other' };
+        s.addMember({ name: 'Bea' }); // 2026: refused
+        s._trackLoadedYear('2027', mockStore[PATH_27]);
+        s._setState({ activeYear: { id: '2027', label: '2027', status: 'open', createdAt: 'ts-created', rev: 1 },
+            familyMembers: mockStore[PATH_27].familyMembers, bills: mockStore[PATH_27].bills, payments: [], billingEvents: [] });
+        s.addMember({ name: 'Zed' }); // 2027: still waiting when 2026 is refused
+        const before27 = structuredClone(mockStore[PATH_27]);
+        const states = [];
+        s.subscribe(() => { const b = s.getState().writeBlock; if (b) states.push(b.otherRecords.map(r => r.yearId)); });
+        await s._saveQueue._chain;
+        // The 2027 record exists from the moment the tab became read-only.
+        expect(states[0]).toEqual(['2027']);
+        expect(mockStore[PATH_27]).toEqual(before27);
+        expect(s._saveQueue.stoppedOutcome('2027')).not.toBeNull();
+        expect(JSON.parse(window.localStorage.getItem('ffb.unsaved.v1.user-1.2027')).changes.map(c => c.detail)).toEqual(['Zed']);
+    });
+
     it('keeps a record for every year refused while the tab is read-only', async () => {
         mockStore[PATH] = doc('2026');
         mockStore[PATH_27] = doc('2027');

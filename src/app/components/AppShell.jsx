@@ -24,7 +24,8 @@ export default function AppShell() {
                 <SaveStatusNotice saveStatus={saveStatus} />
                 <Outlet />
             </main>
-            <ReloadRequiredDialog writeBlock={writeBlock && user && writeBlock.uid === user.uid ? writeBlock : null} />
+            {/* Keyed by account: its copy and fallback state never outlives the account. */}
+            <ReloadRequiredDialog key={user ? user.uid : 'signed-out'} writeBlock={writeBlock && user && writeBlock.uid === user.uid ? writeBlock : null} />
         </div>
     );
 }
