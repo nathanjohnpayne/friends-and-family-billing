@@ -55,7 +55,7 @@ function Composer({ household, onAdd, onCancel }) {
 }
 
 export default function ChargesStep({ review, source, nextYearLabel }) {
-    const { draft, actions } = review;
+    const { draft, actions, derived } = review;
     const [composerFor, setComposerFor] = useState(null);
     const households = householdsOf(source.familyMembers);
     const deferred = deferredCharges(source.owedAdjustments);
@@ -103,6 +103,7 @@ export default function ChargesStep({ review, source, nextYearLabel }) {
                                     <div className="yer-sub">{formatDate(row.incurredDate)} · recorded when you start {nextYearLabel}</div>
                                 </div>
                                 <span className="yer-num">{money(row.amount)}</span>
+                                {Object.values(derived.charges[row.rowId]?.errors || {}).map(message => <span key={message} className="yer-error" role="alert">{message}</span>)}
                                 <button type="button" className="btn btn-sm btn-header-secondary" onClick={() => actions.removeCharge(row.rowId)} aria-label={`Remove ${row.description}`}>Remove</button>
                             </div>
                         ))}
