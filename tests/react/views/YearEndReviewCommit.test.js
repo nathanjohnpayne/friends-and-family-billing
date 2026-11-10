@@ -178,7 +178,41 @@ describe('startReviewedYear — the guard at Start', () => {
     it('an existing destination nobody classified is never "created elsewhere" (it may be this draft’s commit)', async () => {
         const createYear = vi.fn(async () => { throw new Error('Billing year "2027" already exists.'); });
         const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }], createYear);
-        await expect(startReviewedYear({ ...base, service: svc })).resolves.toEqual({ state: 'uncertain', checked: false });
+        await expect(startReviewedYear({ ...base, service: svc })).resolves.toEqual({ state: 'uncertain', checked: false, yearId: '2027' });
+    });
+
+    describe('after an unresolved uncertain outcome, only evidence about that attempt replaces it (#609 review)', () => {
+        const prior = { state: 'uncertain', checked: false, yearId: '2027' };
+
+        it('a failed guard read keeps it uncertain (Codex thread 4531601662)', async () => {
+            const svc = service([sourceYear]);
+            svc._loadYearsList.mockRejectedValue(codeError('unavailable'));
+            await expect(startReviewedYear({ ...base, service: svc, prior })).resolves.toMatchObject({ state: 'uncertain', checked: false, yearId: '2027' });
+            expect(svc.createYear).not.toHaveBeenCalled();
+        });
+
+        it('a definite failure of the re-check itself (offline before sending) keeps it uncertain', async () => {
+            const createYear = vi.fn(async () => { throw codeError(COMMIT_CODES.COMMIT_FAILED, { offline: true }); });
+            const svc = service([sourceYear], createYear);
+            await expect(startReviewedYear({ ...base, service: svc, prior })).resolves.toMatchObject({ state: 'uncertain', checked: false });
+        });
+
+        it('real evidence does replace it: not committed, completed, elsewhere', async () => {
+            for (const [settle, expected] of [
+                [async () => { throw codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'not_committed' }); }, { state: 'uncertain', checked: true }],
+                [async () => ({ outcome: 'already_completed', yearId: '2027' }), { state: 'success', alreadyCompleted: true }],
+                [async () => { throw codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere', existing: null }); }, { state: 'elsewhere' }]
+            ]) {
+                const svc = service([sourceYear], vi.fn(settle));
+                await expect(startReviewedYear({ ...base, service: svc, prior })).resolves.toMatchObject(expected);
+            }
+        });
+
+        it('without an unresolved prior, a failed guard read is still a definite failure', async () => {
+            const svc = service([sourceYear]);
+            svc._loadYearsList.mockRejectedValue(codeError('unavailable'));
+            await expect(startReviewedYear({ ...base, service: svc, prior: { state: 'uncertain', checked: true } })).resolves.toMatchObject({ state: 'failed' });
+        });
     });
 
     it('a failed guard read is a definite failure (nothing was sent)', async () => {

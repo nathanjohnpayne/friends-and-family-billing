@@ -261,7 +261,7 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
     const conflict = commit.outcome && ['elsewhere', 'diverged'].includes(commit.outcome.state);
     const ctx = { sourceLabel, nextYearLabel, familyMembers: source.familyMembers, pending, onEdit: onGo, locked, source, reopenedAdjustmentIds };
     // During and after a commit the years list includes the year being started; the label is not editable then.
-    const error = locked || conflict ? null : labelError(review.draft.nextYearLabel, billingYears);
+    const error = locked || conflict || commit.unresolved ? null : labelError(review.draft.nextYearLabel, billingYears);
     return (
         <section aria-labelledby="yer-step-4" data-testid="year-end-review-step-4">
             <h2 id="yer-step-4" className="yer-step-title">Review &amp; start {nextYearLabel}</h2>
@@ -293,7 +293,7 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
                 <div className="yer-label-row">
                     <div className="payment-field-group yer-field">
                         <label className="yer-label" htmlFor="yer-next-label">New billing year label</label>
-                        <input id="yer-next-label" className="composer-input" value={review.draft.nextYearLabel} disabled={locked || conflict}
+                        <input id="yer-next-label" className="composer-input" value={review.draft.nextYearLabel} disabled={locked || conflict || commit.unresolved}
                             aria-invalid={error ? 'true' : undefined} aria-describedby={error ? 'yer-next-label-error' : 'yer-next-label-hint'}
                             onChange={event => review.actions.setNextYearLabel(event.target.value)} />
                         {error

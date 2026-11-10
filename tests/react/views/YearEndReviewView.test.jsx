@@ -1076,6 +1076,118 @@ describe('Step 4 — Start and the commit outcomes', () => {
     });
 });
 
+describe('Step 4 — an unresolved attempt is never downgraded or replaced (#609 review)', () => {
+    const ATTEMPT_KEY = KEY + '.attempt';
+    const add2027 = () => { mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2027', label: '2027', status: 'open' }] }; };
+    const startUnresolved = async user => {
+        await openStep4(user);
+        await user.click(startButton());
+        return (await screen.findByText('We can’t tell yet whether 2027 was created.')).closest('[role="alert"]');
+    };
+
+    it('Check again whose years read fails stays uncertain and pinned, even with 2027 in the list (Codex thread 4531601662)', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });
+        seedWireframe();
+        routedPage();
+        const banner = await startUnresolved(user);
+        service._loadYearsList.mockImplementation(async () => { add2027(); throw codeError('unavailable'); });
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        const again = (await screen.findByText('We can’t tell yet whether 2027 was created.')).closest('[role="alert"]');
+        expect(screen.queryByText('2027 was not created.')).toBeNull();
+        expect(screen.queryByText(/It was started elsewhere/)).toBeNull();
+        expect(within(again).getByRole('button', { name: 'Check again' })).toBeEnabled();
+        expect(service.createYear).toHaveBeenCalledTimes(1);
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('Check again that fails definitely on its own (offline before sending) stays uncertain, never "nothing was saved"', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn()
+            .mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN))
+            .mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED, { offline: true })) });
+        seedWireframe();
+        routedPage();
+        const banner = await startUnresolved(user);
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        expect(await screen.findByText('We can’t tell yet whether 2027 was created.')).toBeInTheDocument();
+        expect(screen.queryByText(/Nothing was saved/)).toBeNull();
+        expect(service.createYear).toHaveBeenCalledTimes(2);
+    });
+
+    it('the label is locked while the attempt is unresolved, so Check again checks the year that was attempted', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });
+        seedWireframe();
+        routedPage();
+        await startUnresolved(user);
+        expect(screen.getByLabelText('New billing year label')).toBeDisabled();
+    });
+
+    it('a route re-entry resumes on Step 4 in the uncertain state and re-sends the same attempt, even after the source changed', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });
+        seedWireframe();
+        const first = routedPage();
+        await startUnresolved(user);
+        const sent = service.createYear.mock.calls[0][1].reconciliation;
+        expect(JSON.parse(window.localStorage.getItem(ATTEMPT_KEY))).toMatchObject({ yearId: '2027', reconciliationId: 'rec_fixed' });
+        first.unmount();
+        // Back on the page later: the years list shows 2027 and 2026 now holds the rollover's own changes.
+        add2027();
+        mocks.state = { ...mocks.state, owedAdjustments: mocks.state.owedAdjustments.map(record => (record.status === 'deferred' ? { ...record, status: 'carried_forward' } : record)) };
+        service.createYear.mockResolvedValueOnce({ outcome: 'already_completed', yearId: '2027' });
+        routedPage();
+        const banner = screen.getByText('We can’t tell yet whether 2027 was created.').closest('[role="alert"]');
+        expect(screen.getByTestId('year-end-review-step-4')).toBeInTheDocument();
+        expect(screen.queryByText(/It was started elsewhere/)).toBeNull();
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        await screen.findByText('Dashboard page');
+        expect(service.createYear.mock.calls[1][1].reconciliation).toEqual(sent);
+        expect(window.localStorage.getItem(ATTEMPT_KEY)).toBeNull();
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('a tab closed while Start is in flight resumes in the uncertain state, never as a fresh Start', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn(() => new Promise(() => {})) });
+        seedWireframe();
+        const first = routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        await screen.findByText(/Don’t close this tab/);
+        first.unmount();
+        routedPage();
+        expect(screen.getByText('We can’t tell yet whether 2027 was created.')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Start 2027' })).toBeNull();
+    });
+
+    it('a resolved attempt leaves no marker (a definite failure re-enters normally); Discard from a resumed attempt clears it', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED))
+            .mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN)) });
+        seedWireframe();
+        const first = routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        await screen.findByText('2027 was not created.');
+        expect(window.localStorage.getItem(ATTEMPT_KEY)).toBeNull();
+        first.unmount();
+        const second = routedPage();
+        expect(screen.getByRole('heading', { name: 'Bills' })).toBeInTheDocument();
+        await startUnresolved(user);
+        second.unmount();
+        routedPage();
+        expect(screen.getByText('We can’t tell yet whether 2027 was created.')).toBeInTheDocument();
+        // The header's Discard draft (the uncertain banner offers only Check again).
+        await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard draft' }));
+        await screen.findByText('Dashboard page');
+        expect(window.localStorage.getItem(ATTEMPT_KEY)).toBeNull();
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+});
+
 describe('Step 4 — the guard and Start’s gate', () => {
     it('a later year created during the flow is detected at Start, before any commit', async () => {
         const user = userEvent.setup();

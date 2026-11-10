@@ -145,17 +145,25 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
  * cannot classify it. The destination itself is never short-circuited from the
  * in-memory list: it may be this draft's own rollover, and the service's transaction
  * reads it and classifies it (completed / diverged / elsewhere), never overwriting.
+ *
+ * `prior` is the outcome this run follows. After an unresolved uncertain outcome (the
+ * earlier commit may have landed), only evidence about that attempt may replace it:
+ * a failure of this run's own reads or writes proves nothing about it, so the
+ * outcome stays uncertain instead of turning into "nothing was saved".
  */
 export async function startReviewedYear({ service, sourceYear, sourceEvents, yearId, payload, reopenedAdjustmentIds,
-    payloadFingerprint, summary }) {
+    payloadFingerprint, summary, prior = null }) {
     const ctx = { yearId, reconciliationId: payload.reconciliationId, payloadFingerprint, summary };
+    const unresolved = isUnresolved(prior);
+    const stillUncertain = cause => ({ state: 'uncertain', checked: false, yearId, ...(cause ? { cause } : {}) });
     // Defense in depth behind the disabled Start: never send a reviewed write without the guard.
     if (!hasCommitGuard(service)) return { state: 'failed', cause: COMMIT_GUARD_MISSING, retry: false, guardMissing: true };
     try {
         if (typeof service._loadYearsList === 'function') await service._loadYearsList();
     } catch (error) {
-        // Nothing was sent: the guard's own read failed.
+        // Nothing of this run was sent: the guard's own read failed.
         const away = offline() || error?.code === 'unavailable';
+        if (unresolved) return stillUncertain(away ? 'The check could not reach the server.' : null);
         return { state: 'failed', offline: away, cause: away ? OFFLINE : (error?.message || 'Could not check for an existing year.'), retry: true };
     }
     const years = service.getState?.().billingYears || [];
@@ -164,10 +172,20 @@ export async function startReviewedYear({ service, sourceYear, sourceEvents, yea
     if (successor && !isDestination(successor)) {
         return { state: 'elsewhere', yearId: successor.label || String(successor.id), successorId: successor.id, createdAt: null };
     }
+    let outcome;
     try {
         const result = await service.createYear(yearId, { reopenedAdjustmentIds, reconciliation: payload });
-        return classifyCommitResult({ result }, ctx);
+        outcome = classifyCommitResult({ result }, ctx);
     } catch (error) {
-        return classifyCommitResult({ error }, ctx);
+        outcome = classifyCommitResult({ error }, ctx);
     }
+    if (outcome.state === 'uncertain' && !outcome.yearId) outcome = { ...outcome, yearId };
+    // A definite failure of this run (e.g. offline before sending) leaves the earlier attempt unknown.
+    if (unresolved && outcome.state === 'failed') return stillUncertain(outcome.offline ? 'The check could not reach the server.' : null);
+    return outcome;
+}
+
+/** An uncertain outcome whose earlier attempt has not been read back yet. */
+export function isUnresolved(outcome) {
+    return !!outcome && outcome.state === 'uncertain' && !outcome.checked;
 }

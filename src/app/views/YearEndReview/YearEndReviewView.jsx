@@ -29,7 +29,7 @@ import NewSubscriptionsStep from './NewSubscriptionsStep.jsx';
 import ChargesStep from './ChargesStep.jsx';
 import ReviewStep, { REVIEW_STEP_READY, labelError } from './ReviewStep.jsx';
 import { useYearEndReview } from './useYearEndReview.js';
-import { CONFLICT_STATES, useStartYear } from './useStartYear.js';
+import { CONFLICT_STATES, clearPendingAttempt, readPendingAttempt, useStartYear } from './useStartYear.js';
 import { COMMIT_GUARD_MISSING, hasCommitGuard } from './commitOutcome.js';
 import { previewRollover } from './reviewPreview.js';
 import { draftStorageKey, entryCounts, formatDate, readStored, removeStored, snapshotStorageKey } from './yearEndReviewModel.js';
@@ -135,11 +135,22 @@ function NothingChangedDialog({ draft, sourceLabel, nextYearLabel, onCancel, onC
     );
 }
 
-/** Start's gate: canStart over every step's errors, the label, the preview and the refund notices. */
-function gateOf({ review, preview, billingYears, notices, sourceLabel, service, stale }) {
+/**
+ * Start's gate: canStart over every step's errors, the label, the preview and the refund
+ * notices. While an earlier attempt is unresolved, Check again re-sends that attempt
+ * unchanged, so only what the re-send itself needs gates it (the commit guard and the
+ * refund notices): the live draft, preview and fingerprint may already reflect that
+ * attempt's own commit, and the service's read decides it.
+ */
+function gateOf({ review, preview, billingYears, notices, sourceLabel, service, stale, unresolved }) {
     const errors = [];
     // Release precondition, not a figure problem: it never marks the figures pending.
     if (!hasCommitGuard(service)) errors.push({ step: 4, message: COMMIT_GUARD_MISSING, label: true });
+    if (unresolved) {
+        if (notices.loading) errors.push({ step: 4, message: 'Loading refund notices…', label: true });
+        else if (notices.error) errors.push({ step: 4, message: 'Refund notices could not be loaded, so a re-opened refund might carry. Reload the page.', label: true });
+        return { canStart: errors.length === 0, blockers: errors, pending: true };
+    }
     // STALE_SOURCE: this tab's copy of the source is out of date until it is reloaded.
     if (stale) errors.push({ step: 4, message: `${sourceLabel} changed after this preview. Reload to load today’s ${sourceLabel}; the figures are then recomputed.`, reload: true });
     for (const step of [1, 2, 3]) {
@@ -165,12 +176,14 @@ function gateOf({ review, preview, billingYears, notices, sourceLabel, service, 
     return { canStart: result.canStart, blockers, pending: blockers.some(blocker => !blocker.label) };
 }
 
-function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) {
+function ReviewPage({ source, userId, service, billingYears, onPin, onReload, resume = null }) {
     const review = useYearEndReview(source, userId);
     const navigate = useNavigate();
     const { showToast } = useToast();
     const notices = useRefundNotices();
-    const [step, setStep] = useState(1);
+    // A remount over an unresolved attempt resumes on Step 4 in the uncertain state (#609 review).
+    const [step, setStep] = useState(resume ? 4 : 1);
+    const [resumedOutcome] = useState(() => (resume ? { state: 'uncertain', checked: false, yearId: resume.yearId, resumed: true } : null));
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
     const [fastPath, setFastPath] = useState(false);
     const nextYearLabel = review.draft.nextYearLabel;
@@ -190,12 +203,12 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) 
     const gateRef = useRef(null);
     const canStartNow = useCallback(() => gateRef.current?.canStart === true, []);
     const commit = useStartYear({ service, source, review, reopenedAdjustmentIds: reopened, summary: preview?.ok ? preview.prepared.summary : null,
-        onPin, onSuccess, canStart: canStartNow });
+        onPin, onSuccess, canStart: canStartNow, initialOutcome: resumedOutcome });
     // After an uncertain outcome the destination may be this draft's own commit, so it is not
     // a "duplicate label": the service's read classifies it when Check again runs.
     const uncertain = commit.outcome?.state === 'uncertain';
     const knownYears = uncertain ? billingYears.filter(year => String(year.id) !== nextYearLabel.trim()) : billingYears;
-    const gate = gateOf({ review, preview, billingYears: knownYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale' });
+    const gate = gateOf({ review, preview, billingYears: knownYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale', unresolved: commit.unresolved });
     gateRef.current = gate;
     const locked = commit.locked;
     const conflict = !!commit.outcome && CONFLICT_STATES.includes(commit.outcome.state);
@@ -216,6 +229,8 @@ function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) 
     };
     const confirmDiscard = () => {
         setConfirmingDiscard(false);
+        // An explicit discard also forgets any unresolved attempt of this draft.
+        clearPendingAttempt(userId, source.sourceYear.id);
         if (conflict || uncertain) {
             // The next year exists (or may): there is nothing left to review here. Remove
             // the stored draft without starting a new one and leave the page.
@@ -342,6 +357,7 @@ function SuccessorExists({ activeYear, successor, userId, service }) {
                 onConfirm={() => {
                     removeStored(key);
                     removeStored(snapshotStorageKey(userId, activeYear.id));
+                    clearPendingAttempt(userId, activeYear.id);
                     setConfirming(false);
                     setHasDraft(false);
                 }}
@@ -387,6 +403,13 @@ export default function YearEndReviewView({ onReload = reloadPage } = {}) {
                 action={<Link className="btn btn-sm" to="/settings">Open Settings</Link>}
             />
         );
+    }
+    // An attempt of the stored draft that may have committed (a reload, a route re-entry or a
+    // tab closed mid-commit) resumes in the uncertain state: the entry guard must not call
+    // the year it may have created "started elsewhere" before the attempt is read back.
+    const attempt = readPendingAttempt(user.uid, activeYear.id);
+    if (attempt) {
+        return <ReviewPage key={pageKey} source={source} userId={user.uid} service={service} billingYears={billingYears || EMPTY} onPin={pin} onReload={onReload} resume={attempt} />;
     }
     const successor = findSuccessorYear(billingYears || EMPTY, activeYear, billingEvents || EMPTY);
     if (successor) return <SuccessorExists activeYear={activeYear} successor={successor} userId={user.uid} service={service} />;
