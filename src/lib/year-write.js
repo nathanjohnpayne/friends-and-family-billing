@@ -90,7 +90,9 @@ function stale(yearId, reason, extra = {}) {
  * write this tab saw commit, each as the rev it would have written and its write
  * identity ({ nextRev, writeId }). They are settled here by the stored `rev` and
  * `lastWriteId`, never by a payload fingerprint (server timestamps resolve on the
- * server): a stored document carrying one of them committed (adopt it); a stored
+ * server): a stored document carrying one of them committed (adopt it, unless the
+ * attempt is marked `adoptable: false` because it wrote data the tab does not hold,
+ * which is stale); a stored
  * document still at the expectation means none committed (retry); anything else is
  * stale.
  *
@@ -117,6 +119,11 @@ export function classifyYearWrite({ yearId, exists, stored, expectedRev, fingerp
     const attempts = Array.isArray(pending) ? pending : (pending ? [pending] : []);
     if (attempts.length) {
         const committed = hasRev && attempts.find(p => storedRev === p.nextRev && stored.lastWriteId === p.writeId);
+        if (committed && committed.adoptable === false) {
+            // It landed, but it wrote data this tab does not hold (a status change, a
+            // rollover): writing over it from memory would undo it. Reload instead.
+            throw stale(yearId, 'lost-response-not-in-memory', { storedRev, expectedRev });
+        }
         if (committed) {
             adoptedPending = true; // one of them committed: adopt its rev
             effectiveRev = storedRev;

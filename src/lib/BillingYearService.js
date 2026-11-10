@@ -125,6 +125,8 @@ export class BillingYearService {
          * The rev advances only when a transaction resolves.
          */
         this._yearVersions = new Map();
+        /** @private Bumped whenever the signed-in account changes; a write from an earlier epoch is ignored. */
+        this._writeEpoch = 0;
         /** @private Serializes household operations (save + share rebuild), #528. */
         this._householdChain = Promise.resolve();
         /** @private Household operations requested and not yet settled. */
@@ -242,6 +244,7 @@ export class BillingYearService {
 
     /** @private Forget the account-scoped write state (versions, queue stops, Reload required). */
     _resetWriteState() {
+        this._writeEpoch += 1;
         this._yearVersions.clear();
         this._queuedYearSnapshots.clear();
         this._saveQueue.clearStops();
@@ -321,6 +324,7 @@ export class BillingYearService {
      */
     async _commitYearWrite(input) {
         const uid = this._user.uid;
+        const epoch = this._writeEpoch;
         // One write identity per attempt, shared by every document it writes.
         const writeId = newWriteId();
         const attempt = (Array.isArray(input) ? input : [input]).map(spec => {
@@ -363,9 +367,12 @@ export class BillingYearService {
                 return planned;
             });
         } catch (err) {
-            this._noteYearWriteFailure(attempt, err, lastPlan);
+            // A write of an account that has since signed out touches none of this
+            // account's versions, queue stops or recovery state.
+            if (epoch === this._writeEpoch) this._noteYearWriteFailure(attempt, err, lastPlan);
             throw err;
         }
+        if (epoch !== this._writeEpoch) return decisions;
         const at = new Date().toISOString();
         decisions.forEach((decision, i) => {
             const spec = attempt[i];
@@ -403,7 +410,11 @@ export class BillingYearService {
                 const known = this._yearVersions.get(spec.yearId);
                 const base = known && known.uid === uid ? known
                     : { uid, rev: spec.expectedRev, fingerprint: spec.fingerprintIfUnversioned, pending: null, baseline: null };
-                const planned = plan && plan[i] && plan[i].write ? [{ nextRev: plan[i].nextRev, writeId: spec.writeId }] : [];
+                // Only a save's payload is a snapshot of the in-memory state; any other
+                // write (status change, rollover, first-run, compensation) wrote data this
+                // tab does not hold, so if it landed the tab must reload, not write over it.
+                const planned = plan && plan[i] && plan[i].write
+                    ? [{ nextRev: plan[i].nextRev, writeId: spec.writeId, adoptable: spec.adoptable === true }] : [];
                 this._yearVersions.set(spec.yearId, { ...base, pending: [...(base.pending || []), ...planned] });
             });
         }
@@ -430,7 +441,7 @@ export class BillingYearService {
     _enterWriteBlock(attempt, err) {
         const yearIds = attempt.map(spec => spec.yearId);
         for (const yearId of yearIds) this._saveQueue.stop(yearId, err);
-        if (this._state.writeBlock) return;
+        const existing = this._state.writeBlock;
         const at = new Date().toISOString();
         const reason = err instanceof YearWriteError ? 'stale' : 'permission-denied';
         const { activeYear } = this._state;
@@ -453,8 +464,23 @@ export class BillingYearService {
             payload
         };
         const kept = persistUnsavedRecord(record);
+        if (existing) {
+            // Another year refused while the tab was already read-only (saves for two
+            // years were queued): keep its record too, and Reload waits on every record.
+            if (existing.yearId === yearId || (existing.otherRecords || []).some(r => r.yearId === yearId)) return;
+            this._setState({
+                writeBlock: {
+                    ...existing,
+                    yearIds: [...new Set([...existing.yearIds, ...yearIds])],
+                    otherRecords: [...(existing.otherRecords || []), record],
+                    keptOnDevice: existing.keptOnDevice && kept.kept,
+                    storageError: existing.storageError || (kept.kept ? null : kept.error)
+                }
+            });
+            return;
+        }
         this._setState({
-            writeBlock: { ...record, yearIds, keptOnDevice: kept.kept, storageError: kept.kept ? null : kept.error },
+            writeBlock: { ...record, yearIds, otherRecords: [], keptOnDevice: kept.kept, storageError: kept.kept ? null : kept.error },
             saveStatus: { state: 'not_saved', message: 'This tab is read-only until it reloads.', at }
         });
     }
@@ -601,7 +627,7 @@ export class BillingYearService {
         return async () => {
             const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
-            await this._commitYearWrite({ ref: yearDocRef, yearId: activeYear.id, buildPayload: () => withWriteTimestamps(payload) });
+            await this._commitYearWrite({ ref: yearDocRef, yearId: activeYear.id, adoptable: true, buildPayload: () => withWriteTimestamps(payload) });
         };
     }
 

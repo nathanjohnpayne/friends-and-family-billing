@@ -95,6 +95,19 @@ describe('ReloadRequiredDialog', () => {
         expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
     });
 
+    it('lists and copies every refused year', async () => {
+        const writeText = stubClipboard();
+        const other = { ...block(), yearId: '2027', yearLabel: '2027', changes: [{ kind: 'member', label: 'Member added', detail: 'Zed', amount: null, at: null }], payload: { label: '2027' } };
+        render(<ReloadRequiredDialog writeBlock={block({ otherRecords: [other] })} onReload={() => {}} />);
+        const section = screen.getByRole('region', { name: 'Also not saved in 2027' });
+        expect(within(section).getByRole('listitem')).toHaveTextContent('Member added · Zed');
+        await userEvent.click(screen.getByRole('button', { name: 'Copy details' }));
+        const text = writeText.mock.calls[0][0];
+        expect(text).toContain('billing year 2026');
+        expect(text).toContain('billing year 2027');
+        expect(text).toContain('- Member added: Zed');
+    });
+
     it('explains a refused write (permission-denied) the same way', () => {
         render(<ReloadRequiredDialog writeBlock={block({ reason: 'permission-denied' })} onReload={() => {}} />);
         expect(screen.getByRole('dialog')).toHaveTextContent('The server refused this tab’s save of 2026');

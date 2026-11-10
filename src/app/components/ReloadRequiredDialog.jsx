@@ -59,7 +59,8 @@ export function UnsavedChangesList({ record }) {
  * when the clipboard accepted them.
  */
 export async function copyUnsavedDetails(record) {
-    const text = formatUnsavedDetails(record);
+    // A tab refused for several years copies every year's record.
+    const text = [record, ...(record.otherRecords || [])].map(formatUnsavedDetails).join('\n\n----\n\n');
     try {
         if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') return { copied: false, text };
         await navigator.clipboard.writeText(text);
@@ -120,6 +121,12 @@ export default function ReloadRequiredDialog({ writeBlock, onReload }) {
                     {' To avoid writing over those changes, nothing you did here ' + since + ' was saved—this tab is read-only until it reloads.'}
                 </p>
                 <UnsavedChangesList record={writeBlock} />
+                {(writeBlock.otherRecords || []).map(other => (
+                    <section key={other.yearId} aria-label={'Also not saved in ' + (other.yearLabel || other.yearId)}>
+                        <p className="reload-required-note"><b>{'Also not saved in ' + (other.yearLabel || other.yearId)}</b></p>
+                        <UnsavedChangesList record={other} />
+                    </section>
+                ))}
                 {kept ? (
                     <p className="reload-required-note">
                         This list is kept on this device and shown again after you reload, so you can record the changes against the current data. Nothing is merged for you.

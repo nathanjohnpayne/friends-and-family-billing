@@ -1847,3 +1847,107 @@ describe('BillingYearService — version state across accounts, retries and year
         expect(block.changes.filter(c => c.label === 'Payment recorded').map(c => c.amount)).toEqual([10, 20]);
     });
 });
+
+// ── Codex round 2 on #681 ──
+
+describe('BillingYearService — late writes, several refused years, writes the tab does not hold (#614)', () => {
+    const PATH = 'users/user-1/billingYears/2026';
+    const PATH_27 = 'users/user-1/billingYears/2027';
+    const firestoreError = (code, message = code) => Object.assign(new Error(message), { code });
+    const doc = (label, extra = {}) => ({
+        label, status: 'open', createdAt: 'ts-created', rev: 1, lastWriteId: 'w-1',
+        familyMembers: [{ id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+        bills: [{ id: 101, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] }],
+        payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+        settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [] },
+        ...extra
+    });
+    async function loadedService() {
+        mockStore['users/user-1'] = { activeBillingYear: '2026' };
+        const service = new BillingYearService();
+        await service.setUser(TEST_USER);
+        return service;
+    }
+    let errSpy;
+    beforeEach(() => {
+        clearStore();
+        window.localStorage.clear();
+        errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        errSpy.mockRestore();
+        window.localStorage.clear();
+    });
+
+    it('ignores a write that fails after its account signed out', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        let release;
+        mockTxControl.beforeCommit = () => new Promise(resolve => { release = resolve; });
+        mockTxControl.failNextCommit = firestoreError('permission-denied');
+        s.addMember({ name: 'Bea' });
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        await s.setUser(null); // signed out while A's transaction is in flight
+        release();
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(s.getState().saveStatus).toBeNull();
+        expect(s._saveQueue.stoppedOutcome('2026')).toBeNull();
+        expect(window.localStorage.length).toBe(0);
+    });
+
+    it('keeps a record for every year refused while the tab is read-only', async () => {
+        mockStore[PATH] = doc('2026');
+        mockStore[PATH_27] = doc('2027');
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other' };
+        s.addMember({ name: 'Bea' }); // 2026, will be refused
+        // Before it runs, the administrator is in 2027 and edits there too.
+        s._trackLoadedYear('2027', mockStore[PATH_27]);
+        s._setState({ activeYear: { id: '2027', label: '2027', status: 'open', createdAt: 'ts-created', rev: 1 },
+            familyMembers: mockStore[PATH_27].familyMembers, bills: mockStore[PATH_27].bills, payments: [], billingEvents: [] });
+        s.addMember({ name: 'Zed' }); // 2027
+        mockStore[PATH_27] = { ...mockStore[PATH_27], rev: 2, lastWriteId: 'w-other-27' };
+        await s._saveQueue._chain;
+        const block = s.getState().writeBlock;
+        expect(block.yearId).toBe('2026');
+        expect(block.otherRecords.map(r => r.yearId)).toEqual(['2027']);
+        expect(block.otherRecords[0].changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Zed']);
+        expect(block.keptOnDevice).toBe(true);
+        expect(window.localStorage.getItem('ffb.unsaved.v1.user-1.2026')).not.toBeNull();
+        expect(JSON.parse(window.localStorage.getItem('ffb.unsaved.v1.user-1.2027')).payload.familyMembers.map(m => m.name)).toEqual(['Ada', 'Zed']);
+    });
+
+    it('a lost status-change response that landed is never written over from memory', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        mockTxControl.rejectAfterCommit = firestoreError('unavailable');
+        await expect(s.setYearStatus('settling')).rejects.toMatchObject({ code: 'unavailable' });
+        expect(mockStore[PATH].status).toBe('settling');
+        expect(s.getState().activeYear.status).toBe('open');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].status).toBe('settling'); // not reverted
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+    });
+
+    it('a lost rollover response is reconciled by reloading, never by rewriting one document', async () => {
+        mockStore[PATH] = doc('2026', { payments: [{ id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', method: 'cash' }] });
+        const s = await loadedService();
+        s._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }] });
+        mockTxControl.rejectAfterCommit = firestoreError('unavailable');
+        await expect(s.createYear('2027')).rejects.toMatchObject({ code: 'unavailable' });
+        const committedSource = structuredClone(mockStore[PATH]);
+        const committedDest = structuredClone(mockStore[PATH_27]);
+        expect(committedSource.creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
+        // The source stayed editable: another payment, then a retry of the same year.
+        s.recordPayment({ memberId: 1, amount: 10, method: 'cash' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+        expect(mockStore[PATH]).toEqual(committedSource);
+        expect(mockStore[PATH_27]).toEqual(committedDest);
+        await expect(s.createYear('2027')).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        expect(mockStore[PATH]).toEqual(committedSource);
+        expect(mockStore[PATH_27]).toEqual(committedDest);
+    });
+});
