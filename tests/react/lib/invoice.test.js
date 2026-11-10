@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { within } from '@testing-library/react';
 import {
     getInvoiceSummaryContext as getInvoiceSummaryContextResult,
     buildInvoiceSubject as buildInvoiceSubjectResult,
@@ -994,14 +995,16 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         const text = root.textContent;
         expect(text.indexOf('Your household total is $723.00.')).toBeLessThan(text.indexOf('Carried from 2026'));
         expect(text.indexOf('Carried total: +$55.00')).toBeLessThan(text.indexOf('Payment Options'));
-        const items = [...root.querySelectorAll('ul')][0].querySelectorAll('li');
-        expect([...items].map(li => li.textContent)).toEqual([
+        document.body.appendChild(root);
+        const items = within(within(root).getAllByRole('list')[0]).getAllByRole('listitem');
+        expect(items.map(li => li.textContent)).toEqual([
             'Erik · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
             'Erik · Harbor Cloud Storage went from $120 to $144 a year in March. Your share of ten months: $5.00',
             'Maja · Northline Mobile went from $180 to $198 a month in July. Your share of six months: $12.00',
             'Maja · Activation fee (Nov 3): $30.00',
             'Your household’s 2026 credit: −$4.00Pinecone Vault ended in August: −$4.00 (Erik)',
         ]);
+        root.remove();
         expect(text).toContain('Carried total: +$55.00 · 2027 total: $723.00 (2027 bills $668.00 + carried $55.00)');
 
         const hostile = { ...lindqvistSeed, items: lindqvistSeed.items.map((item, i) => i === 3 ? { ...item, description: '<img src=x onerror=1> fee' } : item) };

@@ -562,7 +562,7 @@ chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-fir
 hash -r
 ```
 
-This is a separately authorized, human-owned setup operation: it changes project APIs/IAM. It is not run by the artifact builder or deploy adapter. Then bootstrap project impersonation:
+This is a separately authorized, human-owned setup operation: it changes project APIs/IAM. It is not run by the artifact builder or deploy adapter, and a routine deploy does not depend on it: deploys use the deployer key document, not impersonation by the maintainer. Run it only to create the deployer service account and its roles, or to repair them:
 
 ```bash
 op-firebase-setup friends-and-family-billing
@@ -570,7 +570,7 @@ op-firebase-setup friends-and-family-billing
 
 Only when the deployer key itself needs initial creation or explicit rotation (never as routine deploy login): create a new key for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`, store its JSON as the 1Password document `friends-and-family-billing — Firebase Deployer SA Key` in the `Firebase` vault, and delete the old key in IAM. This is a human-owned operation; it needs an interactive `gcloud` login with IAM rights, and the key file must not be left on disk. The shared `Private/GCP ADC` item is no longer read by this repository's deploys.
 
-`op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
+`op-firebase-setup` is the legacy script name. It creates no key. For this project it:
 1. Enables the IAM Credentials API
 2. Creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` if needed
 3. Grants deploy roles to that service account:
@@ -585,4 +585,4 @@ Only when the deployer key itself needs initial creation or explicit rotation (n
 
 ## Auth Maintenance
 
-Routine deployment uses the existing 1Password source through the verified consumer, without browser login or caller GAC. The first-time setup section retains the separately authorized initial/rotation process and existing IAM roles. If source authentication or impersonation fails, stop and report the concrete failure; credential rotation or IAM repair requires its own authorization and is not an automatic deployment fallback.
+Routine deployment reads the deployer key document from 1Password through the verified consumer, without browser login, `gcloud` login or caller GAC. The first-time setup section retains the separately authorized, human-owned key creation and rotation process and the existing IAM roles. If the key is refused or a deploy is denied, stop and report the concrete failure; key rotation or IAM repair requires its own authorization and is not an automatic deployment fallback.
