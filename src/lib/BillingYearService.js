@@ -307,6 +307,7 @@ export class BillingYearService {
         this._yearLoadGen.set(yearId, gen);
         const baseline = { payload: exists ? loadedYearPayload(rawData, yearId) : null, at: new Date().toISOString(), kind: 'loaded' };
         this._genBaselines.set(genKey(yearId, gen), baseline);
+        this._pruneGenerations(yearId, gen);
         this._yearVersions.set(yearId, {
             uid,
             rev,
@@ -335,8 +336,11 @@ export class BillingYearService {
             kind,
             committed: false,
             args,
-            previousOfYear: this._queuedYearSnapshots.get(yearId) || null,
-            previousOfGen: this._snapshotsByGen.get(genKey(yearId, this._loadGen(yearId))) || null
+            // Only a status change can be withdrawn (see _withdrawSnapshot), so only it
+            // links to the snapshot it replaces; the links are dropped once it settles.
+            // A save keeps no history: only the latest snapshot per year and load is held.
+            previousOfYear: kind === 'status' ? (this._queuedYearSnapshots.get(yearId) || null) : null,
+            previousOfGen: kind === 'status' ? (this._snapshotsByGen.get(genKey(yearId, this._loadGen(yearId))) || null) : null
         };
         this._queuedYearSnapshots.set(yearId, snapshot);
         this._snapshotsByGen.set(genKey(yearId, snapshot.gen), snapshot);
@@ -359,12 +363,40 @@ export class BillingYearService {
             if (snapshot.previousOfGen) this._snapshotsByGen.set(key, snapshot.previousOfGen);
             else this._snapshotsByGen.delete(key);
         }
+        if (ofYear && ofYear.seq === seq) {
+            ofYear.previousOfYear = null;
+            ofYear.previousOfGen = null;
+        }
+    }
+
+    /**
+     * @private After a load of a year, keep recovery data only for the new load and
+     * the one before it, and for the one before only while its latest snapshot has
+     * not committed (a write from it can still be refused). Older loads are dropped.
+     */
+    _pruneGenerations(yearId, gen) {
+        for (const map of [this._snapshotsByGen, this._genBaselines]) {
+            for (const key of [...map.keys()]) {
+                const cut = key.lastIndexOf('#');
+                if (key.slice(0, cut) !== String(yearId)) continue;
+                const keyGen = Number(key.slice(cut + 1));
+                if (keyGen >= gen) continue;
+                const previousPending = keyGen === gen - 1
+                    && this._snapshotsByGen.get(genKey(yearId, keyGen))
+                    && !this._snapshotsByGen.get(genKey(yearId, keyGen)).committed;
+                if (!previousPending) map.delete(key);
+            }
+        }
     }
 
     /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
     _markSnapshotCommitted(yearId, seq) {
         for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
-            if (snapshot && snapshot.seq === seq) snapshot.committed = true;
+            if (snapshot && snapshot.seq === seq) {
+                snapshot.committed = true;
+                snapshot.previousOfYear = null;
+                snapshot.previousOfGen = null;
+            }
         }
     }
 

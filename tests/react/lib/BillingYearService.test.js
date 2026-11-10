@@ -2191,6 +2191,22 @@ describe('BillingYearService — load generations for every writer (#614)', () =
         expect(mockStore[PATH].status).toBe('settling');
     });
 
+    it('holds only the latest snapshot per year and load: no history is retained', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        for (let i = 0; i < 5; i++) s.recordPayment({ memberId: 1, amount: i + 1, method: 'cash' });
+        await s.setYearStatus('settling');
+        await s._saveQueue._chain;
+        for (const snapshot of [...s._snapshotsByGen.values(), ...s._queuedYearSnapshots.values()]) {
+            expect(snapshot.committed).toBe(true);
+            expect(snapshot.previousOfYear).toBeNull();
+            expect(snapshot.previousOfGen).toBeNull();
+        }
+        for (let i = 0; i < 4; i++) s._trackLoadedYear('2026', structuredClone(mockStore[PATH]));
+        const keys = [...s._snapshotsByGen.keys(), ...s._genBaselines.keys()].filter(k => k.startsWith('2026#'));
+        expect(new Set(keys.map(k => k.split('#')[1]))).toEqual(new Set([String(s._loadGen('2026'))]));
+    });
+
     it('a failed status change is not kept as unsaved data over later edits', async () => {
         mockStore[PATH] = doc('2026');
         const s = await loadedService();
