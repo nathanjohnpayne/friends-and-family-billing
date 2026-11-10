@@ -27,7 +27,13 @@ export const BILLING_EVENT_LABELS = {
     PAYMENT_REVERSED: 'Payment reversed',
     PAYMENT_UPDATED: 'Payment updated',
     YEAR_STATUS_CHANGED: 'Year status changed',
-    HOUSEHOLD_CONTACT_CHANGED: 'Household contact changed'
+    HOUSEHOLD_CONTACT_CHANGED: 'Household contact changed',
+    // Year-End Review (specs/year-end-review.md § Rollover)
+    TRUE_UP_RECORDED: 'True-up recorded',
+    SERVICE_CREDIT_COVERED: 'Covered by an earlier credit',
+    YEAR_ROLLED_OVER: 'Year rolled over',
+    YEAR_CREATED_FROM_REVIEW: 'Year created',
+    BILL_PRICE_ROLLED_OVER: 'Price set at rollover'
 };
 
 export const PAYMENT_METHOD_TYPES = {
