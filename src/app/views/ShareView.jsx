@@ -78,10 +78,16 @@ function LeadAlertIcon() {
  * red amount-due banner with how much remains and how much is paid. Neither state
  * (nothing paid, nothing owed) renders nothing.
  */
-function ShareLeadCallout({ ps, year, carriedItems, billsSubtotal, carriedToggle }) {
+function ShareLeadCallout({ ps, year, carriedItems, billsSubtotal, serviceCreditTotal, notApplied, carriedToggle }) {
+    // States the same terms as the reconciliation rows, in the same order, so the
+    // sentence adds up to the Household Total: bills, Service Credits, carried,
+    // and the floor remainder that was not applied this year.
     const carryCopy = carriedItems && (
-        <>{formatCurrency(billsSubtotal)} of bills {carriedItems.total < 0 ? 'less ' : 'plus '}
+        <>{formatCurrency(billsSubtotal)} of bills
+            {serviceCreditTotal > 0 && <> less {formatCurrency(serviceCreditTotal)} of service credits</>}
+            {carriedItems.total < 0 ? ' less ' : ' plus '}
             <CarriedToggle {...carriedToggle}>{formatCurrency(Math.abs(carriedItems.total))} carried from {carriedItems.fromYear || 'previous year'}</CarriedToggle>
+            {notApplied > 0 && <> plus {formatCurrency(notApplied)} not applied this year</>}
             {' · '}{ps.totalPaid > 0 ? formatCurrency(ps.totalPaid) + ' paid' : 'nothing paid yet'}</>
     );
     const { isOwed, isSettled } = derivePaymentState(ps);
@@ -355,11 +361,13 @@ export default function ShareView() {
     const hasItemizedCarry = data.carriedItems?.items.some(item => item.kind !== 'legacy');
     const carriedToggle = { expanded: carriedExpanded, panelId: hasItemizedCarry ? carriedPanelId : null, onToggle: () => setCarriedExpanded(value => !value) };
     const billsSubtotal = householdBillsSubtotal([data.summary, ...(data.linkedMembers || [])].filter(Boolean));
+    const serviceCreditTotal = data.serviceCredits?.items?.length ? (data.serviceCredits.total || 0) : 0;
 
     return (
         <div className="share-page">
             <ShareHeader data={data} />
-            {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} carriedItems={data.carriedItems} billsSubtotal={billsSubtotal} carriedToggle={carriedToggle} />}
+            {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} carriedItems={data.carriedItems} billsSubtotal={billsSubtotal}
+                serviceCreditTotal={serviceCreditTotal} notApplied={householdNotApplied(billsSubtotal, data.paymentSummary, serviceCreditTotal, data.carriedItems)} carriedToggle={carriedToggle} />}
             {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} isSettled={isSettled} billsSubtotal={billsSubtotal} carriedToggle={carriedToggle} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} />}
             {/* Pending Charges sit right after the bill/summary they relate to (mockup
@@ -483,9 +491,15 @@ function CarriedItemsPanel({ carried, carriedToggle }) {
 }
 
 /** The household's raw bills, credits, net carry and floor reconcile once. */
+/** The "Not applied this year" floor remainder, shared by the rows and the lead callout. */
+function householdNotApplied(billsSubtotal, ps, serviceCreditTotal, carriedItems) {
+    const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
+    return carriedItems?.notApplied ?? Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
+}
+
 function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedItems, carriedToggle }) {
     const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
-    const notApplied = carriedItems?.notApplied ?? Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCredits?.total || 0))) * 100) / 100);
+    const notApplied = householdNotApplied(billsSubtotal, ps, serviceCredits?.total, carriedItems);
     return (
         <div className="share-table-wrap share-credit-recon">
             <table className="share-table">

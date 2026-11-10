@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
     assertFails,
     assertSucceeds,
@@ -21,8 +21,10 @@ import {
     getDocs,
     increment,
     query,
+    runTransaction,
     serverTimestamp,
     setDoc,
+    Timestamp,
     updateDoc,
     where,
     writeBatch,
@@ -366,3 +368,371 @@ describe('server-only collections', () => {
         await assertFails(addDoc(collection(asUser(ALICE), `users/${ALICE}/auditLog`), { action: 'x' }));
     });
 });
+
+// ── billingYears: versioned year-document writes ────────────────────────────
+//
+// specs/year-end-review.md § Versioned year-document writes (D-A option 2,
+// #612). `describeYearDocumentRules(stage, rulesPath)` registers one describe
+// per rules stage with the same cases; the stage-1-only allowances (an
+// unversioned create, an unversioned write onto an unversioned document) are
+// expected to succeed at stage 1 and fail at stage 2, every other case is the
+// same at both stages. Stage 1 is firestore.rules today; the stage-2 ticket
+// (#616) adds the stage-2 call. Each stage loads its rules into its own
+// emulator project so both rule files can run side by side.
+//
+// Old tabs (a build deployed before the feature) are simulated by writing
+// without `rev`. Client call sites are named next to each case.
+
+const YEAR_ID = '2026';
+const SOURCE_ID = '2025';
+const CREATED_AT = Timestamp.fromMillis(Date.UTC(2026, 0, 1));
+const SOURCE_CREATED_AT = Timestamp.fromMillis(Date.UTC(2025, 0, 1));
+const OTHER_CREATED_AT = Timestamp.fromMillis(Date.UTC(2026, 5, 1));
+const MALFORMED_REVS = ['1', 1.5, null];
+
+const yearPath = (uid, yearId) => `users/${uid}/billingYears/${yearId}`;
+
+// An abridged buildSavePayload-shaped year document; `extra` overrides fields.
+const yearData = (extra = {}) => ({
+    label: YEAR_ID,
+    status: 'open',
+    familyMembers: [{ id: 1, name: 'Member One' }],
+    bills: [],
+    payments: [],
+    billingEvents: [],
+    settings: {},
+    createdAt: CREATED_AT,
+    ...extra,
+});
+
+const sourceData = (extra = {}) => yearData({ label: SOURCE_ID, createdAt: SOURCE_CREATED_AT, ...extra });
+
+// The same document without one field (a createdAt-less payload or stored document).
+const without = (data, key) => {
+    const { [key]: _omitted, ...rest } = data;
+    return rest;
+};
+
+function describeYearDocumentRules(stage, rulesPath) {
+    // Allowed only while the stage-1 rollout allowances are in force.
+    const stage1Only = (promise) => (stage === 1 ? assertSucceeds(promise) : assertFails(promise));
+
+    describe(`users/{uid}/billingYears/{year} versioned writes — stage ${stage}`, () => {
+        let env;
+        const owner = () => env.authenticatedContext(ALICE).firestore();
+        const yearRef = (db, yearId = YEAR_ID, uid = ALICE) => doc(db, yearPath(uid, yearId));
+
+        const seedYear = (yearId, data) => env.withSecurityRulesDisabled(async (ctx) => {
+            await setDoc(doc(ctx.firestore(), yearPath(ALICE, yearId)), data);
+        });
+
+        const readYear = async (yearId) => {
+            let snap;
+            await env.withSecurityRulesDisabled(async (ctx) => {
+                snap = await getDoc(doc(ctx.firestore(), yearPath(ALICE, yearId)));
+            });
+            return snap.exists() ? snap.data() : undefined;
+        };
+
+        // The legacy createYear writeBatch: a create-shaped destination (server
+        // createdAt, no rev) and the source rewritten from memory (no rev).
+        const legacyCreateYearBatch = (db) => {
+            const batch = writeBatch(db);
+            batch.set(yearRef(db, YEAR_ID), yearData({ createdAt: serverTimestamp() }));
+            batch.set(yearRef(db, SOURCE_ID), sourceData({ status: 'closed' }));
+            return batch.commit();
+        };
+
+        beforeAll(async () => {
+            const host = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+            const [hostname, port] = host.split(':');
+            env = await initializeTestEnvironment({
+                projectId: `demo-ffb-rules-stage${stage}`,
+                firestore: { host: hostname, port: Number(port), rules: readFileSync(rulesPath, 'utf8') },
+            });
+        });
+
+        afterAll(async () => {
+            await env?.cleanup();
+        });
+
+        beforeEach(async () => {
+            await env.clearFirestore();
+        });
+
+        // ── versioned updates ──
+
+        it('allows a versioned write at stored rev + 1 (save() full setDoc, setYearStatus() payload)', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 3 }));
+            const db = owner();
+            await assertSucceeds(setDoc(yearRef(db), yearData({ rev: 4, lastWriteId: 'w4', updatedAt: serverTimestamp() })));
+            await assertSucceeds(setDoc(yearRef(db), { status: 'closed', billingEvents: [{ id: 'e1' }], rev: 5 }, { merge: true }));
+            expect((await readYear(YEAR_ID)).rev).toBe(5);
+        });
+
+        it('denies a versioned write at the same rev, rev + 2, or a lower rev', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 3 }));
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 3 })));
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 5 })));
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 2 })));
+            await assertFails(updateDoc(yearRef(db), { status: 'closed', rev: 3 }));
+            expect((await readYear(YEAR_ID)).rev).toBe(3);
+        });
+
+        // ── create ──
+
+        it('allows creating an absent year at rev 1 (loadData() first run, createYear destination)', async () => {
+            await assertSucceeds(setDoc(yearRef(owner()), yearData({ rev: 1, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })));
+        });
+
+        it('denies creating an absent year at any rev other than 1', async () => {
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 0 })));
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 2 })));
+            expect(await readYear(YEAR_ID)).toBeUndefined();
+        });
+
+        it('denies a create-shaped rev 1 payload onto an existing versioned year', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            await seedYear(SOURCE_ID, sourceData({ rev: 4 }));
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 1, createdAt: serverTimestamp() })));
+            await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev: 1, createdAt: serverTimestamp() })));
+            await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev: 1 })));
+        });
+
+        it('allows an unversioned create only at stage 1 (pre-feature loadData() first run, legacy createYear destination)', async () => {
+            const db = owner();
+            await stage1Only(setDoc(yearRef(db, YEAR_ID), yearData({ createdAt: serverTimestamp() })));
+            const batch = writeBatch(db);
+            batch.set(yearRef(db, '2027'), yearData({ label: '2027', createdAt: serverTimestamp() }));
+            await stage1Only(batch.commit());
+        });
+
+        // ── migration of an unversioned document ──
+
+        it('allows the first versioned write of an unversioned year at rev 1 with the stored createdAt', async () => {
+            await seedYear(YEAR_ID, yearData());
+            await seedYear(SOURCE_ID, sourceData());
+            const db = owner();
+            // save(): the full document, carrying the createdAt it loaded.
+            await assertSucceeds(setDoc(yearRef(db), yearData({ rev: 1, lastWriteId: 'w1', updatedAt: serverTimestamp() })));
+            // setYearStatus()-shaped merge: createdAt is untouched, so unchanged.
+            await assertSucceeds(setDoc(yearRef(db, SOURCE_ID), { status: 'closed', billingEvents: [], rev: 1 }, { merge: true }));
+        });
+
+        it('denies a migration write that changes or drops createdAt (a create-shaped rollover payload)', async () => {
+            await seedYear(YEAR_ID, yearData());
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 1, createdAt: serverTimestamp() })));
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 1, createdAt: OTHER_CREATED_AT })));
+            await assertFails(setDoc(yearRef(db), without(yearData({ rev: 1 }), 'createdAt')));
+            expect((await readYear(YEAR_ID)).rev).toBeUndefined();
+        });
+
+        it('denies migrating an unversioned year that has no stored createdAt', async () => {
+            await seedYear(YEAR_ID, without(yearData(), 'createdAt'));
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 1 })));
+            await assertFails(setDoc(yearRef(db), without(yearData({ rev: 1 }), 'createdAt')));
+            await assertFails(setDoc(yearRef(db), { status: 'closed', rev: 1 }, { merge: true }));
+        });
+
+        it('denies a first versioned write of an unversioned year at any rev other than 1', async () => {
+            await seedYear(YEAR_ID, yearData());
+            const db = owner();
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 0 })));
+            await assertFails(setDoc(yearRef(db), yearData({ rev: 2 })));
+        });
+
+        // ── old tabs (writes without rev) ──
+
+        it('denies an unversioned write onto a versioned year (the old-tab case)', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 2 }));
+            const db = owner();
+            // Pre-feature save(): full setDoc without rev.
+            await assertFails(setDoc(yearRef(db), yearData({ updatedAt: serverTimestamp() })));
+            // Pre-feature setYearStatus(): merge of status and billingEvents (the stored rev is kept, so it does not advance).
+            await assertFails(setDoc(yearRef(db), { status: 'closed', billingEvents: [] }, { merge: true }));
+            await assertFails(updateDoc(yearRef(db), { status: 'closed' }));
+            expect(await readYear(YEAR_ID)).toEqual(yearData({ rev: 2 }));
+        });
+
+        it('allows an unversioned write onto an unversioned year only at stage 1', async () => {
+            await seedYear(YEAR_ID, yearData());
+            const db = owner();
+            await stage1Only(setDoc(yearRef(db), yearData({ updatedAt: serverTimestamp() })));
+            await stage1Only(setDoc(yearRef(db), { status: 'closed', billingEvents: [] }, { merge: true }));
+        });
+
+        // ── malformed rev ──
+
+        it('denies a malformed rev ("1", 1.5, null) on create', async () => {
+            const db = owner();
+            for (const rev of MALFORMED_REVS) {
+                await assertFails(setDoc(yearRef(db), yearData({ rev })));
+            }
+            expect(await readYear(YEAR_ID)).toBeUndefined();
+        });
+
+        it('denies a malformed rev on update of a versioned or an unversioned year', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            await seedYear(SOURCE_ID, sourceData());
+            const db = owner();
+            for (const rev of MALFORMED_REVS) {
+                await assertFails(setDoc(yearRef(db), yearData({ rev })));
+                await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev })));
+            }
+        });
+
+        it('fails closed on a stored malformed rev, whether the request carries rev 1, the next integer, or no rev', async () => {
+            for (const storedRev of MALFORMED_REVS) {
+                await seedYear(YEAR_ID, yearData({ rev: storedRev }));
+                const db = owner();
+                await assertFails(setDoc(yearRef(db), yearData({ rev: 1 })));
+                await assertFails(setDoc(yearRef(db), yearData({ rev: 2 })));
+                await assertFails(setDoc(yearRef(db), yearData()));
+                await assertFails(setDoc(yearRef(db), { status: 'closed' }, { merge: true }));
+                expect((await readYear(YEAR_ID)).rev).toEqual(storedRev);
+            }
+        });
+
+        // ── batches ──
+
+        it('denies a legacy createYear writeBatch when the source is versioned; nothing is written', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 2 }));
+            await assertFails(legacyCreateYearBatch(owner()));
+            expect(await readYear(YEAR_ID)).toBeUndefined();
+            expect(await readYear(SOURCE_ID)).toEqual(sourceData({ rev: 2 }));
+        });
+
+        it('denies a legacy createYear writeBatch when the destination exists and is versioned', async () => {
+            await seedYear(SOURCE_ID, sourceData());
+            await seedYear(YEAR_ID, yearData({ rev: 1, bills: [{ id: 7 }] }));
+            await assertFails(legacyCreateYearBatch(owner()));
+            expect(await readYear(YEAR_ID)).toEqual(yearData({ rev: 1, bills: [{ id: 7 }] }));
+            expect(await readYear(SOURCE_ID)).toEqual(sourceData());
+        });
+
+        it('accepts a legacy createYear writeBatch onto an existing unversioned destination only at stage 1', async () => {
+            await seedYear(SOURCE_ID, sourceData());
+            await seedYear(YEAR_ID, yearData({ bills: [{ id: 7 }] }));
+            await stage1Only(legacyCreateYearBatch(owner()));
+        });
+
+        it('accepts a legacy createYear writeBatch onto an absent destination only at stage 1', async () => {
+            await seedYear(SOURCE_ID, sourceData());
+            await stage1Only(legacyCreateYearBatch(owner()));
+        });
+
+        it('denies a versioned batch holding one stale document entirely, and allows it with the right revs', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            const db = owner();
+            const stale = writeBatch(db);
+            stale.set(yearRef(db, SOURCE_ID), sourceData({ rev: 3, status: 'closed' })); // expected rev 2, stored 3: stale
+            stale.set(yearRef(db, YEAR_ID), yearData({ rev: 1, createdAt: serverTimestamp() }));
+            await assertFails(stale.commit());
+            expect(await readYear(YEAR_ID)).toBeUndefined();
+            expect(await readYear(SOURCE_ID)).toEqual(sourceData({ rev: 3 }));
+
+            const fresh = writeBatch(db);
+            fresh.set(yearRef(db, SOURCE_ID), sourceData({ rev: 4, status: 'closed' }));
+            fresh.set(yearRef(db, YEAR_ID), yearData({ rev: 1, createdAt: serverTimestamp() }));
+            await assertSucceeds(fresh.commit());
+        });
+
+        // ── transactions ──
+
+        it('leaves exactly one of two concurrent transactions committed', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            // Two sessions that both loaded rev 1 and write rev 2 without their own
+            // stale check, so only the rules can stop the second.
+            const attempt = (writeId) => {
+                const db = env.authenticatedContext(ALICE).firestore();
+                return runTransaction(db, async (tx) => {
+                    await tx.get(yearRef(db));
+                    tx.set(yearRef(db), yearData({ rev: 2, lastWriteId: writeId }));
+                });
+            };
+            const results = await Promise.allSettled([attempt('a'), attempt('b')]);
+            const committed = results.filter((r) => r.status === 'fulfilled');
+            expect(committed).toHaveLength(1);
+            const winner = results[0].status === 'fulfilled' ? 'a' : 'b';
+            const loser = results.find((r) => r.status === 'rejected');
+            expect(loser.reason.code).toBe('permission-denied');
+            const stored = await readYear(YEAR_ID);
+            expect(stored.rev).toBe(2);
+            expect(stored.lastWriteId).toBe(winner);
+        });
+
+        it('checks both documents of a rollover-shaped transaction (get destination, get source, set both)', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            const db = owner();
+            const rollover = (sourceRev, destinationRev) => runTransaction(db, async (tx) => {
+                await tx.get(yearRef(db, YEAR_ID));
+                await tx.get(yearRef(db, SOURCE_ID));
+                tx.set(yearRef(db, SOURCE_ID), sourceData({ rev: sourceRev, status: 'closed' }));
+                tx.set(yearRef(db, YEAR_ID), yearData({ rev: destinationRev, createdAt: serverTimestamp() }));
+            });
+            await assertFails(rollover(3, 1));
+            await assertFails(rollover(4, 2));
+            expect(await readYear(YEAR_ID)).toBeUndefined();
+            await assertSucceeds(rollover(4, 1));
+        });
+
+        // ── delete, other users, unchanged neighbours ──
+
+        it('denies deleting a year document, versioned or not, to the owner and to everyone else', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            await seedYear(SOURCE_ID, sourceData());
+            for (const yearId of [YEAR_ID, SOURCE_ID]) {
+                await assertFails(deleteDoc(yearRef(owner(), yearId)));
+                await assertFails(deleteDoc(yearRef(env.authenticatedContext(BOB).firestore(), yearId)));
+                await assertFails(deleteDoc(yearRef(env.unauthenticatedContext().firestore(), yearId)));
+                expect(await readYear(yearId)).toBeDefined();
+            }
+        });
+
+        it('lets the owner read and denies other users and guests every read and write, as before', async () => {
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            await seedYear(SOURCE_ID, sourceData());
+            await assertSucceeds(getDoc(yearRef(owner())));
+            await assertSucceeds(getDocs(collection(owner(), `users/${ALICE}/billingYears`)));
+            for (const db of [env.authenticatedContext(BOB).firestore(), env.unauthenticatedContext().firestore()]) {
+                await assertFails(getDoc(yearRef(db)));
+                await assertFails(setDoc(yearRef(db), yearData({ rev: 2 })));
+                await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData()));
+                await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev: 1 })));
+                await assertFails(setDoc(yearRef(db, '2027'), yearData({ rev: 1 })));
+                await assertFails(setDoc(yearRef(db, '2028'), yearData()));
+            }
+        });
+
+        it('leaves the disputes subcollection owner-only read and write, including delete', async () => {
+            const disputes = `${yearPath(ALICE, YEAR_ID)}/disputes`;
+            await seedYear(YEAR_ID, yearData({ rev: 1 }));
+            await env.withSecurityRulesDisabled(async (ctx) => {
+                await setDoc(doc(ctx.firestore(), disputes, 'd1'), { memberId: 1, status: 'open' });
+            });
+            const db = owner();
+            await assertSucceeds(getDocs(collection(db, disputes)));
+            await assertSucceeds(addDoc(collection(db, disputes), { kind: 'charge_notice', memberId: 1, status: 'open' }));
+            await assertSucceeds(updateDoc(doc(db, disputes, 'd1'), { status: 'in_review' }));
+            await assertSucceeds(deleteDoc(doc(db, disputes, 'd1')));
+            for (const other of [env.authenticatedContext(BOB).firestore(), env.unauthenticatedContext().firestore()]) {
+                await assertFails(getDocs(collection(other, disputes)));
+                await assertFails(addDoc(collection(other, disputes), { memberId: 1, status: 'open' }));
+            }
+        });
+
+        it('leaves the users/{uid} document (the activeBillingYear pointer) unversioned and owner-only', async () => {
+            const db = owner();
+            await assertSucceeds(setDoc(doc(db, 'users', ALICE), { activeBillingYear: YEAR_ID }, { merge: true }));
+            await assertSucceeds(setDoc(doc(db, 'users', ALICE), { activeBillingYear: SOURCE_ID }, { merge: true }));
+            await assertFails(setDoc(doc(env.authenticatedContext(BOB).firestore(), 'users', ALICE), { activeBillingYear: YEAR_ID }));
+        });
+    });
+}
+
+describeYearDocumentRules(1, RULES_PATH);
