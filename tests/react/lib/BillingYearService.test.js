@@ -2342,6 +2342,49 @@ describe('BillingYearService — Reload required state (#669)', () => {
         window.localStorage.clear();
     });
 
+    it('a household change undone after an offline failure is never retried; unrelated unsaved edits still are', async () => {
+        seedYear();
+        const s = await loadedService();
+        // An unrelated edit fails offline first: it stays unsaved in this tab.
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        s.updateMember(2, { phone: '+14155551212' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].familyMembers[1].phone).toBe('');
+        // Then a household change fails offline and is undone here.
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        await expect(s.saveHousehold({ contactId: 1, memberIds: [1, 2] })).rejects.toThrow('The household change could not be saved');
+        expect(s.getState().familyMembers.find(m => m.id === 1).linkedMembers).toEqual([]);
+        // Back online, switching years retries the live state: the phone edit, not the household.
+        await s.switchYear('2025');
+        const stored = mockStore[PATH].familyMembers;
+        expect(stored.find(m => m.id === 1).linkedMembers).toEqual([]);
+        expect(stored.find(m => m.id === 2).phone).toBe('+14155551212');
+        expect((mockStore[PATH].billingEvents || []).some(e => e.eventType === 'HOUSEHOLD_CONTACT_CHANGED')).toBe(false);
+        expect(s.getState().activeYear.id).toBe('2025');
+    });
+
+    it('a reviewed rollover first retries an unsaved edit of its source and refuses to start while it still fails', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        s.updateMember(2, { phone: '+14155551212' });
+        await s._saveQueue._chain;
+        const live = s.getState();
+        const reviewedFingerprint = computeSourceFingerprint({ ...live, status: live.activeYear.status });
+        const reconciliation = { reconciliationId: 'rec-x', sourceYearId: '2026', sourceFingerprint: reviewedFingerprint,
+            trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: {} };
+        // Still offline: the retry fails, nothing starts.
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        await expect(s.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED', message: expect.stringMatching(/not saved yet/) });
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+        // Online: the edit is saved first, then the rollover commits over a source that holds it.
+        await expect(s.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'completed', yearId: '2027' });
+        expect(mockStore[PATH].familyMembers[1].phone).toBe('+14155551212');
+        expect(mockStore[PATH].billingEvents.map(e => e.eventType)).toContain('YEAR_ROLLED_OVER');
+        // No snapshot of the pre-rollover source is left to be retried over it.
+        expect(s._queuedYearSnapshots.get('2026')).toMatchObject({ committed: true });
+    });
+
     it('releases committed history: a long session retains only the last committed snapshot, not every state', async () => {
         seedYear();
         const s = await loadedService();
@@ -2957,6 +3000,26 @@ describe('BillingYearService — load generations for every writer (#614)', () =
         expect(s.getState().payments.map(p => p.amount)).toEqual([25]);
         expect(s.getState().saveStatus).toBeNull();
         expect(s.getState().writeBlock).toBeNull();
+    });
+
+    it('never retries a failed save over a rollover that superseded it', async () => {
+        mockStore[PATH] = doc('2026', { payments: [{ id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', method: 'cash' }] });
+        const s = await loadedService();
+        s._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }] });
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        s.recordPayment({ memberId: 1, amount: 10, method: 'cash' });
+        await s._saveQueue._chain;
+        // Back online, Start New Year: the source write carries the payment and the markings.
+        await s.createYear('2027');
+        const source = mockStore[PATH];
+        expect(source.payments.map(p => p.amount)).toEqual([680, 10]);
+        expect(source.creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
+        expect(source.billingEvents.map(e => e.eventType)).toContain('YEAR_CARRIED_FORWARD');
+        expect(s.getState().activeYear.id).toBe('2027');
+        // Switching back does not write the pre-rollover snapshot over the source.
+        await s.switchYear('2026');
+        expect(mockStore[PATH]).toBe(source);
+        expect(s.getState().creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
     });
 
     it('keeps the year and its unsaved payment when the retry before a reload still fails', async () => {

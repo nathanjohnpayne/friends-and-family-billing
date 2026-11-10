@@ -412,6 +412,24 @@ export class BillingYearService {
         }
     }
 
+    /**
+     * @private A rollover committed its source (the legacy one from the year's whole
+     * in-memory state; the reviewed one from a fresh read, after any uncommitted save
+     * was retried): every snapshot of that year queued before it is superseded, so
+     * none is retried over it later (#614, #607).
+     */
+    _retireYearSnapshots(yearId) {
+        const prefix = String(yearId) + '#';
+        const snapshots = [this._queuedYearSnapshots.get(yearId),
+            ...[...this._snapshotsByGen.entries()].filter(([key]) => key.startsWith(prefix)).map(([, snapshot]) => snapshot)];
+        for (const snapshot of snapshots) {
+            if (!snapshot) continue;
+            snapshot.committed = true;
+            snapshot.previousOfYear = null;
+            snapshot.previousOfGen = null;
+        }
+    }
+
     /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
     _markSnapshotCommitted(yearId, seq) {
         for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
@@ -1269,6 +1287,15 @@ export class BillingYearService {
                 else this._yearVersions.set(id, known);
             }
         };
+        // A save of the source that did not commit (it failed, e.g. offline) is retried
+        // first, as before a load: the rollover then commits over a source that holds
+        // it, and afterwards no snapshot of the old state is left to be retried over
+        // the rollover. While it still fails, nothing is started.
+        try {
+            await this._retryUncommittedSaves([sourceId]);
+        } catch (error) {
+            throw new RolloverError(ROLLOVER_OUTCOMES.COMMIT_FAILED, error.message, { yearId, cause: error });
+        }
         const observe = { commitSent: false };
         try {
             await this._enqueueConfirmed([yearId, sourceId], () => {
@@ -1289,6 +1316,9 @@ export class BillingYearService {
      * the next rev), reload the years list and switch into the new year.
      */
     async _enterRolledOverYear(yearId, sourceId, outcome) {
+        // Like the legacy rollover: no snapshot of the pre-rollover source is ever
+        // retried over it (#614 d12c6cc).
+        this._retireYearSnapshots(sourceId);
         this._yearVersions.delete(sourceId);
         this._yearVersions.delete(yearId);
         await this._loadYearsList();
@@ -1375,6 +1405,11 @@ export class BillingYearService {
      */
     async _commitRollover(yearId, activeYear, specs) {
         await this._enqueueConfirmed([yearId, activeYear ? activeYear.id : yearId], () => this._commitYearWrite(specs));
+        // The source write carried the whole in-memory state (edits are refused while
+        // the rollover runs), so an earlier save that failed is now superseded and must
+        // never be retried over the carry markings.
+        const source = specs.find(spec => spec.yearId !== yearId);
+        if (source) this._retireYearSnapshots(source.yearId);
 
         await this._loadYearsList();
         await this.switchYear(yearId);
@@ -1743,8 +1778,12 @@ export class BillingYearService {
                 }
                 if (rollback.familyMembers || rollback.billingEvents) this._setState(rollback);
             }
-            await this._compensateOrReport(message, () =>
-                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId, editedLoadGen));
+            try {
+                await this._compensateOrReport(message, () =>
+                    this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId, editedLoadGen));
+            } finally {
+                this._replaceRejectedHouseholdSnapshot(editedYearId, ownSeq, editedLoadGen, localConflict);
+            }
             if (localConflict) {
                 throw new Error(message + '. The household could not be restored here because it changed meanwhile; reload before making further changes.');
             }
@@ -1760,6 +1799,26 @@ export class BillingYearService {
             householdName: plan.householdName,
             shareDocsRebuilt
         };
+    }
+
+    /**
+     * @private A household change failed and was undone in this tab: its own save
+     * snapshot, or a later one queued behind it, still holds the rejected household
+     * and must never be retried before a load (it would persist a change the
+     * administrator saw undone). When the edited year is still the active load, the
+     * year's latest snapshot is taken again from the live state, which keeps every
+     * other unsaved edit and drops only the household; otherwise, or when the local
+     * undo conflicted, the snapshot is withdrawn, as a failed status change's is.
+     */
+    _replaceRejectedHouseholdSnapshot(yearId, ownSeq, loadGen, localConflict) {
+        const latest = this._queuedYearSnapshots.get(yearId);
+        if (!latest || latest.committed || latest.seq < ownSeq || !this._user || latest.uid !== this._user.uid) return;
+        const { activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments } = this._state;
+        if (!localConflict && activeYear && activeYear.id === yearId && this._loadGen(yearId) === loadGen) {
+            this._registerSnapshot(yearId, 'save', [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]);
+            return;
+        }
+        this._withdrawSnapshot(yearId, latest.seq);
     }
 
     /**
