@@ -348,6 +348,22 @@ describe('Step 1 — credits already on the bill (D-B, no default)', () => {
     });
 });
 
+describe('override after full credit coverage', () => {
+    it('stays editable when existing credits cover the whole override, and can be cleared', async () => {
+        const user = userEvent.setup();
+        mocks.state.bills = [{ id: 301, name: 'Solo Plan', amount: 12, billingFrequency: 'monthly', members: [MEMBER.sam] }];
+        mocks.state.owedAdjustments = [{ id: 'oadj_solo', memberId: MEMBER.sam, billId: 301, kind: 'service_credit', amount: 30, reason: 'Cancelled', incurredDate: '2026-09-02', createdAt: '2026-09-02T12:00:00.000Z', status: 'active' }];
+        seedDraft({ bills: { 301: { change: 'ended', lastMonth: '2026-08', override: 30 } } });
+        renderPage();
+        await user.click(within(screen.getByTestId('credits-301')).getByRole('button', { name: 'Covers this change' }));
+        expect(screen.getByText('Nothing more to record; the bill is left out of 2027.')).toBeInTheDocument();
+        const field = within(screen.getByTestId('bill-301')).getByLabelText('Service credit ($)');
+        expect(field).toBeEnabled();
+        await user.clear(field);
+        expect(screen.getByText(/Service credit · \$48\.00|\$48\.00 computed/)).toBeInTheDocument();
+    });
+});
+
 describe('Step 2 — new subscriptions', () => {
     it('allocates a billId once, validates, and computes the late-start True-up', async () => {
         const user = userEvent.setup();
@@ -544,6 +560,14 @@ describe('guards', () => {
         mocks.state.billingYears = [{ id: '2026', label: '2026', status: 'settling' }, { id: '2027', label: '2027', status: 'open' }];
         renderPage();
         expect(screen.getByText('2027 already exists')).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Bills' })).toBeNull();
+    });
+
+    it('blocks the review for a year label without a four-digit year', () => {
+        mocks.state.activeYear = { id: '2026-27', label: '2026-27', status: 'closed' };
+        mocks.state.billingYears = [mocks.state.activeYear];
+        renderPage();
+        expect(screen.getByText('The review needs a four-digit year label')).toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Bills' })).toBeNull();
     });
 
