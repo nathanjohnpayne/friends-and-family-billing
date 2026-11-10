@@ -731,9 +731,37 @@ export class BillingYearService {
         this._loadingYears += 1;
         try {
             await this._saveQueue.idle();
+            // A load replaces the in-memory state of the year it loads and of the year
+            // being left: a save of either that has not committed (it failed, e.g.
+            // offline) is retried first, and the load is refused while it still fails.
+            const leaving = this._state.activeYear ? this._state.activeYear.id : null;
+            await this._retryUncommittedSaves([...new Set([yearId, leaving].filter(id => id != null))]);
             await this._loadYearDataNow(yearId);
         } finally {
             this._loadingYears -= 1;
+        }
+    }
+
+    /**
+     * @private Retry the latest save of each year that did not commit, before a load
+     * replaces the state it was taken from. Throws (and reports Not saved) when it
+     * still fails, so the caller keeps the current state instead of discarding it.
+     */
+    async _retryUncommittedSaves(yearIds) {
+        const uid = this._user ? this._user.uid : null;
+        for (const yearId of yearIds) {
+            const snapshot = this._queuedYearSnapshots.get(yearId);
+            if (!snapshot || snapshot.committed || snapshot.uid !== uid || snapshot.kind !== 'save') continue;
+            if (snapshot.gen !== this._loadGen(yearId)) continue; // from an earlier load: already refused as stale
+            try {
+                await this._enqueueConfirmed([yearId], this._yearDocWrite(...snapshot.args));
+            } catch (err) {
+                const label = snapshot.args[0] && (snapshot.args[0].label || snapshot.args[0].id);
+                const message = 'Changes to ' + label + ' are not saved yet (' + (err && err.message ? err.message : 'unknown error')
+                    + '). They are kept in this tab and the year was not reloaded; try again when you are back online.';
+                if (!this._state.writeBlock) this._setState({ saveStatus: { state: 'not_saved', message, at: new Date().toISOString() } });
+                throw new Error(message);
+            }
         }
     }
 

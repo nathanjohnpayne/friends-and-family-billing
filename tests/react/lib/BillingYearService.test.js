@@ -2191,6 +2191,39 @@ describe('BillingYearService — load generations for every writer (#614)', () =
         expect(mockStore[PATH].status).toBe('settling');
     });
 
+    it('retries a save that failed offline before a reload replaces its year', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        s.recordPayment({ memberId: 1, amount: 25, method: 'cash' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].payments).toHaveLength(0);
+        await s.switchYear('2026'); // back online: switching away and back
+        expect(mockStore[PATH].payments.map(p => p.amount)).toEqual([25]);
+        expect(s.getState().payments.map(p => p.amount)).toEqual([25]);
+        expect(s.getState().saveStatus).toBeNull();
+        expect(s.getState().writeBlock).toBeNull();
+    });
+
+    it('keeps the year and its unsaved payment when the retry before a reload still fails', async () => {
+        mockStore[PATH] = doc('2026');
+        mockStore[PATH_27] = doc('2027');
+        const s = await loadedService();
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        s.recordPayment({ memberId: 1, amount: 25, method: 'cash' });
+        await s._saveQueue._chain;
+        mockTxControl.failNextCommit = Object.assign(new Error('offline'), { code: 'unavailable' });
+        await s.switchYear('2027'); // still offline: the switch is refused
+        expect(s.getState().activeYear.id).toBe('2026');
+        expect(s.getState().payments.map(p => p.amount)).toEqual([25]);
+        expect(s.getState().saveStatus.message).toMatch(/Changes to 2026 are not saved yet/);
+        expect(mockStore[PATH].payments).toHaveLength(0);
+        // Once the connection is back the switch retries the save first.
+        await s.switchYear('2027');
+        expect(mockStore[PATH].payments.map(p => p.amount)).toEqual([25]);
+        expect(s.getState().activeYear.id).toBe('2027');
+    });
+
     it('holds only the latest snapshot per year and load: no history is retained', async () => {
         mockStore[PATH] = doc('2026');
         const s = await loadedService();
