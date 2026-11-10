@@ -341,7 +341,7 @@ after M2a and before M4 Functions activation.
 // Owner-only access for user data
 match /users/{userId} {
   allow read, write: if request.auth != null && request.auth.uid == userId;
-  match /billingYears/{yearId} { /* owner read; writes version-checked by integer `rev` (create 1, update stored + 1), delete denied; stage-1 allowances for unversioned tabs (specs/year-end-review.md § Versioned year-document writes) */ }
+  match /billingYears/{yearId} { /* owner read; writes version-checked by integer `rev` (create 1, update stored + 1), delete denied; a write without `rev` is denied (stage 2) (specs/year-end-review.md § Versioned year-document writes) */ }
   match /billingYears/{yearId}/disputes/{disputeId} { /* owner only */ }
   match /auditLog/{logId} { allow read: if owner; allow write: if false; }
 }
