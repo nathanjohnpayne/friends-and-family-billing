@@ -6,9 +6,36 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
-      // Year-scoped billing data — owner only
+      // Year-scoped billing data — owner only, version-checked writes
+      // (specs/year-end-review.md § Versioned year-document writes; ADR 0009).
+      // Every write carries an integer `rev`: create at rev == 1, update at
+      // stored rev + 1. The first versioned write of an unversioned document
+      // sets rev == 1 and must keep the stored createdAt (which must exist), so
+      // a create-shaped payload cannot overwrite an existing unversioned year.
+      // A malformed rev (present, not an integer) on the request or on the
+      // stored document matches no branch and is denied. Year documents are
+      // never deleted. Admin SDK writers bypass these rules; the source guard
+      // in tests/functions.test.js asserts no Cloud Function writes this doc.
+      //
+      // STAGE 1: the two branches marked "STAGE 1 ONLY" keep pre-feature tabs
+      // working during the rollout (an unversioned create, and an unversioned
+      // write onto a still-unversioned document). Stage 2 (#616) removes both.
       match /billingYears/{yearId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        function isOwner() { return request.auth != null && request.auth.uid == userId; }
+        function reqRev() { return 'rev' in request.resource.data && request.resource.data.rev is int; }
+        function noRev() { return !('rev' in request.resource.data); }        // absent, not merely malformed
+        function hasRev() { return 'rev' in resource.data && resource.data.rev is int; }
+        function storedNoRev() { return !('rev' in resource.data); }          // the stored field is absent, not merely malformed
+        function sameCreatedAt() { return 'createdAt' in resource.data && request.resource.data.createdAt == resource.data.createdAt; }  // present AND unchanged
+
+        allow read: if isOwner();
+        allow create: if isOwner() && ((reqRev() && request.resource.data.rev == 1)
+                                    || noRev());                                              // STAGE 1 ONLY: an unversioned create (a pre-feature tab's first-run or legacy year creation); removed at stage 2
+        allow update: if isOwner() && (
+             (reqRev() && hasRev() && request.resource.data.rev == resource.data.rev + 1)     // a versioned write advances by exactly one
+          || (reqRev() && storedNoRev() && request.resource.data.rev == 1 && sameCreatedAt()) // the first versioned write of an unversioned document
+          || (noRev() && storedNoRev()));                                                      // STAGE 1 ONLY: an unversioned write onto an unversioned document (old tabs during the rollout); removed at stage 2
+        allow delete: if false;
 
         // Disputes — owner only. Share-page member actions (submit a review
         // request, approve/reject a resolution, confirm a refund, fetch evidence)

@@ -4,12 +4,13 @@
  * Reads share token from URL, resolves via publicShares or Cloud Function,
  * renders member summary, bill tables, payment progress, payment methods.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase.js';
 import { hashToken } from '../../lib/validation.js';
 import { isShareTokenStale } from '../../lib/share.js';
-import { getPaymentMethodIcon, getPaymentMethodLabel } from '../../lib/formatting.js';
+import { getPaymentMethodIcon, getPaymentMethodLabel, getInitials } from '../../lib/formatting.js';
+import { exactNumber, multiplyExact, divideExact, sumExact, rational, quantizeDollarsToCents } from '../../lib/money.js';
 import CompanyLogo from '../components/CompanyLogo.jsx';
 import Dialog from '../components/Dialog.jsx';
 
@@ -77,7 +78,18 @@ function LeadAlertIcon() {
  * red amount-due banner with how much remains and how much is paid. Neither state
  * (nothing paid, nothing owed) renders nothing.
  */
-function ShareLeadCallout({ ps, year }) {
+function ShareLeadCallout({ ps, year, carriedItems, billsSubtotal, serviceCreditTotal, notApplied, carriedToggle }) {
+    // States the same terms as the reconciliation rows, in the same order, so the
+    // sentence adds up to the Household Total: bills, Service Credits, carried,
+    // and the floor remainder that was not applied this year.
+    const carryCopy = carriedItems && (
+        <>{formatCurrency(billsSubtotal)} of bills
+            {serviceCreditTotal > 0 && <> less {formatCurrency(serviceCreditTotal)} of service credits</>}
+            {carriedItems.total < 0 ? ' less ' : ' plus '}
+            <CarriedToggle {...carriedToggle}>{formatCurrency(Math.abs(carriedItems.total))} carried from {carriedItems.fromYear || 'previous year'}</CarriedToggle>
+            {notApplied > 0 && <> plus {formatCurrency(notApplied)} not applied this year</>}
+            {' · '}{ps.totalPaid > 0 ? formatCurrency(ps.totalPaid) + ' paid' : 'nothing paid yet'}</>
+    );
     const { isOwed, isSettled } = derivePaymentState(ps);
     if (isSettled) {
         return (
@@ -85,7 +97,7 @@ function ShareLeadCallout({ ps, year }) {
                 <span className="share-lead-icon"><LeadCheckIcon /></span>
                 <div className="share-lead-text">
                     <div className="share-lead-title type-display">You&apos;re all settled for {year}</div>
-                    <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} paid in full — nothing due</div>
+                    <div className="share-lead-sub">{carryCopy || <>{formatCurrency(ps.totalPaid)} paid in full — nothing due</>}</div>
                 </div>
             </div>
         );
@@ -96,7 +108,7 @@ function ShareLeadCallout({ ps, year }) {
                 <span className="share-lead-icon"><LeadAlertIcon /></span>
                 <div className="share-lead-text">
                     <div className="share-lead-title type-display">{formatCurrency(ps.balanceRemaining)} due for {year}</div>
-                    <div className="share-lead-sub">{formatCurrency(ps.totalPaid)} of {formatCurrency(ps.combinedAnnualTotal)} paid</div>
+                    <div className="share-lead-sub">{carryCopy || <>{formatCurrency(ps.totalPaid)} of {formatCurrency(ps.combinedAnnualTotal)} paid</>}</div>
                 </div>
             </div>
         );
@@ -149,6 +161,8 @@ function BillsCards({ bills, canDispute, onRequestReview }) {
 }
 
 export default function ShareView() {
+    const [carriedExpanded, setCarriedExpanded] = useState(true);
+    const carriedPanelId = useId();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [data, setData] = useState(null);
@@ -209,6 +223,15 @@ export default function ShareView() {
             // and render no "Your Refunds" section. Only dedicated refund-confirm
             // links carry refunds:read, so this does not affect normal share links.
             if (cacheValid && publicDoc.exists() && (publicDoc.data().scopes || []).includes('refunds:read')) {
+                cacheValid = false;
+            }
+
+            // Pre-itemization caches cannot reveal whether a carry is absent or
+            // hidden by the owed floor. Resolve through the deployed projection
+            // before rendering; a fresh timestamp alone cannot establish parity.
+            // Uncarried summaries intentionally resolve once per visit until a
+            // future shared schema version can distinguish those old cache shapes.
+            if (cacheValid && (publicDoc.data().scopes || []).includes('summary:read') && !publicDoc.data().carriedItems) {
                 cacheValid = false;
             }
 
@@ -335,12 +358,17 @@ export default function ShareView() {
     if (!data) return null;
 
     const { isSettled } = derivePaymentState(data.paymentSummary);
+    const hasItemizedCarry = data.carriedItems?.items.some(item => item.kind !== 'legacy');
+    const carriedToggle = { expanded: carriedExpanded, panelId: hasItemizedCarry ? carriedPanelId : null, onToggle: () => setCarriedExpanded(value => !value) };
+    const billsSubtotal = householdBillsSubtotal([data.summary, ...(data.linkedMembers || [])].filter(Boolean));
+    const serviceCreditTotal = data.serviceCredits?.items?.length ? (data.serviceCredits.total || 0) : 0;
 
     return (
         <div className="share-page">
             <ShareHeader data={data} />
-            {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} />}
-            {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} isSettled={isSettled} />}
+            {data.paymentSummary && <ShareLeadCallout ps={data.paymentSummary} year={data.year} carriedItems={data.carriedItems} billsSubtotal={billsSubtotal}
+                serviceCreditTotal={serviceCreditTotal} notApplied={householdNotApplied(billsSubtotal, data.paymentSummary, serviceCreditTotal, data.carriedItems)} carriedToggle={carriedToggle} />}
+            {data.summary && <HouseholdBillsSection data={data} canDispute={shareCtx.canDispute} shareCtx={shareCtx} isSettled={isSettled} billsSubtotal={billsSubtotal} carriedToggle={carriedToggle} />}
             {data.paymentSummary && <PaymentSummarySection ps={data.paymentSummary} />}
             {/* Pending Charges sit right after the bill/summary they relate to (mockup
                 placement), not at the bottom of the page. */}
@@ -403,49 +431,96 @@ function MemberRow({ member, canDispute, onRequestReview, defaultExpanded, isSet
     );
 }
 
-/**
- * Household total reconciliation shown when the household carries active Service
- * Credits (#337). combinedAnnualTotal is already net of the credits, so without this
- * the member saw a total lower than the sum of the bills with nothing explaining the
- * gap. Lists the bills subtotal, each credit as a line item, any other adjustment
- * (a carried-forward opening balance #322, or the owed floored at 0 when credits
- * exceed the bills), and the resulting household total. Reuses the share-table styles.
- */
-function HouseholdTotalWithCredits({ allMembers, ps, serviceCredits }) {
-    const grossAnnual = allMembers.reduce((s, m) => s + (m.annualTotal || 0), 0);
-    const netAnnual = ps ? ps.combinedAnnualTotal : grossAnnual;
-    const residual = Math.round((netAnnual - (grossAnnual - serviceCredits.total)) * 100) / 100;
+// Reconstruct raw shares from the public bill slices with the exact-money
+// primitives and quantize once, as projectHouseholdMoney quantizes G (ADR 0010),
+// preserving rounded member display lines. Older cached slices fall back to
+// their stored display totals.
+function householdBillsSubtotal(members) {
+    const finite = value => exactNumber(Number.isFinite(value) ? value : 0);
+    const shares = members.flatMap(member => (
+        member.bills?.every(bill => Number.isFinite(bill.canonicalAmount) && Number.isSafeInteger(bill.splitCount) && bill.splitCount > 0)
+            ? member.bills.map(bill => divideExact(
+                multiplyExact(exactNumber(bill.canonicalAmount), rational(bill.billingFrequency === 'annual' ? 1n : 12n)),
+                rational(BigInt(bill.splitCount))))
+            : [finite(member.annualTotal ?? member.bills?.reduce((total, bill) => total + (bill.annualShare || 0), 0))]
+    ));
+    return quantizeDollarsToCents(sumExact(shares)) / 100;
+}
+
+function signedCurrency(amount) {
+    return (amount < 0 ? '−' : '+') + formatCurrency(Math.abs(amount));
+}
+
+function CarriedToggle({ expanded, panelId, onToggle, children, showState = false }) {
+    if (!children) return null;
+    if (!panelId) return <span>{children}</span>;
+    return <button type="button" className="share-carried-toggle" aria-expanded={expanded} aria-controls={panelId} onClick={onToggle}>{children}{showState && <> <span className="share-carried-toggle-state">{expanded ? 'Hide breakdown' : 'Show breakdown'}</span></>}</button>;
+}
+
+function CarriedItemsPanel({ carried, carriedToggle }) {
+    const groups = new Map();
+    const household = [];
+    carried.items.forEach(item => {
+        if (item.memberId == null || item.kind === 'credit' || item.kind === 'legacy') household.push(item);
+        else {
+            if (!groups.has(item.memberId)) groups.set(item.memberId, { name: item.memberName, items: [] });
+            groups.get(item.memberId).items.push(item);
+        }
+    });
+    const line = (item, index) => <div className="share-carried-line" key={index}><span>{item.description || item.billName}</span><span className="share-carried-amount">{signedCurrency(item.amount)}</span></div>;
+    return (
+        <section id={carriedToggle.panelId} hidden={!carriedToggle.expanded} className="share-carried-panel" aria-label={'Carried from ' + (carried.fromYear || 'previous year')}>
+            <h2 className="share-carried-heading">Carried from {carried.fromYear || 'previous year'}</h2>
+            <p className="share-hint">Changes during {carried.fromYear || 'the previous year'} that your invoice could not include. They are part of your total, listed by person; the household credit counts once.</p>
+            <div className="share-carried-breakdown">
+                {Array.from(groups, ([id, group]) => (
+                    <div className="share-carried-group" key={id}>
+                        <div className="share-carried-line share-carried-group-heading"><strong className="share-carried-member-heading"><span className="share-carried-initials" aria-hidden="true">{getInitials(group.name)}</span>{group.name}</strong><strong className="share-carried-amount">{signedCurrency(group.items.reduce((sum, item) => sum + item.amount, 0))}</strong></div>
+                        {group.items.map(line)}
+                    </div>
+                ))}
+                {household.map((item, index) => <div className={'share-carried-group' + (item.amount < 0 ? ' share-carried-credit' : '')} key={index}>
+                    <div className="share-carried-line share-carried-group-heading"><strong className="share-carried-credit-heading">{item.kind === 'credit' && <svg className="share-carried-credit-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="9" /><path d="M7 12h10m-3-3 3 3-3 3" /></svg>}{item.description || item.billName}</strong><strong className="share-carried-amount">{signedCurrency(item.amount)}</strong></div>
+                    {item.detail?.length > 0 && <div className="share-carried-detail">{item.detail.map((detail, i) => line({ ...detail, description: detail.description + (detail.memberName ? ' (' + detail.memberName + ')' : '') }, i))}</div>}
+                </div>)}
+                <div className="share-carried-line share-carried-total"><strong>Carried total</strong><strong className="share-carried-amount">{signedCurrency(carried.total)}</strong></div>
+            </div>
+
+        </section>
+    );
+}
+
+/** The household's raw bills, credits, net carry and floor reconcile once. */
+/** The "Not applied this year" floor remainder, shared by the rows and the lead callout. */
+function householdNotApplied(billsSubtotal, ps, serviceCreditTotal, carriedItems) {
+    const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
+    return carriedItems?.notApplied ?? Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
+}
+
+function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedItems, carriedToggle }) {
+    const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
+    const notApplied = householdNotApplied(billsSubtotal, ps, serviceCredits?.total, carriedItems);
     return (
         <div className="share-table-wrap share-credit-recon">
             <table className="share-table">
                 <tbody>
-                    <tr>
-                        <td>Bills subtotal</td>
-                        <td className="share-cell-number">{formatCurrency(grossAnnual)}</td>
-                    </tr>
-                    {serviceCredits.items.map((c, i) => (
+                    <tr><td>Bills subtotal</td><td className="share-cell-number">{formatCurrency(billsSubtotal)}</td></tr>
+                    {serviceCredits?.items.map((c, i) => (
                         <tr key={i} className="share-credit-row">
                             <td>Service credit{c.billName ? ' — ' + c.billName : ''}{c.reason ? ' (' + c.reason + ')' : ''}</td>
                             <td className="share-cell-number">{'-' + formatCurrency(c.amount)}</td>
                         </tr>
                     ))}
-                    {Math.abs(residual) >= 0.005 && (
-                        <tr>
-                            <td>Other adjustments</td>
-                            <td className="share-cell-number">{(residual < 0 ? '-' : '+') + formatCurrency(Math.abs(residual))}</td>
-                        </tr>
-                    )}
-                    <tr className="share-total-row">
-                        <td>Household Total</td>
-                        <td className="share-cell-number"><strong>{formatCurrency(netAnnual)}</strong></td>
-                    </tr>
+                    {carriedItems && <tr><td>Carried from {carriedItems.fromYear || 'previous year'}</td><td className="share-cell-number"><CarriedToggle {...carriedToggle} showState>{signedCurrency(carriedItems.total)}</CarriedToggle></td></tr>}
+                    {notApplied > 0 && <tr><td>Not applied this year</td><td className="share-cell-number">{signedCurrency(notApplied)}</td></tr>}
+                    <tr className="share-total-row"><td>Household Total</td><td className="share-cell-number"><strong>{formatCurrency(netAnnual)}</strong></td></tr>
                 </tbody>
             </table>
         </div>
     );
 }
 
-function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled }) {
+function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled, billsSubtotal, carriedToggle }) {
     const [disputeForm, setDisputeForm] = useState(null);
     const allMembers = [data.summary, ...(data.linkedMembers || [])];
     const isSingleMember = allMembers.length === 1;
@@ -455,14 +530,16 @@ function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled }) {
 
     return (
         <div className="share-section">
-            {hasCredits
-                ? <HouseholdTotalWithCredits allMembers={allMembers} ps={ps} serviceCredits={serviceCredits} />
+            {hasCredits || data.carriedItems
+                ? <HouseholdTotalWithCredits billsSubtotal={billsSubtotal} ps={ps} serviceCredits={serviceCredits} carriedItems={data.carriedItems} carriedToggle={carriedToggle} />
                 : (!isSingleMember && ps && (
                     <div className="share-household-total">
                         Household Total: {formatCurrency(ps.combinedMonthlyTotal)}/mo · {formatCurrency(ps.combinedAnnualTotal)}/yr
                     </div>
                 ))}
 
+            {data.carriedItems && carriedToggle.panelId && <CarriedItemsPanel carried={data.carriedItems} carriedToggle={carriedToggle} />}
+            {data.carriedItems?.remainingCredit > 0 && <p className="share-hint">Your {data.carriedItems.fromYear || 'previous year'} credit of {formatCurrency(Math.max(0, -data.carriedItems.total))} covers this year; {formatCurrency(data.carriedItems.remainingCredit)} remains. It will carry into next year.</p>}
             {allMembers.map(member => (
                 <MemberRow
                     key={member.memberId || member.name}

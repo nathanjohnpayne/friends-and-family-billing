@@ -173,6 +173,15 @@ export default function YearEndReviewView() {
     if (activeYear.status === 'archived') {
         return <EmptyState title={`${activeYear.label} is archived`} message="An archived year cannot be reviewed or rolled over." action={<Link className="btn btn-sm" to="/settings">Open Settings</Link>} />;
     }
+    if (!/^\d{4}$/.test(String(activeYear.label))) {
+        return (
+            <EmptyState
+                title="The review needs a four-digit year label"
+                message={`${activeYear.label} is not a calendar year, so the review cannot work out which months its price changes and new subscriptions fall in. Non-calendar years are not supported yet.`}
+                action={<Link className="btn btn-sm" to="/settings">Open Settings</Link>}
+            />
+        );
+    }
     const successor = findSuccessorYear(billingYears || EMPTY, activeYear, billingEvents || EMPTY);
     if (successor) {
         return (
