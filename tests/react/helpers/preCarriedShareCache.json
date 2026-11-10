@@ -1,0 +1,177 @@
+{
+  "sourceCommit": "c810739b8bf75bc162ced3d6e85458c6ebb591d9",
+  "fixtures": [
+    {
+      "name": "ordinary",
+      "members": [
+        {
+          "id": 1,
+          "name": "Synthetic Cache Member",
+          "linkedMembers": []
+        }
+      ],
+      "bills": [
+        {
+          "id": "b",
+          "name": "Annual bill",
+          "amount": 300,
+          "billingFrequency": "annual",
+          "members": [
+            1
+          ]
+        }
+      ],
+      "records": [
+        {
+          "kind": "service_credit",
+          "memberId": 1,
+          "billId": "b",
+          "status": "active",
+          "amount": 50,
+          "reason": "Service ended"
+        },
+        {
+          "kind": "carry_opening",
+          "memberId": 1,
+          "status": "carried_in",
+          "fromYear": "2026",
+          "amount": -30
+        }
+      ],
+      "payload": {
+        "memberName": "Synthetic Cache Member",
+        "memberId": 1,
+        "billingYearId": "2027",
+        "year": "2027",
+        "scopes": [
+          "summary:read"
+        ],
+        "ownerId": "synthetic-owner",
+        "summary": {
+          "name": "Synthetic Cache Member",
+          "avatar": "",
+          "memberId": 1,
+          "monthlyTotal": 25,
+          "annualTotal": 300,
+          "bills": [
+            {
+              "billId": "b",
+              "name": "Annual bill",
+              "logo": "",
+              "website": "",
+              "monthlyAmount": 25,
+              "billingFrequency": "annual",
+              "canonicalAmount": 300,
+              "splitCount": 1,
+              "monthlyShare": 25,
+              "annualShare": 300
+            }
+          ]
+        },
+        "linkedMembers": [],
+        "paymentSummary": {
+          "combinedAnnualTotal": 220,
+          "combinedMonthlyTotal": 18.33,
+          "totalPaid": 0,
+          "balanceRemaining": 220
+        },
+        "serviceCredits": {
+          "items": [
+            {
+              "reason": "Service ended",
+              "billName": "Annual bill",
+              "amount": 50
+            }
+          ],
+          "total": 50
+        }
+      }
+    },
+    {
+      "name": "hiddenFloor",
+      "members": [
+        {
+          "id": 1,
+          "name": "Synthetic Cache Member",
+          "linkedMembers": []
+        }
+      ],
+      "bills": [
+        {
+          "id": "b",
+          "name": "Annual bill",
+          "amount": 100,
+          "billingFrequency": "annual",
+          "members": [
+            1
+          ]
+        }
+      ],
+      "records": [
+        {
+          "kind": "service_credit",
+          "memberId": 1,
+          "billId": "b",
+          "status": "active",
+          "amount": 200,
+          "reason": "Service ended"
+        },
+        {
+          "kind": "carry_opening",
+          "memberId": 1,
+          "status": "carried_in",
+          "fromYear": "2026",
+          "amount": -20
+        }
+      ],
+      "payload": {
+        "memberName": "Synthetic Cache Member",
+        "memberId": 1,
+        "billingYearId": "2027",
+        "year": "2027",
+        "scopes": [
+          "summary:read"
+        ],
+        "ownerId": "synthetic-owner",
+        "summary": {
+          "name": "Synthetic Cache Member",
+          "avatar": "",
+          "memberId": 1,
+          "monthlyTotal": 8.33,
+          "annualTotal": 100,
+          "bills": [
+            {
+              "billId": "b",
+              "name": "Annual bill",
+              "logo": "",
+              "website": "",
+              "monthlyAmount": 8.333333333333334,
+              "billingFrequency": "annual",
+              "canonicalAmount": 100,
+              "splitCount": 1,
+              "monthlyShare": 8.33,
+              "annualShare": 100
+            }
+          ]
+        },
+        "linkedMembers": [],
+        "paymentSummary": {
+          "combinedAnnualTotal": 0,
+          "combinedMonthlyTotal": 0,
+          "totalPaid": 0,
+          "balanceRemaining": 0
+        },
+        "serviceCredits": {
+          "items": [
+            {
+              "reason": "Service ended",
+              "billName": "Annual bill",
+              "amount": 200
+            }
+          ],
+          "total": 200
+        }
+      }
+    }
+  ]
+}
