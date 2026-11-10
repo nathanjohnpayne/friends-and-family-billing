@@ -24,7 +24,7 @@ export default function AppShell() {
                 <SaveStatusNotice saveStatus={saveStatus} />
                 <Outlet />
             </main>
-            <ReloadRequiredDialog writeBlock={writeBlock} />
+            <ReloadRequiredDialog writeBlock={writeBlock && user && writeBlock.uid === user.uid ? writeBlock : null} />
         </div>
     );
 }

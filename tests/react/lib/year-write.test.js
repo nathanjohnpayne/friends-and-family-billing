@@ -61,7 +61,7 @@ describe('classifyYearWrite', () => {
     });
 
     it('settles a lost response by stored rev and lastWriteId', () => {
-        const pending = { expectedRev: 4, writeId: 'w-mine' };
+        const pending = [{ nextRev: 5, writeId: 'w-mine' }];
         // Committed: adopt, and write on top of it.
         expect(classify({ exists: true, stored: doc({ rev: 5, lastWriteId: 'w-mine' }), expectedRev: 4, pending }))
             .toMatchObject({ write: true, nextRev: 6, adoptedPending: true });
@@ -73,10 +73,24 @@ describe('classifyYearWrite', () => {
         expectStale(() => classify({ exists: true, stored: doc({ rev: 6, lastWriteId: 'w-mine' }), expectedRev: 4, pending }), 'lost-response-mismatch');
     });
 
+    it('settles a chain of lost responses: a retry that committed after one that did not', () => {
+        // A failed before commit (would have written 5); B retried at 4 with a new id and
+        // its response was lost too; C must recognize B.
+        const pending = [{ nextRev: 5, writeId: 'w-a' }, { nextRev: 5, writeId: 'w-b' }];
+        expect(classify({ exists: true, stored: doc({ rev: 5, lastWriteId: 'w-b' }), expectedRev: 4, pending }))
+            .toMatchObject({ write: true, nextRev: 6, adoptedPending: true });
+        // B adopted A (6) and its own commit was lost: either landing is recognized.
+        const chained = [{ nextRev: 5, writeId: 'w-a' }, { nextRev: 6, writeId: 'w-b' }];
+        expect(classify({ exists: true, stored: doc({ rev: 6, lastWriteId: 'w-b' }), expectedRev: 4, pending: chained }))
+            .toMatchObject({ write: true, nextRev: 7, adoptedPending: true });
+        expect(classify({ exists: true, stored: doc({ rev: 5, lastWriteId: 'w-a' }), expectedRev: 4, pending: chained }))
+            .toMatchObject({ write: true, nextRev: 6, adoptedPending: true });
+    });
+
     it('settles a lost response to the migration write', () => {
         const loaded = doc();
         const fingerprint = fingerprintStoredYear(loaded, '2026');
-        const pending = { expectedRev: undefined, writeId: 'w-mine' };
+        const pending = [{ nextRev: 1, writeId: 'w-mine' }];
         const args = { expectedRev: undefined, fingerprintIfUnversioned: fingerprint, pending };
         expect(classify({ ...args, exists: true, stored: { ...loaded, rev: 1, lastWriteId: 'w-mine' } }))
             .toMatchObject({ write: true, nextRev: 2, adoptedPending: true });
@@ -85,7 +99,7 @@ describe('classifyYearWrite', () => {
     });
 
     it('settles a lost response to a creation', () => {
-        const pending = { expectedRev: 0, writeId: 'w-mine' };
+        const pending = [{ nextRev: 1, writeId: 'w-mine' }];
         expect(classify({ exists: true, stored: doc({ rev: 1, lastWriteId: 'w-mine' }), expectedRev: 0, pending }))
             .toMatchObject({ write: false, existing: true, adoptedPending: true });
         expect(classify({ exists: false, stored: null, expectedRev: 0, pending })).toMatchObject({ write: true, nextRev: 1 });

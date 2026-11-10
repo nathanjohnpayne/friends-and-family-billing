@@ -119,7 +119,8 @@ export class BillingYearService {
          * @private Per year id, what this tab knows about the stored document (#614):
          * { uid, rev (integer, 0 when known absent, undefined when unversioned),
          *   fingerprint (of the loaded snapshot, for an unversioned document),
-         *   pending ({ expectedRev, writeId } of an attempt whose outcome is unknown),
+         *   pending ([{ nextRev, writeId }] of attempts whose outcome is unknown, since
+         *   the last write this tab saw commit),
          *   baseline ({ payload, at, kind: 'loaded' | 'saved' }, the last committed state) }.
          * The rev advances only when a transaction resolves.
          */
@@ -190,6 +191,9 @@ export class BillingYearService {
         // Skip reload if the same user is already bound
         if (user?.uid && user.uid === this._user?.uid) return;
 
+        // A different account (or sign-out) never inherits this one's write versions,
+        // stopped years or Reload required state (#614).
+        if (this._user && this._user.uid !== (user && user.uid)) this._resetWriteState();
         this._user = user;
         if (!user) {
             this._setState({
@@ -234,6 +238,14 @@ export class BillingYearService {
             console.error('BillingYearService: loadData failed', error);
             this._setState({ loading: false, error: error.message });
         }
+    }
+
+    /** @private Forget the account-scoped write state (versions, queue stops, Reload required). */
+    _resetWriteState() {
+        this._yearVersions.clear();
+        this._queuedYearSnapshots.clear();
+        this._saveQueue.clearStops();
+        if (this._state.writeBlock || this._state.saveStatus) this._setState({ writeBlock: null, saveStatus: null });
     }
 
     /**
@@ -322,6 +334,9 @@ export class BillingYearService {
             };
         });
         let decisions;
+        // The plan of the callback's latest run (the SDK commits the last run): local to
+        // this attempt, so an uncertain outcome can be settled by the next read.
+        let lastPlan = null;
         try {
             decisions = await runTransaction(db, async (tx) => {
                 const snaps = [];
@@ -344,10 +359,11 @@ export class BillingYearService {
                     return { ...decision, payload };
                 });
                 planned.forEach((decision, i) => { if (decision.write) tx.set(attempt[i].ref, decision.payload); });
+                lastPlan = planned;
                 return planned;
             });
         } catch (err) {
-            this._noteYearWriteFailure(attempt, err);
+            this._noteYearWriteFailure(attempt, err, lastPlan);
             throw err;
         }
         const at = new Date().toISOString();
@@ -373,22 +389,23 @@ export class BillingYearService {
     }
 
     /**
-     * @private A write did not commit. A lost response or offline keeps the attempt's
-     * expectation and write identity, so the next transaction's read settles it; a
-     * stale document or a refused write enters the Reload required state; every
-     * failure is reported as Not saved, never as a success.
+     * @private A write did not commit. After a lost response or offline the expectation
+     * is unchanged, and every attempt that may have committed is remembered by the rev
+     * it planned and its write identity, so the next transaction's read settles it
+     * (including a chain of retries whose responses were all lost). A stale document
+     * or a refused write enters the Reload required state; every failure is reported
+     * as Not saved, never as a success.
      */
-    _noteYearWriteFailure(attempt, err) {
+    _noteYearWriteFailure(attempt, err, plan) {
         const uid = this._user ? this._user.uid : null;
         if (isUncertainWriteError(err)) {
-            for (const spec of attempt) {
+            attempt.forEach((spec, i) => {
                 const known = this._yearVersions.get(spec.yearId);
                 const base = known && known.uid === uid ? known
-                    : { uid, rev: spec.expectedRev, fingerprint: spec.fingerprintIfUnversioned, baseline: null };
-                // Keep the first unsettled attempt: a retry that also fails expects the same rev.
-                const pending = base.pending || { expectedRev: spec.expectedRev, writeId: spec.writeId };
-                this._yearVersions.set(spec.yearId, { ...base, pending });
-            }
+                    : { uid, rev: spec.expectedRev, fingerprint: spec.fingerprintIfUnversioned, pending: null, baseline: null };
+                const planned = plan && plan[i] && plan[i].write ? [{ nextRev: plan[i].nextRev, writeId: spec.writeId }] : [];
+                this._yearVersions.set(spec.yearId, { ...base, pending: [...(base.pending || []), ...planned] });
+            });
         }
         if (isBlockingWriteError(err)) {
             this._enterWriteBlock(attempt, err);
@@ -442,13 +459,22 @@ export class BillingYearService {
         });
     }
 
-    /** @private The unsaved data of a year: the live state when it is the active year, else the refused write's payload. */
+    /**
+     * @private The unsaved data of a year: the live state when it is the active year;
+     * otherwise the latest snapshot queued for it by this account (a year switched
+     * away from while its saves were queued), else the refused write's payload.
+     */
     _unsavedPayload(yearId, spec) {
         const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
         try {
             if (activeYear && activeYear.id === yearId) {
                 return plainYearPayload(buildSavePayload(activeYear, familyMembers || [], bills || [], payments || [], billingEvents || [], settings,
                     creditAdjustments || [], owedAdjustments || []));
+            }
+            const queued = this._queuedYearSnapshots.get(yearId);
+            if (queued && this._user && queued.uid === this._user.uid) {
+                const [year, members, yearBills, yearPayments, events, yearSettings, credits, owed] = queued.args;
+                return plainYearPayload(buildSavePayload(year, members, yearBills, yearPayments, events, yearSettings, credits, owed));
             }
             return spec ? plainYearPayload(spec.buildPayload(null)) : null;
         } catch (_) {

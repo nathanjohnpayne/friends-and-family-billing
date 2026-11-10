@@ -1746,3 +1746,104 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(s.getState().writeBlock).toMatchObject({ keptOnDevice: false, storageError: 'This device is out of storage space.' });
     });
 });
+
+// ── Codex round 1 on #681 ──
+
+describe('BillingYearService — version state across accounts, retries and year switches (#614)', () => {
+    const PATH = 'users/user-1/billingYears/2026';
+    const firestoreError = (code, message = code) => Object.assign(new Error(message), { code });
+    function seedYear(extra = {}) {
+        mockStore['users/user-1'] = { activeBillingYear: '2026' };
+        mockStore[PATH] = {
+            label: '2026', status: 'open', createdAt: 'ts-created', rev: 2, lastWriteId: 'w-2',
+            familyMembers: [{ id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+            bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+            settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [] },
+            ...extra
+        };
+    }
+    async function loadedService() {
+        const service = new BillingYearService();
+        await service.setUser(TEST_USER);
+        return service;
+    }
+    let errSpy;
+    beforeEach(() => {
+        clearStore();
+        window.localStorage.clear();
+        errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        errSpy.mockRestore();
+        window.localStorage.clear();
+    });
+
+    it('recognizes a retry that committed after an attempt that did not, both responses lost', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable'); // A: not committed
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        mockTxControl.rejectAfterCommit = firestoreError('unavailable'); // B: committed, response lost
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(3);
+        s.addMember({ name: 'Dee' }); // C settles B
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(4);
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea', 'Cy', 'Dee']);
+    });
+
+    it('recognizes a retry that adopted a lost commit and whose own commit was lost too', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.rejectAfterCommit = firestoreError('unavailable'); // A commits rev 3
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        mockTxControl.rejectAfterCommit = firestoreError('deadline-exceeded'); // B adopts A, commits rev 4
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(4);
+        s.addMember({ name: 'Dee' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(5);
+    });
+
+    it('a different account never inherits the Reload required state, the stopped queue or the versions', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 3, lastWriteId: 'w-other' };
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).not.toBeNull();
+        await s.setUser(null);
+        expect(s.getState().writeBlock).toBeNull();
+        expect(s.getState().saveStatus).toBeNull();
+        expect(s._saveQueue.stoppedOutcome('2026')).toBeNull();
+        expect(s._yearVersions.size).toBe(0);
+        mockStore['users/user-2'] = { activeBillingYear: '2026' };
+        mockStore['users/user-2/billingYears/2026'] = { ...mockStore[PATH], rev: 1, lastWriteId: 'w-u2', familyMembers: [] };
+        await s.setUser({ uid: 'user-2' });
+        s.addMember({ name: 'Zed' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore['users/user-2/billingYears/2026'].rev).toBe(2);
+    });
+
+    it('keeps the latest queued snapshot of a year switched away from before its stale write was refused', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 3, lastWriteId: 'w-other' };
+        s.recordPayment({ memberId: 1, amount: 10, method: 'cash' });
+        s.recordPayment({ memberId: 1, amount: 20, method: 'cash' });
+        // The administrator switches years before the first queued save runs.
+        s._setState({ activeYear: { id: '2027', label: '2027', status: 'open' }, familyMembers: [], payments: [], billingEvents: [] });
+        await s._saveQueue._chain;
+        const block = s.getState().writeBlock;
+        expect(block.yearId).toBe('2026');
+        expect(block.payload.payments.map(p => p.amount)).toEqual([10, 20]);
+        expect(block.changes.filter(c => c.label === 'Payment recorded').map(c => c.amount)).toEqual([10, 20]);
+    });
+});

@@ -40,6 +40,11 @@ export class SaveQueue {
         if (!this._stopped.has(String(key))) this._stopped.set(String(key), outcome);
     }
 
+    /** Accept writes for every key again (the signed-in account changed). */
+    clearStops() {
+        this._stopped.clear();
+    }
+
     /** The outcome a key was stopped with, or null. */
     stoppedOutcome(key) {
         return this._stopped.get(String(key)) || null;

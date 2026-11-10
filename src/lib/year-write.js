@@ -86,9 +86,13 @@ function stale(yearId, reason, extra = {}) {
  *     With no fingerprint (the service never read this document) only an absent
  *     document may be created; a present one cannot be verified and is stale.
  *
- * `pending` is the previous attempt whose outcome was uncertain ({ expectedRev,
- * writeId }); it is settled here by the stored `rev` and `lastWriteId`, never by a
- * payload fingerprint (server timestamps resolve on the server).
+ * `pending` lists the earlier attempts whose outcome was uncertain since the last
+ * write this tab saw commit, each as the rev it would have written and its write
+ * identity ({ nextRev, writeId }). They are settled here by the stored `rev` and
+ * `lastWriteId`, never by a payload fingerprint (server timestamps resolve on the
+ * server): a stored document carrying one of them committed (adopt it); a stored
+ * document still at the expectation means none committed (retry); anything else is
+ * stale.
  *
  * `ifExists` (creation only): 'stale' (default), 'exists' (throw YEAR_EXISTS) or
  * 'skip' (write nothing; the caller loads the existing document).
@@ -107,20 +111,21 @@ export function classifyYearWrite({ yearId, exists, stored, expectedRev, fingerp
     const unversionedMatches = () => exists && !hasRev && fingerprintIfUnversioned != null
         && fingerprintStoredYear(stored, yearId) === fingerprintIfUnversioned;
 
-    // Settle an earlier attempt whose response was lost.
+    // Settle earlier attempts whose responses were lost.
     let effectiveRev = expectedRev;
     let adoptedPending = false;
-    if (pending) {
-        const pendingNext = pending.expectedRev === undefined ? 1 : pending.expectedRev + 1;
-        if (hasRev && storedRev === pendingNext && stored.lastWriteId === pending.writeId) {
-            adoptedPending = true; // it committed: adopt its rev
+    const attempts = Array.isArray(pending) ? pending : (pending ? [pending] : []);
+    if (attempts.length) {
+        const committed = hasRev && attempts.find(p => storedRev === p.nextRev && stored.lastWriteId === p.writeId);
+        if (committed) {
+            adoptedPending = true; // one of them committed: adopt its rev
             effectiveRev = storedRev;
-        } else if (pending.expectedRev === 0 ? !exists
-            : pending.expectedRev === undefined ? (!exists && fingerprintIfUnversioned == null) || unversionedMatches()
-                : hasRev && storedRev === pending.expectedRev) {
-            effectiveRev = pending.expectedRev; // it did not commit: retry with the same expectation
+        } else if (expectedRev === 0 ? !exists
+            : expectedRev === undefined ? (!exists && fingerprintIfUnversioned == null) || unversionedMatches()
+                : hasRev && storedRev === expectedRev) {
+            effectiveRev = expectedRev; // none committed: retry with the same expectation
         } else {
-            throw stale(yearId, 'lost-response-mismatch', { storedRev, expectedRev: pending.expectedRev });
+            throw stale(yearId, 'lost-response-mismatch', { storedRev, expectedRev });
         }
     }
 
