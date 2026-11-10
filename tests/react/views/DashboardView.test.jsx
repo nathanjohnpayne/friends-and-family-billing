@@ -62,7 +62,7 @@ vi.mock('@/app/hooks/useRefundNotices.js', () => ({
     useRefundNotices: () => refundNoticesMock.value
 }));
 
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import DashboardView from '@/app/views/Dashboard/DashboardView.jsx';
 import { useBillingData } from '@/app/hooks/useBillingData.js';
@@ -573,6 +573,100 @@ describe('deferred display integrity counts', () => {
         const bob = within(screen.getByRole('region', { name: 'Settlement for Bob' }));
         await user.click(bob.getByText('Bob'));
         expect(bob.getByRole('button', { name: 'Bill Charges' })).toBeEnabled();
+    });
+});
+
+// ── Year-End Review prompt card (#610) ────────────────────────────────────
+describe('DashboardView Year-End Review prompt', () => {
+    const PROMPT = 'year-end-review-prompt';
+    function renderAt(today, overrides = {}) {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(today + 'T12:00:00'));
+        return renderDashboard(overrides);
+    }
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('is shown on 2026-11-01 for an open 2026 with no 2027', () => {
+        renderAt('2026-11-01');
+        const card = screen.getByTestId(PROMPT);
+        expect(within(card).getByText('Ready for 2027? Review 2026 first.')).toBeInTheDocument();
+        expect(within(card).getByRole('button', { name: 'Review & start 2027' })).toBeInTheDocument();
+        expect(card).toHaveTextContent('set 2027’s prices—then start 2027');
+        expect(card.textContent).not.toContain('\\u');
+    });
+
+    it('is hidden on 2026-10-31 for an open year with no successor', () => {
+        renderAt('2026-10-31');
+        expect(screen.queryByTestId(PROMPT)).toBeNull();
+    });
+
+    it('is shown for a settling year from November 1 and in any later year', () => {
+        renderAt('2027-03-15', { activeYear: { id: '2026', label: '2026', status: 'settling' } });
+        expect(screen.getByTestId(PROMPT)).toBeInTheDocument();
+    });
+
+    it('is hidden for a settling year before November 1', () => {
+        renderAt('2026-06-15', { activeYear: { id: '2026', label: '2026', status: 'settling' } });
+        expect(screen.queryByTestId(PROMPT)).toBeNull();
+    });
+
+    it('is shown for a Closed year in any month', () => {
+        renderAt('2026-03-02', { activeYear: { id: '2026', label: '2026', status: 'closed' } });
+        expect(screen.getByTestId(PROMPT)).toBeInTheDocument();
+    });
+
+    it('is hidden once a successor exists by event or by a higher label, whatever the status or date', () => {
+        for (const status of ['open', 'settling', 'closed']) {
+            const activeYear = { id: '2026', label: '2026', status };
+            const byLabel = renderAt('2026-12-01', { activeYear, billingYears: [activeYear, { id: '2027', label: '2027', status: 'open' }] });
+            expect(screen.queryByTestId(PROMPT)).toBeNull();
+            byLabel.unmount();
+            const byEvent = renderAt('2026-12-01', { activeYear, billingYears: [activeYear], billingEvents: [{ eventType: 'YEAR_ROLLED_OVER', payload: { nextYearLabel: '2027' } }] });
+            expect(screen.queryByTestId(PROMPT)).toBeNull();
+            byEvent.unmount();
+        }
+    });
+
+    it('is never shown for an archived year', () => {
+        renderAt('2026-12-01', { activeYear: { id: '2026', label: '2026', status: 'archived' } });
+        expect(screen.queryByTestId(PROMPT)).toBeNull();
+    });
+
+    it('uses the Closed trigger only for a label that is not four digits', () => {
+        const open = renderAt('2030-12-01', { activeYear: { id: 'y', label: '2026-27', status: 'open' } });
+        expect(screen.queryByTestId(PROMPT)).toBeNull();
+        open.unmount();
+        renderAt('2026-01-01', { activeYear: { id: 'y', label: '2026-27', status: 'closed' } });
+        expect(screen.getByTestId(PROMPT)).toBeInTheDocument();
+    });
+
+    it('is a pure link: the button only navigates to /year-end-review and writes nothing', () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-05T12:00:00'));
+        const setYearStatus = vi.fn();
+        useBillingData.mockReturnValue({ ...mockState, service: { ...mockState.service, setYearStatus } });
+        render(
+            <MemoryRouter initialEntries={['/']}>
+                <ToastProvider>
+                    <Routes>
+                        <Route path="/" element={<DashboardView />} />
+                        <Route path="/year-end-review" element={<p>review page</p>} />
+                    </Routes>
+                </ToastProvider>
+            </MemoryRouter>
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Review & start 2027' }));
+        expect(screen.getByText('review page')).toBeInTheDocument();
+        expect(setYearStatus).not.toHaveBeenCalled();
+    });
+
+    it('says the review lists deferred charges only while the card shows', () => {
+        const owedAdjustments = [{ id: 'o1', memberId: 1, kind: 'usage_charge', amount: 42.5, status: 'deferred' }];
+        const shown = renderAt('2026-11-02', { owedAdjustments });
+        expect(screen.getByTestId('deferred-charges-indicator')).toHaveTextContent('the review lists them');
+        shown.unmount();
+        renderAt('2026-05-02', { owedAdjustments });
+        expect(screen.getByTestId('deferred-charges-indicator')).not.toHaveTextContent('the review lists them');
     });
 });
 

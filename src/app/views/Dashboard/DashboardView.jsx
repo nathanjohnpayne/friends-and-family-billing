@@ -14,7 +14,9 @@ import { reopenedCreditAdjustmentIds } from '@/lib/refundNotice.js';
 import { calculateSettlementMetrics, sumMoneyCents, isLinkedToAnyone } from '@/lib/calculations.js';
 import { getYearFinancialAvailability, getHouseholdFinancialAvailability, FINANCIAL_UNAVAILABLE } from '@/lib/financial-availability.js';
 import { formatAnnualSummaryCurrency } from '@/lib/formatting.js';
-import { isYearReadOnly } from '@/lib/validation.js';
+import { isYearReadOnly, localDateString } from '@/lib/validation.js';
+import { findSuccessorYear, shouldOfferYearEndReview } from '@/lib/year-end-review.js';
+import { suggestNextYearLabel } from '@/lib/billing-year.js';
 import { BILLING_YEAR_STATUSES } from '@/lib/constants.js';
 import SettlementBoard from '../../components/SettlementBoard.jsx';
 import PaymentHistoryDialog from '../../components/PaymentHistoryDialog.jsx';
@@ -31,7 +33,7 @@ import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
  * Port of renderDashboardStatus() from main.js.
  */
 export default function DashboardView() {
-    const { activeYear, familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], loading, service, writeBlock } = useBillingData();
+    const { activeYear, billingYears = [], billingEvents = [], familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], loading, service, writeBlock } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
 
@@ -108,6 +110,13 @@ export default function DashboardView() {
         catch (error) { if (!(error instanceof MoneyIntegrityError)) throw error; return { ok: false, count }; }
     })();
     const aggregatesUnavailable = hasHolds || !deferred.ok;
+
+    // Year-End Review prompt (#610): no successor exists AND (Closed OR today is on or
+    // after November 1 of the year's four-digit label). The guard and the trigger are the
+    // shared helpers; the card is a pure link and never creates a year.
+    const reviewSuccessor = findSuccessorYear(billingYears, activeYear, billingEvents);
+    const showReviewPrompt = shouldOfferYearEndReview(activeYear, reviewSuccessor, localDateString());
+    const nextYearLabel = suggestNextYearLabel(activeYear);
 
     const yearLabel = activeYear.label || activeYear.id;
     const currentStatus = activeYear.status || 'open';
@@ -208,6 +217,21 @@ export default function DashboardView() {
                     </div>
                 )}
 
+                {showReviewPrompt && (
+                    <div className="yer-prompt" data-testid="year-end-review-prompt">
+                        <div className="yer-prompt-text">
+                            <div className="dashboard-eyebrow">Next billing year</div>
+                            <h2 className="yer-prompt-title">Ready for {nextYearLabel}? Review {yearLabel} first.</h2>
+                            <p className="yer-prompt-body">
+                                Catch up mid-year price changes, add subscriptions that started this year, fold in member charges, and set {nextYearLabel}’s prices—then start {nextYearLabel} with invoices members can read line by line.
+                            </p>
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/year-end-review')}>
+                            Review &amp; start {nextYearLabel}
+                        </button>
+                    </div>
+                )}
+
                 <div className="kpi-grid">
                     <KpiCard label="Outstanding" value={aggregatesUnavailable ? 'Unavailable' : metrics.totalOutstanding > 0 ? '$' + metrics.totalOutstanding.toFixed(2) : 'Paid'}
                         valueClass={aggregatesUnavailable ? '' : metrics.totalOutstanding > 0 ? 'outstanding' : 'settled-zero'} />
@@ -227,7 +251,7 @@ export default function DashboardView() {
                 {deferred.count > 0 && (
                     <div className="admin-hint" data-testid="deferred-charges-indicator">
                         Deferred charges: {aggregatesUnavailable ? 'Unavailable' : formatAnnualSummaryCurrency(deferred.total)}{' '}
-                        ({deferred.count} {deferred.count === 1 ? 'charge' : 'charges'}) not yet billed—these carry forward to next year.
+                        ({deferred.count} {deferred.count === 1 ? 'charge' : 'charges'}) not yet billed—these carry forward to next year{showReviewPrompt ? ' unless you bill them first; the review lists them' : ''}.
                     </div>
                 )}
 
