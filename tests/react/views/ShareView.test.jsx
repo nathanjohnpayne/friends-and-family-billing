@@ -1873,6 +1873,40 @@ describe('Carried share details (#603)', () => {
         expect(screen.getByRole('region', { name: 'Carried from 2026' })).toBeVisible();
     });
 
+    // #680 Codex P2: the lead sentence states the same terms as the reconciliation rows.
+    it('includes Service Credits in the lead callout so it adds up to the amount due', async () => {
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: 30 },
+            { id: 'sc', kind: 'service_credit', memberId: 1, status: 'active', amount: 10, reason: 'Outage' }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 10000, S: 1000, O: 3000, owed: 12000 });
+        mockPublicSharesHit(build(carriedMembers, bills, records));
+        const { container } = render(<ShareView />);
+        expect(await screen.findByText('$120.00 due for 2027')).toBeVisible();
+        expect(container.querySelector('.share-lead-sub').textContent)
+            .toBe('$100.00 of bills less $10.00 of service credits plus $30.00 carried from 2026 · nothing paid yet');
+        expect(within(reconRow('Bills subtotal')).getByText('$100.00')).toBeVisible();
+        expect(within(reconRow('Carried from 2026')).getByText('+$30.00')).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
+    });
+
+    it('states the not-applied floor remainder in the lead callout when credits exceed the bills (10l)', async () => {
+        const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1] }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -20 },
+            { id: 'sc', kind: 'service_credit', memberId: 1, status: 'active', amount: 200, reason: 'Outage' }];
+        const payments = [{ id: 'p', memberId: 1, amount: 5 }];
+        const { cents } = canonical(bills, records);
+        expect(cents).toMatchObject({ G: 10000, S: 20000, O: -2000, owed: 0 });
+        mockPublicSharesHit(buildPublicShareData(carriedMembers, bills, payments, 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records));
+        const { container } = render(<ShareView />);
+        await screen.findByText(/all settled for 2027/);
+        // $100.00 − $200.00 − $20.00 + $120.00 = $0.00, the same terms as the rows.
+        expect(container.querySelector('.share-lead-sub').textContent)
+            .toBe('$100.00 of bills less $200.00 of service credits less $20.00 carried from 2026 plus $120.00 not applied this year · $5.00 paid');
+        expect(within(reconRow('Not applied this year')).getByText('+$120.00')).toBeVisible();
+        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+    });
+
     it('omits the section and controls entirely when no carry exists', async () => {
         mockPublicSharesHit(build(carriedMembers, carriedBills, []));
         render(<ShareView />);
