@@ -159,6 +159,8 @@ export class BillingYearService {
         this._genBaselines = new Map();
         /** @private Latest queued snapshot per `<yearId>#<load generation>`, for recovery records. */
         this._snapshotsByGen = new Map();
+        /** @private Bumped by every year load; only the latest load records its version and publishes its state. */
+        this._loadSeq = 0;
         /** @private Year loads in progress; mutations wait for them (no edit is made to a state being replaced). */
         this._loadingYears = 0;
         /** @private Bumped whenever the signed-in account changes; a write from an earlier epoch is ignored. */
@@ -831,8 +833,17 @@ export class BillingYearService {
     /** @private _loadYearData's body, after the queue has settled. */
     async _loadYearDataNow(yearId) {
         if (!this._user) return;
+        // Only the latest load publishes (#607 review): with overlapping loads an older
+        // read can finish last, and its state must never be installed beside the newer
+        // load's recorded rev (a full-document write would then carry the older state
+        // at the newer rev). A load superseded before it records its version records
+        // nothing; one superseded later installs nothing, and the newer load (which
+        // records its version after this one) publishes its own state.
+        this._loadSeq = (this._loadSeq || 0) + 1;
+        const loadSeq = this._loadSeq;
         const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
         const yearDoc = await getDoc(yearDocRef);
+        if (loadSeq !== this._loadSeq) return;
         this._trackLoadedYear(yearId, yearDoc.exists() ? (yearDoc.data() || {}) : null);
 
         if (yearDoc.exists()) {
@@ -864,6 +875,7 @@ export class BillingYearService {
                     }));
                 }
             }
+            if (loadSeq !== this._loadSeq) return;
 
             this._setState({
                 activeYear: normalized.year,

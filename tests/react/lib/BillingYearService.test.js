@@ -2342,6 +2342,38 @@ describe('BillingYearService — Reload required state (#669)', () => {
         window.localStorage.clear();
     });
 
+    it('overlapping loads: an older read that finishes last never installs its state beside the newer rev', async () => {
+        seedYear({ settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [{ id: 'm1', type: 'venmo', hasQrCode: true }] } });
+        const s = await loadedService();
+        const { getDoc } = await import('firebase/firestore');
+        const original = getDoc.getMockImplementation();
+        let release;
+        let gate = new Promise(resolve => { release = resolve; });
+        getDoc.mockImplementation(async ref => {
+            if (ref.path.startsWith('publicQrCodes/') && gate) {
+                const wait = gate;
+                gate = null;
+                await wait;
+            }
+            return original(ref);
+        });
+        try {
+            const older = s._loadYearData('2026'); // reads rev 1, then waits on its QR restore
+            await vi.waitFor(() => expect(gate).toBeNull());
+            mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other',
+                familyMembers: [...mockStore[PATH].familyMembers, { id: 3, name: 'Priya', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }] };
+            await s._loadYearData('2026'); // reads rev 2 and publishes it
+            release();
+            await older;
+        } finally {
+            getDoc.mockImplementation(original);
+        }
+        expect(s.getState().familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji', 'Priya']);
+        await s.setYearStatus('settling');
+        expect(mockStore[PATH]).toMatchObject({ rev: 3, status: 'settling' });
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji', 'Priya']);
+    });
+
     it('a household change undone after an offline failure is never retried; unrelated unsaved edits still are', async () => {
         seedYear();
         const s = await loadedService();
