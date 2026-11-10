@@ -65,6 +65,57 @@ export function pineconeCredits() {
     ];
 }
 
+// ── Step 4 (#609): the wireframe's exact preview dataset ─────────────────────
+// plans/ffb-wireframes.html `B`, `BILL_MEMBERS`, `YE_BILLS`, `YE_NEW`, `YE_HH`: the
+// bills above are the Steps 1–3 sample; Step 4's figures need the wireframe's own
+// Cloudstream ($24, six members) and Meridian ($18, Tobi · Dede · Rosa), every
+// household's 2026 invoice paid, Okafor $22.00 over, and Rosa's $36.00 October
+// Service Credit on Meridian Music.
+export const NEW_BILL = 106;
+
+export function wireframeBills() {
+    return yearEndBills().map(bill => {
+        if (bill.id === BILL.cs) return { ...bill, amount: 24, members: [MEMBER.ada, MEMBER.tobi, MEMBER.zara, MEMBER.erik, MEMBER.maja, MEMBER.rosa] };
+        if (bill.id === BILL.mm) return { ...bill, amount: 18, members: [MEMBER.tobi, MEMBER.dede, MEMBER.rosa] };
+        return bill;
+    });
+}
+
+const payment = (id, memberId, amount) => ({ id, memberId, amount, type: 'payment', method: 'venmo', receivedAt: '2026-03-01T00:00:00.000Z', note: '', reversed: false });
+
+export function wireframePayments() {
+    return [
+        payment('pay_ada', MEMBER.ada, 337.42), payment('pay_tobi', MEMBER.tobi, 368.1), payment('pay_zara', MEMBER.zara, 294.48),
+        payment('pay_erik', MEMBER.erik, 330), payment('pay_maja', MEMBER.maja, 288),
+        payment('pay_kenji', MEMBER.kenji, 282), payment('pay_dede', MEMBER.dede, 324),
+        payment('pay_rosa', MEMBER.rosa, 372), payment('pay_sam', MEMBER.sam, 270)
+    ];
+}
+
+export function rosaMeridianCredit() {
+    return { id: 'oadj_sc_rosa_mm', memberId: MEMBER.rosa, billId: BILL.mm, kind: 'service_credit', amount: 36, reason: 'Meridian Music outage',
+        incurredDate: '2026-10-12', createdAt: '2026-10-12T12:00:00.000Z', status: 'active' };
+}
+
+/** The Step 4 draft entries: Northline and Harbor Cloud price changes, Pinecone ended, Cloudstream $26 in 2027, Lumen Fiber Backup. */
+export function wireframeEntries() {
+    return {
+        bills: {
+            [BILL.nl]: { change: 'price_change', newAmount: 198, firstMonth: '2026-07' },
+            [BILL.hc]: { change: 'price_change', newAmount: 144, firstMonth: '2026-03' },
+            [BILL.pv]: { change: 'ended', lastMonth: '2026-08' },
+            [BILL.cs]: { change: 'unchanged', nextYearAmount: 26 }
+        },
+        newBills: [{ rowId: 'row_lumen', billId: NEW_BILL, name: 'Lumen Fiber Backup', amount: 9.99, frequency: 'monthly', website: 'https://lumen.example',
+            members: [MEMBER.kenji, MEMBER.dede, MEMBER.sam], firstMonth: '2026-09' }],
+        charges: []
+    };
+}
+
+export function wireframeReviewState() {
+    return { ...yearEndState(), bills: wireframeBills(), payments: wireframePayments(), owedAdjustments: [...yearEndCharges(), rosaMeridianCredit()] };
+}
+
 export function yearEndState({ credits = false } = {}) {
     return {
         billingYears: [{ id: '2026', label: '2026', status: 'settling' }],

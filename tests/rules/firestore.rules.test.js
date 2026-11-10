@@ -376,9 +376,13 @@ describe('server-only collections', () => {
 // per rules stage with the same cases; the stage-1-only allowances (an
 // unversioned create, an unversioned write onto an unversioned document) are
 // expected to succeed at stage 1 and fail at stage 2, every other case is the
-// same at both stages. Stage 1 is firestore.rules today; the stage-2 ticket
-// (#616) adds the stage-2 call. Each stage loads its rules into its own
-// emulator project so both rule files can run side by side.
+// same at both stages. Each stage loads its rules into its own emulator project.
+//
+// firestore.rules is the stage-2 text since #616 removed both stage-1
+// allowances, so the suite runs at stage 2: every `stage1Only(...)` case (the
+// four marked "flipped at stage 2") now asserts the denial, and a write without
+// `rev` is refused on every year document, absent, unversioned or versioned.
+// The stage-1 run passed on #615 against the stage-1 rules text.
 //
 // Old tabs (a build deployed before the feature) are simulated by writing
 // without `rev`. Client call sites are named next to each case.
@@ -414,7 +418,7 @@ const without = (data, key) => {
 };
 
 function describeYearDocumentRules(stage, rulesPath) {
-    // Allowed only while the stage-1 rollout allowances are in force.
+    // Allowed only while the stage-1 rollout allowances are in force; denied at stage 2.
     const stage1Only = (promise) => (stage === 1 ? assertSucceeds(promise) : assertFails(promise));
 
     describe(`users/{uid}/billingYears/{year} versioned writes — stage ${stage}`, () => {
@@ -502,6 +506,7 @@ function describeYearDocumentRules(stage, rulesPath) {
             await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev: 1 })));
         });
 
+        // Flipped at stage 2 (#616): first-run and legacy creation without rev are denied.
         it('allows an unversioned create only at stage 1 (pre-feature loadData() first run, legacy createYear destination)', async () => {
             const db = owner();
             await stage1Only(setDoc(yearRef(db, YEAR_ID), yearData({ createdAt: serverTimestamp() })));
@@ -559,6 +564,7 @@ function describeYearDocumentRules(stage, rulesPath) {
             expect(await readYear(YEAR_ID)).toEqual(yearData({ rev: 2 }));
         });
 
+        // Flipped at stage 2 (#616): an unversioned update onto an unversioned year is denied.
         it('allows an unversioned write onto an unversioned year only at stage 1', async () => {
             await seedYear(YEAR_ID, yearData());
             const db = owner();
@@ -615,12 +621,14 @@ function describeYearDocumentRules(stage, rulesPath) {
             expect(await readYear(SOURCE_ID)).toEqual(sourceData());
         });
 
+        // Flipped at stage 2 (#616): the legacy batch is refused as a whole (legacy-versus-reviewed).
         it('accepts a legacy createYear writeBatch onto an existing unversioned destination only at stage 1', async () => {
             await seedYear(SOURCE_ID, sourceData());
             await seedYear(YEAR_ID, yearData({ bills: [{ id: 7 }] }));
             await stage1Only(legacyCreateYearBatch(owner()));
         });
 
+        // Flipped at stage 2 (#616): the legacy batch is refused as a whole.
         it('accepts a legacy createYear writeBatch onto an absent destination only at stage 1', async () => {
             await seedYear(SOURCE_ID, sourceData());
             await stage1Only(legacyCreateYearBatch(owner()));
@@ -681,6 +689,69 @@ function describeYearDocumentRules(stage, rulesPath) {
             await assertSucceeds(rollover(4, 1));
         });
 
+        // ── the reviewed rollover's sequences (#607; D-A #612) ──
+        //
+        // The reviewed createYear's transaction (BillingYearService._createReviewedYearNow):
+        // get the destination, get the source, set the destination at rev 1 (a
+        // create-shaped payload: server createdAt) and the source at the rev it read + 1
+        // (keeping the stored createdAt). It versions both documents, so every later
+        // stale or unversioned writer is refused by the rules from then on.
+        const reviewedRollover = (db, sourceRev) => runTransaction(db, async (tx) => {
+            await tx.get(yearRef(db, YEAR_ID));
+            const source = await tx.get(yearRef(db, SOURCE_ID));
+            tx.set(yearRef(db, YEAR_ID), yearData({ rev: 1, lastWriteId: 'w-review', createdAt: serverTimestamp(),
+                billingEvents: [{ id: 'e1', eventType: 'YEAR_CREATED_FROM_REVIEW' }] }));
+            tx.set(yearRef(db, SOURCE_ID), sourceData({ rev: sourceRev, lastWriteId: 'w-review', createdAt: source.data().createdAt,
+                owedAdjustments: [{ id: 'oadj_tu_1', status: 'carried_forward' }], billingEvents: [{ id: 'e2', eventType: 'YEAR_ROLLED_OVER' }] }));
+        });
+
+        it('lets the reviewed rollover create the destination and advance a versioned or migrate an unversioned source', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            await assertSucceeds(reviewedRollover(owner(), 4));
+            expect((await readYear(SOURCE_ID)).rev).toBe(4);
+            expect((await readYear(YEAR_ID)).rev).toBe(1);
+            await env.clearFirestore();
+            await seedYear(SOURCE_ID, sourceData());
+            await assertSucceeds(reviewedRollover(owner(), 1));
+            expect((await readYear(SOURCE_ID)).rev).toBe(1);
+        });
+
+        it('never lets the reviewed rollover overwrite an existing next year, versioned or not', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            await seedYear(YEAR_ID, yearData({ rev: 1, bills: [{ id: 7 }] }));
+            await assertFails(reviewedRollover(owner(), 4));
+            await seedYear(YEAR_ID, yearData({ bills: [{ id: 7 }] }));
+            await assertFails(reviewedRollover(owner(), 4));
+            expect((await readYear(SOURCE_ID)).rev).toBe(3);
+            expect(await readYear(YEAR_ID)).toEqual(yearData({ bills: [{ id: 7 }] }));
+        });
+
+        it('legacy-versus-reviewed: refuses a legacy createYear after the reviewed rollover, versioned or not', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            await assertSucceeds(reviewedRollover(owner(), 4));
+            const after = { next: await readYear(YEAR_ID), source: await readYear(SOURCE_ID) };
+            // A pre-feature tab's writeBatch (no rev) and a versioned-build tab's stale
+            // version-checked legacy rollover (the destination at rev 1, the source at its loaded rev + 1).
+            await assertFails(legacyCreateYearBatch(owner()));
+            const db = owner();
+            const stale = writeBatch(db);
+            stale.set(yearRef(db, YEAR_ID), yearData({ rev: 1, createdAt: serverTimestamp() }));
+            stale.set(yearRef(db, SOURCE_ID), sourceData({ rev: 4 }));
+            await assertFails(stale.commit());
+            expect({ next: await readYear(YEAR_ID), source: await readYear(SOURCE_ID) }).toEqual(after);
+        });
+
+        it('stale-save-after-rollover: refuses a save() or setYearStatus() from pre-rollover state, versioned or not', async () => {
+            await seedYear(SOURCE_ID, sourceData({ rev: 3 }));
+            await assertSucceeds(reviewedRollover(owner(), 4));
+            const after = await readYear(SOURCE_ID);
+            const db = owner();
+            await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ rev: 4, payments: [{ id: 'pay_stale' }] })));
+            await assertFails(setDoc(yearRef(db, SOURCE_ID), sourceData({ payments: [{ id: 'pay_stale' }] })));
+            await assertFails(setDoc(yearRef(db, SOURCE_ID), { status: 'closed', billingEvents: [] }, { merge: true }));
+            expect(await readYear(SOURCE_ID)).toEqual(after);
+        });
+
         // ── delete, other users, unchanged neighbours ──
 
         it('denies deleting a year document, versioned or not, to the owner and to everyone else', async () => {
@@ -735,4 +806,4 @@ function describeYearDocumentRules(stage, rulesPath) {
     });
 }
 
-describeYearDocumentRules(1, RULES_PATH);
+describeYearDocumentRules(2, RULES_PATH);

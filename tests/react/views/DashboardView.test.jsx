@@ -669,3 +669,68 @@ describe('DashboardView Year-End Review prompt', () => {
         expect(screen.getByTestId('deferred-charges-indicator')).not.toHaveTextContent('the review lists them');
     });
 });
+
+// After a reload: the unsaved changes a stale tab kept on this device (#669, RD-34).
+describe('DashboardView — unsaved changes from a stale tab', () => {
+    const KEY = 'ffb.unsaved.v1.test-user.2026';
+    const record = {
+        version: 1, uid: 'test-user', yearId: '2026', yearLabel: '2026', reason: 'stale',
+        detectedAt: '2026-11-10T15:12:00', baselineAt: '2026-11-10T15:09:00', baselineKind: 'saved',
+        changes: [
+            { kind: 'event', label: 'Payment recorded', detail: 'Alice', amount: 50, at: '2026-11-10T15:10:00' },
+            { kind: 'member', label: 'Member added', detail: 'Priya Natarajan', amount: null, at: null }
+        ],
+        payload: { label: '2026' }
+    };
+    afterEach(() => { window.localStorage.clear(); });
+
+    it('shows the kept list after a reload until it is dismissed', async () => {
+        window.localStorage.setItem(KEY, JSON.stringify(record));
+        renderDashboard();
+        const notice = screen.getByRole('region', { name: 'Unsaved changes in 2026' });
+        expect(notice).toHaveTextContent(/You had unsaved changes from (Nov 10, )?3:12\s?pm/);
+        const items = within(within(notice).getByRole('list', { name: 'Unsaved changes' })).getAllByRole('listitem');
+        expect(items.map(i => i.textContent)).toEqual([
+            expect.stringContaining('Payment recorded · Alice'),
+            expect.stringContaining('Member added · Priya Natarajan')
+        ]);
+        await userEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+        expect(screen.queryByRole('region', { name: 'Unsaved changes in 2026' })).toBeNull();
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('copies the details from the notice', async () => {
+        window.localStorage.setItem(KEY, JSON.stringify(record));
+        const writeText = vi.fn(async () => {});
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+        try {
+            renderDashboard();
+            await userEvent.click(within(screen.getByRole('region', { name: 'Unsaved changes in 2026' })).getByRole('button', { name: 'Copy details' }));
+            expect(writeText.mock.calls[0][0]).toContain('- Member added: Priya Natarajan');
+            expect(screen.getByText('Details copied.')).toBeInTheDocument();
+        } finally {
+            delete navigator.clipboard;
+        }
+    });
+
+    it('shows nothing when no record is kept, or while this tab is itself read-only', () => {
+        const first = renderDashboard();
+        expect(screen.queryByRole('region', { name: /Unsaved changes in/ })).toBeNull();
+        first.unmount();
+        window.localStorage.setItem(KEY, JSON.stringify(record));
+        renderDashboard({ writeBlock: { ...record, keptOnDevice: true } });
+        expect(screen.queryByRole('region', { name: /Unsaved changes in/ })).toBeNull();
+    });
+
+    it('works when storage is unavailable', () => {
+        window.localStorage.setItem(KEY, JSON.stringify(record));
+        const spy = vi.spyOn(Storage.prototype, 'key').mockImplementation(() => { throw new Error('denied'); });
+        try {
+            renderDashboard();
+            expect(screen.queryByRole('region', { name: /Unsaved changes in/ })).toBeNull();
+            expect(screen.getByRole('heading', { level: 1, name: '2026' })).toBeInTheDocument();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});

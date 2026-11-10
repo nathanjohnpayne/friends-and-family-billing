@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBillingData } from '../../hooks/useBillingData.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import UnsavedChangesNotice from '../../components/UnsavedChangesNotice.jsx';
 import { useToast } from '../../contexts/ToastContext.jsx';
 import { useDisputes } from '../../hooks/useDisputes.js';
 import { useRefundNotices } from '../../hooks/useRefundNotices.js';
@@ -32,7 +33,7 @@ import { issueChargeNotice } from '@/lib/ChargeNoticeService.js';
  * Port of renderDashboardStatus() from main.js.
  */
 export default function DashboardView() {
-    const { activeYear, billingYears = [], billingEvents = [], familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], loading, service } = useBillingData();
+    const { activeYear, billingYears = [], billingEvents = [], familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], loading, service, writeBlock } = useBillingData();
     const { user } = useAuth();
     const { showToast } = useToast();
 
@@ -56,11 +57,14 @@ export default function DashboardView() {
 
     if (familyMembers.length === 0) {
         return (
-            <div className="dashboard-hero">
-                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>
-                    Add members and bills to start building this billing year.
-                </p>
-            </div>
+            <>
+                <UnsavedChangesNotice uid={user ? user.uid : null} hidden={!!writeBlock} />
+                <div className="dashboard-hero">
+                    <p style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                        Add members and bills to start building this billing year.
+                    </p>
+                </div>
+            </>
         );
     }
 
@@ -188,6 +192,8 @@ export default function DashboardView() {
 
     return (
         <>
+            {/* After a reload: the unsaved changes a stale tab kept on this device (#614). */}
+            <UnsavedChangesNotice uid={user ? user.uid : null} hidden={!!writeBlock} />
             <div className="dashboard-hero">
                 <div className="dashboard-meta">
                     <div className="dashboard-eyebrow" id="dashboard-year-eyebrow">Billing year</div>

@@ -11,6 +11,9 @@ const service = new BillingYearService();
 // E2E mode: inject test data before React renders (gated behind build flag)
 if (import.meta.env.VITE_E2E_MODE && typeof window !== 'undefined' && window.__E2E_DATA__) {
     service._injectTestState(window.__E2E_DATA__);
+    // E2E builds only: lets a Playwright script stub service calls (e.g. the
+    // Year-End Review's commit outcomes) that have no backend in E2E mode.
+    window.__E2E_SERVICE__ = service;
 }
 
 /**

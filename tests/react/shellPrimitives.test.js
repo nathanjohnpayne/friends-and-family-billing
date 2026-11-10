@@ -363,7 +363,8 @@ describe('Ember button budget (#575 F11)', () => {
         'views/LoginView.jsx': 2,            // Sign in, Create account
         'components/SettlementBoard.jsx': 2, // Record Payment, Issue Refund
         'views/Manage/RefundNoticesTab.jsx': 1, // Re-send Refund
-        'views/Dashboard/DashboardView.jsx': 1 // Review & start <next year> (RD-26 prompt card, drawn Ember)
+        'views/Dashboard/DashboardView.jsx': 1, // Review & start <next year> (RD-26 prompt card, drawn Ember)
+        'views/YearEndReview/ReviewStep.jsx': 1 // Start <year> (#fx-year-end-review-desk: "Start 2027 in Ember with Ink text")
     };
 
     function jsxFiles(dir, out = []) {

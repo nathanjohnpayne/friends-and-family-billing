@@ -266,7 +266,7 @@ The share-page functions append to a server-only `auditLog` under the Administra
 | Path | Contents | Access |
 |---|---|---|
 | `users/{uid}` | `activeBillingYear` | Owner |
-| `users/{uid}/billingYears/{yearId}` | One billing year (see [Data Structure](#data-structure)) | Owner; writes version-checked by `rev` (until stage 2, unversioned creates and writes onto still-unversioned years are accepted), no delete ([spec](specs/year-end-review.md#versioned-year-document-writes-decided-2026-11-05-d-a-option-2)) |
+| `users/{uid}/billingYears/{yearId}` | One billing year (see [Data Structure](#data-structure)) | Owner; every write must carry `rev` and is version-checked by it (create at 1, update at stored + 1; an unversioned year's first versioned write sets `rev` to 1 and keeps the stored `createdAt`), no delete ([spec](specs/year-end-review.md#versioned-year-document-writes-decided-2026-11-05-d-a-option-2)) |
 | `users/{uid}/billingYears/{yearId}/disputes/{id}` | Review Requests, Refund Notices and Charge Notices | Owner; members via Cloud Functions |
 | `users/{uid}/auditLog/{id}` | Server-written audit entries | Owner read; server write |
 | `shareTokens/{sha256}` | Share-link metadata: owner, member, year, scopes, expiry, revocation | Owner |

@@ -30,9 +30,15 @@ function prune(row) {
     return Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
 }
 
+/** The optional website of a new subscription may be omitted in storage; it is '' in the draft. */
+function withOptionalWebsite(raw) {
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.newBills)) return raw;
+    return { ...raw, newBills: raw.newBills.map(row => (row && typeof row === 'object' && !Array.isArray(row) && row.website === undefined ? { ...row, website: '' } : row)) };
+}
+
 function restoreDraft(stored, source, userId) {
     const sourceYear = source.sourceYear;
-    const validation = validateDraft(stored.value, {
+    const validation = validateDraft(withOptionalWebsite(stored.value), {
         userId, sourceYear, bills: source.bills, familyMembers: source.familyMembers, owedAdjustments: source.owedAdjustments,
         payments: source.payments, creditAdjustments: source.creditAdjustments, billingEvents: source.billingEvents
     });
@@ -41,8 +47,11 @@ function restoreDraft(stored, source, userId) {
     }
     const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
     const draftRows = validation.draft;
+    // The renderers read these as strings; validateDraft reports a wrong type but keeps the row.
+    const text = value => typeof value === 'string';
     if (!Object.values(draftRows.bills).every(isObject) || !draftRows.newBills.every(isObject) || !draftRows.charges.every(isObject)
-        || !draftRows.newBills.every(row => Array.isArray(row.members))) {
+        || !draftRows.newBills.every(row => Array.isArray(row.members) && text(row.name) && text(row.website) && text(row.frequency))
+        || !draftRows.charges.every(row => text(row.description) && text(row.incurredDate))) {
         return { draft: null, message: 'The saved draft was malformed and was discarded.' };
     }
     try {

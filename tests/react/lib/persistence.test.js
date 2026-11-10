@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     buildSavePayload,
     normalizeYearData,
-    buildInitialYearData
+    buildInitialYearData,
+    computeDocumentFingerprint,
+    fingerprintStoredYear,
+    FINGERPRINT_EXCLUDED_FIELDS
 } from '@/lib/persistence.js';
 
 describe('buildSavePayload', () => {
@@ -207,5 +210,117 @@ describe('buildInitialYearData', () => {
         expect(data.creditAdjustments).toEqual([]);
         expect(data.owedAdjustments).toEqual([]);
         expect(data.settings).toBe(settings);
+    });
+});
+
+// ── Versioned year-document writes (#667, #614, ADR 0009 § 3, ADR 0008 amended) ──
+
+describe('rev and lastWriteId', () => {
+    const doc = () => ({
+        label: '2026', status: 'open', createdAt: 'ts-created', archivedAt: null, closedAt: null,
+        rev: 7, lastWriteId: 'w-7',
+        familyMembers: [{ id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+        bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+        settings: { emailMessage: 'Hi', paymentLinks: [] }
+    });
+
+    it('round-trips rev and lastWriteId through normalizeYearData and buildSavePayload', () => {
+        const n = normalizeYearData(doc(), '2026');
+        expect(n.year.rev).toBe(7);
+        expect(n.year.lastWriteId).toBe('w-7');
+        const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings, n.creditAdjustments, n.owedAdjustments);
+        expect(payload.rev).toBe(7);
+        expect(payload.lastWriteId).toBe('w-7');
+    });
+
+    it('normalizes a document without rev to rev: undefined (never zero) and omits it from the payload', () => {
+        const raw = doc();
+        delete raw.rev;
+        delete raw.lastWriteId;
+        const n = normalizeYearData(raw, '2026');
+        expect(n.year.rev).toBeUndefined();
+        expect(n.year.lastWriteId).toBeUndefined();
+        const payload = buildSavePayload(n.year, n.members, n.bills, n.payments, n.billingEvents, n.settings);
+        expect('rev' in payload).toBe(false);
+        expect('lastWriteId' in payload).toBe(false);
+    });
+
+    it('starts a new year at rev 1', () => {
+        expect(buildInitialYearData('2026', {}).rev).toBe(1);
+    });
+});
+
+describe('computeDocumentFingerprint', () => {
+    const base = () => ({
+        label: '2026', status: 'open', createdAt: 'ts-created', updatedAt: 'ts-updated', archivedAt: null,
+        closedAt: { toDate: () => new Date('2026-12-31T12:00:00.000Z') },
+        rev: 3, lastWriteId: 'w-3',
+        familyMembers: [{ id: 1, name: 'Ada', email: 'ada@example.com', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+        bills: [{ id: 'b1', name: 'Internet', amount: 60, billingFrequency: 'monthly', members: [1], logo: '', website: '' }],
+        payments: [{ id: 'p1', memberId: 1, amount: 10, type: 'payment' }],
+        creditAdjustments: [{ id: 'c1', amount: 5 }],
+        owedAdjustments: [{ id: 'o1', amount: 2 }],
+        billingEvents: [{ id: 'e1', eventType: 'PAYMENT_RECORDED' }],
+        settings: { emailMessage: 'Hi', paymentLinks: [], paymentMethods: [{ id: 'm1', type: 'venmo' }] }
+    });
+    const fp = raw => computeDocumentFingerprint(normalizeYearData(raw, '2026'));
+    const reverseKeys = value => {
+        if (Array.isArray(value)) return value.map(reverseKeys);
+        if (value && typeof value === 'object' && typeof value.toDate !== 'function') {
+            return Object.fromEntries(Object.keys(value).reverse().map(key => [key, reverseKeys(value[key])]));
+        }
+        return value;
+    };
+
+    it('is identical for the same content in any key order', () => {
+        expect(fp(reverseKeys(base()))).toBe(fp(base()));
+        expect(fingerprintStoredYear(reverseKeys(base()), '2026')).toBe(fingerprintStoredYear(base(), '2026'));
+    });
+
+    it('treats a Timestamp and its ISO string as the same value', () => {
+        const iso = { ...base(), closedAt: '2026-12-31T12:00:00.000Z' };
+        expect(fp(iso)).toBe(fp(base()));
+    });
+
+    it('changes when any allowlisted field changes', () => {
+        const original = fp(base());
+        const mutations = [
+            d => { d.label = '2026b'; },
+            d => { d.status = 'settling'; },
+            d => { d.archivedAt = '2027-01-01T00:00:00.000Z'; },
+            d => { d.closedAt = { toDate: () => new Date('2026-12-30T12:00:00.000Z') }; },
+            d => { d.familyMembers[0].phone = '+14155551212'; },
+            d => { d.bills[0].amount = 61; },
+            d => { d.payments.push({ id: 'p2', memberId: 1, amount: 1 }); },
+            d => { d.creditAdjustments[0].amount = 6; },
+            d => { d.owedAdjustments[0].amount = 3; },
+            d => { d.billingEvents.push({ id: 'e2', eventType: 'BILL_CREATED' }); },
+            d => { d.settings.emailMessage = 'Hello'; }
+        ];
+        for (const mutate of mutations) {
+            const changed = base();
+            mutate(changed);
+            expect(fp(changed)).not.toBe(original);
+        }
+    });
+
+    it('ignores createdAt, updatedAt, lastWriteId and rev', () => {
+        expect(FINGERPRINT_EXCLUDED_FIELDS).toEqual(['createdAt', 'updatedAt', 'lastWriteId', 'rev']);
+        const original = fp(base());
+        const changed = { ...base(), createdAt: 'other', updatedAt: '__SERVER_TIMESTAMP__', lastWriteId: 'w-9', rev: 9 };
+        expect(fp(changed)).toBe(original);
+        const unversioned = base();
+        delete unversioned.rev;
+        delete unversioned.lastWriteId;
+        delete unversioned.createdAt;
+        delete unversioned.updatedAt;
+        expect(fp(unversioned)).toBe(original);
+    });
+
+    it('does not mutate the stored document it fingerprints', () => {
+        const raw = { label: '2026', status: 'open', familyMembers: [{ id: 1, name: 'Ada' }], bills: [] };
+        const before = structuredClone(raw);
+        fingerprintStoredYear(raw, '2026');
+        expect(raw).toEqual(before);
     });
 });

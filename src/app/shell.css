@@ -4713,6 +4713,101 @@ img, svg { display: block; max-width: 100%; }
     display: none;
 }
 
+/* ── Reload required (#614, RD-34) ─────────────────────── */
+/* The blocking "Reload to continue" dialog, the after-reload notice and the
+   Not saved indicator share one unsaved-changes list. The phone bottom sheet
+   and full-width footer come from the Dialog primitive. */
+.reload-required-lead,
+.reload-required-note {
+    margin: 0 0 var(--space-3, 16px);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+.unsaved-changes {
+    margin: 0 0 var(--space-3, 16px);
+    padding: var(--space-2, 8px) 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-alert, 8px);
+    background: var(--color-surface);
+}
+
+.unsaved-changes-eyebrow {
+    margin-bottom: 4px;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.unsaved-changes-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.unsaved-change {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 0.875rem;
+}
+
+.unsaved-change:first-child {
+    border-top: 0;
+}
+
+.unsaved-change-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.unsaved-change-when {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+}
+
+.unsaved-change-amount {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.unsaved-changes-empty {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.reload-required-skip {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: var(--space-2, 8px);
+}
+
+.reload-required-fallback textarea {
+    box-sizing: border-box;
+    width: 100%;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+}
+
+.unsaved-notice .unsaved-changes {
+    margin: 0;
+}
+
+.unsaved-notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2, 8px);
+}
+
 /* Itemized carry inherits the public share's paper, rules and numeric rhythm. */
 .share-carried-toggle {
     border: 0;
