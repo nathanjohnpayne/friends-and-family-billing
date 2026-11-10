@@ -16,6 +16,7 @@ const InvoicingTab = lazy(() => import('./views/Manage/InvoicingTab.jsx'));
 const ReviewsTab = lazy(() => import('./views/Manage/ReviewsTab.jsx'));
 const RefundNoticesTab = lazy(() => import('./views/Manage/RefundNoticesTab.jsx'));
 const SettingsView = lazy(() => import('./views/Settings/SettingsView.jsx'));
+const YearEndReviewView = lazy(() => import('./views/YearEndReview/YearEndReviewView.jsx'));
 const ShareView = lazy(() => import('./views/ShareView.jsx'));
 
 /**
@@ -53,6 +54,8 @@ export function AppRoutes() {
                     <Route path="refunds" element={<RefundNoticesTab />} />
                 </Route>
                 <Route path="settings" element={<SettingsView />} />
+                {/* Reachable by route only until the Settings/Dashboard entry points land (#609/#610). */}
+                <Route path="year-end-review" element={<YearEndReviewView />} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
