@@ -9,7 +9,9 @@ const mockBatchControl = { failNextCommit: false };
 // runTransaction controls (#614): fail before commit, reject after committing (a lost
 // response), replay the callback (SDK contention), or change the stored document
 // between the read and the commit (another session).
-const mockTxControl = { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null };
+const mockTxControl = { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null, failNextGet: null };
+// Every transaction's reads and writes in order, across callback runs (#607: reads before any write).
+const mockTxLog = [];
 
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 
@@ -79,10 +81,17 @@ vi.mock('firebase/firestore', () => ({
             writes = [];
             const tx = {
                 get: async (ref) => {
+                    mockTxLog.push('get ' + ref.path);
+                    if (mockTxControl.failNextGet) {
+                        // A read that cannot reach the server (offline): the commit is never sent.
+                        const err = mockTxControl.failNextGet;
+                        mockTxControl.failNextGet = null;
+                        throw err;
+                    }
                     const data = mockStore[ref.path];
                     return { exists: () => !!data, data: () => data || null };
                 },
-                set: (ref, data) => { writes.push({ ref, data }); return tx; },
+                set: (ref, data) => { mockTxLog.push('set ' + ref.path); writes.push({ ref, data }); return tx; },
                 update: (ref, data) => { writes.push({ ref, data, merge: true }); return tx; }
             };
             result = await fn(tx);
@@ -123,13 +132,26 @@ vi.mock('firebase/firestore', () => ({
 import { BillingYearService } from '@/lib/BillingYearService.js';
 import { toExactCents } from '@/lib/household-money.js';
 import { getHouseholdFinancials, calculateSettlementMetrics } from '@/lib/calculations.js';
-import { computePriceChange, buildTrueUpRecords, snapshotExistingCredit, existingCreditCoverage, computeEnded } from '@/lib/year-end-review.js';
+import { computePriceChange, buildTrueUpRecords, snapshotExistingCredit, existingCreditCoverage, computeEnded, computeSourceFingerprint } from '@/lib/year-end-review.js';
+import { buildSavePayload, normalizeYearData } from '@/lib/persistence.js';
+
+/** The stored year document of an in-memory service state (what a load would have read). */
+function storedYearOf(state) {
+    return { ...buildSavePayload({ ...state.activeYear, createdAt: 'stored-created-at' }, state.familyMembers, state.bills, state.payments,
+        state.billingEvents, state.settings, state.creditAdjustments, state.owedAdjustments) };
+}
+
+/** The reviewed source fingerprint of a stored year document (the page computes it at Step 4). */
+function reviewedFingerprintOf(stored, yearId = '2026') {
+    return computeSourceFingerprint(normalizeYearData(structuredClone(stored), yearId));
+}
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
     setDocCalls.length = 0;
     mockBatchControl.failNextCommit = false;
-    Object.assign(mockTxControl, { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null });
+    Object.assign(mockTxControl, { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null, failNextGet: null });
+    mockTxLog.length = 0;
 }
 
 const TEST_USER = { uid: 'user-1' };
@@ -556,9 +578,19 @@ describe('BillingYearService', () => {
                 billingEvents: structuredClone(billingEvents),
                 settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
             });
+            storeSource();
             return structuredClone(svc.getState());
         }
-        const review = (fields = {}) => ({ reconciliationId: 'rec-2026-a', sourceYearId: '2026', sourceFingerprint: 'yer1_reviewed',
+        // The stored source document, as this tab loaded it (#607: the reviewed commit reads
+        // the source in its transaction and builds from that read, never from memory).
+        function storeSource() {
+            svc._setState({ activeYear: { ...svc.getState().activeYear, rev: 1, lastWriteId: 'w-loaded' } });
+            mockStore[PRIOR] = { ...structuredClone(storedYearOf(svc.getState())), rev: 1, lastWriteId: 'w-loaded' };
+            return structuredClone(mockStore[PRIOR]);
+        }
+        // The fixed reviewed fingerprint is the one of the stored source at preview time.
+        const review = (fields = {}) => ({ reconciliationId: 'rec-2026-a', sourceYearId: '2026',
+            sourceFingerprint: mockStore[PRIOR] ? reviewedFingerprintOf(mockStore[PRIOR]) : 'yer1_reviewed',
             trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [],
             confirmations: { noBillChanges: false, noNewSubscriptions: false, noExtraCharges: false }, ...fields });
         const sourceOf = (state, doc) => ({ familyMembers: state.familyMembers, bills: state.bills, payments: state.payments,
@@ -578,7 +610,8 @@ describe('BillingYearService', () => {
             // Both documents commit through the one version-checked transaction (#614), never a batch.
             expect(runTransaction).toHaveBeenCalledTimes(1);
             expect(writeBatch).not.toHaveBeenCalled();
-            expect(mockStore[PRIOR].rev).toBe(1);
+            // The source advances from the rev the transaction read; the destination is created at 1.
+            expect(mockStore[PRIOR].rev).toBe(2);
             expect(mockStore[NEXT].rev).toBe(1);
             expect(mockStore[PRIOR].lastWriteId).toBe(mockStore[NEXT].lastWriteId);
             const prior = mockStore[PRIOR];
@@ -716,9 +749,10 @@ describe('BillingYearService', () => {
         it('rejects a missing existing-credit answer before any write', async () => {
             seedReview({ owedAdjustments: [{ id: 'oadj_cancel_2', memberId: 2, billId: 102, kind: 'service_credit', amount: 16,
                 reason: 'Cancelled early', incurredDate: '2026-09-02', status: 'active', createdAt: '2026-09-02T00:00:00.000Z' }] });
+            const stored = structuredClone(mockStore[PRIOR]);
             await expect(svc.createYear('2027', { reconciliation: review({ endedBillIds: [102],
                 serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08' }] }) })).rejects.toThrow(/oadj_cancel_2/);
-            expect(mockStore[PRIOR]).toBeUndefined();
+            expect(mockStore[PRIOR]).toEqual(stored);
             expect(mockStore[NEXT]).toBeUndefined();
         });
 
@@ -739,11 +773,13 @@ describe('BillingYearService', () => {
 
         it('rejects re-recording an existing deferred charge or reusing a charge that is not deferred', async () => {
             seedReview({ owedAdjustments: [MAJA_FEE, { ...MAJA_FEE, id: 'oadj_billed', status: 'billed' }] });
+            const stored = structuredClone(mockStore[PRIOR]);
             await expect(svc.createYear('2027', { reconciliation: review({ usageCharges: [{ ...MAJA_FEE, rowId: 'row-x' }] }) }))
                 .rejects.toThrow(/reused, never recorded again/);
             await expect(svc.createYear('2027', { reconciliation: review({ usageCharges: [{ existingAdjustmentId: 'oadj_billed' }] }) }))
                 .rejects.toThrow(/not a deferred Usage Charge/);
-            expect(mockStore[PRIOR]).toBeUndefined();
+            expect(mockStore[PRIOR]).toEqual(stored);
+            expect(mockStore[NEXT]).toBeUndefined();
         });
 
         it('"Nothing changed" writes YEAR_ROLLED_OVER and the itemized carry and no new adjustment record', async () => {
@@ -787,6 +823,7 @@ describe('BillingYearService', () => {
                 activeYear: { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null },
                 familyMembers: [{ id: 1, name: 'Ada', linkedMembers: [] }], bills: [], payments: [], creditAdjustments: [],
                 owedAdjustments: [incoming], billingEvents: [], settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] } });
+            storeSource();
             const before = structuredClone(svc.getState());
             await svc.createYear('2027', { reconciliation: review() });
             const prior = mockStore[PRIOR];
@@ -804,6 +841,7 @@ describe('BillingYearService', () => {
             seedReview({ status: 'archived' });
             await expect(svc.createYear('2027', { reconciliation: review() })).rejects.toThrow(/archived billing year cannot be rolled over/);
             seedReview();
+            const stored = structuredClone(mockStore[PRIOR]);
             await expect(svc.createYear('2027', { reconciliation: {} })).rejects.toThrow(/reconciliation id/);
             await expect(svc.createYear('2027', { reconciliation: null })).rejects.toThrow(/payload is invalid/);
             await expect(svc.createYear('2027', { reconciliation: review({ sourceYearId: '2025' }) })).rejects.toThrow(/another billing year/);
@@ -811,7 +849,7 @@ describe('BillingYearService', () => {
                 .rejects.toThrow(/Service Credit, not a True-up/);
             await expect(svc.createYear('2027', { reconciliation: review({ serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08' }] }) }))
                 .rejects.toThrow(/not listed as ended/);
-            expect(mockStore[PRIOR]).toBeUndefined();
+            expect(mockStore[PRIOR]).toEqual(stored);
             expect(mockStore[NEXT]).toBeUndefined();
         });
 
@@ -823,6 +861,320 @@ describe('BillingYearService', () => {
             expect(prior.billingEvents[0].payload).toEqual({ toYear: '2027', memberCount: 1, totalOpeningBalance: 30 });
             expect(mockStore[NEXT].owedAdjustments[0].items).toBeUndefined();
             expect(mockStore[NEXT].billingEvents).toEqual([]);
+        });
+
+        // ── Commit guard and recovery (#607, spec § Commit guard and recovery) ──
+        describe('commit guard and recovery (#607)', () => {
+            const NORTHLINE_UP = { trueUps: [{ billId: 101, newAmount: 198, firstMonth: '2026-07' }] };
+            const firestoreError = (code, message = code) => Object.assign(new Error(message), { code });
+            // A second tab or device that loaded the same source before the rollover.
+            const session = state => {
+                const other = new BillingYearService();
+                other._user = TEST_USER;
+                other._setState(structuredClone(state));
+                return other;
+            };
+            const rejection = async promise => {
+                try {
+                    await promise;
+                } catch (error) {
+                    return error;
+                }
+                throw new Error('expected a rejection');
+            };
+            const committedWrites = () => setDocCalls.filter(call => call.transactional);
+            const ids = docData => ({
+                owed: docData.owedAdjustments.map(row => row.id),
+                credits: docData.creditAdjustments.map(row => row.id),
+                events: docData.billingEvents.map(event => event.id)
+            });
+            const VOLATILE = new Set(['createdAt', 'updatedAt', 'timestamp', 'lastWriteId']);
+            const stable = value => (Array.isArray(value) ? value.map(stable)
+                : value && typeof value === 'object'
+                    ? Object.fromEntries(Object.entries(value).filter(([key]) => !VOLATILE.has(key)).map(([key, nested]) => [key, stable(nested)]))
+                    : value);
+            const withLatePayment = stored => ({ ...stored, rev: stored.rev + 1, lastWriteId: 'w-elsewhere',
+                payments: [...stored.payments, { id: 'pay_late', memberId: 9, amount: 10, receivedAt: '2026-11-20', note: '', method: 'cash' }] });
+
+            it('marks the service as guarded and reads the destination and the source before any write', async () => {
+                expect(svc.reviewedCommitGuard).toBe(true);
+                expect(new BillingYearService().reviewedCommitGuard).toBe(true);
+                seedReview();
+                const result = await svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) });
+                expect(result).toEqual({ outcome: 'completed', yearId: '2027' });
+                expect(mockTxLog).toEqual(['get ' + NEXT, 'get ' + PRIOR, 'set ' + NEXT, 'set ' + PRIOR]);
+                // Deterministic event ids from the reconciliation id; none allocated in the callback.
+                expect(mockStore[NEXT].billingEvents[0].id).toBe('evt_yer_rec-2026-a_' + (mockStore[PRIOR].billingEvents.length + 1));
+                expect(mockStore[PRIOR].billingEvents.map(event => event.id)).toEqual(
+                    mockStore[PRIOR].billingEvents.map((_, index) => 'evt_yer_rec-2026-a_' + (index + 1)));
+            });
+
+            it('a stale preview (a payment recorded elsewhere after the preview) is STALE_SOURCE, nothing written, on every retry', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                mockStore[PRIOR] = withLatePayment(mockStore[PRIOR]);
+                const stored = structuredClone(mockStore[PRIOR]);
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    const error = await rejection(svc.createYear('2027', { reconciliation }));
+                    expect(error).toMatchObject({ code: 'STALE_SOURCE', yearId: '2027', reviewedFingerprint: reconciliation.sourceFingerprint });
+                    expect(error.currentFingerprint).not.toBe(reconciliation.sourceFingerprint);
+                }
+                expect(mockStore[PRIOR]).toEqual(stored);
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(committedWrites()).toHaveLength(0);
+                expect(svc.getState()).toMatchObject({ saveStatus: null, writeBlock: null });
+                expect(svc.getState().activeYear.id).toBe('2026');
+            });
+
+            it('a payment committed between the read and the commit (the SDK re-runs the callback) is STALE_SOURCE', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                mockTxControl.contention = async () => { mockStore[PRIOR] = withLatePayment(mockStore[PRIOR]); };
+                await expect(svc.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'STALE_SOURCE' });
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(mockStore[PRIOR].payments.map(payment => payment.id)).toContain('pay_late');
+                expect(mockStore[PRIOR].owedAdjustments).toEqual([]);
+                expect(committedWrites()).toHaveLength(0);
+            });
+
+            it('builds the source from the fresh read: a settings change elsewhere (outside the fingerprint) is kept, at the read rev + 1', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                mockStore[PRIOR] = { ...mockStore[PRIOR], rev: 2, lastWriteId: 'w-elsewhere',
+                    settings: { ...mockStore[PRIOR].settings, emailMessage: 'Changed on another device' } };
+                await svc.createYear('2027', { reconciliation });
+                expect(mockStore[PRIOR]).toMatchObject({ rev: 3, settings: { emailMessage: 'Changed on another device' } });
+                expect(mockStore[PRIOR].owedAdjustments.filter(row => row.trueUpId)).toHaveLength(9);
+            });
+
+            it('versions an unversioned source at rev 1 and keeps its stored createdAt', async () => {
+                seedReview();
+                const { rev: _rev, lastWriteId: _id, ...unversioned } = mockStore[PRIOR];
+                mockStore[PRIOR] = unversioned;
+                await svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) });
+                expect(mockStore[PRIOR]).toMatchObject({ rev: 1, createdAt: 'stored-created-at' });
+                expect(mockStore[NEXT].rev).toBe(1);
+            });
+
+            it('two sessions creating the same label: the second gets NEXT_YEAR_EXISTS (created elsewhere) and overwrites nothing', async () => {
+                const state = seedReview();
+                const other = session(state);
+                const first = review(NORTHLINE_UP);
+                const second = review({ reconciliationId: 'rec-2026-b', billOverrides: { 102: 14 } });
+                await svc.createYear('2027', { reconciliation: first });
+                const after = structuredClone({ next: mockStore[NEXT], prior: mockStore[PRIOR] });
+                const writes = committedWrites().length;
+
+                const error = await rejection(other.createYear('2027', { reconciliation: second }));
+                expect(error).toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'elsewhere', yearId: '2027',
+                    existing: { reconciliationId: 'rec-2026-a' } });
+                expect({ next: mockStore[NEXT], prior: mockStore[PRIOR] }).toEqual(after);
+                expect(committedWrites()).toHaveLength(writes);
+                expect(other.getState().activeYear.id).toBe('2026');
+                expect(other.getState()).toMatchObject({ saveStatus: null, writeBlock: null });
+            });
+
+            it('two tabs restore one draft and diverge: the second finds the same id with another payloadFingerprint and does not report success', async () => {
+                const state = seedReview();
+                const other = session(state);
+                const committed = review(NORTHLINE_UP);
+                const diverged = review({ ...NORTHLINE_UP, billOverrides: { 102: 14 } });
+                await svc.createYear('2027', { reconciliation: committed });
+                const rolled = events(mockStore[PRIOR], 'YEAR_ROLLED_OVER')[0].payload;
+                const writes = committedWrites().length;
+
+                const error = await rejection(other.createYear('2027', { reconciliation: diverged }));
+                expect(error).toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'diverged' });
+                expect(error.existing).toMatchObject({ reconciliationId: 'rec-2026-a', payloadFingerprint: rolled.payloadFingerprint,
+                    summary: { trueUpCount: 1, priceChangeCount: 1, newBillCount: 0 } });
+                expect(typeof error.existing.createdAt).toBe('string');
+                expect(committedWrites()).toHaveLength(writes);
+                expect(other.getState().activeYear.id).toBe('2026');
+            });
+
+            it('the same draft committed on another tab is recognized as completed: switch to it, no second commit', async () => {
+                const state = seedReview();
+                const other = session(state);
+                const reconciliation = review(NORTHLINE_UP);
+                await svc.createYear('2027', { reconciliation });
+                const writes = committedWrites().length;
+                const after = structuredClone(mockStore[PRIOR]);
+                // The in-memory years list is stale too; the transaction's read decides.
+                await expect(other.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'already_completed', yearId: '2027' });
+                expect(committedWrites()).toHaveLength(writes);
+                expect(mockStore[PRIOR]).toEqual(after);
+                expect(other.getState().activeYear.id).toBe('2027');
+            });
+
+            it('a next year created elsewhere (no review event) after the preview is detected before any conflicting commit', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                const elsewhere = { label: '2027', status: 'open', familyMembers: [], bills: [], payments: [], billingEvents: [],
+                    owedAdjustments: [], creditAdjustments: [], settings: {}, createdAt: 'elsewhere', rev: 1, lastWriteId: 'w-other' };
+                mockStore[NEXT] = structuredClone(elsewhere);
+                const stored = structuredClone(mockStore[PRIOR]);
+                await expect(svc.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'NEXT_YEAR_EXISTS', resolution: 'elsewhere', existing: null });
+                expect(mockStore[NEXT]).toEqual(elsewhere);
+                expect(mockStore[PRIOR]).toEqual(stored);
+                expect(committedWrites()).toHaveLength(0);
+            });
+
+            it('a retry after COMMIT_FAILED produces exactly the same records and ids as an undisturbed commit', async () => {
+                seedReview({ owedAdjustments: [MAJA_FEE] });
+                const reconciliation = review({ ...NORTHLINE_UP, usageCharges: [{ existingAdjustmentId: 'oadj_maja_fee' },
+                    { rowId: 'row-fee', memberId: 9, amount: 15, description: 'Replacement SIM', incurredDate: '2026-12-01' }] });
+                const stored = structuredClone(mockStore[PRIOR]);
+                mockTxControl.failNextCommit = firestoreError('aborted', 'Transaction aborted after retries');
+                const error = await rejection(svc.createYear('2027', { reconciliation }));
+                expect(error).toMatchObject({ code: 'COMMIT_FAILED', yearId: '2027' });
+                expect(error.offline).toBeUndefined();
+                // A definite failure: no destination, no source change.
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(mockStore[PRIOR]).toEqual(stored);
+
+                await svc.createYear('2027', { reconciliation });
+                const retried = structuredClone({ prior: mockStore[PRIOR], next: mockStore[NEXT] });
+
+                // The same draft committed once, undisturbed, on a fresh store.
+                clearStore();
+                svc = new BillingYearService();
+                seedReview({ owedAdjustments: [MAJA_FEE] });
+                await svc.createYear('2027', { reconciliation });
+                const reference = { prior: mockStore[PRIOR], next: mockStore[NEXT] };
+                expect(ids(retried.prior)).toEqual(ids(reference.prior));
+                expect(ids(retried.next)).toEqual(ids(reference.next));
+                expect(stable(retried)).toEqual(stable(reference));
+            });
+
+            it('a callback replayed by the SDK produces no duplicate records and no side effects', async () => {
+                const before = seedReview();
+                const stored = structuredClone(mockStore[PRIOR]);
+                const notifications = [];
+                svc.subscribe(() => notifications.push(svc.getState().activeYear.id));
+                mockTxControl.replays = 2;
+                mockTxControl.beforeCommit = async () => {
+                    // Three runs completed; nothing outside the transaction changed.
+                    expect(mockStore[PRIOR]).toEqual(stored);
+                    expect(svc.getState().billingEvents).toEqual(before.billingEvents);
+                    expect(svc.getState()).toMatchObject({ saveStatus: null, writeBlock: null, activeYear: { id: '2026' } });
+                    expect(notifications).toEqual([]);
+                };
+                await svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) });
+                expect(mockTxLog.filter(entry => entry.startsWith('get '))).toHaveLength(6);
+                const prior = mockStore[PRIOR];
+                expect(prior.owedAdjustments.filter(row => row.trueUpId)).toHaveLength(9);
+                expect(new Set(prior.owedAdjustments.map(row => row.id)).size).toBe(prior.owedAdjustments.length);
+                expect(events(prior, 'YEAR_ROLLED_OVER')).toHaveLength(1);
+                expect(events(prior, 'TRUE_UP_RECORDED')).toHaveLength(1);
+                expect(new Set(prior.billingEvents.map(event => event.id)).size).toBe(prior.billingEvents.length);
+            });
+
+            it('a successful commit whose response is lost: the read-back finds the event, completed, no second commit', async () => {
+                seedReview();
+                const { runTransaction } = await import('firebase/firestore');
+                runTransaction.mockClear();
+                mockTxControl.rejectAfterCommit = firestoreError('unavailable', 'connection lost');
+                await expect(svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) })).resolves.toEqual({ outcome: 'completed', yearId: '2027' });
+                expect(runTransaction).toHaveBeenCalledTimes(1);
+                expect(events(mockStore[PRIOR], 'YEAR_ROLLED_OVER')).toHaveLength(1);
+                expect(events(mockStore[NEXT], 'YEAR_CREATED_FROM_REVIEW')[0].payload.reconciliationId).toBe('rec-2026-a');
+                expect(svc.getState().activeYear.id).toBe('2027');
+                expect(svc.getState()).toMatchObject({ saveStatus: null, writeBlock: null });
+            });
+
+            it('an uncertain outcome that did not commit is read back as not committed, and Retry commits the same rollover', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                mockTxControl.failNextCommit = firestoreError('deadline-exceeded');
+                const error = await rejection(svc.createYear('2027', { reconciliation }));
+                expect(error).toMatchObject({ code: 'COMMIT_UNCERTAIN', resolution: 'not_committed', yearId: '2027' });
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(mockStore[PRIOR].rev).toBe(1);
+                await expect(svc.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'completed', yearId: '2027' });
+                expect(mockStore[PRIOR].rev).toBe(2);
+                expect(committedWrites()).toHaveLength(2);
+            });
+
+            it('a lost response whose read-back also fails stays uncertain; Retry then finds the commit and completes without writing', async () => {
+                seedReview();
+                const reconciliation = review(NORTHLINE_UP);
+                const { getDoc } = await import('firebase/firestore');
+                mockTxControl.rejectAfterCommit = firestoreError('unavailable');
+                getDoc.mockRejectedValueOnce(firestoreError('unavailable')).mockRejectedValueOnce(firestoreError('unavailable'));
+                const error = await rejection(svc.createYear('2027', { reconciliation }));
+                expect(error.code).toBe('COMMIT_UNCERTAIN');
+                expect(error.resolution).toBeUndefined();
+                expect(svc.getState().activeYear.id).toBe('2026');
+                const writes = committedWrites().length;
+                await expect(svc.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'already_completed', yearId: '2027' });
+                expect(committedWrites()).toHaveLength(writes);
+                expect(svc.getState().writeBlock).toBeNull();
+            });
+
+            it('offline (the transaction read cannot reach the server) is COMMIT_FAILED with the offline message', async () => {
+                seedReview();
+                const stored = structuredClone(mockStore[PRIOR]);
+                const reconciliation = review(NORTHLINE_UP);
+                mockTxControl.failNextGet = firestoreError('unavailable', 'Failed to get document because the client is offline.');
+                const error = await rejection(svc.createYear('2027', { reconciliation }));
+                expect(error).toMatchObject({ code: 'COMMIT_FAILED', offline: true, message: 'You’re offline. Nothing was saved; your draft is kept.' });
+                expect(mockStore[PRIOR]).toEqual(stored);
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(svc.getState()).toMatchObject({ saveStatus: null, writeBlock: null });
+                // Retry re-runs the guard and the transaction; never a write without the preconditions.
+                await expect(svc.createYear('2027', { reconciliation })).resolves.toMatchObject({ outcome: 'completed' });
+            });
+
+            it('a refused write (permission-denied) is a definite failure: no destination, no source change, Reload required', async () => {
+                seedReview();
+                const stored = structuredClone(mockStore[PRIOR]);
+                mockTxControl.failNextCommit = firestoreError('permission-denied');
+                await expect(svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) })).rejects.toMatchObject({ code: 'COMMIT_FAILED' });
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(mockStore[PRIOR]).toEqual(stored);
+                expect(svc.getState().writeBlock).toMatchObject({ reason: 'permission-denied' });
+            });
+
+            it('a payload that no longer validates against the fresh read is COMMIT_FAILED before any write', async () => {
+                seedReview();
+                const reconciliation = review({ trueUps: [{ billId: 999, newAmount: 10, firstMonth: '2026-07' }] });
+                await expect(svc.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED', message: expect.stringMatching(/Bill 999/) });
+                expect(mockStore[NEXT]).toBeUndefined();
+                expect(svc.getState().saveStatus).toBeNull();
+            });
+
+            // D-A (#612): the next two sequences are refused for every build only once the
+            // stage-2 rules (#616) are in force. Here they assert what the client and the
+            // stage-1 rules already refuse: the reviewed commit versions both documents, so a
+            // versioned-build tab's stale write fails its own rev check (and the rules' rev
+            // check), and the rules refuse an unversioned write onto a versioned document at
+            // stage 1 already (tests/rules/firestore.rules.test.js, reviewed rollover sequences).
+            it('legacy-versus-reviewed: a legacy createYear from a tab loaded before the reviewed commit is refused and overwrites nothing (#612/#616)', async () => {
+                const state = seedReview();
+                const stale = session(state);
+                await svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) });
+                const after = structuredClone({ next: mockStore[NEXT], prior: mockStore[PRIOR] });
+                // Its years list predates 2027, so its duplicate check passes; the transaction refuses.
+                await expect(stale.createYear('2027')).rejects.toThrow('Billing year "2027" already exists.');
+                expect({ next: mockStore[NEXT], prior: mockStore[PRIOR] }).toEqual(after);
+                expect(events(mockStore[NEXT], 'YEAR_CREATED_FROM_REVIEW')).toHaveLength(1);
+            });
+
+            it('stale-save-after-rollover: a save() or setYearStatus() from pre-rollover state is refused and erases nothing (#612/#616)', async () => {
+                const state = seedReview();
+                const staleSave = session(state);
+                const staleStatus = session(state);
+                await svc.createYear('2027', { reconciliation: review(NORTHLINE_UP) });
+                const after = structuredClone(mockStore[PRIOR]);
+                const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+                staleSave._setState({ payments: [...state.payments, { id: 'pay_stale', memberId: 9, amount: 5, receivedAt: '2026-12-01', note: '', method: 'cash' }] });
+                await expect(staleSave._saveConfirmed()).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+                expect(staleSave.getState().writeBlock).toMatchObject({ reason: 'stale', yearId: '2026' });
+                await expect(staleStatus.setYearStatus('settling')).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+                errSpy.mockRestore();
+                expect(mockStore[PRIOR]).toEqual(after);
+                expect(mockStore[PRIOR].owedAdjustments.filter(row => row.trueUpId)).toHaveLength(9);
+            });
         });
     });
 

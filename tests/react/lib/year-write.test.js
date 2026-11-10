@@ -39,6 +39,14 @@ describe('classifyYearWrite', () => {
         }
     });
 
+    it('asRead (the reviewed rollover source, #607) writes at the rev it read + 1, never from an expectation', () => {
+        const pending = [{ nextRev: 9, writeId: 'w9', adoptable: false }];
+        expect(classify({ exists: true, stored: doc({ rev: 7 }), expectedRev: 3, pending, asRead: true })).toEqual({ write: true, nextRev: 8, storedRev: 7, adoptedPending: false });
+        expect(classify({ exists: true, stored: doc(), asRead: true })).toMatchObject({ write: true, nextRev: 1 });
+        expectStale(() => classify({ exists: false, stored: null, asRead: true }), 'missing');
+        for (const rev of ['1', 1.5, null]) expectStale(() => classify({ exists: true, stored: doc({ rev }), asRead: true }), 'malformed-rev');
+    });
+
     it('creates an absent document at rev 1 and treats an existing one per ifExists', () => {
         expect(classify({ exists: false, stored: null, expectedRev: 0 })).toMatchObject({ write: true, nextRev: 1 });
         expectStale(() => classify({ exists: true, stored: doc({ rev: 1 }), expectedRev: 0 }), 'created-elsewhere');

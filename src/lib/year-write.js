@@ -99,16 +99,27 @@ function stale(yearId, reason, extra = {}) {
  * `ifExists` (creation only): 'stale' (default), 'exists' (throw YEAR_EXISTS) or
  * 'skip' (write nothing; the caller loads the existing document).
  *
+ * `asRead` (the reviewed rollover's source, #607): the payload is built from this
+ * read, never from memory, so the expectation is the rev the transaction read: the
+ * write stores the stored `rev + 1` (or `rev: 1` for an unversioned document, whose
+ * stored `createdAt` the write keeps). `expectedRev`, the fingerprint and `pending`
+ * are not consulted; the caller's own guard (the reviewed fingerprint) decides
+ * whether the content may be written. The document must exist.
+ *
  * @returns {{ write: boolean, nextRev?: number, storedRev?: number|undefined,
  *   adoptedPending: boolean, existing?: boolean }}
  * @throws {YearWriteError}
  */
-export function classifyYearWrite({ yearId, exists, stored, expectedRev, fingerprintIfUnversioned = null, pending = null, ifExists = 'stale' }) {
+export function classifyYearWrite({ yearId, exists, stored, expectedRev, fingerprintIfUnversioned = null, pending = null, ifExists = 'stale', asRead = false }) {
     const hasRev = !!exists && stored != null && Object.prototype.hasOwnProperty.call(stored, 'rev');
     const storedRev = hasRev ? stored.rev : undefined;
     if (hasRev && !(Number.isInteger(storedRev) && storedRev >= 1)) {
         // A malformed stored rev matches no rules branch: fail closed until repaired.
         throw stale(yearId, 'malformed-rev', { storedRev });
+    }
+    if (asRead) {
+        if (!exists) throw stale(yearId, 'missing');
+        return { write: true, nextRev: hasRev ? storedRev + 1 : 1, storedRev, adoptedPending: false };
     }
     const unversionedMatches = () => exists && !hasRev && fingerprintIfUnversioned != null
         && fingerprintStoredYear(stored, yearId) === fingerprintIfUnversioned;
