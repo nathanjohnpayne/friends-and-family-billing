@@ -384,10 +384,27 @@ export class BillingYearService {
         }
     }
 
-    /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
+    /**
+     * @private Mark a snapshot committed, wherever it sits in its year's or generation's
+     * chain, and release what it superseded. Only a failed status change is ever
+     * withdrawn, and withdrawing a later snapshot falls back at most to this committed
+     * one, so its predecessors are never needed again: dropping the links keeps the
+     * retained history to the writes still outstanding plus the last committed one,
+     * instead of every state of a long session.
+     */
     _markSnapshotCommitted(yearId, seq) {
-        for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
-            if (snapshot && snapshot.seq === seq) snapshot.committed = true;
+        const heads = [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()];
+        for (const head of heads) {
+            for (const link of ['previousOfYear', 'previousOfGen']) {
+                // Sequence numbers only decrease along a chain.
+                for (let snapshot = head; snapshot && snapshot.seq >= seq; snapshot = snapshot[link]) {
+                    if (snapshot.seq !== seq) continue;
+                    snapshot.committed = true;
+                    snapshot.previousOfYear = null;
+                    snapshot.previousOfGen = null;
+                    break;
+                }
+            }
         }
     }
 
@@ -602,12 +619,15 @@ export class BillingYearService {
         const yearId = detailYear || (activeYear && yearIds.includes(activeYear.id) ? activeYear.id : yearIds[0]);
         const spec = attempt.find(item => item.yearId === yearId) || attempt[0];
         const gen = spec && spec.loadGen !== undefined ? spec.loadGen : this._loadGen(yearId);
+        // A second refusal for a year already held in the Reload required state keeps the
+        // record the dialog shows: the device copy is not rewritten with a later one, so
+        // the after-reload notice and Copy details never disagree with the dialog.
+        if (existing && (existing.yearId === yearId || (existing.otherRecords || []).some(r => r.yearId === yearId))) return;
         const record = this._buildUnsavedRecord(yearId, spec, reason, at, gen);
         const kept = persistUnsavedRecord(record);
         if (existing) {
             // Another year refused while the tab was already read-only (saves for two
             // years were queued): keep its record too, and Reload waits on every record.
-            if (existing.yearId === yearId || (existing.otherRecords || []).some(r => r.yearId === yearId)) return;
             this._setState({
                 writeBlock: {
                     ...existing,

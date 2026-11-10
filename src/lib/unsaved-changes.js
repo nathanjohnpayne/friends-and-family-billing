@@ -15,8 +15,6 @@ export function unsavedStorageKey(uid, yearId) {
 
 const EXTRA_EVENT_LABELS = {
     REFUND_ISSUED: 'Refund recorded',
-    SERVICE_CREDIT_RECORDED: 'Service credit',
-    USAGE_CHARGE_RECORDED: 'Member charge',
     CHARGES_BILLED: 'Charges billed',
     YEAR_CARRIED_FORWARD: 'Carried to the next year'
 };

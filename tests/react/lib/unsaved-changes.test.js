@@ -32,7 +32,7 @@ describe('summarizeUnsavedChanges', () => {
         const changes = summarizeUnsavedChanges(baseline(), unsaved);
         expect(changes).toEqual([
             { kind: 'event', label: 'Payment recorded', detail: 'Ada Okafor', amount: 50, at: '2026-11-10T15:10:00Z' },
-            { kind: 'event', label: 'Service credit', detail: 'Meridian Music · “Outage, March”', amount: 12, at: '2026-11-10T15:11:00Z' },
+            { kind: 'event', label: 'Service credit recorded', detail: 'Meridian Music · “Outage, March”', amount: 12, at: '2026-11-10T15:11:00Z' },
             { kind: 'member', label: 'Member edited', detail: 'Kenji Nakamura · phone number', amount: null, at: null }
         ]);
     });

@@ -2342,6 +2342,52 @@ describe('BillingYearService — Reload required state (#669)', () => {
         window.localStorage.clear();
     });
 
+    it('releases committed history: a long session retains only the last committed snapshot, not every state', async () => {
+        seedYear();
+        const s = await loadedService();
+        const chainLength = (head, link) => { let n = 0; for (let x = head; x; x = x[link]) n += 1; return n; };
+        for (let i = 0; i < 20; i++) {
+            s.addMember({ name: 'Member ' + i });
+            // Two queued at once: the first commits while the second is the head.
+            s.recordPayment({ memberId: 1, amount: 1, method: 'venmo' });
+            await s._saveQueue._chain;
+        }
+        expect(mockStore[PATH].rev).toBe(41);
+        const head = s._queuedYearSnapshots.get('2026');
+        expect(head).toMatchObject({ committed: true });
+        expect(chainLength(head, 'previousOfYear')).toBe(1);
+        expect(chainLength(s._snapshotsByGen.get('2026#' + s._loadGen('2026')), 'previousOfGen')).toBe(1);
+    });
+
+    it('a failed status change still falls back to the last committed snapshot after history is released', async () => {
+        seedYear();
+        const s = await loadedService();
+        s.addMember({ name: 'Saved Member' });
+        await s._saveQueue._chain;
+        const committed = s._queuedYearSnapshots.get('2026');
+        mockTxControl.failNextCommit = firestoreError('aborted');
+        await expect(s.setYearStatus('settling')).rejects.toMatchObject({ code: 'aborted' });
+        expect(s._queuedYearSnapshots.get('2026')).toBe(committed);
+        expect(committed).toMatchObject({ committed: true, previousOfYear: null });
+    });
+
+    it('a second refusal for a year already held does not rewrite the device copy the dialog shows', async () => {
+        seedYear();
+        const s = await loadedService();
+        otherSessionSaves();
+        s.addMember({ name: 'Priya Natarajan' });
+        await s._saveQueue._chain;
+        const block = s.getState().writeBlock;
+        expect(block).toMatchObject({ yearId: '2026' });
+        const stored = window.localStorage.getItem(KEY);
+        expect(JSON.parse(stored).payload.familyMembers.map(m => m.name)).toContain('Priya Natarajan');
+        // A later refusal of another queued write for the same year, over different data.
+        s._setState({ familyMembers: [...s.getState().familyMembers, { id: 9, name: 'Late Edit', linkedMembers: [] }] });
+        s._enterWriteBlock([{ yearId: '2026', ref: { path: PATH }, buildPayload: () => ({}) }], firestoreError('permission-denied'));
+        expect(window.localStorage.getItem(KEY)).toBe(stored);
+        expect(s.getState().writeBlock).toBe(block);
+    });
+
     it('the losing session lists its unsaved changes against the last successful save and keeps them on the device', async () => {
         seedYear();
         const s = await loadedService();
@@ -2360,7 +2406,7 @@ describe('BillingYearService — Reload required state (#669)', () => {
         const block = s.getState().writeBlock;
         expect(block).toMatchObject({ yearId: '2026', reason: 'stale', baselineKind: 'saved', keptOnDevice: true, storageError: null });
         const labels = block.changes.map(c => c.label + (c.detail ? ' · ' + c.detail : ''));
-        expect(labels.some(l => l.startsWith('Service credit · Internet'))).toBe(true);
+        expect(labels.some(l => l.startsWith('Service credit recorded · Internet'))).toBe(true);
         expect(labels).toContain('Member edited · Kenji · phone number');
         expect(labels).toContain('Member added · Priya Natarajan');
         expect(labels).toContain('Invoice template changed');

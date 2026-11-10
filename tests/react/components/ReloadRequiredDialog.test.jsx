@@ -11,7 +11,7 @@ const block = (extra = {}) => ({
     detectedAt: '2026-11-10T15:12:00', baselineAt: '2026-11-10T15:09:00', baselineKind: 'saved',
     changes: [
         { kind: 'event', label: 'Payment recorded', detail: 'Ada Okafor', amount: 50, at: '2026-11-10T15:10:00' },
-        { kind: 'event', label: 'Service credit', detail: 'Meridian Music · “Outage, March”', amount: 12, at: '2026-11-10T15:11:00' },
+        { kind: 'event', label: 'Service credit recorded', detail: 'Meridian Music · “Outage, March”', amount: 12, at: '2026-11-10T15:11:00' },
         { kind: 'member', label: 'Member edited', detail: 'Kenji Nakamura · phone number', amount: null, at: null }
     ],
     payload: { label: '2026' },
