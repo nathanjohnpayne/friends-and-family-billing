@@ -20,7 +20,11 @@ export function useStartYear({ service, source, review, reopenedAdjustmentIds, s
     const [outcome, setOutcome] = useState(null);
     const running = useRef(false);
     const mounted = useRef(true);
-    useEffect(() => () => { mounted.current = false; }, []);
+    // Set in setup as well as cleared in cleanup: StrictMode runs setup, cleanup, setup on mount.
+    useEffect(() => {
+        mounted.current = true;
+        return () => { mounted.current = false; };
+    }, []);
 
     // "Don't close this tab": warn while the two documents are being written.
     useEffect(() => {

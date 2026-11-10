@@ -30,6 +30,7 @@ import ChargesStep from './ChargesStep.jsx';
 import ReviewStep, { REVIEW_STEP_READY, labelError } from './ReviewStep.jsx';
 import { useYearEndReview } from './useYearEndReview.js';
 import { CONFLICT_STATES, useStartYear } from './useStartYear.js';
+import { COMMIT_GUARD_MISSING, hasCommitGuard } from './commitOutcome.js';
 import { previewRollover } from './reviewPreview.js';
 import { draftStorageKey, entryCounts, formatDate, readStored, removeStored, snapshotStorageKey } from './yearEndReviewModel.js';
 import './YearEndReview.css';
@@ -135,8 +136,10 @@ function NothingChangedDialog({ draft, sourceLabel, nextYearLabel, onCancel, onC
 }
 
 /** Start's gate: canStart over every step's errors, the label, the preview and the refund notices. */
-function gateOf({ review, preview, billingYears, notices, sourceLabel }) {
+function gateOf({ review, preview, billingYears, notices, sourceLabel, service }) {
     const errors = [];
+    // Release precondition, not a figure problem: it never marks the figures pending.
+    if (!hasCommitGuard(service)) errors.push({ step: 4, message: COMMIT_GUARD_MISSING, label: true });
     for (const step of [1, 2, 3]) {
         for (const error of review.stepErrors[step]) if (error.field !== 'credits') errors.push({ step, message: error.message });
     }
@@ -177,7 +180,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin }) {
     const preview = useMemo(() => (step === 4
         ? previewRollover({ source, draft: review.draft, derived: review.derived, yearId: previewYear, reopenedAdjustmentIds: reopened, now })
         : null), [step, source, review.draft, review.derived, previewYear, reopened, now]);
-    const gate = gateOf({ review, preview, billingYears, notices, sourceLabel });
+    const gate = gateOf({ review, preview, billingYears, notices, sourceLabel, service });
     const onSuccess = useCallback(result => {
         showToast(result.alreadyCompleted ? `${result.yearId} was already started from this draft.` : `${result.yearId} started.`);
         navigate('/dashboard');

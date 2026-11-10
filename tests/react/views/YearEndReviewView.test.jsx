@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen, within, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -583,6 +584,8 @@ function routedPage() {
 
 function fakeService(overrides = {}) {
     const service = {
+        // What #607's commit guard declares (commitOutcome.js hasCommitGuard).
+        reviewedCommitGuard: true,
         getState: () => mocks.state,
         _loadYearsList: vi.fn(async () => {}),
         switchYear: vi.fn(async yearId => {
@@ -1047,6 +1050,39 @@ describe('Step 4 — the guard and Start’s gate', () => {
         await openStep4(user);
         await user.click(screen.getByRole('button', { name: 'I’ve checked the updated figures' }));
         expect(startButton()).toBeEnabled();
+    });
+
+    it('Start stays off, and nothing is sent, until the service has the commit guard (#607)', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ reviewedCommitGuard: undefined });
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        expect(within(screen.getByTestId('start-blockers')).getByText(/cannot yet check, in the same step as the write/)).toBeInTheDocument();
+        expect(startButton()).toBeDisabled();
+        // A release precondition, not a figure problem: the figures are final.
+        expect(screen.queryByText('pending')).toBeNull();
+        expect(service._loadYearsList).not.toHaveBeenCalled();
+        expect(service.createYear).not.toHaveBeenCalled();
+    });
+
+    it('under StrictMode a failed Start still unlocks the page and reports the outcome', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_FAILED, { offline: true })) });
+        seedWireframe();
+        render(<StrictMode><MemoryRouter><ToastProvider><YearEndReviewView /></ToastProvider></MemoryRouter></StrictMode>);
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText(/You’re offline\. Nothing was saved; your draft is kept\./)).toBeInTheDocument();
+        expect(screen.queryByText('Locked while 2027 starts')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
+    it('an amount outside the exact cent range is a field error, not a crash', async () => {
+        seedDraft({ bills: { [BILL.nl]: { ...NORTHLINE, override: 100000000000000 } } });
+        renderPage();
+        expect(billRow(BILL.nl).getByText('Enter a smaller amount.')).toBeInTheDocument();
+        expect(nextButton()).toBeDisabled();
     });
 
     it('Start waits for the refund notices so a re-opened refund never carries', async () => {

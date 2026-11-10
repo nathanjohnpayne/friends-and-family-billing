@@ -145,8 +145,15 @@ describe('startReviewedYear — the guard at Start', () => {
     const base = { sourceYear, sourceEvents: [], yearId: '2027', payload: { reconciliationId: 'rec_fixed' }, reopenedAdjustmentIds: new Set(), payloadFingerprint: 'yrp1_mine' };
     const service = (years, createYear = vi.fn(async () => {})) => {
         const state = { billingYears: [sourceYear] };
-        return { state, getState: () => state, createYear, _loadYearsList: vi.fn(async () => { state.billingYears = years; }) };
+        return { reviewedCommitGuard: true, state, getState: () => state, createYear, _loadYearsList: vi.fn(async () => { state.billingYears = years; }) };
     };
+
+    it('sends nothing at all without the commit guard (#607)', async () => {
+        const svc = { ...service([sourceYear]), reviewedCommitGuard: undefined };
+        await expect(startReviewedYear({ ...base, service: svc })).resolves.toMatchObject({ state: 'failed', retry: false, guardMissing: true });
+        expect(svc._loadYearsList).not.toHaveBeenCalled();
+        expect(svc.createYear).not.toHaveBeenCalled();
+    });
 
     it('reloads the years list first and never commits over a successor found there', async () => {
         const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }]);

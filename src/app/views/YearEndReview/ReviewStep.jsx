@@ -197,7 +197,7 @@ function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOp
             return (
                 <div className="yer-alert yer-alert--error" role="alert">
                     <p><b>{nextYearLabel} was not created.</b> {outcome.offline ? outcome.cause : <>Nothing was saved and your draft is kept. {outcome.cause}</>}</p>
-                    <div className="yer-alert-acts">{discard}<button type="button" className="btn btn-ink" onClick={onRetry}>Retry</button></div>
+                    <div className="yer-alert-acts">{discard}{outcome.retry !== false && <button type="button" className="btn btn-ink" onClick={onRetry}>Retry</button>}</div>
                 </div>
             );
         case 'elsewhere':

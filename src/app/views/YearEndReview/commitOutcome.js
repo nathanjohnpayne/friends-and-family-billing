@@ -44,6 +44,19 @@ const CAUSES = {
 
 const OFFLINE = 'You’re offline. Nothing was saved; your draft is kept.';
 
+/**
+ * Release precondition (ADR 0009 § 3, spec § Commit guard and recovery): the
+ * reviewed rollover may run only through createYear's transaction that reads
+ * the destination and the source before writing and compares the reviewed
+ * fingerprint. #607 marks a service that does so with
+ * `reviewedCommitGuard = true`; until then Start stays off and no write is sent.
+ */
+export function hasCommitGuard(service) {
+    return !!service && service.reviewedCommitGuard === true;
+}
+
+export const COMMIT_GUARD_MISSING = 'Start is not available in this version yet: it cannot yet check, in the same step as the write, that 2026 is unchanged and that the next year does not exist. Your draft is kept.';
+
 /** The three-way rule (spec § Outcomes): this draft's operation, this draft with other entries, or someone else's year. */
 export function resolveExisting(existing, { reconciliationId, payloadFingerprint }) {
     if (!existing || existing.reconciliationId == null || String(existing.reconciliationId) !== String(reconciliationId)) return 'elsewhere';
@@ -123,6 +136,8 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
 export async function startReviewedYear({ service, sourceYear, sourceEvents, yearId, payload, reopenedAdjustmentIds,
     payloadFingerprint, summary, recheck = false }) {
     const ctx = { yearId, reconciliationId: payload.reconciliationId, payloadFingerprint, summary };
+    // Defense in depth behind the disabled Start: never send a reviewed write without the guard.
+    if (!hasCommitGuard(service)) return { state: 'failed', cause: COMMIT_GUARD_MISSING, retry: false, guardMissing: true };
     try {
         if (typeof service._loadYearsList === 'function') await service._loadYearsList();
     } catch (error) {
