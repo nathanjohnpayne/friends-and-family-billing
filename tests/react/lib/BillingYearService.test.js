@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Firestore mock ──────────────────────────────────────────────────────
 // Tracks all setDoc calls and controls what getDoc/getDocs return.
@@ -6,6 +6,10 @@ const mockStore = {};
 const setDocCalls = [];
 // Out-of-band switch to force the next writeBatch().commit() to reject (atomicity test).
 const mockBatchControl = { failNextCommit: false };
+// runTransaction controls (#614): fail before commit, reject after committing (a lost
+// response), replay the callback (SDK contention), or change the stored document
+// between the read and the commit (another session).
+const mockTxControl = { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null };
 
 vi.mock('@/lib/firebase.js', () => ({ db: {} }));
 
@@ -62,6 +66,57 @@ vi.mock('firebase/firestore', () => ({
             })
         };
     }),
+    // runTransaction mock: reads mockStore, buffers set() ops and applies them only
+    // when the callback resolves (atomic), recording them in setDocCalls as
+    // transactional writes. mockTxControl can replay the callback, fail the commit,
+    // reject after the commit landed, or run a hook before the commit.
+    runTransaction: vi.fn(async (_db, fn) => {
+        const runs = 1 + mockTxControl.replays;
+        mockTxControl.replays = 0;
+        let result;
+        let writes = [];
+        const runOnce = async () => {
+            writes = [];
+            const tx = {
+                get: async (ref) => {
+                    const data = mockStore[ref.path];
+                    return { exists: () => !!data, data: () => data || null };
+                },
+                set: (ref, data) => { writes.push({ ref, data }); return tx; },
+                update: (ref, data) => { writes.push({ ref, data, merge: true }); return tx; }
+            };
+            result = await fn(tx);
+        };
+        for (let i = 0; i < runs; i++) await runOnce();
+        if (mockTxControl.contention) {
+            // Another writer commits between this transaction's read and its commit;
+            // the SDK then re-runs the callback against the new state.
+            const hook = mockTxControl.contention;
+            mockTxControl.contention = null;
+            await hook();
+            await runOnce();
+        }
+        if (mockTxControl.beforeCommit) {
+            const hook = mockTxControl.beforeCommit;
+            mockTxControl.beforeCommit = null;
+            await hook();
+        }
+        if (mockTxControl.failNextCommit) {
+            const err = mockTxControl.failNextCommit;
+            mockTxControl.failNextCommit = null;
+            throw err;
+        }
+        for (const { ref, data, merge } of writes) {
+            setDocCalls.push({ path: ref.path, data, transactional: true });
+            mockStore[ref.path] = merge ? { ...(mockStore[ref.path] || {}), ...data } : data;
+        }
+        if (mockTxControl.rejectAfterCommit) {
+            const err = mockTxControl.rejectAfterCommit;
+            mockTxControl.rejectAfterCommit = null;
+            throw err;
+        }
+        return result;
+    }),
     serverTimestamp: vi.fn(() => '__SERVER_TIMESTAMP__')
 }));
 
@@ -73,6 +128,7 @@ function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
     setDocCalls.length = 0;
     mockBatchControl.failNextCommit = false;
+    Object.assign(mockTxControl, { failNextCommit: null, rejectAfterCommit: null, replays: 0, beforeCommit: null, contention: null });
 }
 
 const TEST_USER = { uid: 'user-1' };
@@ -222,18 +278,15 @@ describe('BillingYearService', () => {
                 settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] }
             });
 
-            // Seed store so switchYear's loadYearData finds something
-            mockStore['users/user-1/billingYears/2026'] = {
-                label: '2026', status: 'open',
-                familyMembers: [{ id: 1, name: 'Alice' }],
-                bills: [], payments: [], billingEvents: [], settings: {}
-            };
-
+            // The destination is absent (#614: a creation never overwrites an existing
+            // year); switchYear then loads the document the rollover created.
             await svc.createYear('2026');
 
             const yearWrite = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2026');
             expect(yearWrite).toBeDefined();
             expect(yearWrite.data.createdAt).toBe('__SERVER_TIMESTAMP__');
+            expect(yearWrite.data.rev).toBe(1);
+            expect(svc.getState().activeYear.id).toBe('2026');
         });
 
         it('does nothing when no user is set', async () => {
@@ -271,12 +324,8 @@ describe('BillingYearService', () => {
                 billingEvents: [],
                 settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
             });
-            // Seed the destination doc so switchYear's loadYearData finds it.
-            mockStore['users/user-1/billingYears/2027'] = {
-                label: '2027', status: 'open',
-                familyMembers: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }],
-                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
-            };
+            // The destination is absent: the rollover creates it (never overwrites, #614)
+            // and switchYear's loadYearData then finds the created document.
         }
 
         it('persists valid carry with an unadmitted null credit row and preserves the original raw ledger', async () => {
@@ -368,10 +417,6 @@ describe('BillingYearService', () => {
                 creditAdjustments: [], owedAdjustments: [], billingEvents: [],
                 settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
             });
-            mockStore['users/user-1/billingYears/2027'] = {
-                label: '2027', status: 'open', familyMembers: [{ id: 1, name: 'Alice' }],
-                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
-            };
             await svc.createYear('2027');
             const newYearWrite = setDocCalls.find(c =>
                 c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers && !c.options?.merge
@@ -395,10 +440,6 @@ describe('BillingYearService', () => {
                 owedAdjustments: [], billingEvents: [],
                 settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
             });
-            mockStore['users/user-1/billingYears/2027'] = {
-                label: '2027', status: 'open', familyMembers: [{ id: 1, name: 'Alice' }],
-                bills: [], payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [], settings: {}
-            };
 
             // Pass the re-opened set (as BillingYearSelector does from useRefundNotices).
             await svc.createYear('2027', { reopenedAdjustmentIds: new Set(['c1']) });
@@ -417,14 +458,16 @@ describe('BillingYearService', () => {
         });
 
         // ── atomic + queue-serialized rollover (#330 P1) ──────────────
-        it('commits the new-year seed and prior-year marking atomically via a writeBatch', async () => {
-            const { writeBatch } = await import('firebase/firestore');
+        it('commits the new-year seed and prior-year marking atomically in one version-checked transaction', async () => {
+            const { writeBatch, runTransaction } = await import('firebase/firestore');
             writeBatch.mockClear();
+            runTransaction.mockClear();
             seedPriorYear();
             await svc.createYear('2027');
 
-            // Exactly one batch for the rollover, carrying BOTH writes.
-            expect(writeBatch).toHaveBeenCalledTimes(1);
+            // Exactly one transaction for the rollover, carrying BOTH writes; no batch (#614).
+            expect(runTransaction).toHaveBeenCalledTimes(1);
+            expect(writeBatch).not.toHaveBeenCalled();
             const newYearWrite = setDocCalls.find(c =>
                 c.path === 'users/user-1/billingYears/2027' && c.data.familyMembers
             );
@@ -433,9 +476,14 @@ describe('BillingYearService', () => {
             );
             expect(newYearWrite).toBeDefined();
             expect(priorWrite).toBeDefined();
-            // Both landed through the batch path, not bare setDoc.
-            expect(newYearWrite.batched).toBe(true);
-            expect(priorWrite.batched).toBe(true);
+            // Both landed through the transaction, not bare setDoc, each with its rev:
+            // the destination is created at rev 1, the source advances from its own.
+            expect(newYearWrite.transactional).toBe(true);
+            expect(priorWrite.transactional).toBe(true);
+            expect(newYearWrite.data.rev).toBe(1);
+            expect(priorWrite.data.rev).toBe(1);
+            expect(typeof newYearWrite.data.lastWriteId).toBe('string');
+            expect(priorWrite.data.lastWriteId).toBe(newYearWrite.data.lastWriteId);
         });
 
         it('serializes the rollover behind pending saves (queued prior-year save runs first)', async () => {
@@ -460,13 +508,15 @@ describe('BillingYearService', () => {
             seedPriorYear();
             // Remove the pre-seeded destination so we can assert it is NOT created.
             delete mockStore['users/user-1/billingYears/2027'];
-            mockBatchControl.failNextCommit = true;
+            mockTxControl.failNextCommit = new Error('simulated transaction commit failure');
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-            await expect(svc.createYear('2027')).rejects.toThrow('simulated batch commit failure');
+            await expect(svc.createYear('2027')).rejects.toThrow('simulated transaction commit failure');
+            errSpy.mockRestore();
 
             // Neither the new-year seed nor the prior-year marking persisted.
             expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
-            const committed = setDocCalls.filter(c => c.batched);
+            const committed = setDocCalls.filter(c => c.transactional);
             expect(committed).toHaveLength(0);
         });
     });
@@ -590,7 +640,10 @@ describe('BillingYearService', () => {
                 c.path === 'users/user-1/billingYears/2025' && c.data.status === 'settling'
             );
             expect(write).toBeDefined();
-            expect(write.options).toEqual({ merge: true });
+            // A full-document version-checked write through the queue, not a merge (#614).
+            expect(write.options).toBeUndefined();
+            expect(write.transactional).toBe(true);
+            expect(write.data.rev).toBe(1);
             // Event should be persisted in the Firestore write
             expect(write.data.billingEvents.length).toBe(1);
             expect(write.data.billingEvents[0].eventType).toBe('YEAR_STATUS_CHANGED');
@@ -649,10 +702,11 @@ describe('BillingYearService', () => {
                 billingYears: [{ id: '2025', label: '2025', status: 'open' }]
             });
 
-            const { setDoc } = await import('firebase/firestore');
-            setDoc.mockRejectedValueOnce(new Error('permission denied'));
+            mockTxControl.failNextCommit = new Error('permission denied');
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
             await expect(svc.setYearStatus('settling')).rejects.toThrow('permission denied');
+            errSpy.mockRestore();
             expect(svc.getState().activeYear.status).toBe('open');
         });
     });
@@ -1214,5 +1268,330 @@ describe('BillingYearService', () => {
             expect(svc.getState().error).toBe('write failed');
             expect(svc.getState().loading).toBe(false);
         });
+    });
+});
+
+// ── Versioned year-document writes (#614 / #668, spec § Versioned year-document writes) ──
+
+describe('BillingYearService — version-checked year writes (#668)', () => {
+    const PATH = 'users/user-1/billingYears/2026';
+    const firestoreError = (code, message = code) => Object.assign(new Error(message), { code });
+
+    function seedYear(extra = {}) {
+        mockStore['users/user-1'] = { activeBillingYear: '2026' };
+        mockStore[PATH] = {
+            label: '2026', status: 'open', createdAt: 'ts-created', archivedAt: null, closedAt: null,
+            familyMembers: [{ id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+            bills: [{ id: 101, name: 'Internet', amount: 60, billingFrequency: 'monthly', logo: '', website: '', members: [1] }],
+            payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+            settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [] },
+            ...extra
+        };
+    }
+    async function loadedService() {
+        const service = new BillingYearService();
+        await service.setUser(TEST_USER);
+        return service;
+    }
+    const yearWrites = () => setDocCalls.filter(c => c.path === PATH);
+    let errSpy;
+    beforeEach(() => {
+        clearStore();
+        errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => errSpy.mockRestore());
+
+    it('commits rapid same-tab edits in order with consecutive revs', async () => {
+        seedYear({ rev: 3, lastWriteId: 'w-3' });
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' });
+        s.addMember({ name: 'Cy' });
+        s.addMember({ name: 'Dee' });
+        await s._saveQueue._chain;
+        expect(yearWrites().map(c => c.data.rev)).toEqual([4, 5, 6]);
+        expect(yearWrites().map(c => c.data.familyMembers.length)).toEqual([2, 3, 4]);
+        const ids = yearWrites().map(c => c.data.lastWriteId);
+        expect(new Set(ids).size).toBe(3);
+        expect(mockStore[PATH].rev).toBe(6);
+        expect(mockStore[PATH].createdAt).toBe('ts-created');
+    });
+
+    it('serializes a status change behind a pending save; it lands with the next rev as a full document', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' });
+        const status = s.setYearStatus('settling');
+        await status;
+        const writes = yearWrites();
+        expect(writes.map(c => [c.data.rev, c.data.status])).toEqual([[2, 'open'], [3, 'settling']]);
+        // The status write is the whole document, including the earlier save's member.
+        expect(writes[1].data.familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        expect(writes[1].data.billingEvents.map(e => e.eventType)).toEqual(['YEAR_STATUS_CHANGED']);
+        expect(writes[1].options).toBeUndefined();
+    });
+
+    it('two sessions saving the same year: one commits, the other gets STALE_DOCUMENT with no write', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const a = await loadedService();
+        const b = await loadedService();
+        a.addMember({ name: 'Bea' });
+        await a._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(2);
+        const before = structuredClone(mockStore[PATH]);
+        const writesBefore = setDocCalls.length;
+        const events = [];
+        b.getSaveQueue().subscribe(e => events.push(e.type));
+        b.addMember({ name: 'Cy' });
+        await b._saveQueue._chain;
+        expect(setDocCalls.length).toBe(writesBefore);
+        expect(mockStore[PATH]).toEqual(before);
+        expect(b.getState().writeBlock).toMatchObject({ yearId: '2026', reason: 'stale' });
+        expect(b.getState().saveStatus).toMatchObject({ state: 'not_saved' });
+        expect(events).toContain('save:error');
+        expect(events).not.toContain('save:success');
+        // The losing session is read-only until it reloads.
+        expect(() => b.addMember({ name: 'Dee' })).toThrow('read-only until it reloads');
+    });
+
+    it('rejects a stale status change with STALE_DOCUMENT and keeps the local status', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 2, lastWriteId: 'w-other' };
+        await expect(s.setYearStatus('settling')).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        expect(s.getState().activeYear.status).toBe('open');
+        expect(mockStore[PATH].status).toBe('open');
+    });
+
+    it('first-run race: two tabs creating the same first year leave one document; the loser loads it', async () => {
+        const year = String(new Date().getFullYear());
+        const path = 'users/user-1/billingYears/' + year;
+        const a = new BillingYearService();
+        const b = new BillingYearService();
+        await a.setUser(TEST_USER);
+        const created = structuredClone(mockStore[path]);
+        expect(created.rev).toBe(1);
+        // B also saw no user document, so it runs the first-run creation too.
+        delete mockStore['users/user-1'];
+        await b.setUser(TEST_USER);
+        expect(setDocCalls.filter(c => c.path === path)).toHaveLength(1);
+        expect(mockStore[path]).toEqual(created);
+        expect(b.getState().activeYear.id).toBe(year);
+        expect(b.getState().writeBlock).toBeNull();
+        // The loser's next save advances the existing document.
+        b.addMember({ name: 'Bea' });
+        await b._saveQueue._chain;
+        expect(mockStore[path].rev).toBe(2);
+    });
+
+    it('first-run race under contention: the retried callback sees the other tab’s year and writes nothing', async () => {
+        const year = String(new Date().getFullYear());
+        const path = 'users/user-1/billingYears/' + year;
+        const theirs = { label: year, status: 'open', rev: 1, lastWriteId: 'w-theirs', createdAt: 'ts', familyMembers: [], bills: [], payments: [], billingEvents: [], settings: {} };
+        mockTxControl.contention = async () => { mockStore[path] = theirs; };
+        const s = new BillingYearService();
+        await s.setUser(TEST_USER);
+        expect(setDocCalls.filter(c => c.path === path)).toHaveLength(0);
+        expect(mockStore[path]).toBe(theirs);
+        expect(s.getState().activeYear.id).toBe(year);
+    });
+
+    it('versions an unversioned document (rev 1) only while it matches the loaded snapshot', async () => {
+        seedYear();
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(1);
+        expect(mockStore[PATH].createdAt).toBe('ts-created');
+        expect(s.getState().writeBlock).toBeNull();
+    });
+
+    it('refuses the migration write with STALE_DOCUMENT when an unversioned writer changed the document', async () => {
+        seedYear();
+        const s = await loadedService();
+        // A pre-feature tab saves a payment onto the still-unversioned document.
+        mockStore[PATH] = { ...mockStore[PATH], payments: [{ id: 'p-old', memberId: 1, amount: 5 }], updatedAt: 'later' };
+        const before = structuredClone(mockStore[PATH]);
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH]).toEqual(before);
+        expect('rev' in mockStore[PATH]).toBe(false);
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+    });
+
+    it('does not treat a missing rev as zero: a versioned document whose rev the tab never saw is stale', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 1, lastWriteId: 'w-other' };
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].lastWriteId).toBe('w-other');
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+    });
+
+    it('adopts a committed write whose response was lost, even after its server timestamp resolved', async () => {
+        seedYear({ rev: 4, lastWriteId: 'w-4' });
+        const s = await loadedService();
+        mockTxControl.rejectAfterCommit = firestoreError('unavailable', 'connection dropped');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(5);
+        expect(s.getState().saveStatus).toMatchObject({ state: 'not_saved' });
+        // The server resolved the sentinel; the stored document no longer equals the sent payload.
+        mockStore[PATH] = { ...mockStore[PATH], updatedAt: { toDate: () => new Date('2026-06-01T10:00:00Z') } };
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(6);
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea', 'Cy']);
+        expect(s.getState().saveStatus).toBeNull();
+    });
+
+    it('adopts a migration write whose response was lost, without STALE_DOCUMENT', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.rejectAfterCommit = firestoreError('deadline-exceeded');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(1);
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(2);
+    });
+
+    it('retries with the same expectation when a lost-response attempt did not commit', async () => {
+        seedYear({ rev: 2, lastWriteId: 'w-2' });
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable', 'Failed to get document because the client is offline.');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(2);
+        expect(s.getState().saveStatus.message).toMatch(/offline\. Not saved/);
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(3);
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea', 'Cy']);
+    });
+
+    it('classifies a lost response as stale when another session wrote meanwhile', async () => {
+        seedYear({ rev: 2, lastWriteId: 'w-2' });
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        mockStore[PATH] = { ...mockStore[PATH], rev: 3, lastWriteId: 'w-other' };
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].lastWriteId).toBe('w-other');
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+    });
+
+    it('reports offline as Not saved, never as success, and never downgrades to a plain write', async () => {
+        const { setDoc, writeBatch } = await import('firebase/firestore');
+        setDoc.mockClear();
+        writeBatch.mockClear();
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        setDoc.mockClear();
+        const events = [];
+        s.getSaveQueue().subscribe(e => events.push(e.type));
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        await s.save();
+        expect(events).toEqual(['save:start', 'save:error']);
+        expect(s.getState().saveStatus.state).toBe('not_saved');
+        expect(setDoc).not.toHaveBeenCalled();
+        expect(writeBatch).not.toHaveBeenCalled();
+    });
+
+    it('emits save:success only after the transaction resolves', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        let release;
+        mockTxControl.beforeCommit = () => new Promise(resolve => { release = resolve; });
+        const events = [];
+        s.getSaveQueue().subscribe(e => events.push(e.type));
+        const saved = s.save();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        expect(events).toEqual(['save:start']);
+        release();
+        await saved;
+        expect(events).toEqual(['save:start', 'save:success']);
+    });
+
+    it('a replayed transaction callback writes once and changes no service state', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        mockTxControl.replays = 2;
+        s.recordPayment({ memberId: 1, amount: 10, method: 'cash' });
+        await s._saveQueue._chain;
+        expect(yearWrites()).toHaveLength(1);
+        expect(mockStore[PATH].rev).toBe(2);
+        expect(mockStore[PATH].payments).toHaveLength(1);
+        expect(mockStore[PATH].billingEvents.filter(e => e.eventType === 'PAYMENT_RECORDED')).toHaveLength(1);
+    });
+
+    it('a permission-denied write enters the read-only state with nothing written', async () => {
+        seedYear({ rev: 1, lastWriteId: 'w-1' });
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('permission-denied', 'Missing or insufficient permissions.');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(1);
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'permission-denied' });
+        expect(s.getState().saveStatus.state).toBe('not_saved');
+    });
+
+    it('legacy createYear writes the same two documents apart from rev and lastWriteId, source at its next rev', async () => {
+        seedYear({
+            rev: 5, lastWriteId: 'w-5',
+            payments: [{ id: 'p1', memberId: 1, amount: 800, receivedAt: '2026-01-01', note: '', method: 'cash' }]
+        });
+        const s = await loadedService();
+        s._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }] });
+        await s.createYear('2027');
+        const source = setDocCalls.filter(c => c.path === PATH).pop();
+        const dest = setDocCalls.find(c => c.path === 'users/user-1/billingYears/2027');
+        expect(source.data.rev).toBe(6);
+        expect(dest.data.rev).toBe(1);
+        expect(source.data.creditAdjustments.some(a => a.type === 'carry_forward')).toBe(true);
+        expect(source.data.billingEvents.map(e => e.eventType)).toEqual(['YEAR_CARRIED_FORWARD']);
+        expect(dest.data.owedAdjustments.some(a => a.kind === 'carry_opening')).toBe(true);
+        expect(s.getState().activeYear.id).toBe('2027');
+    });
+
+    it('legacy createYear never overwrites a destination created elsewhere and leaves the source unchanged', async () => {
+        seedYear({ rev: 5, lastWriteId: 'w-5', payments: [{ id: 'p1', memberId: 1, amount: 800, method: 'cash' }] });
+        const s = await loadedService();
+        const elsewhere = { label: '2027', status: 'open', rev: 1, lastWriteId: 'w-elsewhere', familyMembers: [], bills: [], payments: [], billingEvents: [], settings: {} };
+        mockStore['users/user-1/billingYears/2027'] = elsewhere;
+        const source = structuredClone(mockStore[PATH]);
+        await expect(s.createYear('2027')).rejects.toThrow('Billing year "2027" already exists.');
+        expect(mockStore['users/user-1/billingYears/2027']).toBe(elsewhere);
+        expect(mockStore[PATH]).toEqual(source);
+        expect(s.getState().activeYear.id).toBe('2026');
+    });
+
+    it('legacy createYear refuses a stale source with STALE_DOCUMENT and creates no destination', async () => {
+        seedYear({ rev: 5, lastWriteId: 'w-5', payments: [{ id: 'p1', memberId: 1, amount: 800, method: 'cash' }] });
+        const s = await loadedService();
+        mockStore[PATH] = { ...mockStore[PATH], rev: 6, lastWriteId: 'w-other' };
+        await expect(s.createYear('2027')).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
+        expect(mockStore[PATH].lastWriteId).toBe('w-other');
+    });
+
+    it('no caller writes a year document with writeBatch or a bare setDoc (source guard)', async () => {
+        const { readFileSync } = await import('node:fs');
+        const { resolve } = await import('node:path');
+        const source = readFileSync(resolve(process.cwd(), 'src/lib/BillingYearService.js'), 'utf8');
+        expect(source).not.toMatch(/\bwriteBatch\b/);
+        expect(source).not.toMatch(/\btx\.update\(/);
+        const setDocCallsInSource = source.match(/\bsetDoc\([^,]*/g) || [];
+        // The only setDoc calls left write the users/<uid> pointer document.
+        expect(setDocCallsInSource.length).toBeGreaterThan(0);
+        for (const call of setDocCallsInSource) expect(call).toBe('setDoc(userDocRef');
+        // Every transaction in the service is the version-checked primitive.
+        expect((source.match(/\brunTransaction\(/g) || []).length).toBe(1);
     });
 });
