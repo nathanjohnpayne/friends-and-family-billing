@@ -329,13 +329,27 @@ export function computeSourceFingerprint(state) {
         familyMembers: pick(state.familyMembers ?? state.members, ['id', 'name', 'linkedMembers']),
         payments: pick(state.payments, ['id', 'memberId', 'amount', 'type', 'reversed']),
         creditAdjustments: state.creditAdjustments || [], owedAdjustments: state.owedAdjustments || [], billingEventCount: state.billingEvents?.length || 0 }));
+    return 'yer1_' + hashLanes(text);
+}
+
+/**
+ * Key-order-independent hash of the canonical reconciliation payload (bill changes and
+ * their answers, new bills, charges, overrides, confirmations) and the destination label.
+ * The reviewed source fingerprint is source binding, not an entry, so it is excluded.
+ */
+export function computePayloadFingerprint(reconciliation, nextYearLabel) {
+    const { sourceFingerprint: _source, ...entries } = reconciliation || {};
+    return 'yrp1_' + hashLanes(canonical(withoutVolatile({ ...entries, nextYearLabel })));
+}
+
+function hashLanes(text) {
     let a = 2166136261;
     let b = 2246822507;
     for (let index = 0; index < text.length; index++) {
         a = Math.imul(a ^ text.charCodeAt(index), 16777619);
         b = Math.imul(b ^ text.charCodeAt(index), 3266489909);
     }
-    return 'yer1_' + (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
+    return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
 }
 
 export function findSuccessorYear(billingYears, sourceYear, sourceEvents = []) {

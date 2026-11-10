@@ -14,7 +14,7 @@ import {
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData } from './persistence.js';
 import { plainTextToDoc } from './template-doc.js';
-import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
+import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear, isReviewedRollover, buildReviewedRollover } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials } from './calculations.js';
 import { selectBillableCharges, summarizeChargePreview } from './chargeNotice.js';
@@ -445,8 +445,15 @@ export class BillingYearService {
      * `options.reopenedAdjustmentIds`; it threads into the carry computation so a
      * resurfaced credit is held back. Defaults to empty.
      *
+     * Year-End Review (ADR 0009 § 3): `'reconciliation' in options` (a defined value,
+     * even `{}`) selects the review path, which appends the review's True-ups, Service
+     * Credits and member charges to this year, carries over that updated state with
+     * an itemized carry, seeds the new year with the derived bills and writes events on
+     * both documents (see buildReviewedRollover). An omitted reconciliation is the
+     * legacy call, whose business outcome is unchanged.
+     *
      * @param {string} yearId
-     * @param {{ reopenedAdjustmentIds?: Set }} [options]
+     * @param {{ reopenedAdjustmentIds?: Set, reconciliation?: Object }} [options]
      */
     async createYear(yearId, options = {}) {
         if (!this._user) return;
@@ -480,6 +487,7 @@ export class BillingYearService {
         if (isYearLabelDuplicate(billingYears, yearId)) {
             throw new Error('Billing year "' + yearId + '" already exists.');
         }
+        if (isReviewedRollover(options)) return this._createReviewedYearNow(yearId, options);
 
         // Compute what carries from the prior (current) year. A credit re-opened by
         // an active not_received (#319, ADR 0003) is held back from the carry.
@@ -529,6 +537,42 @@ export class BillingYearService {
             priorWrite = { ref: priorRef, payload: priorPayload };
         }
 
+        await this._commitRollover(yearId, newYearRef, newData, priorWrite);
+    }
+
+    /**
+     * @private The Year-End Review path of createYear (ADR 0009 § 3, specs/year-end-review.md
+     * § Rollover). HIGH-RISK. buildReviewedRollover prepares both documents from the current
+     * source state (records rebuilt from the payload, carry over the updated state, derived
+     * next-year bills, events on both documents); this method only stamps timestamps, builds
+     * the save payload through the ADR 0008 allowlist and hands both writes to the shared
+     * commit. The review path always writes the source year, even when nothing carries.
+     */
+    async _createReviewedYearNow(yearId, options) {
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        const prepared = buildReviewedRollover(
+            { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings },
+            yearId, options.reconciliation,
+            { now: new Date().toISOString(), userId: this._user.uid, eventId: generateEventId,
+                reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
+        );
+        const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
+        const newData = prepared.newYearData;
+        newData.createdAt = serverTimestamp();
+        newData.updatedAt = serverTimestamp();
+        const { priorYear } = prepared;
+        const priorPayload = buildSavePayload(
+            activeYear, familyMembers, bills, payments || [], priorYear.billingEvents, settings,
+            priorYear.creditAdjustments, priorYear.owedAdjustments
+        );
+        if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
+        priorPayload.updatedAt = serverTimestamp();
+        const priorRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+        await this._commitRollover(yearId, newYearRef, newData, { ref: priorRef, payload: priorPayload });
+    }
+
+    /** @private Commit a rollover's two prepared documents, then switch into the new year. */
+    async _commitRollover(yearId, newYearRef, newData, priorWrite) {
         // 3. Commit BOTH writes as a single Firestore writeBatch INSIDE the SaveQueue
         //    (#330 P1). The queue SERIALIZES the rollover behind any pending full-document
         //    save of the prior/active year (so a queued pre-carry save lands first and the

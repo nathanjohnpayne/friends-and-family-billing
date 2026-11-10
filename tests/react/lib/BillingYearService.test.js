@@ -67,7 +67,8 @@ vi.mock('firebase/firestore', () => ({
 
 import { BillingYearService } from '@/lib/BillingYearService.js';
 import { toExactCents } from '@/lib/household-money.js';
-import { getHouseholdFinancials } from '@/lib/calculations.js';
+import { getHouseholdFinancials, calculateSettlementMetrics } from '@/lib/calculations.js';
+import { computePriceChange, buildTrueUpRecords, snapshotExistingCredit, existingCreditCoverage, computeEnded } from '@/lib/year-end-review.js';
 
 function clearStore() {
     for (const key of Object.keys(mockStore)) delete mockStore[key];
@@ -468,6 +469,304 @@ describe('BillingYearService', () => {
             expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
             const committed = setDocCalls.filter(c => c.batched);
             expect(committed).toHaveLength(0);
+        });
+    });
+
+    // ── createYear: Year-End Review reconciliation path (#606, ADR 0009 § 3) ──
+    describe('createYear — Year-End Review reconciliation', () => {
+        const PRIOR = 'users/user-1/billingYears/2026';
+        const NEXT = 'users/user-1/billingYears/2027';
+        // The wireframe sample year: nine members in five households, every household paid in full.
+        const MEMBERS = [
+            { id: 1, name: 'Ada Okafor', linkedMembers: [2, 3] }, { id: 2, name: 'Erik Okafor', linkedMembers: [] },
+            { id: 3, name: 'Kenji Okafor', linkedMembers: [] }, { id: 4, name: 'Dede Lindqvist', linkedMembers: [5] },
+            { id: 5, name: 'Maja Lindqvist', linkedMembers: [] }, { id: 6, name: 'Rosa Diaz', linkedMembers: [7] },
+            { id: 7, name: 'Sam Diaz', linkedMembers: [] }, { id: 8, name: 'Priya Natarajan', linkedMembers: [] },
+            { id: 9, name: 'Tomas Berg', linkedMembers: [] }
+        ].map(member => ({ email: '', phone: '', avatar: '', paymentReceived: 0, ...member }));
+        const NORTHLINE = { id: 101, name: 'Northline Mobile', amount: 180, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2, 3, 4, 5, 6, 7, 8, 9] };
+        const PINECONE = { id: 102, name: 'Pinecone Vault', amount: 12, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2, 3] };
+        const GLACIER = { id: 103, name: 'Glacier Streaming', amount: 30, billingFrequency: 'monthly', logo: '', website: '', members: [4, 5, 6] };
+        // Household totals: Okafor 720 + 144, Lindqvist 480 + 240, Diaz 480 + 120, Priya 240, Tomas 240.
+        const PAID = { 1: 864, 4: 720, 6: 600, 8: 240, 9: 240 };
+        const MAJA_FEE = { id: 'oadj_maja_fee', memberId: 5, kind: 'usage_charge', amount: 30, description: 'Activation fee',
+            incurredDate: '2026-11-03', status: 'deferred', createdAt: '2026-11-03T09:00:00.000Z' };
+
+        function seedReview({ status = 'open', owedAdjustments = [], billingEvents = [] } = {}) {
+            svc._user = TEST_USER;
+            svc._setState({
+                billingYears: [{ id: '2026', label: '2026', status }],
+                activeYear: { id: '2026', label: '2026', status, createdAt: null, archivedAt: null },
+                familyMembers: structuredClone(MEMBERS),
+                bills: structuredClone([NORTHLINE, PINECONE, GLACIER]),
+                payments: Object.entries(PAID).map(([memberId, amount]) => ({ id: 'pay_' + memberId, memberId: Number(memberId),
+                    amount, receivedAt: '2026-01-15', note: '', method: 'cash' })),
+                creditAdjustments: [],
+                owedAdjustments: structuredClone(owedAdjustments),
+                billingEvents: structuredClone(billingEvents),
+                settings: { emailMessage: '', emailSubject: '', paymentLinks: [], paymentMethods: [] }
+            });
+            return structuredClone(svc.getState());
+        }
+        const review = (fields = {}) => ({ reconciliationId: 'rec-2026-a', sourceYearId: '2026', sourceFingerprint: 'yer1_reviewed',
+            trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [],
+            confirmations: { noBillChanges: false, noNewSubscriptions: false, noExtraCharges: false }, ...fields });
+        const sourceOf = (state, doc) => ({ familyMembers: state.familyMembers, bills: state.bills, payments: state.payments,
+            creditAdjustments: doc ? doc.creditAdjustments : state.creditAdjustments, owedAdjustments: doc ? doc.owedAdjustments : state.owedAdjustments });
+        const households = state => state.familyMembers.filter(member => !state.familyMembers.some(other => other.linkedMembers.includes(member.id)));
+        const events = (docData, type) => docData.billingEvents.filter(event => event.eventType === type);
+        const seedFor = (docData, primaryId) => docData.owedAdjustments.find(row => row.kind === 'carry_opening' && row.memberId === primaryId);
+
+        it('fixture 1: nine True-ups born carried_forward, 2026 settlement unchanged, 2027 seeds and price', async () => {
+            const { writeBatch } = await import('firebase/firestore');
+            writeBatch.mockClear();
+            const before = seedReview();
+            // The page's own amount is ignored: every record is rebuilt from the inputs.
+            await svc.createYear('2027', { reconciliation: review({ trueUps: [{ billId: 101, newAmount: 198, firstMonth: '2026-07', amount: 999 }] }) });
+
+            expect(writeBatch).toHaveBeenCalledTimes(1);
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            const trueUps = prior.owedAdjustments.filter(row => row.trueUpId);
+            expect(trueUps).toHaveLength(9);
+            for (const [index, record] of trueUps.entries()) {
+                expect(record).toMatchObject({ id: 'oadj_tu_2026_tu_2026_101_' + (index + 1), memberId: index + 1, trueUpId: 'tu_2026_101',
+                    billId: 101, billName: 'Northline Mobile', kind: 'usage_charge', basis: 'price_change', amount: 12,
+                    status: 'carried_forward', carriedForwardTo: '2027', reconciliationId: 'rec-2026-a', incurredDate: '2026-07-01',
+                    description: 'Northline Mobile went from $180 to $198 a month in July. Your share of 6 months: $12.00.' });
+                expect(record.calc).toMatchObject({ frequency: 'monthly', fromMonthly: 180, toMonthly: 198, firstMonth: '2026-07', months: 6,
+                    computed: 108, gross: 108, overridden: false, recorded: 108, share: 12 });
+            }
+            // 2026 settlement metrics identical before and after Start.
+            const metrics = state => calculateSettlementMetrics(state.familyMembers, state.bills, state.payments, state.creditAdjustments, null, state.owedAdjustments);
+            const after = { ...before, creditAdjustments: prior.creditAdjustments, owedAdjustments: prior.owedAdjustments };
+            expect(metrics(after).cents).toEqual(metrics(before).cents);
+            for (const member of households(before)) {
+                expect(getHouseholdFinancials(member, sourceOf(after)).cents).toEqual(getHouseholdFinancials(member, sourceOf(before)).cents);
+            }
+            expect(prior.bills).toEqual(before.bills);
+            // 2027 seeds carry +$12.00 per Northline member at the household grain.
+            const okafor = seedFor(next, 1);
+            expect(okafor).toMatchObject({ id: 'coadj_2026_1', amount: 36, fromYear: '2026', status: 'carried_in' });
+            expect(okafor.items.map(item => [item.sourceId, item.memberId, item.amount, item.basis])).toEqual(
+                [1, 2, 3].map(memberId => ['oadj_tu_2026_tu_2026_101_' + memberId, memberId, 12, 'price_change']));
+            expect(seedFor(next, 4).items.map(item => item.memberId)).toEqual([4, 5]);
+            expect(next.owedAdjustments.map(seed => seed.amount)).toEqual([36, 24, 24, 12, 12]);
+            // 2027 Northline is $198/mo with its rollover event.
+            expect(next.bills.find(bill => bill.id === 101)).toMatchObject({ amount: 198, billingFrequency: 'monthly', members: NORTHLINE.members });
+            expect(events(next, 'BILL_PRICE_ROLLED_OVER').map(event => event.payload)).toEqual([{ billId: 101, billName: 'Northline Mobile',
+                previousValue: 180, newValue: 198, billingFrequency: 'monthly', fromYear: '2026' }]);
+            // Events on both documents.
+            expect(events(prior, 'TRUE_UP_RECORDED').map(event => event.payload)).toEqual([expect.objectContaining({ trueUpId: 'tu_2026_101',
+                billId: 101, basis: 'price_change', amount: 108, memberCount: 9, memberIds: NORTHLINE.members, reconciliationId: 'rec-2026-a' })]);
+            expect(events(prior, 'YEAR_CARRIED_FORWARD')[0].payload).toMatchObject({ toYear: '2027', memberCount: 5, totalOpeningBalance: 108,
+                reconciliationId: 'rec-2026-a', itemCount: 9 });
+            const rolled = events(prior, 'YEAR_ROLLED_OVER');
+            expect(rolled).toHaveLength(1);
+            expect(rolled[0].payload).toMatchObject({ toYear: '2027', reconciliationId: 'rec-2026-a', trueUpCount: 1, serviceCreditCount: 0,
+                coveredCount: 0, usageChargeCount: 0, priceChangeCount: 1, endedCount: 0, newBillCount: 0 });
+            expect(rolled[0].payload.payloadFingerprint).toMatch(/^yrp1_[0-9a-f]{16}$/);
+            expect(events(next, 'YEAR_CREATED_FROM_REVIEW')[0].payload).toEqual({ fromYear: '2026', reconciliationId: 'rec-2026-a',
+                payloadFingerprint: rolled[0].payload.payloadFingerprint, householdCount: 5, carriedTotal: 108 });
+            expect(svc.getState().activeYear.id).toBe('2027');
+        });
+
+        it('fixture 3: the late start is a True-up; 2026 bills unchanged; 2027 has the new bill', async () => {
+            const before = seedReview();
+            const lumen = { rowId: 'row-lumen', billId: 104, name: 'Lumen Fiber Backup', amount: 9.99, frequency: 'monthly',
+                website: 'https://lumen.example', members: [3, 4, 7], firstMonth: '2026-09' };
+            await svc.createYear('2027', { reconciliation: review({ newBills: [lumen] }) });
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            expect(prior.bills).toEqual(before.bills);
+            expect(next.bills.find(bill => bill.id === 104)).toMatchObject({ name: 'Lumen Fiber Backup', amount: 9.99,
+                billingFrequency: 'monthly', website: 'https://lumen.example', members: [3, 4, 7] });
+            expect(events(next, 'BILL_CREATED').map(event => event.payload)).toEqual([{ billId: 104, billName: 'Lumen Fiber Backup',
+                amount: 9.99, billingFrequency: 'monthly', website: 'https://lumen.example', source: 'year_end_review',
+                firstMonth: '2026-09', reconciliationId: 'rec-2026-a' }]);
+            const trueUps = prior.owedAdjustments.filter(row => row.trueUpId === 'tu_2026_new_104');
+            expect(trueUps.map(row => [row.id, row.memberId, row.amount, row.status, row.basis])).toEqual([3, 4, 7].map(memberId =>
+                ['oadj_tu_2026_tu_2026_new_104_' + memberId, memberId, 13.32, 'carried_forward', 'late_start']));
+            const carried = next.owedAdjustments.flatMap(seed => seed.items).filter(item => item.basis === 'late_start');
+            expect(carried.reduce((sum, item) => sum + toExactCents(item.amount), 0)).toBe(3996);
+            expect(events(prior, 'TRUE_UP_RECORDED')[0].payload).toMatchObject({ trueUpId: 'tu_2026_new_104', basis: 'late_start', amount: 39.96 });
+            expect(events(prior, 'YEAR_ROLLED_OVER')[0].payload).toMatchObject({ trueUpCount: 1, newBillCount: 1, priceChangeCount: 0 });
+        });
+
+        it.each(['open', 'settling', 'closed'])('fixture 4 from a %s source: a price-decrease Service Credit, disposed by the carry', async status => {
+            const before = seedReview({ status });
+            await svc.createYear('2027', { reconciliation: review({ serviceCredits: [{ billId: 103, basis: 'price_change', newAmount: 24, firstMonth: '2026-10' }] }) });
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            expect(prior.status).toBe(status);
+            const credits = prior.owedAdjustments.filter(row => row.kind === 'service_credit');
+            expect(credits.map(row => [row.id, row.memberId, row.amount, row.status, row.basis])).toEqual([4, 5, 6].map(memberId =>
+                ['oadj_sc_2026_price_change_103_' + memberId, memberId, 6, 'active', 'price_change']));
+            expect(credits[0].calc).toMatchObject({ fromMonthly: 30, toMonthly: 24, months: 3, computed: 18, gross: 18, recorded: 18, coveredBy: [] });
+            // The resulting Credits are carried (disposed) in the same commit: every household still Settled, none Outstanding.
+            expect(prior.creditAdjustments.map(row => [row.id, row.type, row.amount, row.toYear])).toEqual([
+                ['cadj_carry_2027_4', 'carry_forward', 12, '2027'], ['cadj_carry_2027_6', 'carry_forward', 6, '2027']]);
+            for (const member of households(before)) {
+                const result = getHouseholdFinancials(member, sourceOf(before, prior));
+                expect([member.id, result.cents.balance, result.cents.credit]).toEqual([member.id, 0, 0]);
+            }
+            const lindqvist = seedFor(next, 4).items[0];
+            expect(lindqvist).toMatchObject({ kind: 'credit', sourceId: 'cadj_carry_2027_4', amount: -12 });
+            expect(lindqvist.detail.map(row => [row.sourceId, row.amount])).toEqual([['oadj_sc_2026_price_change_103_4', -6], ['oadj_sc_2026_price_change_103_5', -6]]);
+            expect(next.bills.find(bill => bill.id === 103).amount).toBe(24);
+            expect(events(prior, 'SERVICE_CREDIT_RECORDED')[0].payload).toMatchObject({ billId: 103, amount: 18, basis: 'price_change',
+                memberCount: 3, coveredBy: [], reconciliationId: 'rec-2026-a',
+                shares: [{ memberId: 4, amount: 6 }, { memberId: 5, amount: 6 }, { memberId: 6, amount: 6 }] });
+        });
+
+        it.each(['open', 'closed'])('fixture 5 from a %s source: the ended bill credits the household and leaves 2027', async status => {
+            const before = seedReview({ status });
+            await svc.createYear('2027', { reconciliation: review({ endedBillIds: [102],
+                serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08' }] }) });
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            const credits = prior.owedAdjustments.filter(row => row.kind === 'service_credit');
+            expect(credits.map(row => [row.memberId, row.amount, row.basis, row.calc.months, row.incurredDate])).toEqual(
+                [1, 2, 3].map(memberId => [memberId, 16, 'ended', 4, '2026-08-01']));
+            expect(next.bills.map(bill => bill.id)).toEqual([101, 103]);
+            expect(prior.bills).toEqual(before.bills);
+            const okafor = seedFor(next, 1);
+            expect(okafor.amount).toBe(-48);
+            expect(okafor.items).toHaveLength(1);
+            expect(okafor.items[0]).toMatchObject({ kind: 'credit', amount: -48, sourceId: 'cadj_carry_2027_1' });
+            expect(okafor.items[0].detail.map(row => row.amount)).toEqual([-16, -16, -16]);
+            expect(getHouseholdFinancials(before.familyMembers[0], sourceOf(before, prior)).cents).toMatchObject({ balance: 0, credit: 0 });
+            expect(events(prior, 'YEAR_ROLLED_OVER')[0].payload).toMatchObject({ serviceCreditCount: 1, endedCount: 1 });
+        });
+
+        it('fixture 8d: a change fully covered by existing credits records nothing and writes SERVICE_CREDIT_COVERED', async () => {
+            const existing = [1, 2, 3].map(memberId => ({ id: 'oadj_cancel_' + memberId, memberId, billId: 102, kind: 'service_credit',
+                amount: 16, reason: 'Cancelled early', incurredDate: '2026-09-02', status: 'active', createdAt: '2026-09-02T00:00:00.000Z' }));
+            seedReview({ owedAdjustments: existing });
+            const computed = computeEnded(PINECONE, { lastMonth: '2026-08' }, { sourceYear: '2026', skipExistingCredits: true });
+            const existingCredits = Object.fromEntries(existing.map(record => [record.id, { choice: 'covers',
+                seen: snapshotExistingCredit(record), coverage: existingCreditCoverage(computed, record.memberId) }]));
+            await svc.createYear('2027', { reconciliation: review({ endedBillIds: [102],
+                serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08', existingCredits }] }) });
+            const prior = mockStore[PRIOR];
+            expect(prior.owedAdjustments.filter(row => row.kind === 'service_credit').map(row => row.id)).toEqual(existing.map(row => row.id));
+            expect(events(prior, 'SERVICE_CREDIT_RECORDED')).toHaveLength(0);
+            expect(events(prior, 'SERVICE_CREDIT_COVERED')[0].payload).toMatchObject({ billId: 102, basis: 'ended',
+                coveredBy: existing.map(row => ({ adjustmentId: row.id, memberId: row.memberId, appliedAmount: 16 })) });
+            expect(events(prior, 'YEAR_ROLLED_OVER')[0].payload).toMatchObject({ coveredCount: 1, serviceCreditCount: 0 });
+            expect(mockStore[NEXT].bills.map(bill => bill.id)).toEqual([101, 103]);
+        });
+
+        it('rejects a missing existing-credit answer before any write', async () => {
+            seedReview({ owedAdjustments: [{ id: 'oadj_cancel_2', memberId: 2, billId: 102, kind: 'service_credit', amount: 16,
+                reason: 'Cancelled early', incurredDate: '2026-09-02', status: 'active', createdAt: '2026-09-02T00:00:00.000Z' }] });
+            await expect(svc.createYear('2027', { reconciliation: review({ endedBillIds: [102],
+                serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08' }] }) })).rejects.toThrow(/oadj_cancel_2/);
+            expect(mockStore[PRIOR]).toBeUndefined();
+            expect(mockStore[NEXT]).toBeUndefined();
+        });
+
+        it('fixture 6: an existing deferred charge listed in the review is carried once, never re-recorded', async () => {
+            seedReview({ owedAdjustments: [MAJA_FEE] });
+            await svc.createYear('2027', { reconciliation: review({ usageCharges: [{ existingAdjustmentId: 'oadj_maja_fee' },
+                { rowId: 'row-fee', memberId: 9, amount: 15, description: 'Replacement SIM', incurredDate: '2026-12-01' }] }) });
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            expect(prior.owedAdjustments.filter(row => row.id === 'oadj_maja_fee')).toEqual([{ ...MAJA_FEE, status: 'carried_forward', carriedForwardTo: '2027' }]);
+            expect(prior.owedAdjustments.find(row => row.id === 'oadj_uc_2026_row-fee')).toMatchObject({ memberId: 9, amount: 15,
+                status: 'carried_forward', reconciliationId: 'rec-2026-a' });
+            expect(prior.owedAdjustments).toHaveLength(2);
+            expect(seedFor(next, 4).items).toEqual([expect.objectContaining({ sourceId: 'oadj_maja_fee', memberId: 5, amount: 30, basis: 'member' })]);
+            expect(events(prior, 'USAGE_CHARGE_RECORDED').map(event => event.payload.adjustmentId)).toEqual(['oadj_uc_2026_row-fee']);
+            expect(events(prior, 'USAGE_CHARGE_RECORDED')[0].payload).toMatchObject({ memberName: 'Tomas Berg', reconciliationId: 'rec-2026-a' });
+        });
+
+        it('rejects re-recording an existing deferred charge or reusing a charge that is not deferred', async () => {
+            seedReview({ owedAdjustments: [MAJA_FEE, { ...MAJA_FEE, id: 'oadj_billed', status: 'billed' }] });
+            await expect(svc.createYear('2027', { reconciliation: review({ usageCharges: [{ ...MAJA_FEE, rowId: 'row-x' }] }) }))
+                .rejects.toThrow(/reused, never recorded again/);
+            await expect(svc.createYear('2027', { reconciliation: review({ usageCharges: [{ existingAdjustmentId: 'oadj_billed' }] }) }))
+                .rejects.toThrow(/not a deferred Usage Charge/);
+            expect(mockStore[PRIOR]).toBeUndefined();
+        });
+
+        it('"Nothing changed" writes YEAR_ROLLED_OVER and the itemized carry and no new adjustment record', async () => {
+            const before = seedReview({ owedAdjustments: [MAJA_FEE] });
+            await svc.createYear('2027', { reconciliation: review({ usageCharges: [{ existingAdjustmentId: 'oadj_maja_fee' }],
+                confirmations: { noBillChanges: true, noNewSubscriptions: true, noExtraCharges: true } }) });
+            const prior = mockStore[PRIOR];
+            const next = mockStore[NEXT];
+            expect(prior.owedAdjustments.map(row => row.id)).toEqual(before.owedAdjustments.map(row => row.id));
+            expect(prior.creditAdjustments).toEqual([]);
+            expect(prior.billingEvents.map(event => event.eventType)).toEqual(['YEAR_CARRIED_FORWARD', 'YEAR_ROLLED_OVER']);
+            expect(events(prior, 'YEAR_ROLLED_OVER')[0].payload).toMatchObject({ trueUpCount: 0, serviceCreditCount: 0, coveredCount: 0,
+                usageChargeCount: 0, priceChangeCount: 0, endedCount: 0, newBillCount: 0 });
+            expect(next.owedAdjustments).toEqual([expect.objectContaining({ memberId: 4, amount: 30,
+                items: [expect.objectContaining({ sourceId: 'oadj_maja_fee', amount: 30 })] })]);
+            expect(next.bills.map(bill => [bill.id, bill.amount])).toEqual([[101, 180], [102, 12], [103, 30]]);
+            expect(next.billingEvents.map(event => event.eventType)).toEqual(['YEAR_CREATED_FROM_REVIEW']);
+        });
+
+        it('writes the source year with YEAR_ROLLED_OVER even when nothing carries', async () => {
+            seedReview();
+            await svc.createYear('2027', { reconciliation: review() });
+            const prior = mockStore[PRIOR];
+            expect(prior.billingEvents.map(event => event.eventType)).toEqual(['YEAR_ROLLED_OVER']);
+            expect(mockStore[NEXT].owedAdjustments).toEqual([]);
+        });
+
+        it('applies next-year price overrides and records them as BILL_PRICE_ROLLED_OVER', async () => {
+            seedReview();
+            await svc.createYear('2027', { reconciliation: review({ billOverrides: { 102: 14 },
+                trueUps: [{ billId: 101, newAmount: 198, firstMonth: '2026-07' }] }) });
+            const next = mockStore[NEXT];
+            expect(next.bills.map(bill => [bill.id, bill.amount])).toEqual([[101, 198], [102, 14], [103, 30]]);
+            expect(events(next, 'BILL_PRICE_ROLLED_OVER').map(event => [event.payload.billId, event.payload.newValue])).toEqual([[101, 198], [102, 14]]);
+        });
+
+        it('fixture 10f: an unused incoming credit carries with no carry_forward record; the source stays Settled', async () => {
+            svc._user = TEST_USER;
+            const incoming = { id: 'coadj_2025_1', memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2025', amount: -132 };
+            svc._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }],
+                activeYear: { id: '2026', label: '2026', status: 'open', createdAt: null, archivedAt: null },
+                familyMembers: [{ id: 1, name: 'Ada', linkedMembers: [] }], bills: [], payments: [], creditAdjustments: [],
+                owedAdjustments: [incoming], billingEvents: [], settings: { emailMessage: '', paymentLinks: [], paymentMethods: [] } });
+            const before = structuredClone(svc.getState());
+            await svc.createYear('2027', { reconciliation: review() });
+            const prior = mockStore[PRIOR];
+            expect(prior.creditAdjustments).toEqual([]);
+            expect(prior.owedAdjustments).toEqual([{ ...incoming, carriedForwardTo: '2027' }]);
+            const member = before.familyMembers[0];
+            expect(getHouseholdFinancials(member, sourceOf(before, prior)).cents).toEqual(getHouseholdFinancials(member, sourceOf(before)).cents);
+            expect(getHouseholdFinancials(member, sourceOf(before, prior)).cents).toMatchObject({ owed: 0, N: 0, balance: 0, credit: 0 });
+            const seed = mockStore[NEXT].owedAdjustments[0];
+            expect(seed).toMatchObject({ amount: -132, items: [{ kind: 'credit', sourceId: 'coadj_2025_1', amount: -132,
+                detail: [{ kind: 'unused', description: 'Unused 2026 credit', amount: -132 }] }] });
+        });
+
+        it('rejects an Archived source year, a payload without its id or for another year, before any write', async () => {
+            seedReview({ status: 'archived' });
+            await expect(svc.createYear('2027', { reconciliation: review() })).rejects.toThrow(/archived billing year cannot be rolled over/);
+            seedReview();
+            await expect(svc.createYear('2027', { reconciliation: {} })).rejects.toThrow(/reconciliation id/);
+            await expect(svc.createYear('2027', { reconciliation: null })).rejects.toThrow(/payload is invalid/);
+            await expect(svc.createYear('2027', { reconciliation: review({ sourceYearId: '2025' }) })).rejects.toThrow(/another billing year/);
+            await expect(svc.createYear('2027', { reconciliation: review({ trueUps: [{ billId: 103, newAmount: 24, firstMonth: '2026-10' }] }) }))
+                .rejects.toThrow(/Service Credit, not a True-up/);
+            await expect(svc.createYear('2027', { reconciliation: review({ serviceCredits: [{ billId: 102, basis: 'ended', lastMonth: '2026-08' }] }) }))
+                .rejects.toThrow(/not listed as ended/);
+            expect(mockStore[PRIOR]).toBeUndefined();
+            expect(mockStore[NEXT]).toBeUndefined();
+        });
+
+        it('keeps an omitted or undefined reconciliation on the legacy path', async () => {
+            seedReview({ owedAdjustments: [MAJA_FEE] });
+            await svc.createYear('2027', { reconciliation: undefined });
+            const prior = mockStore[PRIOR];
+            expect(prior.billingEvents.map(event => event.eventType)).toEqual(['YEAR_CARRIED_FORWARD']);
+            expect(prior.billingEvents[0].payload).toEqual({ toYear: '2027', memberCount: 1, totalOpeningBalance: 30 });
+            expect(mockStore[NEXT].owedAdjustments[0].items).toBeUndefined();
+            expect(mockStore[NEXT].billingEvents).toEqual([]);
         });
     });
 
@@ -1050,6 +1349,24 @@ describe('BillingYearService', () => {
             expect(() => svc.billDeferredCharges({ memberId: 1 })).toThrow();
             expect(svc.getState()).toBe(before);
             expect(save).not.toHaveBeenCalled();
+        });
+
+        it('bills a household holding a deferred True-up like any other deferred Usage Charge (#606)', () => {
+            // A standalone True-up primitive: the library's records, still deferred in an open year.
+            const bill = { id: 101, name: 'Northline Mobile', amount: 180, billingFrequency: 'monthly', members: [1, 2, 3] };
+            const result = computePriceChange(bill, { newAmount: 198, firstMonth: '2026-07' }, { sourceYear: '2026' });
+            const trueUps = buildTrueUpRecords(result, { sourceYearId: '2026', reconciliationId: 'rec-standalone', now: '2026-11-04T10:00:00.000Z' });
+            seedWithCharges({ bills: [bill], owedAdjustments: trueUps });
+            const billed = svc.billDeferredCharges({ memberId: 1 });
+            // Alice's household is Alice (1) plus Carol (3); Bob (2) is his own household.
+            expect(billed.chargeIds.sort()).toEqual([trueUps[0].id, trueUps[2].id].sort());
+            // ($198 − $180) × 6 months = $108.00 ÷ 3 members = $36.00 each; the household holds two shares.
+            expect(billed.amount).toBe(72);
+            const after = svc.getState().owedAdjustments;
+            expect(after.filter(row => row.status === 'billed').map(row => row.id).sort()).toEqual(billed.chargeIds.sort());
+            expect(after.find(row => row.memberId === 2).status).toBe('deferred');
+            expect(after.find(row => row.memberId === 1)).toMatchObject({ basis: 'price_change', trueUpId: 'tu_2026_101', chargeNoticeId: billed.chargeNoticeId });
+            expect(getHouseholdFinancials(svc.getState().familyMembers[0], svc.getState()).cents.B).toBe(7200);
         });
 
         it('flips all of a member deferred charges to billed and stamps the charge-notice id', () => {
