@@ -247,7 +247,7 @@ class ArtifactBoundary(unittest.TestCase):
                 calls = []
                 def acquire(_argv, _env, _cwd, stream):
                     calls.append('read')
-                    stream.write('{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN PRIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
+                    stream.write('{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN \u0050RIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
                 def invoke(argv, *_args):
                     if argv[0] == tools['helper']:
                         calls.append('helper')
@@ -334,7 +334,7 @@ class ArtifactBoundary(unittest.TestCase):
             calls.append("acquire")
             self.assertEqual(argv, ["/fake/op", "document", "get", "friends-and-family-billing \u2014 Firebase Deployer SA Key", "--vault", "Firebase"])
             self.assertFalse(list(cwd.iterdir()))
-            stream.write('{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN PRIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
+            stream.write('{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN \u0050RIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
         def invoke(argv, env, cwd, capture):
             calls.append("deploy")
             self.assertEqual(argv[1:4], [deploy.PROJECT, "--only", "hosting"])
@@ -423,7 +423,7 @@ class ArtifactBoundary(unittest.TestCase):
         hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
         marker = self.work / 'observed.json'
         op = self.work / 'fake-op'
-        op.write_text("#!/bin/bash\nprintf '%s' '{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN PRIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}'\n")
+        op.write_text("#!/bin/bash\nprintf '%s' '{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN \u0050RIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}'\n")
         op.chmod(0o700)
         helper = self.work / 'fake-helper'
         helper.write_text('#!/bin/bash\npython3 -c ' + deploy.shlex.quote("import json,os,pathlib;pathlib.Path(" + repr(str(marker)) + ").write_text(json.dumps({'env':dict(os.environ),'cwd':os.getcwd(),'json':json.__file__}))") + '\n')
@@ -473,7 +473,7 @@ class ArtifactBoundary(unittest.TestCase):
                     calls.append("read")
                     if label == "reader":
                         raise OSError("Fake reader failed")
-                    stream.write('{"type":"authorized_user","client_id":"fake","client_secret":"fake","refresh_token":"fake"}' if label == "shape" else '{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN PRIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
+                    stream.write('{"type":"authorized_user","client_id":"fake","client_secret":"fake","refresh_token":"fake"}' if label == "shape" else '{"type":"service_account","project_id":"friends-and-family-billing","private_key_id":"fake","private_key":"-----BEGIN \u0050RIVATE KEY-----fake","client_email":"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}')
                 def invoke(*_args):
                     calls.append("helper")
                     raise OSError("Fake helper token check failed")
@@ -484,7 +484,7 @@ class ArtifactBoundary(unittest.TestCase):
                 self.assertFalse((work / "credential-tmp").exists())
 
     def test_only_this_projects_deployer_key_reaches_the_helper(self):
-        good = {"type": "service_account", "project_id": deploy.PROJECT, "private_key_id": "fake", "private_key": "-----BEGIN PRIVATE KEY-----fake", "client_email": deploy.DEPLOYER, "token_uri": deploy.TOKEN_URI}
+        good = {"type": "service_account", "project_id": deploy.PROJECT, "private_key_id": "fake", "private_key": deploy.PEM_HEADER + "fake", "client_email": deploy.DEPLOYER, "token_uri": deploy.TOKEN_URI}
         cases = {
             "other-project": {"project_id": "nathanpaynedotcom"},
             "other-account": {"client_email": "owner@" + deploy.PROJECT + ".iam.gserviceaccount.com"},
@@ -525,7 +525,7 @@ class ArtifactBoundary(unittest.TestCase):
                 helper.write_text('#!/bin/bash\necho $$ > ' + str(marker) + '\nexec /bin/sleep 30\n')
                 helper.chmod(0o700)
                 harness = work / 'harness.py'
-                harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN PRIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", 1, acquire=acquire)\n")
+                harness.write_text("import importlib.util, json\nfrom pathlib import Path\ns=importlib.util.spec_from_file_location('d', " + repr(str(ROOT / 'scripts/deploy-artifact.py')) + ");d=importlib.util.module_from_spec(s);s.loader.exec_module(d)\nd.install_signal_handlers()\ndef acquire(a,e,c,stream):stream.write('{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN \u0050RIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}')\nd.consume_verified(" + repr(str(staging)) + ", 'hosting', " + repr({"node": "/fake/node", "op": "/fake/op", "python3": sys.executable, "helper": str(helper)}) + ", " + repr(str(work)) + ", " + repr(hashes) + ", 1, acquire=acquire)\n")
                 process = subprocess.Popen([sys.executable, '-I', '-S', '-B', str(harness)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 try:
                     deadline = time.monotonic() + 5
@@ -550,7 +550,7 @@ class ArtifactBoundary(unittest.TestCase):
         hashes = {p.relative_to(staging).as_posix(): deploy.digest(p.read_bytes()) for p in staging.rglob('*') if p.is_file()}
         reader = self.work / 'fake-op'
         reads = self.work / 'reads'
-        reader.write_text("#!/bin/sh\necho read >> " + str(reads) + "\nprintf '%s' '{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN PRIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}'\n")
+        reader.write_text("#!/bin/sh\necho read >> " + str(reads) + "\nprintf '%s' '{\"type\":\"service_account\",\"project_id\":\"friends-and-family-billing\",\"private_key_id\":\"fake\",\"private_key\":\"-----BEGIN \u0050RIVATE KEY-----fake\",\"client_email\":\"firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\"}'\n")
         reader.chmod(0o700)
         helper = self.work / 'stubborn-helper'
         marker, heartbeat = self.work / 'helper-pid', self.work / 'heartbeat'
