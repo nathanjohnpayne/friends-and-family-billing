@@ -13,7 +13,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 import { normalizeYearData, buildSavePayload, buildInitialYearData, fingerprintStoredYear, plainYearPayload } from './persistence.js';
-import { classifyYearWrite, newWriteId, isUncertainWriteError, isBlockingWriteError, isOfflineWriteError, YearWriteError } from './year-write.js';
+import { classifyYearWrite, newWriteId, isUncertainWriteError, isBlockingWriteError, isOfflineWriteError, YearWriteError, YEAR_WRITE_OUTCOMES } from './year-write.js';
+import { summarizeUnsavedChanges, persistUnsavedRecord } from './unsaved-changes.js';
 import { plainTextToDoc } from './template-doc.js';
 import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
@@ -242,7 +243,7 @@ export class BillingYearService {
      */
     async _createFirstYear(yearId) {
         const ref = doc(db, 'users', this._user.uid, 'billingYears', yearId);
-        await this._enqueueConfirmed(() => this._commitYearWrite({
+        await this._enqueueConfirmed([yearId], () => this._commitYearWrite({
             ref, yearId, expectedRev: 0, fingerprintIfUnversioned: null, ifExists: 'skip',
             buildPayload: () => withWriteTimestamps(buildInitialYearData(yearId, DEFAULT_SETTINGS))
         }));
@@ -390,28 +391,69 @@ export class BillingYearService {
             }
         }
         if (isBlockingWriteError(err)) {
-            this._enterWriteBlock(attempt.map(spec => spec.yearId), err);
+            this._enterWriteBlock(attempt, err);
             return;
         }
+        // A creation that found its year already there is createYear's own outcome.
+        if (err instanceof YearWriteError && err.code === YEAR_WRITE_OUTCOMES.YEAR_EXISTS) return;
         const message = isOfflineWriteError(err)
-            ? 'You’re offline. Not saved—it is retried with your next change.'
-            : 'Not saved: ' + (err && err.message ? err.message : 'unknown error') + '. It is retried with your next change.';
+            ? 'You\u2019re offline, so nothing was written. It is retried with your next change.'
+            : 'The save failed (' + (err && err.message ? err.message : 'unknown error') + '). It is retried with your next change.';
         this._setState({ saveStatus: { state: 'not_saved', message, at: new Date().toISOString() } });
     }
 
-    /** @private Enter the read-only Reload required state for these years (#614). */
-    _enterWriteBlock(yearIds, err) {
+    /**
+     * @private Enter the read-only Reload required state (#614 / #669, RD-34). The
+     * queue stops accepting writes for every year the refused write touched (later
+     * enqueues reject with the same outcome), the unsaved changes are computed from
+     * the unsaved payload against the last successful save and kept on this device
+     * when it can, and mutations are refused until the tab reloads. Nothing is merged
+     * and no fresh rev is applied to the stale data.
+     */
+    _enterWriteBlock(attempt, err) {
+        const yearIds = attempt.map(spec => spec.yearId);
+        for (const yearId of yearIds) this._saveQueue.stop(yearId, err);
         if (this._state.writeBlock) return;
         const at = new Date().toISOString();
+        const reason = err instanceof YearWriteError ? 'stale' : 'permission-denied';
+        const { activeYear } = this._state;
+        const detailYear = err instanceof YearWriteError && err.details && err.details.yearId != null ? String(err.details.yearId) : null;
+        const yearId = detailYear || (activeYear && yearIds.includes(activeYear.id) ? activeYear.id : yearIds[0]);
+        const spec = attempt.find(item => item.yearId === yearId) || attempt[0];
+        const known = this._yearVersions.get(yearId);
+        const baseline = known && known.baseline ? known.baseline : null;
+        const payload = this._unsavedPayload(yearId, spec);
+        const record = {
+            version: 1,
+            uid: this._user ? this._user.uid : null,
+            yearId,
+            yearLabel: activeYear && activeYear.id === yearId ? (activeYear.label || yearId) : yearId,
+            reason,
+            detectedAt: at,
+            baselineAt: baseline ? baseline.at : null,
+            baselineKind: baseline ? baseline.kind : 'loaded',
+            changes: summarizeUnsavedChanges(baseline ? baseline.payload : null, payload),
+            payload
+        };
+        const kept = persistUnsavedRecord(record);
         this._setState({
-            writeBlock: {
-                yearIds,
-                yearId: yearIds[0],
-                reason: err instanceof YearWriteError ? 'stale' : 'permission-denied',
-                detectedAt: at
-            },
-            saveStatus: { state: 'not_saved', message: 'Not saved: this tab is read-only until it reloads.', at }
+            writeBlock: { ...record, yearIds, keptOnDevice: kept.kept, storageError: kept.kept ? null : kept.error },
+            saveStatus: { state: 'not_saved', message: 'This tab is read-only until it reloads.', at }
         });
+    }
+
+    /** @private The unsaved data of a year: the live state when it is the active year, else the refused write's payload. */
+    _unsavedPayload(yearId, spec) {
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        try {
+            if (activeYear && activeYear.id === yearId) {
+                return plainYearPayload(buildSavePayload(activeYear, familyMembers || [], bills || [], payments || [], billingEvents || [], settings,
+                    creditAdjustments || [], owedAdjustments || []));
+            }
+            return spec ? plainYearPayload(spec.buildPayload(null)) : null;
+        } catch (_) {
+            return null;
+        }
     }
 
     /** @private */
@@ -515,7 +557,10 @@ export class BillingYearService {
             return Promise.resolve();
         }
 
-        return this._saveQueue.enqueue(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+        // A year stopped by a stale write rejects; save() keeps resolving (its callers
+        // fire and forget), and the Reload required state reports it.
+        return this._saveQueue.enqueue(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments),
+            { keys: [activeYear.id] }).catch(() => {});
     }
 
     /** @private The write function save() enqueues, over a snapshot of the state. */
@@ -546,11 +591,11 @@ export class BillingYearService {
         const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
         if (this._e2eMode || !this._user || !activeYear) return;
         if (activeYear.status === 'closed' || activeYear.status === 'archived') return;
-        await this._enqueueConfirmed(this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
+        await this._enqueueConfirmed([activeYear.id], this._yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments));
     }
 
     /** @private Enqueue a write and reject when that write fails (see _saveConfirmed). */
-    async _enqueueConfirmed(write) {
+    async _enqueueConfirmed(yearIds, write) {
         let failure = null;
         await this._saveQueue.enqueue(async () => {
             try {
@@ -559,7 +604,7 @@ export class BillingYearService {
                 failure = err;
                 throw err; // the queue still logs it and notifies save:error subscribers
             }
-        });
+        }, { keys: yearIds });
         if (failure) throw failure;
     }
 
@@ -606,7 +651,7 @@ export class BillingYearService {
 
         try {
             const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
-            await this._enqueueConfirmed(() => this._commitYearWrite({
+            await this._enqueueConfirmed([activeYear.id], () => this._commitYearWrite({
                 ref: yearDocRef, yearId: activeYear.id, buildPayload: () => withWriteTimestamps(payload)
             }));
 
@@ -754,7 +799,7 @@ export class BillingYearService {
         //    when absent (never overwritten); the source must still be at the rev this
         //    tab last loaded or saved. A failure is re-thrown after the queue settles to
         //    fail createYear loudly and skip the switch into a non-existent year.
-        await this._enqueueConfirmed(() => this._commitYearWrite(this._legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite)));
+        await this._enqueueConfirmed([yearId, activeYear ? activeYear.id : yearId], () => this._commitYearWrite(this._legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite)));
 
         await this._loadYearsList();
         await this.switchYear(yearId);
@@ -1170,7 +1215,7 @@ export class BillingYearService {
         // edit's household fields and event change; every other stored field
         // (including what the queued writes behind ours persisted) is kept. When
         // nothing needs reverting the transaction writes nothing.
-        await this._enqueueConfirmed(() => this._commitYearWrite({
+        await this._enqueueConfirmed([yearId], () => this._commitYearWrite({
             ref: yearDocRef,
             yearId,
             buildPayload: (stored) => {

@@ -1154,3 +1154,31 @@ describe('resolveShareToken — household rounding and writer/cache parity (#620
 // Exercise the source CommonJS entry with the same frontend vectors.
 require('./money-vectors.cjs')(require('../functions/money.js'), { describe, it, assert });
 require('./household-money-vectors.cjs')(require('../functions/household-money.js'), { describe, it, assert });
+
+// #614 (spec § Versioned year-document writes, limitation 1): the Admin SDK bypasses
+// the rules, so no Cloud Function may write users/<uid>/billingYears/<yearId>. Every
+// billingYears reference in functions/ is a read of the collection or a year
+// document, or a step into its disputes subcollection. A future server writer must
+// implement the same read-and-increment rev contract inside a transaction.
+describe('functions source guard: no Cloud Function writes a year document (#614)', () => {
+  it('uses billingYears only to read a year or reach its disputes subcollection', () => {
+    const fs = require('node:fs');
+    const dir = path.join(__dirname, '..', 'functions');
+    const files = fs.readdirSync(dir).filter((name) => name.endsWith('.js'));
+    let references = 0;
+    for (const name of files) {
+      const source = fs.readFileSync(path.join(dir, name), 'utf8').replace(/\s+/g, '');
+      const pattern = /\.collection\(["']billingYears["']\)/g;
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        references += 1;
+        const rest = source.slice(match.index + match[0].length);
+        const allowed = /^\.get\(\)/.test(rest)
+          || /^\.doc\([^()]*\)\.get\(\)/.test(rest)
+          || /^\.doc\([^()]*\)\.collection\(["']disputes["']\)/.test(rest);
+        assert.ok(allowed, name + ': billingYears reference is not a read or a disputes step: ' + rest.slice(0, 80));
+      }
+    }
+    assert.ok(references > 0, 'expected the guard to see the existing billingYears reads');
+  });
+});

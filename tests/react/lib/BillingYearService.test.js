@@ -1466,7 +1466,7 @@ describe('BillingYearService — version-checked year writes (#668)', () => {
         s.addMember({ name: 'Bea' });
         await s._saveQueue._chain;
         expect(mockStore[PATH].rev).toBe(2);
-        expect(s.getState().saveStatus.message).toMatch(/offline\. Not saved/);
+        expect(s.getState().saveStatus.message).toMatch(/offline, so nothing was written/);
         s.addMember({ name: 'Cy' });
         await s._saveQueue._chain;
         expect(s.getState().writeBlock).toBeNull();
@@ -1593,5 +1593,146 @@ describe('BillingYearService — version-checked year writes (#668)', () => {
         for (const call of setDocCallsInSource) expect(call).toBe('setDoc(userDocRef');
         // Every transaction in the service is the version-checked primitive.
         expect((source.match(/\brunTransaction\(/g) || []).length).toBe(1);
+    });
+});
+
+// ── Stale-write recovery: the Reload required state (#669, RD-34) ──
+
+describe('BillingYearService — Reload required state (#669)', () => {
+    const PATH = 'users/user-1/billingYears/2026';
+    const KEY = 'ffb.unsaved.v1.user-1.2026';
+    const firestoreError = (code, message = code) => Object.assign(new Error(message), { code });
+    function seedYear(extra = {}) {
+        mockStore['users/user-1'] = { activeBillingYear: '2026' };
+        mockStore[PATH] = {
+            label: '2026', status: 'open', createdAt: 'ts-created', rev: 1, lastWriteId: 'w-1',
+            familyMembers: [
+                { id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] },
+                { id: 2, name: 'Kenji', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }
+            ],
+            bills: [{ id: 101, name: 'Internet', amount: 60, billingFrequency: 'monthly', logo: '', website: '', members: [1, 2] }],
+            payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+            settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [] },
+            ...extra
+        };
+    }
+    async function loadedService() {
+        const service = new BillingYearService();
+        await service.setUser(TEST_USER);
+        return service;
+    }
+    const otherSessionSaves = () => { mockStore[PATH] = { ...mockStore[PATH], rev: mockStore[PATH].rev + 1, lastWriteId: 'w-other' }; };
+    let errSpy;
+    beforeEach(() => {
+        clearStore();
+        window.localStorage.clear();
+        errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        errSpy.mockRestore();
+        vi.restoreAllMocks();
+        window.localStorage.clear();
+    });
+
+    it('the losing session lists its unsaved changes against the last successful save and keeps them on the device', async () => {
+        seedYear();
+        const s = await loadedService();
+        // A payment saved after the load is part of the baseline, never unsaved.
+        s.recordPayment({ memberId: 1, amount: 50, method: 'venmo' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(2);
+        otherSessionSaves();
+        // Unsaved: a service credit (an event) and edits that emit no event.
+        s.recordServiceCredit({ billId: 101, amount: 12, reason: 'Outage, March' });
+        s.updateMember(2, { phone: '+14155551212' });
+        s.addMember({ name: 'Priya Natarajan' });
+        s.updateSettings({ emailMessage: 'Hello there' });
+        await s._saveQueue._chain;
+
+        const block = s.getState().writeBlock;
+        expect(block).toMatchObject({ yearId: '2026', reason: 'stale', baselineKind: 'saved', keptOnDevice: true, storageError: null });
+        const labels = block.changes.map(c => c.label + (c.detail ? ' · ' + c.detail : ''));
+        expect(labels.some(l => l.startsWith('Service credit · Internet'))).toBe(true);
+        expect(labels).toContain('Member edited · Kenji · phone number');
+        expect(labels).toContain('Member added · Priya Natarajan');
+        expect(labels).toContain('Invoice template changed');
+        expect(labels.some(l => l.startsWith('Payment recorded'))).toBe(false);
+        expect(block.payload.familyMembers.map(m => m.name)).toEqual(['Ada', 'Kenji', 'Priya Natarajan']);
+
+        const kept = JSON.parse(window.localStorage.getItem(KEY));
+        expect(kept.changes).toEqual(block.changes);
+        expect(kept.payload.settings.emailMessage).toBe('Hello there');
+        // Nothing was merged or re-stamped: the other session's document stands.
+        expect(mockStore[PATH].lastWriteId).toBe('w-other');
+        expect(mockStore[PATH].payments).toHaveLength(1);
+    });
+
+    it('stops the queue for the year: later enqueues reject with the same outcome and write nothing', async () => {
+        seedYear();
+        const s = await loadedService();
+        otherSessionSaves();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        const outcome = s._saveQueue.stoppedOutcome('2026');
+        expect(outcome).toMatchObject({ code: 'STALE_DOCUMENT' });
+        const writes = setDocCalls.length;
+        await expect(s._saveQueue.enqueue(async () => {}, { keys: ['2026'] })).rejects.toBe(outcome);
+        await expect(s._saveConfirmed()).rejects.toBe(outcome);
+        await expect(s.setYearStatus('settling')).rejects.toBe(outcome);
+        await s.save(); // fire-and-forget callers still resolve
+        expect(setDocCalls.length).toBe(writes);
+        expect(s.getState().saveStatus.state).toBe('not_saved');
+    });
+
+    it('a permission-denied write produces the same state and never a success', async () => {
+        seedYear();
+        const s = await loadedService();
+        const events = [];
+        s.getSaveQueue().subscribe(e => events.push(e.type));
+        mockTxControl.failNextCommit = firestoreError('permission-denied', 'Missing or insufficient permissions.');
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'permission-denied', keptOnDevice: true });
+        expect(s.getState().writeBlock.changes.map(c => c.label)).toEqual(['Member added']);
+        expect(window.localStorage.getItem(KEY)).not.toBeNull();
+        expect(events).not.toContain('save:success');
+        expect(s.getState().saveStatus.state).toBe('not_saved');
+    });
+
+    it('after a reload the kept list is read back for the Dashboard', async () => {
+        seedYear();
+        const s = await loadedService();
+        otherSessionSaves();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        const { readUnsavedRecords } = await import('@/lib/unsaved-changes.js');
+        const fresh = await loadedService(); // the reloaded tab
+        expect(fresh.getState().writeBlock).toBeNull();
+        const [record] = readUnsavedRecords('user-1');
+        expect(record.yearId).toBe('2026');
+        expect(record.changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Bea']);
+    });
+
+    it('says so when the device cannot keep the list (storage unavailable)', async () => {
+        seedYear();
+        const s = await loadedService();
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('The operation is insecure.'); });
+        otherSessionSaves();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toMatchObject({ keptOnDevice: false, storageError: 'The operation is insecure.' });
+        expect(s.getState().writeBlock.changes).toHaveLength(1);
+    });
+
+    it('says so when the device cannot keep the list (quota exceeded)', async () => {
+        seedYear();
+        const s = await loadedService();
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+        });
+        otherSessionSaves();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toMatchObject({ keptOnDevice: false, storageError: 'This device is out of storage space.' });
     });
 });
