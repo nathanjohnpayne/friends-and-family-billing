@@ -112,8 +112,12 @@ function classifyRaw(error) {
  */
 export function classifyCommitResult({ result, error } = {}, ctx) {
     if (!error) {
-        const yearId = (result && typeof result === 'object' && result.yearId) || ctx.yearId;
-        return { state: 'success', yearId, alreadyCompleted: result?.outcome === 'already_completed' };
+        const outcome = result && typeof result === 'object' ? result.outcome : undefined;
+        // Only the documented results are success. Anything else (createYear returns undefined
+        // without writing when no user is bound) is not evidence of a rollover: never clear the
+        // draft or announce a year on it.
+        if (outcome !== 'completed' && outcome !== 'already_completed') return { state: 'uncertain', checked: false, yearId: ctx.yearId };
+        return { state: 'success', yearId: result.yearId || ctx.yearId, alreadyCompleted: outcome === 'already_completed' };
     }
     const resolution = error.resolution ?? (error.existing ? resolveExisting(error.existing, ctx) : undefined);
     switch (error.code) {

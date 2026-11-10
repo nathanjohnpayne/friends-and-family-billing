@@ -546,6 +546,13 @@ describe('the local draft', () => {
         expect(stored().newBills).toEqual([]);
     });
 
+    it('keeps a restored new subscription whose optional website was omitted (#609 review)', () => {
+        seedDraft({ newBills: [{ rowId: 'r1', billId: 900, name: 'Lumen', amount: 9.99, frequency: 'monthly', members: [MEMBER.sam], firstMonth: '2026-09' }] });
+        renderPage();
+        expect(screen.queryByText(/malformed and was discarded/)).toBeNull();
+        expect(stored().newBills).toEqual([expect.objectContaining({ rowId: 'r1', billId: 900, name: 'Lumen', website: '' })]);
+    });
+
     it('discards an unreadable draft with a message', () => {
         window.localStorage.setItem(KEY, '{not json');
         renderPage();
@@ -655,7 +662,7 @@ function fakeService(overrides = {}) {
         switchYear: vi.fn(async yearId => {
             if (yearId !== mocks.state.activeYear.id) mocks.state = { ...mocks.state, activeYear: { id: yearId, label: yearId, status: 'open' } };
         }),
-        createYear: vi.fn(async () => {}),
+        createYear: vi.fn(async () => ({ outcome: 'completed', yearId: '2027' })),
         ...overrides
     };
     mocks.service = service;
@@ -811,7 +818,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
         const order = [];
         const service = fakeService({
             _loadYearsList: vi.fn(async () => { order.push('guard'); }),
-            createYear: vi.fn(async () => { order.push('commit'); })
+            createYear: vi.fn(async () => { order.push('commit'); return { outcome: 'completed', yearId: '2027' }; })
         });
         mocks.notices = { refundNotices: [{ kind: 'refund_notice', creditAdjustmentId: 'cadj_x', status: 'not_received', resolution: null }], loading: false, error: null };
         const draft = seedWireframe();
@@ -836,6 +843,20 @@ describe('Step 4 — Start and the commit outcomes', () => {
         expect(service.switchYear).toHaveBeenCalledWith('2027');
     });
 
+    it('a createYear that resolves without a documented outcome is not success: the draft is kept and nothing is announced (#609 review)', async () => {
+        const user = userEvent.setup();
+        // e.g. no user bound: createYear returns undefined without writing.
+        fakeService({ createYear: vi.fn(async () => undefined) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText('We can’t tell yet whether 2027 was created.')).toBeInTheDocument();
+        expect(screen.queryByText('Dashboard page')).toBeNull();
+        expect(screen.queryByText('2027 started.')).toBeNull();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
     it('starting: locks the page, says not to close the tab, and offers no Back, Discard or Edit', async () => {
         const user = userEvent.setup();
         const pending = deferred();
@@ -852,7 +873,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
         expect(screen.getByLabelText('New billing year label')).toBeDisabled();
         // The draft is still on this device while the commit is in flight.
         expect(stored().reconciliationId).toBe('rec_fixed');
-        await act(async () => { pending.resolve(); });
+        await act(async () => { pending.resolve({ outcome: 'completed', yearId: '2027' }); });
         await screen.findByText('Dashboard page');
     });
 
@@ -879,7 +900,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
 
     it('COMMIT_FAILED: nothing saved, the draft kept, Retry sends the same payload', async () => {
         const user = userEvent.setup();
-        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED)).mockResolvedValueOnce(undefined) });
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED)).mockResolvedValueOnce({ outcome: 'completed', yearId: '2027' }) });
         seedWireframe();
         routedPage();
         await openStep4(user);
@@ -986,7 +1007,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
     it('STALE_SOURCE: nothing saved, nothing reloaded in place; Reload is offered, and after it Step 4 is checked again before Start', async () => {
         const user = userEvent.setup();
         const onReload = vi.fn();
-        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.STALE_SOURCE)).mockResolvedValueOnce(undefined) });
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.STALE_SOURCE)).mockResolvedValueOnce({ outcome: 'completed', yearId: '2027' }) });
         seedWireframe();
         const page = (reload = onReload) => render(
             <MemoryRouter initialEntries={['/year-end-review']}>

@@ -114,7 +114,8 @@ describe('classifyCommitResult — the outcome contract', () => {
 
     it.each([
         // #607 (rollover-commit.js): a completed rollover resolves; it never rejects.
-        [{ result: undefined }, { state: 'success', yearId: '2027', alreadyCompleted: false }],
+        [{ result: undefined }, { state: 'uncertain', checked: false, yearId: '2027' }],
+        [{ result: { yearId: '2027' } }, { state: 'uncertain', checked: false }],
         [{ result: { outcome: 'completed', yearId: '2027' } }, { state: 'success', yearId: '2027', alreadyCompleted: false }],
         [{ result: { outcome: 'already_completed', yearId: '2027' } }, { state: 'success', alreadyCompleted: true }],
         [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere', existing: null }) }, { state: 'elsewhere', yearId: '2027' }],
@@ -149,7 +150,7 @@ describe('classifyCommitResult — the outcome contract', () => {
 describe('startReviewedYear — the guard at Start', () => {
     const sourceYear = { id: '2026', label: '2026', status: 'settling' };
     const base = { sourceYear, sourceEvents: [], yearId: '2027', payload: { reconciliationId: 'rec_fixed' }, reopenedAdjustmentIds: new Set(), payloadFingerprint: 'yrp1_mine' };
-    const service = (years, createYear = vi.fn(async () => {})) => {
+    const service = (years, createYear = vi.fn(async () => ({ outcome: 'completed', yearId: '2027' }))) => {
         const state = { billingYears: [sourceYear] };
         return { reviewedCommitGuard: true, state, getState: () => state, createYear, _loadYearsList: vi.fn(async () => { state.billingYears = years; }) };
     };
