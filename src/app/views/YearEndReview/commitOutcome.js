@@ -23,6 +23,7 @@
  *       COMMIT_UNCERTAIN  the commit was sent and its response lost. `resolution` is the
  *                         read-back's answer ('not_committed' | 'diverged' | 'elsewhere');
  *                         absent when the read-back itself failed.
+ * Every resolution value is handled: 'completed' | 'diverged' | 'elsewhere' | 'not_committed'.
  * A service without `reviewedCommitGuard` (anything before #607) is never called.
  * `classifyRaw` keeps unexpected raw errors conservative.
  */
@@ -125,7 +126,9 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
         case COMMIT_CODES.COMMIT_FAILED:
             return error.offline
                 ? { state: 'failed', offline: true, cause: OFFLINE, retry: true }
-                : { state: 'failed', cause: error.cause?.message || error.message || 'Something went wrong.', retry: true };
+                // The service's message is shown as written (e.g. "Changes to 2026 are not saved
+                // yet (…)" when an unsaved source edit still cannot be written first).
+                : { state: 'failed', cause: error.message || error.cause?.message || 'Something went wrong.', retry: true };
         case COMMIT_CODES.COMMIT_UNCERTAIN:
             if (resolution === 'not_committed') return { state: 'uncertain', checked: true, retry: true };
             if (resolution) return byResolution(resolution, error, ctx);

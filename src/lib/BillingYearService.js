@@ -822,8 +822,15 @@ export class BillingYearService {
                 await this._enqueueConfirmed([yearId], this._yearDocWrite(...snapshot.args));
             } catch (err) {
                 const label = snapshot.args[0] && (snapshot.args[0].label || snapshot.args[0].id);
+                // The next step depends on the cause: a refusal (a stale document or
+                // permission-denied) has entered Reload required, where retrying cannot help.
+                const next = this._state.writeBlock || isBlockingWriteError(err)
+                    ? 'This tab is read-only until it reloads; reload to continue.'
+                    : isOfflineWriteError(err)
+                        ? 'Try again when you are back online.'
+                        : 'Try again.';
                 const message = 'Changes to ' + label + ' are not saved yet (' + (err && err.message ? err.message : 'unknown error')
-                    + '). They are kept in this tab and the year was not reloaded; try again when you are back online.';
+                    + '). They are kept in this tab and the year was not reloaded. ' + next;
                 if (!this._state.writeBlock) this._setState({ saveStatus: { state: 'not_saved', message, at: new Date().toISOString() } });
                 throw new Error(message);
             }

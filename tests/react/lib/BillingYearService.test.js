@@ -2447,7 +2447,8 @@ describe('BillingYearService — Reload required state (#669)', () => {
             trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: {} };
         // Still offline: the retry fails, nothing starts.
         mockTxControl.failNextCommit = firestoreError('unavailable');
-        await expect(s.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED', message: expect.stringMatching(/not saved yet/) });
+        await expect(s.createYear('2027', { reconciliation })).rejects.toMatchObject({ code: 'COMMIT_FAILED',
+            message: expect.stringMatching(/not saved yet.*Try again when you are back online\./) });
         expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
         // Online: the edit is saved first, then the rollover commits over a source that holds it.
         await expect(s.createYear('2027', { reconciliation })).resolves.toEqual({ outcome: 'completed', yearId: '2027' });
@@ -2455,6 +2456,25 @@ describe('BillingYearService — Reload required state (#669)', () => {
         expect(mockStore[PATH].billingEvents.map(e => e.eventType)).toContain('YEAR_ROLLED_OVER');
         // No snapshot of the pre-rollover source is left to be retried over it.
         expect(s._queuedYearSnapshots.get('2026')).toMatchObject({ committed: true });
+    });
+
+    it('when the retry of an unsaved edit is refused (Reload required), the message says to reload, not to come back online (#685 review)', async () => {
+        seedYear();
+        const s = await loadedService();
+        mockTxControl.failNextCommit = firestoreError('unavailable');
+        s.updateMember(2, { phone: '+14155551212' });
+        await s._saveQueue._chain;
+        const live = s.getState();
+        const reconciliation = { reconciliationId: 'rec-y', sourceYearId: '2026', sourceFingerprint: computeSourceFingerprint({ ...live, status: live.activeYear.status }),
+            trueUps: [], serviceCredits: [], usageCharges: [], billOverrides: {}, endedBillIds: [], newBills: [], confirmations: {} };
+        // Another session saved 2026 meanwhile: the retried save is refused as stale.
+        otherSessionSaves();
+        const refused = s.createYear('2027', { reconciliation });
+        await expect(refused).rejects.toMatchObject({ code: 'COMMIT_FAILED',
+            message: expect.stringMatching(/Changes to 2026 are not saved yet.*This tab is read-only until it reloads; reload to continue\./) });
+        await expect(refused).rejects.not.toMatchObject({ message: expect.stringMatching(/back online/) });
+        expect(s.getState().writeBlock).toBeTruthy();
+        expect(mockStore['users/user-1/billingYears/2027']).toBeUndefined();
     });
 
     it('releases committed history: a long session retains only the last committed snapshot, not every state', async () => {
