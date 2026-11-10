@@ -2009,3 +2009,200 @@ describe('BillingYearService — late writes, several refused years, writes the 
         expect(mockStore[PATH_27]).toEqual(committedDest);
     });
 });
+
+// ── Codex round 5 on #681 and the adversarial pass over the same class: every
+// writer is bound to the load its data came from, recovery keeps the latest data
+// of that load, loads wait for queued writes, edits wait for loads and year operations.
+
+describe('BillingYearService — load generations for every writer (#614)', () => {
+    const PATH = 'users/user-1/billingYears/2026';
+    const PATH_27 = 'users/user-1/billingYears/2027';
+    const doc = (label, extra = {}) => ({
+        label, status: 'open', createdAt: 'ts-created', rev: 1, lastWriteId: 'w-1',
+        familyMembers: [{ id: 1, name: 'Ada', email: '', phone: '', avatar: '', paymentReceived: 0, linkedMembers: [] }],
+        bills: [{ id: 101, name: 'Internet', amount: 50, billingFrequency: 'monthly', logo: '', website: '', members: [1] }],
+        payments: [], creditAdjustments: [], owedAdjustments: [], billingEvents: [],
+        settings: { emailMessage: 'Hi', emailSubject: '', paymentLinks: [], paymentMethods: [] },
+        ...extra
+    });
+    async function loadedService() {
+        mockStore['users/user-1'] = { activeBillingYear: '2026' };
+        const service = new BillingYearService();
+        await service.setUser(TEST_USER);
+        return service;
+    }
+    // Another session's change, loaded into this tab as a reload of 2026 would.
+    function remoteReload(s, extra = {}) {
+        const remote = { ...mockStore[PATH], rev: mockStore[PATH].rev + 1, lastWriteId: 'w-remote', bills: [], ...extra };
+        mockStore[PATH] = remote;
+        s._trackLoadedYear('2026', remote);
+        return remote;
+    }
+    function holdNextCommit() {
+        const hold = {};
+        hold.reached = new Promise(resolve => {
+            mockTxControl.beforeCommit = () => new Promise(release => { hold.release = release; resolve(); });
+        });
+        return hold;
+    }
+    let errSpy;
+    beforeEach(() => {
+        clearStore();
+        window.localStorage.clear();
+        errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        errSpy.mockRestore();
+        window.localStorage.clear();
+    });
+
+    it('keeps the latest snapshot queued for the rejected load, not the first', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' }); // A
+        s.addMember({ name: 'Cy' });  // A + B
+        const remote = remoteReload(s);
+        await s._saveQueue._chain;
+        expect(mockStore[PATH]).toBe(remote);
+        const block = s.getState().writeBlock;
+        expect(block).toMatchObject({ yearId: '2026', reason: 'stale' });
+        expect(block.payload.familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea', 'Cy']);
+        expect(block.changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Bea', 'Member added · Cy']);
+    });
+
+    it('measures the rejected load’s data against the last baseline committed in that load', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain; // Bea committed (rev 2)
+        s.addMember({ name: 'Cy' }); // queued
+        remoteReload(s);
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock.changes.map(c => c.label + ' · ' + c.detail)).toEqual(['Member added · Cy']);
+    });
+
+    it('refuses a queued status change after a reload of its year and keeps the change for recovery', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const hold = holdNextCommit();
+        s.addMember({ name: 'Bea' }); // a save ahead of the status change, held at commit
+        await hold.reached;
+        const status = s.setYearStatus('settling');
+        // The save lands; then, before the status change runs, the year is reloaded
+        // with another session's change.
+        let remote = null;
+        const unsubscribe = s.getSaveQueue().subscribe(e => {
+            if (e.type === 'save:success' && !remote) remote = remoteReload(s, { payments: [{ id: 'p-remote', memberId: 1, amount: 9 }] });
+        });
+        hold.release();
+        await expect(status).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        unsubscribe();
+        expect(mockStore[PATH]).toBe(remote);
+        expect(s.getState().activeYear.status).toBe('open');
+        const block = s.getState().writeBlock;
+        expect(block.payload.status).toBe('settling');
+        expect(block.changes.map(c => c.label)).toContain('Year status changed');
+    });
+
+    it('refuses a rollover whose source was reloaded before it ran; no destination is created', async () => {
+        mockStore[PATH] = doc('2026', { payments: [{ id: 'p1', memberId: 1, amount: 680, receivedAt: '2026-01-01', method: 'cash' }] });
+        const s = await loadedService();
+        s._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }] });
+        const hold = holdNextCommit();
+        s.addMember({ name: 'Bea' });
+        await hold.reached;
+        const rollover = s.createYear('2027');
+        let remote = null;
+        const unsubscribe = s.getSaveQueue().subscribe(e => {
+            if (e.type === 'save:success' && !remote) remote = remoteReload(s);
+        });
+        hold.release();
+        await expect(rollover).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        unsubscribe();
+        expect(mockStore[PATH_27]).toBeUndefined();
+        expect(mockStore[PATH]).toBe(remote);
+    });
+
+    it('refuses a household compensation after a reload of its year', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const gen = s._loadGen('2026');
+        s.addMember({ name: 'Bea' }); // a later queued write exists for the year
+        await s._saveQueue._chain;
+        const remote = remoteReload(s);
+        const members = mockStore[PATH].familyMembers;
+        await expect(s._compensateQueuedYearWrite('2026', 0, members, members, null, gen)).rejects.toMatchObject({ code: 'STALE_DOCUMENT' });
+        expect(mockStore[PATH]).toBe(remote);
+    });
+
+    it('a reload waits for queued writes, so it reads what they committed', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const hold = holdNextCommit();
+        s.addMember({ name: 'Bea' });
+        await hold.reached;
+        const switching = s.switchYear('2026');
+        await Promise.resolve();
+        expect(s.getState().familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        hold.release();
+        await switching;
+        expect(s.getState().familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        s.addMember({ name: 'Cy' });
+        await s._saveQueue._chain;
+        expect(s.getState().writeBlock).toBeNull();
+        expect(mockStore[PATH].rev).toBe(3);
+    });
+
+    it('a reload that read before an in-flight commit makes the next write stale, never an overwrite', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const hold = holdNextCommit();
+        s.addMember({ name: 'Bea' });
+        await hold.reached;
+        s._trackLoadedYear('2026', structuredClone(mockStore[PATH])); // the pre-commit read
+        hold.release();
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].rev).toBe(2);
+        const committed = structuredClone(mockStore[PATH]);
+        s.updateSettings({ emailMessage: 'Hello' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH]).toEqual(committed);
+        expect(s.getState().writeBlock).toMatchObject({ reason: 'stale' });
+    });
+
+    it('refuses edits while a status change is queued and while a year is loading', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const hold = holdNextCommit();
+        const status = s.setYearStatus('settling');
+        await hold.reached;
+        expect(() => s.recordPayment({ memberId: 1, amount: 5, method: 'cash' })).toThrow('The billing year is being updated.');
+        expect(() => s.addMember({ name: 'Bea' })).toThrow('The billing year is being updated.');
+        hold.release();
+        await status;
+        const loading = s.switchYear('2026');
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(() => s.addMember({ name: 'Bea' })).toThrow('The billing year is loading.');
+        await loading;
+        s.addMember({ name: 'Bea' });
+        await s._saveQueue._chain;
+        expect(mockStore[PATH].familyMembers.map(m => m.name)).toEqual(['Ada', 'Bea']);
+        expect(mockStore[PATH].status).toBe('settling');
+    });
+
+    it('a status change that lands after the year was switched away from leaves the other year’s state alone', async () => {
+        mockStore[PATH] = doc('2026');
+        const s = await loadedService();
+        const hold = holdNextCommit();
+        const status = s.setYearStatus('settling');
+        await hold.reached;
+        const other = { id: '2027', label: '2027', status: 'open' };
+        s._setState({ activeYear: other, billingEvents: [] });
+        hold.release();
+        await status;
+        expect(mockStore[PATH].status).toBe('settling');
+        expect(s.getState().activeYear).toBe(other);
+        expect(s.getState().billingEvents).toEqual([]);
+    });
+});

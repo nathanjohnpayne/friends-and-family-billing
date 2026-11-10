@@ -82,6 +82,11 @@ function migrateTemplateTokens(settings) {
     }
 }
 
+/** Key of a (year, load generation) pair. */
+function genKey(yearId, gen) {
+    return String(yearId) + '#' + gen;
+}
+
 /** A save payload with the write's server timestamps (createdAt only when absent). */
 function withWriteTimestamps(payload) {
     const next = { ...payload };
@@ -125,8 +130,14 @@ export class BillingYearService {
          * The rev advances only when a transaction resolves.
          */
         this._yearVersions = new Map();
-        /** @private Per year id, bumped by every load: a save snapshot from before a reload is refused. */
+        /** @private Per year id, bumped by every load: a write whose data predates a reload is refused. */
         this._yearLoadGen = new Map();
+        /** @private Last committed baseline per `<yearId>#<load generation>`, for recovery records. */
+        this._genBaselines = new Map();
+        /** @private Latest queued snapshot per `<yearId>#<load generation>`, for recovery records. */
+        this._snapshotsByGen = new Map();
+        /** @private Year loads in progress; mutations wait for them (no edit is made to a state being replaced). */
+        this._loadingYears = 0;
         /** @private Bumped whenever the signed-in account changes; a write from an earlier epoch is ignored. */
         this._writeEpoch = 0;
         /** @private Serializes household operations (save + share rebuild), #528. */
@@ -260,6 +271,8 @@ export class BillingYearService {
         this._writeEpoch += 1;
         this._yearVersions.clear();
         this._yearLoadGen.clear();
+        this._genBaselines.clear();
+        this._snapshotsByGen.clear();
         this._queuedYearSnapshots.clear();
         this._saveQueue.clearStops();
         if (this._state.writeBlock || this._state.saveStatus) this._setState({ writeBlock: null, saveStatus: null });
@@ -290,14 +303,49 @@ export class BillingYearService {
         const uid = this._user ? this._user.uid : null;
         const exists = rawData != null;
         const rev = exists ? rawData.rev : 0;
-        this._yearLoadGen.set(yearId, (this._yearLoadGen.get(yearId) || 0) + 1);
+        const gen = (this._yearLoadGen.get(yearId) || 0) + 1;
+        this._yearLoadGen.set(yearId, gen);
+        const baseline = { payload: exists ? loadedYearPayload(rawData, yearId) : null, at: new Date().toISOString(), kind: 'loaded' };
+        this._genBaselines.set(genKey(yearId, gen), baseline);
         this._yearVersions.set(yearId, {
             uid,
             rev,
             fingerprint: exists && rev === undefined ? fingerprintStoredYear(rawData, yearId) : null,
             pending: null,
-            baseline: { payload: exists ? loadedYearPayload(rawData, yearId) : null, at: new Date().toISOString(), kind: 'loaded' }
+            baseline
         });
+    }
+
+    /** @private The load generation of a year (0 when this tab never loaded it). */
+    _loadGen(yearId) {
+        return this._yearLoadGen.get(yearId) || 0;
+    }
+
+    /**
+     * @private Record the snapshot a queued write carries (a save, or a status change)
+     * as the year's latest unsaved data for its load generation. Returns its sequence
+     * number, used to mark it committed.
+     */
+    _registerSnapshot(yearId, kind, args) {
+        this._yearSnapshotSeq += 1;
+        const snapshot = {
+            seq: this._yearSnapshotSeq,
+            uid: this._user ? this._user.uid : null,
+            gen: this._loadGen(yearId),
+            kind,
+            committed: false,
+            args
+        };
+        this._queuedYearSnapshots.set(yearId, snapshot);
+        this._snapshotsByGen.set(genKey(yearId, snapshot.gen), snapshot);
+        return snapshot.seq;
+    }
+
+    /** @private Mark a snapshot committed when it is still the latest of its year or generation. */
+    _markSnapshotCommitted(yearId, seq) {
+        for (const snapshot of [this._queuedYearSnapshots.get(yearId), ...this._snapshotsByGen.values()]) {
+            if (snapshot && snapshot.seq === seq) snapshot.committed = true;
+        }
     }
 
     /**
@@ -332,9 +380,17 @@ export class BillingYearService {
      * The in-memory rev and the last-committed baseline advance only after the
      * promise resolves; a mismatch is STALE_DOCUMENT with nothing written.
      *
+     * Every spec whose payload comes from the in-memory state carries `loadGen`, the
+     * load generation that state came from. If the year was reloaded since, the write
+     * is refused as STALE_DOCUMENT before any read, so data from before a reload is
+     * never written at the reloaded rev (one check for every writer). A reload while
+     * the transaction is in flight leaves the version untouched, so the next write is
+     * refused rather than writing the reloaded state over this commit.
+     *
      * @param {Object|Object[]} input  { ref, yearId, buildPayload(storedData|null) =>
-     *   payload|null (null: nothing to write), expectedRev?, fingerprintIfUnversioned?,
-     *   ifExists? }. expectedRev and the fingerprint default to what this tab knows.
+     *   payload|null (null: nothing to write), loadGen?, adoptable?, expectedRev?,
+     *   fingerprintIfUnversioned?, ifExists? }. expectedRev and the fingerprint default
+     *   to what this tab knows.
      * @returns {Promise<Array<{ write: boolean, nextRev?: number, existing?: boolean }>>}
      */
     async _commitYearWrite(input) {
@@ -349,9 +405,18 @@ export class BillingYearService {
                 expectedRev: 'expectedRev' in spec ? spec.expectedRev : known.expectedRev,
                 fingerprintIfUnversioned: 'fingerprintIfUnversioned' in spec ? spec.fingerprintIfUnversioned : known.fingerprintIfUnversioned,
                 pending: known.pending,
-                writeId
+                writeId,
+                genAtStart: this._loadGen(spec.yearId)
             };
         });
+        const reloaded = attempt.find(spec => spec.loadGen !== undefined && spec.loadGen !== spec.genAtStart);
+        if (reloaded) {
+            const err = new YearWriteError(YEAR_WRITE_OUTCOMES.STALE_DOCUMENT,
+                'Billing year "' + reloaded.yearId + '" was reloaded before this change was saved. Nothing was saved; reload to continue.',
+                { yearId: reloaded.yearId, reason: 'reloaded-before-save' });
+            this._enterWriteBlock(attempt, err);
+            throw err;
+        }
         let decisions;
         // The plan of the callback's latest run (the SDK commits the last run): local to
         // this attempt, so an uncertain outcome can be settled by the next read.
@@ -393,10 +458,15 @@ export class BillingYearService {
             const spec = attempt[i];
             const known = this._yearVersions.get(spec.yearId);
             if (decision.write) {
-                this._yearVersions.set(spec.yearId, {
-                    uid, rev: decision.nextRev, fingerprint: null, pending: null,
-                    baseline: { payload: plainYearPayload(decision.payload), at, kind: 'saved' }
-                });
+                const baseline = { payload: plainYearPayload(decision.payload), at, kind: 'saved' };
+                this._genBaselines.set(genKey(spec.yearId, spec.genAtStart), baseline);
+                // Reloaded while in flight: the load set the version from what it read
+                // (maybe from before this commit). Leave it, so the next write is checked
+                // against the reload and refused if the reloaded state lacks this commit.
+                if (this._loadGen(spec.yearId) !== spec.genAtStart) return;
+                this._yearVersions.set(spec.yearId, { uid, rev: decision.nextRev, fingerprint: null, pending: null, baseline });
+            } else if (this._loadGen(spec.yearId) !== spec.genAtStart) {
+                return;
             } else if (decision.existing) {
                 // Nothing written over a document that exists: the next load records it.
                 this._yearVersions.delete(spec.yearId);
@@ -426,6 +496,8 @@ export class BillingYearService {
         const uid = this._user ? this._user.uid : null;
         if (isUncertainWriteError(err)) {
             attempt.forEach((spec, i) => {
+                // A reload since the attempt started already replaced what the tab knows.
+                if (spec.genAtStart !== undefined && this._loadGen(spec.yearId) !== spec.genAtStart) return;
                 const known = this._yearVersions.get(spec.yearId);
                 const base = known && known.uid === uid ? known
                     : { uid, rev: spec.expectedRev, fingerprint: spec.fingerprintIfUnversioned, pending: null, baseline: null };
@@ -467,21 +539,8 @@ export class BillingYearService {
         const detailYear = err instanceof YearWriteError && err.details && err.details.yearId != null ? String(err.details.yearId) : null;
         const yearId = detailYear || (activeYear && yearIds.includes(activeYear.id) ? activeYear.id : yearIds[0]);
         const spec = attempt.find(item => item.yearId === yearId) || attempt[0];
-        const known = this._yearVersions.get(yearId);
-        const baseline = spec && spec.snapshotBaseline ? spec.snapshotBaseline : (known && known.baseline ? known.baseline : null);
-        const payload = this._unsavedPayload(yearId, spec);
-        const record = {
-            version: 1,
-            uid: this._user ? this._user.uid : null,
-            yearId,
-            yearLabel: activeYear && activeYear.id === yearId ? (activeYear.label || yearId) : yearId,
-            reason,
-            detectedAt: at,
-            baselineAt: baseline ? baseline.at : null,
-            baselineKind: baseline ? baseline.kind : 'loaded',
-            changes: summarizeUnsavedChanges(baseline ? baseline.payload : null, payload),
-            payload
-        };
+        const gen = spec && spec.loadGen !== undefined ? spec.loadGen : this._loadGen(yearId);
+        const record = this._buildUnsavedRecord(yearId, spec, reason, at, gen);
         const kept = persistUnsavedRecord(record);
         if (existing) {
             // Another year refused while the tab was already read-only (saves for two
@@ -507,7 +566,7 @@ export class BillingYearService {
         for (const [otherYearId, snapshot] of this._queuedYearSnapshots) {
             if (otherYearId === yearId || snapshot.committed || !this._user || snapshot.uid !== this._user.uid) continue;
             this._saveQueue.stop(otherYearId, err);
-            const otherRecord = this._buildUnsavedRecord(otherYearId, null, reason, at);
+            const otherRecord = this._buildUnsavedRecord(otherYearId, null, reason, at, snapshot.gen);
             const otherKept = persistUnsavedRecord(otherRecord);
             allKept = allKept && otherKept.kept;
             storageError = storageError || (otherKept.kept ? null : otherKept.error);
@@ -519,12 +578,16 @@ export class BillingYearService {
         });
     }
 
-    /** @private An unsaved record for a year from its latest unsaved data and last committed baseline. */
-    _buildUnsavedRecord(yearId, spec, reason, at) {
+    /**
+     * @private An unsaved record for a year: its latest unsaved data of the given load
+     * generation, against the last baseline committed in that generation.
+     */
+    _buildUnsavedRecord(yearId, spec, reason, at, gen) {
         const { activeYear } = this._state;
         const known = this._yearVersions.get(yearId);
-        const baseline = known && known.baseline ? known.baseline : null;
-        const payload = this._unsavedPayload(yearId, spec);
+        const baseline = this._genBaselines.get(genKey(yearId, gen))
+            || (gen === this._loadGen(yearId) && known && known.baseline ? known.baseline : null);
+        const payload = this._unsavedPayload(yearId, spec, gen);
         return {
             version: 1,
             uid: this._user ? this._user.uid : null,
@@ -564,23 +627,28 @@ export class BillingYearService {
     }
 
     /**
-     * @private The unsaved data of a year: the live state when it is the active year;
-     * otherwise the latest snapshot queued for it by this account (a year switched
-     * away from while its saves were queued), else the refused write's payload.
+     * @private The unsaved data of a year in a load generation. For the active year's
+     * current generation it is the live state, unless an uncommitted status change is
+     * the latest snapshot (mutations are refused while it is pending, so it holds the
+     * live state plus the change). For an earlier generation (the year was reloaded
+     * before its queued writes ran) or another year, it is the latest snapshot queued
+     * in that generation by this account. Else the refused write's own payload.
      */
-    _unsavedPayload(yearId, spec) {
+    _unsavedPayload(yearId, spec, gen = this._loadGen(yearId)) {
         const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        const fromSnapshot = snapshot => {
+            const [year, members, yearBills, yearPayments, events, yearSettings, credits, owed] = snapshot.args;
+            return plainYearPayload(buildSavePayload(year, members, yearBills, yearPayments, events, yearSettings, credits, owed));
+        };
         try {
-            if (spec && spec.snapshotPayload) return spec.snapshotPayload;
-            if (activeYear && activeYear.id === yearId) {
+            const snapshot = this._snapshotsByGen.get(genKey(yearId, gen));
+            const ownSnapshot = snapshot && this._user && snapshot.uid === this._user.uid ? snapshot : null;
+            if (gen === this._loadGen(yearId) && activeYear && activeYear.id === yearId) {
+                if (ownSnapshot && ownSnapshot.kind === 'status' && !ownSnapshot.committed) return fromSnapshot(ownSnapshot);
                 return plainYearPayload(buildSavePayload(activeYear, familyMembers || [], bills || [], payments || [], billingEvents || [], settings,
                     creditAdjustments || [], owedAdjustments || []));
             }
-            const queued = this._queuedYearSnapshots.get(yearId);
-            if (queued && this._user && queued.uid === this._user.uid) {
-                const [year, members, yearBills, yearPayments, events, yearSettings, credits, owed] = queued.args;
-                return plainYearPayload(buildSavePayload(year, members, yearBills, yearPayments, events, yearSettings, credits, owed));
-            }
+            if (ownSnapshot) return fromSnapshot(ownSnapshot);
             return spec ? plainYearPayload(spec.buildPayload(null)) : null;
         } catch (_) {
             return null;
@@ -601,8 +669,24 @@ export class BillingYearService {
         this._setState({ billingYears: years });
     }
 
-    /** @private */
+    /**
+     * @private Load a year. It first waits for every queued write to settle, so a
+     * write never runs after the state it was taken from has been replaced, and edits
+     * are refused while the load is in progress (#614).
+     */
     async _loadYearData(yearId) {
+        if (!this._user) return;
+        this._loadingYears += 1;
+        try {
+            await this._saveQueue.idle();
+            await this._loadYearDataNow(yearId);
+        } finally {
+            this._loadingYears -= 1;
+        }
+    }
+
+    /** @private _loadYearData's body, after the queue has settled. */
+    async _loadYearDataNow(yearId) {
         if (!this._user) return;
         const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
         const yearDoc = await getDoc(yearDocRef);
@@ -697,35 +781,17 @@ export class BillingYearService {
     /** @private The write function save() enqueues, over a snapshot of the state. */
     _yearDocWrite(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments) {
         const uid = this._user.uid;
-        this._yearSnapshotSeq += 1;
-        const seq = this._yearSnapshotSeq;
-        this._queuedYearSnapshots.set(activeYear.id, {
-            seq,
-            uid,
-            committed: false,
-            args: [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]
-        });
+        const seq = this._registerSnapshot(activeYear.id, 'save',
+            [activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments]);
         const epoch = this._writeEpoch;
-        // The load this snapshot was taken from: a reload before it runs makes its
-        // expectation (taken from the newer load) unrelated to its data.
-        const gen = this._yearLoadGen.get(activeYear.id) || 0;
-        const known = this._yearVersions.get(activeYear.id);
-        const snapshotBaseline = known && known.uid === uid ? known.baseline : null;
+        // The load this snapshot was taken from; the primitive refuses it after a reload.
+        const loadGen = this._loadGen(activeYear.id);
         return async () => {
             this._assertWriteEpoch(epoch);
             const yearDocRef = doc(db, 'users', uid, 'billingYears', activeYear.id);
             const payload = buildSavePayload(activeYear, familyMembers, bills, payments, billingEvents, settings, creditAdjustments, owedAdjustments);
-            if ((this._yearLoadGen.get(activeYear.id) || 0) !== gen) {
-                // Never write a pre-reload snapshot at the reloaded rev: keep it for recovery.
-                const err = new YearWriteError(YEAR_WRITE_OUTCOMES.STALE_DOCUMENT,
-                    'Billing year "' + activeYear.id + '" was reloaded before this save ran. Nothing was saved; reload to continue.',
-                    { yearId: activeYear.id, reason: 'reloaded-before-save' });
-                this._enterWriteBlock([{ yearId: activeYear.id, buildPayload: () => payload, snapshotPayload: plainYearPayload(payload), snapshotBaseline }], err);
-                throw err;
-            }
-            await this._commitYearWrite({ ref: yearDocRef, yearId: activeYear.id, adoptable: true, buildPayload: () => withWriteTimestamps(payload) });
-            const latest = this._queuedYearSnapshots.get(activeYear.id);
-            if (latest && latest.seq === seq) latest.committed = true;
+            await this._commitYearWrite({ ref: yearDocRef, yearId: activeYear.id, loadGen, adoptable: true, buildPayload: () => withWriteTimestamps(payload) });
+            this._markSnapshotCommitted(activeYear.id, seq);
         };
     }
 
@@ -802,12 +868,21 @@ export class BillingYearService {
         if (newStatus === 'archived') statusYear.archivedAt = serverTimestamp();
         const payload = buildSavePayload(statusYear, familyMembers || [], bills || [], payments || [], updatedEvents, settings,
             creditAdjustments || [], owedAdjustments || []);
+        // Bound to the load its data came from (refused after a reload), and kept as the
+        // year's latest unsaved data until it commits.
+        const loadGen = this._loadGen(activeYear.id);
+        const seq = this._registerSnapshot(activeYear.id, 'status',
+            [{ ...activeYear, status: newStatus }, familyMembers || [], bills || [], payments || [], updatedEvents, settings,
+                creditAdjustments || [], owedAdjustments || []]);
 
         try {
             const yearDocRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
             await this._enqueueConfirmed([activeYear.id], () => this._commitYearWrite({
-                ref: yearDocRef, yearId: activeYear.id, buildPayload: () => withWriteTimestamps(payload)
+                ref: yearDocRef, yearId: activeYear.id, loadGen, buildPayload: () => withWriteTimestamps(payload)
             }));
+            this._markSnapshotCommitted(activeYear.id, seq);
+            // The year's state was replaced meanwhile (switched away): leave it.
+            if (!this._state.activeYear || this._state.activeYear.id !== activeYear.id || this._loadGen(activeYear.id) !== loadGen) return;
 
             // Update local state
             const updatedYear = { ...activeYear, status: newStatus };
@@ -940,7 +1015,7 @@ export class BillingYearService {
             );
             if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
             priorPayload.updatedAt = serverTimestamp();
-            priorWrite = { ref: priorRef, yearId: activeYear.id, payload: priorPayload };
+            priorWrite = { ref: priorRef, yearId: activeYear.id, payload: priorPayload, loadGen: this._loadGen(activeYear.id) };
         }
 
         // 3. Commit BOTH writes atomically INSIDE the SaveQueue through the one
@@ -971,7 +1046,7 @@ export class BillingYearService {
      */
     _legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite) {
         const specs = [{ ref: newYearRef, yearId, expectedRev: 0, fingerprintIfUnversioned: null, ifExists: 'exists', buildPayload: () => ({ ...newData }) }];
-        if (priorWrite) specs.push({ ref: priorWrite.ref, yearId: priorWrite.yearId, buildPayload: () => ({ ...priorWrite.payload }) });
+        if (priorWrite) specs.push({ ref: priorWrite.ref, yearId: priorWrite.yearId, loadGen: priorWrite.loadGen, buildPayload: () => ({ ...priorWrite.payload }) });
         return specs;
     }
 
@@ -982,6 +1057,14 @@ export class BillingYearService {
         const { activeYear, writeBlock } = this._state;
         if (writeBlock) {
             throw new Error('This tab is read-only until it reloads: the billing year was changed in another tab or device.');
+        }
+        // A status change or Start New Year writes a snapshot of the year; an edit made
+        // while it is queued would be written from a state without it, or be lost (#614).
+        if (this._yearOpPending > 0) {
+            throw new Error('The billing year is being updated. Try again in a moment.');
+        }
+        if (this._loadingYears > 0) {
+            throw new Error('The billing year is loading. Try again in a moment.');
         }
         if (!activeYear || isYearReadOnly(activeYear)) {
             throw new Error(
@@ -1250,6 +1333,7 @@ export class BillingYearService {
     async _saveHouseholdNow(edit) {
         this._guardReadOnly();
         const editedYearId = this._state.activeYear ? this._state.activeYear.id : null;
+        const editedLoadGen = this._loadGen(editedYearId);
         const plan = planHouseholdEdit(this._state.familyMembers, edit || {});
 
         let billingEvents = this._state.billingEvents || [];
@@ -1314,7 +1398,7 @@ export class BillingYearService {
                 if (rollback.familyMembers || rollback.billingEvents) this._setState(rollback);
             }
             await this._compensateOrReport(message, () =>
-                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId));
+                this._compensateQueuedYearWrite(editedYearId, ownSeq, plan.familyMembers, previousMembers, addedEventId, editedLoadGen));
             if (localConflict) {
                 throw new Error(message + '. The household could not be restored here because it changed meanwhile; reload before making further changes.');
             }
@@ -1357,7 +1441,7 @@ export class BillingYearService {
      * events, ledger rows, including changes another client made meanwhile — is left
      * exactly as stored, and the current (other) year's state is never written.
      */
-    async _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId) {
+    async _compensateQueuedYearWrite(yearId, ownSeq, plannedMembers, previousMembers, addedEventId, loadGen) {
         const latest = this._queuedYearSnapshots.get(yearId);
         if (!latest || latest.seq <= ownSeq || !this._user || latest.uid !== this._user.uid) return;
         const yearDocRef = doc(db, 'users', latest.uid, 'billingYears', yearId);
@@ -1372,6 +1456,7 @@ export class BillingYearService {
         await this._enqueueConfirmed([yearId], () => this._commitYearWrite({
             ref: yearDocRef,
             yearId,
+            loadGen,
             buildPayload: (stored) => {
                 const current = stored || {};
                 const restoredMembers = revertHouseholdFields(current.familyMembers || [], plannedMembers, previousMembers);

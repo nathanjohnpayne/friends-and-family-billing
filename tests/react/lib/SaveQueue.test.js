@@ -114,4 +114,20 @@ describe('SaveQueue', () => {
         expect(queue.stoppedOutcome('2026')).toBe(first);
         expect(queue.stoppedOutcome('2025')).toBeNull();
     });
+
+    it('idle() resolves once every write enqueued so far has settled, without events', async () => {
+        const queue = new SaveQueue();
+        const events = [];
+        queue.subscribe(e => events.push(e.type));
+        let release;
+        queue.enqueue(() => new Promise(resolve => { release = resolve; }));
+        let idle = false;
+        const waiting = queue.idle().then(() => { idle = true; });
+        await Promise.resolve();
+        expect(idle).toBe(false);
+        release();
+        await waiting;
+        expect(idle).toBe(true);
+        expect(events).toEqual(['save:start', 'save:success']);
+    });
 });

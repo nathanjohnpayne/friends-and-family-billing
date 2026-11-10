@@ -40,6 +40,11 @@ export class SaveQueue {
         if (!this._stopped.has(String(key))) this._stopped.set(String(key), outcome);
     }
 
+    /** Resolves once every write enqueued so far has settled (no events are emitted). */
+    idle() {
+        return this._chain.then(() => {}, () => {});
+    }
+
     /** Accept writes for every key again (the signed-in account changed). */
     clearStops() {
         this._stopped.clear();
