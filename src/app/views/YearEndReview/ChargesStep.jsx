@@ -37,10 +37,10 @@ function Composer({ household, onAdd, onCancel }) {
                 </Field>
                 <NumberField id={`charge-amount-${key}`} label="Amount ($)" value={amount} placeholder="0.00" onChange={setAmount} error={errors.amount} />
                 <Field id={`charge-date-${key}`} label="Date incurred" error={errors.incurredDate}>
-                    <input id={`charge-date-${key}`} className="composer-input" type="date" value={incurredDate} onChange={event => setIncurredDate(event.target.value)} />
+                    <input id={`charge-date-${key}`} className="composer-input" type="date" value={incurredDate} aria-invalid={errors.incurredDate ? 'true' : undefined} aria-describedby={errors.incurredDate ? `charge-date-${key}-error` : undefined} onChange={event => setIncurredDate(event.target.value)} />
                 </Field>
                 <Field id={`charge-desc-${key}`} label="Description" error={errors.description}>
-                    <input id={`charge-desc-${key}`} className="composer-input" type="text" value={description} placeholder="e.g. Roaming overage" onChange={event => setDescription(event.target.value)} />
+                    <input id={`charge-desc-${key}`} className="composer-input" type="text" value={description} aria-invalid={errors.description ? 'true' : undefined} aria-describedby={errors.description ? `charge-desc-${key}-error` : undefined} placeholder="e.g. Roaming overage" onChange={event => setDescription(event.target.value)} />
                 </Field>
             </div>
             <div className="yer-composer-foot">

@@ -413,6 +413,33 @@ describe('review findings', () => {
     });
 });
 
+describe('review polish', () => {
+    it('exposes input errors through aria-describedby and pluralizes one month', async () => {
+        const user = userEvent.setup();
+        seedDraft({ newBills: [{ rowId: 21, billId: 22, name: '', amount: 5, frequency: 'monthly', website: '', members: [MEMBER.sam], firstMonth: '2026-12' }] });
+        renderPage();
+        await user.click(nextButton());
+        const name = screen.getByLabelText('Name');
+        expect(name).toHaveAttribute('aria-describedby', 'new-name-21-error');
+        expect(document.getElementById('new-name-21-error')).toHaveTextContent('Enter a name for the subscription.');
+        await user.type(name, 'Solo');
+        expect(screen.getByText('1 month of service in 2026 never billed')).toBeInTheDocument();
+        await user.click(nextButton());
+        const okafor = within(screen.getByTestId('household-' + MEMBER.ada));
+        await user.click(okafor.getByRole('button', { name: 'Add charge for Okafor household' }));
+        await user.click(okafor.getByRole('button', { name: 'Add to review' }));
+        expect(okafor.getByLabelText('Description')).toHaveAttribute('aria-describedby', `charge-desc-${MEMBER.ada}-error`);
+    });
+
+    it('does not write the counts sidecar under a fingerprint that is not the current one', () => {
+        const old = fingerprintOf(sourceOf(mocks.state));
+        seedDraft({}, { fingerprint: old });
+        mocks.state.payments = [{ id: 'p9', memberId: MEMBER.erik, amount: 5, type: 'payment', reversed: false, receivedAt: '2026-12-01' }];
+        renderPage();
+        expect(window.localStorage.getItem(snapshotStorageKey('owner-uid', '2026'))).toBeNull();
+    });
+});
+
 describe('Step 3 — member charges', () => {
     async function openCharges(user) {
         await user.click(nextButton());
