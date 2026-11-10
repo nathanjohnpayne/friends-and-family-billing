@@ -28,6 +28,10 @@ export const BILLING_EVENT_LABELS = {
     PAYMENT_UPDATED: 'Payment updated',
     YEAR_STATUS_CHANGED: 'Year status changed',
     HOUSEHOLD_CONTACT_CHANGED: 'Household contact changed',
+    // Events that carry a billId reach the bill history too; none shows a raw type.
+    SERVICE_CREDIT_RECORDED: 'Service credit recorded',
+    USAGE_CHARGE_RECORDED: 'Usage charge recorded',
+    BILL_ENDED_UNASSIGNED: 'Bill ended',
     // Year-End Review (specs/year-end-review.md § Rollover)
     TRUE_UP_RECORDED: 'True-up recorded',
     SERVICE_CREDIT_COVERED: 'Covered by an earlier credit',

@@ -95,6 +95,16 @@ describe('BillAuditHistoryDialog', () => {
             expect(screen.queryByText(/across/)).toBeNull();
         });
 
+        it('labels every review event that carries a billId; no row title is a raw event type', () => {
+            renderWith([review('s3', 'SERVICE_CREDIT_RECORDED', { billId: 101, amount: 5, reason: 'Outage', memberCount: 1 }),
+                review('u1', 'USAGE_CHARGE_RECORDED', { billId: 101, amount: 15, memberId: 2, description: 'Replacement SIM' }),
+                review('e1', 'BILL_ENDED_UNASSIGNED', { billId: 101, lastMonth: '2026-08', reconciliationId: 'rec' })]);
+            expect(screen.getByText('Service credit recorded')).toBeInTheDocument();
+            expect(screen.getByText('Usage charge recorded')).toBeInTheDocument();
+            expect(screen.getByText('Bill ended')).toBeInTheDocument();
+            expect(screen.queryByText(/^[A-Z_]+$/)).toBeNull();
+        });
+
         it('renders the events the reviewed rollover writes, on both years', () => {
             const source = {
                 activeYear: { id: '2026', label: '2026', status: 'open' },
