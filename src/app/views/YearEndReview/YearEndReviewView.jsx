@@ -136,10 +136,12 @@ function NothingChangedDialog({ draft, sourceLabel, nextYearLabel, onCancel, onC
 }
 
 /** Start's gate: canStart over every step's errors, the label, the preview and the refund notices. */
-function gateOf({ review, preview, billingYears, notices, sourceLabel, service }) {
+function gateOf({ review, preview, billingYears, notices, sourceLabel, service, stale }) {
     const errors = [];
     // Release precondition, not a figure problem: it never marks the figures pending.
     if (!hasCommitGuard(service)) errors.push({ step: 4, message: COMMIT_GUARD_MISSING, label: true });
+    // STALE_SOURCE: this tab's copy of the source is out of date until it is reloaded.
+    if (stale) errors.push({ step: 4, message: `${sourceLabel} changed after this preview. Reload to load today’s ${sourceLabel}; the figures are then recomputed.`, reload: true });
     for (const step of [1, 2, 3]) {
         for (const error of review.stepErrors[step]) if (error.field !== 'credits') errors.push({ step, message: error.message });
     }
@@ -163,7 +165,7 @@ function gateOf({ review, preview, billingYears, notices, sourceLabel, service }
     return { canStart: result.canStart, blockers, pending: blockers.some(blocker => !blocker.label) };
 }
 
-function ReviewPage({ source, userId, service, billingYears, onPin }) {
+function ReviewPage({ source, userId, service, billingYears, onPin, onReload }) {
     const review = useYearEndReview(source, userId);
     const navigate = useNavigate();
     const { showToast } = useToast();
@@ -180,12 +182,12 @@ function ReviewPage({ source, userId, service, billingYears, onPin }) {
     const preview = useMemo(() => (step === 4
         ? previewRollover({ source, draft: review.draft, derived: review.derived, yearId: previewYear, reopenedAdjustmentIds: reopened, now })
         : null), [step, source, review.draft, review.derived, previewYear, reopened, now]);
-    const gate = gateOf({ review, preview, billingYears, notices, sourceLabel, service });
     const onSuccess = useCallback(result => {
         showToast(result.alreadyCompleted ? `${result.yearId} was already started from this draft.` : `${result.yearId} started.`);
         navigate('/dashboard');
     }, [navigate, showToast]);
     const commit = useStartYear({ service, source, review, reopenedAdjustmentIds: reopened, summary: preview?.ok ? preview.prepared.summary : null, onPin, onSuccess });
+    const gate = gateOf({ review, preview, billingYears, notices, sourceLabel, service, stale: commit.outcome?.state === 'stale' });
     const locked = commit.locked;
     const conflict = !!commit.outcome && CONFLICT_STATES.includes(commit.outcome.state);
 
@@ -246,7 +248,7 @@ function ReviewPage({ source, userId, service, billingYears, onPin }) {
             {step === 4 && (
                 <ReviewStep review={review} source={source} nextYearLabel={nextYearLabel} preview={preview} gate={gate} commit={commit}
                     billingYears={billingYears} reopenedAdjustmentIds={reopened} nothingChanged={nothingChanged}
-                    onGo={go} onOpenYear={openYear} onDiscard={() => setConfirmingDiscard(true)} />
+                    onGo={go} onOpenYear={openYear} onDiscard={() => setConfirmingDiscard(true)} onReload={onReload} />
             )}
 
             {!locked && (
@@ -339,7 +341,10 @@ function SuccessorExists({ activeYear, successor, userId, service }) {
     );
 }
 
-export default function YearEndReviewView() {
+const reloadPage = () => window.location.reload();
+
+/** @param {{ onReload?: () => void }} props onReload is replaceable for tests (default: reload the tab). */
+export default function YearEndReviewView({ onReload = reloadPage } = {}) {
     const data = useBillingData();
     const { user } = useAuth();
     const { activeYear, billingYears, billingEvents, loading, service } = data;
@@ -356,7 +361,7 @@ export default function YearEndReviewView() {
     const pin = useCallback(reviewed => setPinned(reviewed ? { key: pageKey, source: reviewed, userId: user.uid } : null), [pageKey, user]);
 
     if (pinned) {
-        return <ReviewPage key={pinned.key} source={pinned.source} userId={pinned.userId} service={service} billingYears={billingYears || EMPTY} onPin={pin} />;
+        return <ReviewPage key={pinned.key} source={pinned.source} userId={pinned.userId} service={service} billingYears={billingYears || EMPTY} onPin={pin} onReload={onReload} />;
     }
     if (loading || !user) return <div className="yer-loading" role="status">Loading…</div>;
     if (!activeYear) {
@@ -365,7 +370,16 @@ export default function YearEndReviewView() {
     if (activeYear.status === 'archived') {
         return <EmptyState title={`${activeYear.label} is archived`} message="An archived year cannot be reviewed or rolled over." action={<Link className="btn btn-sm" to="/settings">Open Settings</Link>} />;
     }
+    if (!/^\d{4}$/.test(String(activeYear.label))) {
+        return (
+            <EmptyState
+                title="The review needs a four-digit year label"
+                message={`${activeYear.label} is not a calendar year, so the review cannot work out which months its price changes and new subscriptions fall in. Non-calendar years are not supported yet.`}
+                action={<Link className="btn btn-sm" to="/settings">Open Settings</Link>}
+            />
+        );
+    }
     const successor = findSuccessorYear(billingYears || EMPTY, activeYear, billingEvents || EMPTY);
     if (successor) return <SuccessorExists activeYear={activeYear} successor={successor} userId={user.uid} service={service} />;
-    return <ReviewPage key={pageKey} source={source} userId={user.uid} service={service} billingYears={billingYears || EMPTY} onPin={pin} />;
+    return <ReviewPage key={pageKey} source={source} userId={user.uid} service={service} billingYears={billingYears || EMPTY} onPin={pin} onReload={onReload} />;
 }

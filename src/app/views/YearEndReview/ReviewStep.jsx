@@ -23,10 +23,15 @@ function joinNames(names) {
     return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
-/** The year label's own validation (required, not an existing year). */
+/**
+ * The year label's own validation: required, a four-digit calendar year, not an
+ * existing year. The four-digit rule follows the page's own entry rule (#608): a
+ * year with any other label can never be reviewed, so the review never creates one.
+ */
 export function labelError(label, billingYears) {
     const value = (label || '').trim();
     if (!value) return 'Enter a label for the new billing year.';
+    if (!/^\d{4}$/.test(value)) return 'Use a four-digit year, such as 2027. Years with other labels cannot be reviewed later.';
     if (isYearLabelDuplicate(billingYears || [], value)) return `Billing year "${value}" already exists.`;
     return null;
 }
@@ -190,7 +195,7 @@ function timeOf(value) {
 }
 
 /** The commit outcome as the page reports it (spec § Outcomes). */
-function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOpen, onDiscard }) {
+function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOpen, onDiscard, onReload }) {
     const discard = <button type="button" className="btn btn-header-secondary" onClick={onDiscard}>Discard draft</button>;
     switch (outcome.state) {
         case 'failed':
@@ -218,7 +223,8 @@ function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOp
         case 'stale':
             return (
                 <div className="status-banner status-banner--warning" role="alert">
-                    <p><b>{sourceLabel} changed after this preview, so nothing was saved.</b> The figures above were refreshed from today’s data and your draft is kept. Check them, then confirm them below to turn Start back on.</p>
+                    <p><b>{sourceLabel} changed after this preview, so nothing was saved.</b> Your draft is kept. Reload to load today’s {sourceLabel}: every figure is recomputed and you check them again before Start.</p>
+                    <div className="yer-alert-acts"><button type="button" className="btn btn-ink" onClick={onReload}>Reload</button></div>
                 </div>
             );
         case 'uncertain':
@@ -244,7 +250,7 @@ function Outcome({ outcome, sourceLabel, nextYearLabel, onRetry, onRecheck, onOp
  *   onGo: (step: number) => void, onOpenYear: () => void, onDiscard: () => void }} props
  */
 export default function ReviewStep({ review, source, nextYearLabel, preview, gate, commit, billingYears, reopenedAdjustmentIds,
-    nothingChanged, onGo, onOpenYear, onDiscard }) {
+    nothingChanged, onGo, onOpenYear, onDiscard, onReload }) {
     const sourceLabel = source.sourceYear.label;
     const locked = commit.locked;
     const pending = gate.pending;
@@ -298,7 +304,7 @@ export default function ReviewStep({ review, source, nextYearLabel, preview, gat
                 {preview.ok && <Statement statement={preview.statement} sourceLabel={sourceLabel} nextYearLabel={nextYearLabel} />}
                 {commit.outcome && (
                     <Outcome outcome={commit.outcome} sourceLabel={sourceLabel} nextYearLabel={nextYearLabel}
-                        onRetry={() => commit.start()} onRecheck={() => commit.start({ recheck: true })} onOpen={onOpenYear} onDiscard={onDiscard} />
+                        onRetry={() => commit.start()} onRecheck={() => commit.start()} onOpen={onOpenYear} onDiscard={onDiscard} onReload={onReload} />
                 )}
                 {!locked && !conflict && gate.blockers.length > 0 && (
                     <div className="status-banner status-banner--warning yer-blockers" data-testid="start-blockers">

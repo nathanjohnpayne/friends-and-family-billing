@@ -116,8 +116,10 @@ export function useYearEndReview(source, userId) {
     // Mirror to localStorage; a failed write flips to the in-memory notice.
     useEffect(() => {
         const current = sourceRef.current;
+        // The counts sidecar belongs to the fingerprint it was taken at: only write it while the draft's fingerprint is today's.
+        const matches = draft.sourceFingerprint === fingerprintOf(current);
         const ok = writeStored(key, { ...draft, savedAt: new Date().toISOString() })
-            && writeStored(snapshotStorageKey(userId, current.sourceYear.id), { fingerprint: draft.sourceFingerprint, counts: sourceCounts(current) });
+            && (!matches || writeStored(snapshotStorageKey(userId, current.sourceYear.id), { fingerprint: draft.sourceFingerprint, counts: sourceCounts(current) }));
         setStorageAvailable(ok);
     }, [draft, key, userId]);
 

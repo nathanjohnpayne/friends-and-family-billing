@@ -34,7 +34,7 @@ export function useStartYear({ service, source, review, reopenedAdjustmentIds, s
         return () => window.removeEventListener('beforeunload', warn);
     }, [phase]);
 
-    const start = useCallback(async ({ recheck = false } = {}) => {
+    const start = useCallback(async () => {
         if (running.current) return;
         running.current = true;
         const draft = review.draft;
@@ -47,21 +47,20 @@ export function useStartYear({ service, source, review, reopenedAdjustmentIds, s
         setPhase('starting');
         const result = await startReviewedYear({
             service, sourceYear: source.sourceYear, sourceEvents: source.billingEvents, yearId, payload,
-            reopenedAdjustmentIds, payloadFingerprint, summary, recheck
+            reopenedAdjustmentIds, payloadFingerprint, summary
         });
         if (result.state === 'success') {
             review.actions.clearDraftAfterSuccess();
             try {
+                // #607's service has already switched on a completed outcome; this covers any other.
                 if (service.getState?.().activeYear?.id !== result.yearId) await service.switchYear(result.yearId);
             } finally {
                 onSuccess(result);
             }
             return;
         }
-        if (result.state === 'stale') {
-            // Refresh the source so the preview recomputes from today's data; Step 4 must be confirmed again.
-            try { await service.switchYear(source.sourceYear.id); } catch (_) { /* the stale notice still stands */ }
-        }
+        // STALE_SOURCE: nothing is reloaded here. Reloading in place could drop unsaved edits
+        // elsewhere in the app; the page offers Reload instead (the draft survives it).
         running.current = false;
         if (!mounted.current) return;
         setPhase('idle');

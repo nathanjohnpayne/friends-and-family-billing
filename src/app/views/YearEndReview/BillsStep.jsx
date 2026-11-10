@@ -159,7 +159,8 @@ function BillRow({ bill, row, item, ctx, actions }) {
         />
     );
     const overrideLabel = change === 'ended' || (item.base && item.base.kind === 'service_credit') ? 'Service credit ($)' : 'True-up amount ($)';
-    const lockedZero = item.result && item.result.grossCents === 0 && (item.result.outcome === 'covered' || item.result.outcome === 'no_members');
+    // Full coverage zeroes the net amount, not the gross: the override stays editable. Only a computed amount of zero has nothing to override.
+    const lockedZero = !!item.base && item.base.calc.computed === 0;
     return (
         <li className={'yer-bill yer-bill--' + change} data-testid={'bill-' + bill.id} aria-label={bill.name}>
             <div className="yer-bill-head">

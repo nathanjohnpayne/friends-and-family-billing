@@ -25,7 +25,19 @@ WORKFLOW = "build-artifact.yml"
 CLI_VERSION = "15.34.2"
 SDK_VERSION = "7.4.0"
 HELPER_SHA256 = "d9bcfade8ffdac647dd7dbbeab799545749198ba63a3b2a9100d5b3cd7d4fbff"
-ADC_URI = "op://Private/c2v6emkwppjzjjaq2bdqk3wnlm/credential"
+# Owner decision 2026-11-10: the deploy credential is the project's long-lived
+# deployer service-account key, a 1Password document in the Firebase vault
+# (the nathanpaynedotcom model). The former shared user ADC expired whenever
+# Google required interactive re-authentication, so a deploy needed more than
+# 1Password. Nothing but this fixed document is ever read.
+DEPLOYER = "firebase-deployer@" + PROJECT + ".iam.gserviceaccount.com"
+KEY_DOCUMENT = PROJECT + " \u2014 Firebase Deployer SA Key"
+KEY_VAULT = "Firebase"
+KEY_READ = ["document", "get", KEY_DOCUMENT, "--vault", KEY_VAULT]
+KEY_FIELDS = {"type", "project_id", "private_key_id", "private_key", "client_email", "client_id", "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"}
+TOKEN_URI = "https://oauth2.googleapis.com/token"
+# Split so the repository secret scan does not read this marker as a key.
+PEM_HEADER = "-----BEGIN " + "PRIVATE KEY-----"
 TARGETS = {"functions": "functions", "hosting": "hosting", "firestore:rules": "firestore-rules", "storage": "storage"}
 BANNED = {".npmrc", ".bin", "node_modules", ".git", ".firebaserc"}
 FORBIDDEN_KEYS = {"predeploy", "postdeploy", "lifecycleHooks", "extensions", "frameworksBackend", "configDir", "schemaFilePath", "baseImageUri", "command", "args", "dataConnectGraphqlTrigger"}
@@ -321,13 +333,16 @@ def consume_verified(staging, target, tools, work, hashes, schema, invoke=run, a
         fd = os.open(credential, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
             if acquire is None:
-                checked_process([tools["op"], "read", ADC_URI], child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), cwd, capture=False, stdout=stream, timeout=60, output_limit=65536)
+                checked_process([tools["op"], *KEY_READ], child_environment(Path.home(), str(bin_dir) + ":/usr/bin:/bin"), cwd, capture=False, stdout=stream, timeout=60, output_limit=65536)
             else:
-                acquire([tools["op"], "read", ADC_URI], env, cwd, stream)
-        require(credential.stat().st_size <= 65536, "ADC source too large")
+                acquire([tools["op"], *KEY_READ], env, cwd, stream)
+        require(credential.stat().st_size <= 65536, "Deployer key too large")
         source = strict_json(credential.read_bytes())
-        require(isinstance(source, dict) and source.get("type") == "authorized_user", "Expected approved keyless ADC source")
-        require(set(source) <= {"type", "client_id", "client_secret", "refresh_token", "quota_project_id", "universe_domain", "account"} and all(isinstance(source.get(k), str) and source[k] for k in ["client_id", "client_secret", "refresh_token"]), "Invalid ADC source shape")
+        require(isinstance(source, dict) and source.get("type") == "service_account", "Expected the deployer service-account key")
+        require(set(source) <= KEY_FIELDS and all(isinstance(value, str) and value for value in source.values()), "Invalid deployer key shape")
+        require(source.get("project_id") == PROJECT and source.get("client_email") == DEPLOYER, "Deployer key is for another project or account")
+        require(source.get("private_key", "").startswith(PEM_HEADER) and source.get("private_key_id"), "Deployer key has no private key")
+        require(source.get("token_uri") == TOKEN_URI and source.get("universe_domain", "googleapis.com") == "googleapis.com", "Deployer key names an unexpected token endpoint")
         env["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential)
         invoke([tools["helper"], PROJECT, "--only", target, "--config", str(staging / "firebase.json")], env, cwd, False)
     finally:

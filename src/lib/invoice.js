@@ -8,8 +8,14 @@ import { projectHouseholdDisplay, financialUnavailable } from './financial-displ
 import { snapshotDollars } from './household-money.js';
 import { MoneyIntegrityError } from './money.js';
 import { escapeHtml } from './formatting.js';
+import { buildCarriedItemsForShare } from './share.js';
 
-/** Build a scoped ordinary invoice from complete raw source; B stays separate. */
+/**
+ * Build a scoped ordinary invoice from complete raw source; B stays separate.
+ * carriedItems is the share page's member-safe projection of the household's
+ * carry_opening seeds (ADR 0009), or null when nothing carries; carriedTotal is
+ * the canonical opening balance O, already folded into combinedTotal.
+ */
 export function getInvoiceSummaryContext(familyMembers, bills, payments, memberId, activeYear, settings, owedAdjustments, creditAdjustments) {
     const source = { familyMembers, bills, payments, creditAdjustments, owedAdjustments };
     const member = Array.isArray(familyMembers) ? familyMembers.find(m => m.id === memberId) : null;
@@ -26,8 +32,53 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
     const amountStr = balance > 0 ? '$' + balance.toFixed(2) : '$' + combinedTotal.toFixed(2);
     const amountLabel = balance > 0 && payment > 0 ? 'remaining balance' : 'total';
     const numMembers = 1 + (member.linkedMembers || []).length;
+    // Same gate as the share payload: absent when no seed carries anything.
+    const carried = buildCarriedItemsForShare(familyMembers, bills,
+        withAllocatedOpening(owedAdjustments || [], projection.rows?.opening || []), member.id, member.linkedMembers || []);
+    // notApplied and remainingCredit restate the share formulas over canonical
+    // cents (I = max(0, −O), A = max(0, G − S + max(0, O)), U = max(0, I − A)),
+    // so they agree with every other figure the invoice prints.
+    const { G, S, O } = projection.cents;
+    const carriedItems = carried.total !== 0 || carried.items.length > 0 ? { ...carried, total: projection.O,
+        notApplied: Math.max(0, -(G - S + O)) / 100,
+        remainingCredit: Math.max(0, Math.max(0, -O) - Math.max(0, G - S + Math.max(0, O))) / 100 } : null;
     return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
-        balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {} };
+        balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {},
+        carriedItems, carriedTotal: projection.O };
+}
+
+/**
+ * Replace the household's seed, item and detail amounts with the cents the
+ * canonical projection allocated to them (ADR 0010), so the share builder's
+ * lines conserve O exactly even when raw snapshot amounts carry sub-cent parts.
+ * Rows keep source order: seeds match by id, items and detail by position.
+ */
+function withAllocatedOpening(owedAdjustments, openingRows) {
+    const bySeed = new Map(openingRows.map(row => [row.id, row]));
+    const dollarsOf = row => row.cents / 100;
+    return owedAdjustments.map(record => {
+        const row = record && record.kind === 'carry_opening' ? bySeed.get(String(record.id)) : null;
+        if (!row) return record;
+        const items = Array.isArray(record.items) && Array.isArray(row.items) && row.items.length === record.items.length
+            ? record.items.map((item, i) => {
+                const itemRow = row.items[i];
+                const detail = Array.isArray(item?.detail) && Array.isArray(itemRow.detail) && itemRow.detail.length === item.detail.length
+                    ? item.detail.map((d, j) => ({ ...d, amount: dollarsOf(itemRow.detail[j]) })) : item?.detail;
+                return { ...item, amount: dollarsOf(itemRow), ...(detail !== undefined ? { detail } : {}) };
+            })
+            : record.items;
+        return { ...record, amount: dollarsOf(row), ...(items !== undefined ? { items } : {}) };
+    });
+}
+
+/** Carried fields are optional, but when present they must match canonical O. */
+function validCarried(ctx) {
+    if (ctx.carriedItems == null) return true;
+    const carried = ctx.carriedItems;
+    return Array.isArray(carried.items) && carried.items.every(item => !!item && typeof item.amount === 'number' && Number.isFinite(item.amount)
+            && (item.detail === undefined || (Array.isArray(item.detail) && item.detail.every(d => !!d && Number.isFinite(d.amount)))))
+        && ['G', 'S', 'O'].every(field => Number.isSafeInteger(ctx.cents?.[field]))
+        && Number.isFinite(carried.remainingCredit) && ctx.carriedTotal === snapshotDollars(ctx.cents.O, ctx.householdId);
 }
 
 /** Validate only the raw member-summary fields dereferenced by the Full renderer. */
@@ -57,7 +108,7 @@ function validInvoiceContext(ctx) {
         if (ctx.amountStr !== '$' + (ctx.balance > 0 ? ctx.balance : ctx.combinedTotal).toFixed(2)
             || ctx.amountLabel !== (ctx.balance > 0 && ctx.payment > 0 ? 'remaining balance' : 'total')) return false;
         return Object.entries({ combinedTotal: 'invoice', payment: 'P', refunded: 'R', balance: 'invoiceBalance' })
-            .every(([alias, field]) => ctx[alias] === snapshotDollars(cents[field], ctx.householdId));
+            .every(([alias, field]) => ctx[alias] === snapshotDollars(cents[field], ctx.householdId)) && validCarried(ctx);
     } catch (error) {
         if (!(error instanceof MoneyIntegrityError)) throw error;
         return false;
@@ -473,7 +524,19 @@ function renderTemplateBlocks(nodes, ctx, shareUrl) {
  */
 function renderInvoiceTemplateValue(ctx, shareUrl) {
     const doc = getInvoiceTemplateDocument(ctx?.settings);
-    const html = doc ? renderTemplateBlocks(doc.content, ctx, shareUrl || '').trim() : '';
+    let html;
+    if (ctx.carriedItems) {
+        // Same placement as the text and markdown: after the message, before
+        // the first payment-methods block (or at the end when there is none).
+        const blocks = doc?.content || [];
+        const at = blocks.findIndex(node => node?.type === 'blockToken' && normalizeTemplateTokenId(node.attrs?.id) === 'payment_methods');
+        const before = at < 0 ? blocks : blocks.slice(0, at);
+        const after = at < 0 ? [] : blocks.slice(at);
+        html = (renderTemplateBlocks(before, ctx, shareUrl || '') + renderCarriedHtml(ctx)
+            + renderTemplateBlocks(after, ctx, shareUrl || '')).trim();
+    } else {
+        html = doc ? renderTemplateBlocks(doc.content, ctx, shareUrl || '').trim() : '';
+    }
     return ctx.refunded > 0 ? html + '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">Refunded: $'
         + ctx.refunded.toFixed(2) + '</p>' : html;
 }
@@ -525,6 +588,12 @@ function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
     const formatter = markdown ? formatPaymentOptionsMarkdown : formatPaymentOptionsText;
     const lit = markdown ? escapeMarkdownInline : (v => v);
     const nameParts = (ctx.member.name || '').split(' ');
+    // The carried block follows the message and precedes the payment methods;
+    // it is added by the app, never by a template token (ADR 0009).
+    const carriedBlock = options && options.carried && ctx.carriedItems
+        ? (markdown ? renderCarriedMarkdown(ctx) : renderCarriedText(ctx, { summary: true })) : '';
+    const placed = carriedBlock && template ? withCarriedSentinel(template) : null;
+    if (placed) template = placed;
     let result = buildInvoiceTemplatePreviewText(template, {
         memberFirst: lit(nameParts[0] || ''),
         memberLast: lit(nameParts.slice(1).join(' ') || ''),
@@ -543,7 +612,187 @@ function buildConfiguredInvoiceMessage(ctx, shareUrl, options) {
         result = result.replace(new RegExp('(?<![\\[\\(])' + escaped + '(?![\\]\\)])', 'g'),
             '[' + linkText + '](' + shareUrl + ')');
     }
+    if (placed) result = result.replace(new RegExp('\\s*' + CARRIED_SENTINEL + '\\n?'), () => '\n\n' + carriedBlock + '\n').trim();
+    else if (carriedBlock && result) result += '\n\n' + carriedBlock;
     return result;
+}
+
+// ── Carried from <year> (ADR 0009; specs/year-end-review.md § Member-facing copy) ──
+// One line model feeds the plain-text, markdown and HTML renderers so every
+// variant and the preview say the same thing. Lines group by member (first
+// appearance, as the share page does); the household credit, legacy seeds and
+// unattributed lines sit at the household level. Detail never adds to a total.
+
+const MINUS = '−';
+const dollars = amount => '$' + Math.abs(amount).toFixed(2);
+/** An item's own amount: a credit shows its minus, a charge is unsigned. */
+const itemAmount = amount => (amount < 0 ? MINUS : '') + dollars(amount);
+/** Totals and legacy lines are always signed. */
+const signedAmount = amount => (amount < 0 ? MINUS : '+') + dollars(amount);
+const firstName = name => String(name || '').trim().split(/\s+/)[0] || '';
+
+/**
+ * Split a snapshot description into what happened and the share label, dropping
+ * any stored trailing amount (the item's own amount is the money rendered).
+ * "X went from $180 to $198 a month in July. Your share of six months: $12.00."
+ * → { lead: "X went … in July.", share: "Your share of six months" }.
+ */
+function parseCarriedDescription(text) {
+    const trimmed = String(text || '').trim().replace(/\.$/, '')
+        .replace(/:\s*[+−-]?\$\d[\d,]*(?:\.\d+)?$/, '');
+    const match = trimmed.match(/^(.*?[.!?])\s+(Your share of [^.]+)$/);
+    return match ? { lead: match[1], share: match[2] } : { lead: trimmed, share: null };
+}
+
+function carriedYear(carried) {
+    return carried.fromYear || 'previous year';
+}
+
+/** @returns {{ legacyOnly: boolean, lines: Array<{ who: string, lead: string, share: string|null, amount: number, legacy: boolean, detail: Array }> }} */
+function carriedLineModel(carried) {
+    const groups = new Map();
+    const household = [];
+    carried.items.forEach(item => {
+        if (item.memberId == null || item.kind === 'credit' || item.kind === 'legacy') household.push(item);
+        else {
+            if (!groups.has(item.memberId)) groups.set(item.memberId, []);
+            groups.get(item.memberId).push(item);
+        }
+    });
+    const toLine = item => {
+        if (item.kind === 'legacy') {
+            return { who: '', lead: 'Carried from ' + carriedYear(carried), share: null, amount: item.amount, legacy: true, detail: [] };
+        }
+        const { lead, share } = parseCarriedDescription(item.description || item.billName || 'Carried charge');
+        const isHousehold = item.memberId == null || item.kind === 'credit';
+        return { who: isHousehold ? '' : firstName(item.memberName), lead, share, amount: item.amount, legacy: false,
+            detail: (item.detail || []).map(detail => ({
+                text: parseCarriedDescription(detail.description || detail.billName || '').lead.replace(/\.$/, ''),
+                amount: detail.amount, who: firstName(detail.memberName),
+            })) };
+    };
+    const lines = [...Array.from(groups.values()).flat(), ...household].map(toLine);
+    return { legacyOnly: lines.length > 0 && lines.every(line => line.legacy), lines };
+}
+
+/** Canonical figures for the summary sentence; I = max(0, G − S + O). */
+function carriedFigures(ctx) {
+    const { G, S, O } = ctx.cents;
+    const net = G - S + O;
+    const remaining = ctx.carriedItems.remainingCredit;
+    return { bills: G / 100, serviceCredits: S / 100, carried: O / 100, notApplied: Math.max(0, -net) / 100,
+        remaining, incomingCredit: Math.max(0, -O) / 100 };
+}
+
+/** "2027 total: $723.00 (2027 bills $668.00 + carried $55.00)" — exact for S, floor. */
+function carriedTotalSentence(ctx) {
+    const f = carriedFigures(ctx);
+    let expr = ctx.currentYear + ' bills ' + dollars(f.bills);
+    if (f.serviceCredits > 0) expr += ' ' + MINUS + ' service credits ' + dollars(f.serviceCredits);
+    expr += (f.carried < 0 ? ' ' + MINUS : ' +') + ' carried ' + dollars(f.carried);
+    if (f.notApplied > 0) expr += '; ' + dollars(f.notApplied) + ' not applied this year';
+    return ctx.currentYear + ' total: ' + dollars(ctx.combinedTotal) + ' (' + expr + ')';
+}
+
+/** Unused incoming credit only (remainingCredit), never the floor remainder. */
+function carriedRemainsSentence(ctx) {
+    const f = carriedFigures(ctx);
+    if (!(f.remaining > 0)) return '';
+    return 'Your ' + carriedYear(ctx.carriedItems) + ' credit of ' + dollars(f.incomingCredit) + ' covers this year; '
+        + dollars(f.remaining) + ' remains. It will carry into next year.';
+}
+
+/** "Pinecone Vault ended in August: −$4.00 (Ada); Other 2026 overpayment: −$22.00" */
+function detailText(detail) {
+    return detail.map(d => d.text + ': ' + itemAmount(d.amount) + (d.who ? ' (' + d.who + ')' : '')).join('; ');
+}
+
+/**
+ * Plain-text block (text-only, text-link and Full). Each item is one bullet,
+ * member first; the share sits on its own continuation line; the household
+ * credit's detail sits on one continuation line beneath it. Full omits the
+ * total sentence because its payment summary carries the same figures.
+ */
+function renderCarriedText(ctx, { summary }) {
+    const carried = ctx.carriedItems;
+    const model = carriedLineModel(carried);
+    if (model.legacyOnly) return 'Carried from ' + carriedYear(carried) + ': ' + signedAmount(ctx.carriedTotal) + '.';
+    const lines = ['CARRIED FROM ' + carriedYear(carried).toUpperCase()];
+    model.lines.forEach(line => {
+        if (line.legacy) { lines.push('- ' + line.lead + ': ' + signedAmount(line.amount)); return; }
+        const who = line.who ? line.who + ': ' : '';
+        if (line.share) lines.push('- ' + who + line.lead, '  ' + line.share + ': ' + itemAmount(line.amount));
+        else lines.push('- ' + who + line.lead + ': ' + itemAmount(line.amount));
+        if (line.detail.length) lines.push('  ' + detailText(line.detail));
+    });
+    lines.push('CARRIED TOTAL: ' + signedAmount(ctx.carriedTotal));
+    if (summary) {
+        lines.push(carriedTotalSentence(ctx));
+        const remains = carriedRemainsSentence(ctx);
+        if (remains) lines.push(remains);
+    }
+    return lines.join('\n');
+}
+
+/** One list line for the HTML preview and its markdown twin; detail continues on a second line. */
+function carriedInlineParts(line) {
+    if (line.legacy) return { text: line.lead + ': ', amount: signedAmount(line.amount), detail: '' };
+    const lead = (line.who ? line.who + ' · ' : '') + line.lead + (line.share ? ' ' + line.share : '') + ': ';
+    return { text: lead, amount: itemAmount(line.amount), detail: line.detail.length ? detailText(line.detail) : '' };
+}
+
+/** HTML block for the Invoicing preview / template email (renderInvoiceTemplate). */
+function renderCarriedHtml(ctx) {
+    const carried = ctx.carriedItems;
+    const model = carriedLineModel(carried);
+    // Amounts never wrap between the sign and the figure.
+    const strong = value => '<strong style="' + INVOICE_TEMPLATE_STYLES.strong + 'white-space:nowrap;">' + escapeHtml(value) + '</strong>';
+    const nowrap = value => '<span style="white-space:nowrap;">' + escapeHtml(value) + '</span>';
+    const detailHtml = detail => detail.map(d => escapeHtml(d.text + ': ') + nowrap(itemAmount(d.amount))
+        + escapeHtml(d.who ? ' (' + d.who + ')' : '')).join(escapeHtml('; '));
+    const paragraph = html => '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">' + html + '</p>';
+    if (model.legacyOnly) {
+        return paragraph(escapeHtml('Carried from ' + carriedYear(carried) + ': ') + strong(signedAmount(ctx.carriedTotal)) + '.');
+    }
+    const items = model.lines.map(line => {
+        const part = carriedInlineParts(line);
+        return '<li style="' + INVOICE_TEMPLATE_STYLES.listItem + '">' + escapeHtml(part.text) + strong(part.amount)
+            + (line.detail.length ? '<br>' + detailHtml(line.detail) : '') + '</li>';
+    }).join('');
+    const remains = carriedRemainsSentence(ctx);
+    return '<p style="' + INVOICE_TEMPLATE_STYLES.sectionLabel + '">' + escapeHtml('Carried from ' + carriedYear(carried)) + '</p>'
+        + '<ul style="' + INVOICE_TEMPLATE_STYLES.list + '">' + items + '</ul>'
+        + paragraph(strong('Carried total: ' + signedAmount(ctx.carriedTotal)) + escapeHtml(' · ' + carriedTotalSentence(ctx)))
+        + (remains ? paragraph(escapeHtml(remains)) : '');
+}
+
+/** Markdown twin of renderCarriedHtml for the server-rendered test email. */
+function renderCarriedMarkdown(ctx) {
+    const carried = ctx.carriedItems;
+    const model = carriedLineModel(carried);
+    const md = escapeMarkdownInline;
+    if (model.legacyOnly) return md('Carried from ' + carriedYear(carried) + ': ') + '**' + signedAmount(ctx.carriedTotal) + '**.';
+    const remains = carriedRemainsSentence(ctx);
+    return ['## ' + md('Carried from ' + carriedYear(carried)), '',
+        ...model.lines.map(line => {
+            const part = carriedInlineParts(line);
+            return '- ' + md(part.text) + '**' + part.amount + '**' + (part.detail ? '\n  ' + md(part.detail) : '');
+        }), '',
+        '**' + md('Carried total: ' + signedAmount(ctx.carriedTotal)) + '**' + md(' · ' + carriedTotalSentence(ctx)),
+        ...(remains ? ['', md(remains)] : []),
+    ].join('\n');
+}
+
+const PAYMENT_METHODS_LINE = /^(?:\*\*%payment_methods%\*\*|%payment_methods%)$/;
+const CARRIED_SENTINEL = 'carried';
+
+/** Place the sentinel before the first payment-methods block, else at the end. */
+function withCarriedSentinel(template) {
+    const lines = String(template || '').split('\n');
+    const index = lines.findIndex(line => PAYMENT_METHODS_LINE.test(line.trim()));
+    if (index < 0) return null;
+    lines.splice(index, 0, CARRIED_SENTINEL);
+    return lines.join('\n');
 }
 
 /**
@@ -602,8 +851,19 @@ function buildFullInvoiceText(ctx, shareUrl) {
     text += renderBillTable(memberData, member.name);
     linkedMembersData.forEach(ld => { text += renderBillTable(ld, ld.member.name); });
 
+    const carried = ctx.carriedItems;
+    if (carried) text += renderCarriedText(ctx, { summary: false }) + '\n\n';
+
     text += 'ANNUAL PAYMENT SUMMARY:\n';
     text += '='.repeat(80) + '\n';
+    if (carried) {
+        const f = carriedFigures(ctx);
+        const row = (label, value) => ('  ' + label + ':').padEnd(33) + value + '\n';
+        text += row(currentYear + ' bills', dollars(f.bills));
+        if (f.serviceCredits > 0) text += row('Service credits', MINUS + dollars(f.serviceCredits));
+        text += row('Carried from ' + carriedYear(carried), signedAmount(f.carried));
+        if (f.notApplied > 0) text += row('Not applied this year', signedAmount(f.notApplied));
+    }
     text += '  Combined Annual Total:         $' + combinedTotal.toFixed(2) + '\n';
     if (payment > 0) {
         text += '  Payment Received:              $' + payment.toFixed(2) + '\n';
@@ -616,6 +876,8 @@ function buildFullInvoiceText(ctx, shareUrl) {
         text += '  Balance Remaining:             $' + balance.toFixed(2) + '\n';
     }
     text += '='.repeat(80) + '\n';
+    const remains = carried ? carriedRemainsSentence(ctx) : '';
+    if (remains) text += remains + '\n';
 
     const paymentOptionsText = formatPaymentOptionsText(ctx.settings);
     if (paymentOptionsText) text += paymentOptionsText;
@@ -641,7 +903,12 @@ function buildInvoiceBodyValue(ctx, variant, shareUrl, channel, options) {
 function buildInvoiceBodyText(ctx, variant, shareUrl, channel, options) {
     const { firstName, amountStr, amountLabel, currentYear } = ctx;
     const isEmail = channel === 'email';
-    const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, options);
+    // Every email variant explains a carried balance; Full places it itself.
+    const withCarried = isEmail && variant !== 'full' && !!ctx.carriedItems;
+    const configuredMessage = buildConfiguredInvoiceMessage(ctx, shareUrl, { ...options, carried: withCarried });
+    const markdown = !!(options && options.markdown);
+    const fallbackCarried = withCarried
+        ? '\n\n' + (markdown ? renderCarriedMarkdown(ctx) : renderCarriedText(ctx, { summary: true })) : '';
 
     // Prepend a greeting for email templates that don't already start with one.
     // This handles legacy saved templates that predate the %member_first% token.
@@ -656,7 +923,7 @@ function buildInvoiceBodyText(ctx, variant, shareUrl, channel, options) {
             return ensureGreeting(configuredMessage);
         }
         const greeting = isEmail ? 'Hello' : 'Hey';
-        return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!';
+        return greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '. Thanks!' + fallbackCarried;
     }
 
     if (variant === 'full') {
@@ -671,7 +938,7 @@ function buildInvoiceBodyText(ctx, variant, shareUrl, channel, options) {
     }
 
     const greeting = isEmail ? 'Hello' : 'Hey';
-    let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!';
+    let msg = greeting + ' ' + firstName + '\u2014your annual shared bills for ' + currentYear + ' are ready. Your ' + amountLabel + ' is ' + amountStr + '.\n\nThanks!' + fallbackCarried;
     if (shareUrl) msg += '\n\n' + shareUrl;
     return msg;
 }

@@ -30,7 +30,7 @@ function NewBillRow({ row, item, source, nextYearLabel, months, actions }) {
             <div className="yer-bill-body">
                 <div className="yer-grid3">
                     <Field id={`new-name-${row.rowId}`} label="Name" error={errors.name}>
-                        <input id={`new-name-${row.rowId}`} className="composer-input" type="text" value={row.name} aria-invalid={errors.name ? 'true' : undefined}
+                        <input id={`new-name-${row.rowId}`} className="composer-input" type="text" value={row.name} aria-invalid={errors.name ? 'true' : undefined} aria-describedby={errors.name ? `new-name-${row.rowId}-error` : undefined}
                             onChange={event => set({ name: event.target.value })} />
                     </Field>
                     <NumberField id={`new-amount-${row.rowId}`} label={`Price / ${unit}`} value={row.amount} onChange={value => set({ amount: value === null ? undefined : value })} error={errors.amount} />
@@ -66,7 +66,7 @@ function NewBillRow({ row, item, source, nextYearLabel, months, actions }) {
                     <div className="yer-calc" data-testid={'calc-new-' + row.rowId}>
                         <div className="yer-calc-head">
                             <span className="status-badge status-badge--partial">True-up · {money(result.calc.recorded)}</span>
-                            <span className="yer-sub">{result.calc.months} months of service in {source.sourceYear.label} never billed</span>
+                            <span className="yer-sub">{result.calc.months} {result.calc.months === 1 ? 'month' : 'months'} of service in {source.sourceYear.label} never billed</span>
                         </div>
                         <p className="yer-formula yer-num">{result.formula}</p>
                         <ul className="yer-split" aria-label="Per-member split">

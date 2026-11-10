@@ -3,26 +3,30 @@
  * classification of what came back into the six states Step 4 renders
  * (specs/year-end-review.md § Commit guard and recovery, Outcomes).
  *
- * The outcome contract this adapter reads (what #607's commit guard provides):
- *   - createYear resolves on a committed rollover. It may resolve with
- *     `{ outcome: 'completed' | 'already_completed', yearId }`; undefined means completed.
- *   - It rejects with an Error whose `code` is one of COMMIT_CODES:
- *       NEXT_YEAR_EXISTS  the destination exists. Either `resolution`
- *                         ('completed' | 'diverged' | 'elsewhere') or `existing`
- *                         ({ reconciliationId, payloadFingerprint, createdAt?, summary? },
- *                         read from its YEAR_CREATED_FROM_REVIEW event) lets the
- *                         three-way rule decide here.
- *       STALE_SOURCE      the source changed after the preview; nothing written.
- *       COMMIT_FAILED     a definite failure; nothing written. `offline: true` when
- *                         the transaction never reached the server.
- *       COMMIT_UNCERTAIN  the commit may have been sent. `resolution` is the
- *                         read-back's answer ('completed' | 'diverged' | 'elsewhere' |
- *                         'not_committed'); absent when the read-back itself failed.
- * Until #607 lands, today's createYear throws raw Firestore errors and plain
- * validation Errors; `classifyRaw` maps those onto the same states.
+ * The outcome contract this adapter reads is #607's (src/lib/rollover-commit.js,
+ * PR #685), whose service classifies an existing destination itself:
+ *   - A completed rollover never rejects. createYear resolves
+ *     `{ outcome: 'completed', yearId }` (committed now, or a lost response read back
+ *     as committed) or `{ outcome: 'already_completed', yearId }` (the destination is
+ *     this draft's own rollover). The service has already switched years in both.
+ *   - Otherwise it rejects with a RolloverError whose `code` is one of COMMIT_CODES:
+ *       NEXT_YEAR_EXISTS  nothing written. `resolution` 'diverged' (this draft's
+ *                         reconciliationId, another payloadFingerprint) or 'elsewhere';
+ *                         `existing` = { reconciliationId, payloadFingerprint,
+ *                         createdAt (ISO), summary (the source's YEAR_ROLLED_OVER counts) }.
+ *                         No resolution means the destination could not be read back.
+ *       STALE_SOURCE      the source changed after the preview; nothing written. The
+ *                         service does not reload the tab (unsaved edits); the page
+ *                         offers Reload.
+ *       COMMIT_FAILED     a definite failure; nothing written. `offline` when the
+ *                         transaction never reached the server.
+ *       COMMIT_UNCERTAIN  the commit was sent and its response lost. `resolution` is the
+ *                         read-back's answer ('not_committed' | 'diverged' | 'elsewhere');
+ *                         absent when the read-back itself failed.
+ * A service without `reviewedCommitGuard` (anything before #607) is never called.
+ * `classifyRaw` keeps unexpected raw errors conservative.
  */
 import { findSuccessorYear } from '../../../lib/year-end-review.js';
-import { isYearLabelDuplicate } from '../../../lib/billing-year.js';
 
 export const COMMIT_CODES = Object.freeze({
     NEXT_YEAR_EXISTS: 'NEXT_YEAR_EXISTS',
@@ -86,12 +90,14 @@ function offline() {
     return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
-/** Pre-#607 errors: raw Firestore codes and plain validation Errors. */
-function classifyRaw(error, ctx) {
+/** Errors outside the RolloverError contract: raw Firestore codes and plain Errors. */
+function classifyRaw(error) {
     const code = typeof error?.code === 'string' ? error.code.replace(/^firestore\//, '') : null;
     if (code && DEFINITE.has(code)) return { state: 'failed', cause: CAUSES[code] || error.message, retry: true };
     if (code) return { state: 'uncertain', checked: false, cause: CAUSES[code] || error.message };
-    if (/already exists/i.test(error?.message || '')) return { state: 'elsewhere', yearId: ctx.yearId, createdAt: null };
+    // An existing destination nobody classified may be this draft's own rollover: never
+    // report it as created elsewhere (or clear the draft) without that evidence.
+    if (/already exists/i.test(error?.message || '')) return { state: 'uncertain', checked: false };
     // A plain Error thrown before the write (validation in the rollover builder): nothing was sent.
     return { state: 'failed', cause: error?.message || 'Something went wrong.', retry: true };
 }
@@ -111,7 +117,9 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
     const resolution = error.resolution ?? (error.existing ? resolveExisting(error.existing, ctx) : undefined);
     switch (error.code) {
         case COMMIT_CODES.NEXT_YEAR_EXISTS:
-            return byResolution(resolution ?? 'elsewhere', error, ctx);
+            // No resolution: the destination exists but could not be read back. It may be this
+            // draft's own rollover, so it is checked again rather than called "elsewhere".
+            return resolution ? byResolution(resolution, error, ctx) : { state: 'uncertain', checked: false };
         case COMMIT_CODES.STALE_SOURCE:
             return { state: 'stale' };
         case COMMIT_CODES.COMMIT_FAILED:
@@ -123,18 +131,20 @@ export function classifyCommitResult({ result, error } = {}, ctx) {
             if (resolution) return byResolution(resolution, error, ctx);
             return { state: 'uncertain', checked: false };
         default:
-            return classifyRaw(error, ctx);
+            return classifyRaw(error);
     }
 }
 
 /**
- * Run Start: the successor guard after reloading the years list, then createYear.
- * `recheck` is the uncertain-outcome path: the destination itself may be this
- * draft's own completed commit, so it is not treated as a successor here; the
- * service's precondition read (never an overwrite) classifies it instead.
+ * Run Start (also Retry and Check again): the successor guard after reloading the
+ * years list, then createYear. A later year than the destination (a higher label, or
+ * a rollover event naming another year) stops Start before any commit: the service
+ * cannot classify it. The destination itself is never short-circuited from the
+ * in-memory list: it may be this draft's own rollover, and the service's transaction
+ * reads it and classifies it (completed / diverged / elsewhere), never overwriting.
  */
 export async function startReviewedYear({ service, sourceYear, sourceEvents, yearId, payload, reopenedAdjustmentIds,
-    payloadFingerprint, summary, recheck = false }) {
+    payloadFingerprint, summary }) {
     const ctx = { yearId, reconciliationId: payload.reconciliationId, payloadFingerprint, summary };
     // Defense in depth behind the disabled Start: never send a reviewed write without the guard.
     if (!hasCommitGuard(service)) return { state: 'failed', cause: COMMIT_GUARD_MISSING, retry: false, guardMissing: true };
@@ -147,21 +157,14 @@ export async function startReviewedYear({ service, sourceYear, sourceEvents, yea
     }
     const years = service.getState?.().billingYears || [];
     const successor = findSuccessorYear(years, sourceYear, sourceEvents || []);
-    if (successor && !(recheck && String(successor.id) === String(yearId))) {
+    const isDestination = year => String(year.id) === String(yearId) || String(year.label) === String(yearId);
+    if (successor && !isDestination(successor)) {
         return { state: 'elsewhere', yearId: successor.label || String(successor.id), successorId: successor.id, createdAt: null };
     }
-    if (!recheck && isYearLabelDuplicate(years, yearId)) return { state: 'elsewhere', yearId, successorId: yearId, createdAt: null };
     try {
         const result = await service.createYear(yearId, { reopenedAdjustmentIds, reconciliation: payload });
         return classifyCommitResult({ result }, ctx);
     } catch (error) {
-        const outcome = classifyCommitResult({ error }, ctx);
-        // A re-check exists to read completion evidence. An existing destination with no
-        // classification (no code, resolution or `existing`) may be this draft's own commit,
-        // so it is never reported as "created elsewhere" and the draft is never cleared on it.
-        if (recheck && outcome.state === 'elsewhere' && !error?.code && !error?.existing && !error?.resolution) {
-            return { state: 'uncertain', checked: false };
-        }
-        return outcome;
+        return classifyCommitResult({ error }, ctx);
     }
 }

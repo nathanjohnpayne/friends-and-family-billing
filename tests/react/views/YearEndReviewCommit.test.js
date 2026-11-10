@@ -113,9 +113,15 @@ describe('classifyCommitResult — the outcome contract', () => {
     });
 
     it.each([
+        // #607 (rollover-commit.js): a completed rollover resolves; it never rejects.
         [{ result: undefined }, { state: 'success', yearId: '2027', alreadyCompleted: false }],
+        [{ result: { outcome: 'completed', yearId: '2027' } }, { state: 'success', yearId: '2027', alreadyCompleted: false }],
         [{ result: { outcome: 'already_completed', yearId: '2027' } }, { state: 'success', alreadyCompleted: true }],
-        [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS) }, { state: 'elsewhere', yearId: '2027' }],
+        [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere', existing: null }) }, { state: 'elsewhere', yearId: '2027' }],
+        [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere', existing: { reconciliationId: 'rec_other', createdAt: '2026-12-08T15:12:00.000Z' } }) },
+            { state: 'elsewhere', createdAt: '2026-12-08T15:12:00.000Z' }],
+        // The destination exists but could not be read back: it may be this draft's own.
+        [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { existing: null }) }, { state: 'uncertain', checked: false }],
         [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_mine' } }) }, { state: 'success', alreadyCompleted: true }],
         [{ error: codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'diverged' }) }, { state: 'diverged' }],
         [{ error: codeError(COMMIT_CODES.STALE_SOURCE) }, { state: 'stale' }],
@@ -125,11 +131,11 @@ describe('classifyCommitResult — the outcome contract', () => {
         [{ error: codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'not_committed' }) }, { state: 'uncertain', checked: true, retry: true }],
         [{ error: codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'completed' }) }, { state: 'success', alreadyCompleted: true }],
         [{ error: codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'elsewhere' }) }, { state: 'elsewhere' }],
-        // Pre-#607 raw errors.
+        // Errors outside the RolloverError contract stay conservative.
         [{ error: codeError('permission-denied') }, { state: 'failed', cause: 'The server refused the write.' }],
         [{ error: codeError('unavailable') }, { state: 'uncertain', checked: false }],
         [{ error: codeError('deadline-exceeded') }, { state: 'uncertain', checked: false }],
-        [{ error: new Error('Billing year "2027" already exists.') }, { state: 'elsewhere' }],
+        [{ error: new Error('Billing year "2027" already exists.') }, { state: 'uncertain', checked: false }],
         [{ error: new Error('Bill 9 is not in the 2026 billing year.') }, { state: 'failed', cause: 'Bill 9 is not in the 2026 billing year.' }]
     ])('%o → %o', (settled, expected) => {
         expect(classifyCommitResult(settled, ctx)).toMatchObject(expected);
@@ -155,33 +161,24 @@ describe('startReviewedYear — the guard at Start', () => {
         expect(svc.createYear).not.toHaveBeenCalled();
     });
 
-    it('reloads the years list first and never commits over a successor found there', async () => {
-        const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }]);
-        await expect(startReviewedYear({ ...base, service: svc })).resolves.toMatchObject({ state: 'elsewhere', yearId: '2027' });
+    it('reloads the years list first and never commits when a later year than the destination exists', async () => {
+        const svc = service([sourceYear, { id: '2028', label: '2028', status: 'open' }]);
+        await expect(startReviewedYear({ ...base, service: svc })).resolves.toMatchObject({ state: 'elsewhere', yearId: '2028' });
         expect(svc._loadYearsList).toHaveBeenCalled();
         expect(svc.createYear).not.toHaveBeenCalled();
     });
 
-    it('a successor by higher label blocks a different destination label too', async () => {
-        const svc = service([sourceYear, { id: '2028', label: '2028', status: 'open' }]);
-        await expect(startReviewedYear({ ...base, service: svc })).resolves.toMatchObject({ state: 'elsewhere', yearId: '2028' });
-        expect(svc.createYear).not.toHaveBeenCalled();
-    });
-
-    it('the uncertain re-check lets the destination itself through to the service’s precondition read', async () => {
-        const createYear = vi.fn(async () => { throw codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_mine' } }); });
+    it('never short-circuits on the destination from the years list: the service classifies it', async () => {
+        const createYear = vi.fn(async () => ({ outcome: 'already_completed', yearId: '2027' }));
         const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }], createYear);
-        await expect(startReviewedYear({ ...base, service: svc, recheck: true })).resolves.toMatchObject({ state: 'success', alreadyCompleted: true });
+        await expect(startReviewedYear({ ...base, service: svc })).resolves.toMatchObject({ state: 'success', alreadyCompleted: true });
         expect(createYear).toHaveBeenCalledWith('2027', { reopenedAdjustmentIds: base.reopenedAdjustmentIds, reconciliation: base.payload });
     });
 
-    it('the re-check never calls an unclassified existing destination "created elsewhere" (it may be this draft’s commit)', async () => {
+    it('an existing destination nobody classified is never "created elsewhere" (it may be this draft’s commit)', async () => {
         const createYear = vi.fn(async () => { throw new Error('Billing year "2027" already exists.'); });
         const svc = service([sourceYear, { id: '2027', label: '2027', status: 'open' }], createYear);
-        await expect(startReviewedYear({ ...base, service: svc, recheck: true })).resolves.toEqual({ state: 'uncertain', checked: false });
-        // Outside the re-check the same error still reads as created elsewhere.
-        const fresh = service([sourceYear], createYear);
-        await expect(startReviewedYear({ ...base, service: fresh })).resolves.toMatchObject({ state: 'elsewhere' });
+        await expect(startReviewedYear({ ...base, service: svc })).resolves.toEqual({ state: 'uncertain', checked: false });
     });
 
     it('a failed guard read is a definite failure (nothing was sent)', async () => {

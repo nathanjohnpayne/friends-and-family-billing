@@ -18,7 +18,7 @@ vi.mock('@/app/hooks/useRefundNotices.js', () => ({ useRefundNotices: () => mock
 import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import YearEndReviewView from '@/app/views/YearEndReview/YearEndReviewView.jsx';
 import { createDraft, draftStorageKey, fingerprintOf, snapshotExistingCredit, snapshotStorageKey, sourceCounts } from '@/app/views/YearEndReview/yearEndReviewModel.js';
-import { computeEnded, computePayloadFingerprint } from '@/lib/year-end-review.js';
+import { computeEnded } from '@/lib/year-end-review.js';
 import { buildReconciliationPayload } from '@/app/views/YearEndReview/reconciliationPayload.js';
 import { COMMIT_CODES } from '@/app/views/YearEndReview/commitOutcome.js';
 import { BILL, MEMBER, NEW_BILL, pineconeCredits, wireframeEntries, wireframeReviewState, yearEndState } from '../helpers/yearEndReviewFixture.js';
@@ -356,6 +356,22 @@ describe('Step 1 — credits already on the bill (D-B, no default)', () => {
     });
 });
 
+describe('override after full credit coverage', () => {
+    it('stays editable when existing credits cover the whole override, and can be cleared', async () => {
+        const user = userEvent.setup();
+        mocks.state.bills = [{ id: 301, name: 'Solo Plan', amount: 12, billingFrequency: 'monthly', members: [MEMBER.sam] }];
+        mocks.state.owedAdjustments = [{ id: 'oadj_solo', memberId: MEMBER.sam, billId: 301, kind: 'service_credit', amount: 30, reason: 'Cancelled', incurredDate: '2026-09-02', createdAt: '2026-09-02T12:00:00.000Z', status: 'active' }];
+        seedDraft({ bills: { 301: { change: 'ended', lastMonth: '2026-08', override: 30 } } });
+        renderPage();
+        await user.click(within(screen.getByTestId('credits-301')).getByRole('button', { name: 'Covers this change' }));
+        expect(screen.getByText('Nothing more to record; the bill is left out of 2027.')).toBeInTheDocument();
+        const field = within(screen.getByTestId('bill-301')).getByLabelText('Service credit ($)');
+        expect(field).toBeEnabled();
+        await user.clear(field);
+        expect(screen.getByText(/Service credit · \$48\.00|\$48\.00 computed/)).toBeInTheDocument();
+    });
+});
+
 describe('Step 2 — new subscriptions', () => {
     it('allocates a billId once, validates, and computes the late-start True-up', async () => {
         const user = userEvent.setup();
@@ -402,6 +418,33 @@ describe('review findings', () => {
         await user.click(okafor.getByRole('button', { name: 'Add to review' }));
         expect(okafor.getByText('Enter an amount greater than zero.')).toBeInTheDocument();
         expect(stored().charges).toEqual([]);
+    });
+});
+
+describe('review polish', () => {
+    it('exposes input errors through aria-describedby and pluralizes one month', async () => {
+        const user = userEvent.setup();
+        seedDraft({ newBills: [{ rowId: 21, billId: 22, name: '', amount: 5, frequency: 'monthly', website: '', members: [MEMBER.sam], firstMonth: '2026-12' }] });
+        renderPage();
+        await user.click(nextButton());
+        const name = screen.getByLabelText('Name');
+        expect(name).toHaveAttribute('aria-describedby', 'new-name-21-error');
+        expect(document.getElementById('new-name-21-error')).toHaveTextContent('Enter a name for the subscription.');
+        await user.type(name, 'Solo');
+        expect(screen.getByText('1 month of service in 2026 never billed')).toBeInTheDocument();
+        await user.click(nextButton());
+        const okafor = within(screen.getByTestId('household-' + MEMBER.ada));
+        await user.click(okafor.getByRole('button', { name: 'Add charge for Okafor household' }));
+        await user.click(okafor.getByRole('button', { name: 'Add to review' }));
+        expect(okafor.getByLabelText('Description')).toHaveAttribute('aria-describedby', `charge-desc-${MEMBER.ada}-error`);
+    });
+
+    it('does not write the counts sidecar under a fingerprint that is not the current one', () => {
+        const old = fingerprintOf(sourceOf(mocks.state));
+        seedDraft({}, { fingerprint: old });
+        mocks.state.payments = [{ id: 'p9', memberId: MEMBER.erik, amount: 5, type: 'payment', reversed: false, receivedAt: '2026-12-01' }];
+        renderPage();
+        expect(window.localStorage.getItem(snapshotStorageKey('owner-uid', '2026'))).toBeNull();
     });
 });
 
@@ -567,6 +610,14 @@ describe('guards', () => {
         mocks.state.billingYears = [{ id: '2026', label: '2026', status: 'settling' }, { id: '2027', label: '2027', status: 'open' }];
         renderPage();
         expect(screen.getByText('2027 already exists')).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Bills' })).toBeNull();
+    });
+
+    it('blocks the review for a year label without a four-digit year', () => {
+        mocks.state.activeYear = { id: '2026-27', label: '2026-27', status: 'closed' };
+        mocks.state.billingYears = [mocks.state.activeYear];
+        renderPage();
+        expect(screen.getByText('The review needs a four-digit year label')).toBeInTheDocument();
         expect(screen.queryByRole('heading', { name: 'Bills' })).toBeNull();
     });
 
@@ -744,6 +795,10 @@ describe('Step 4 — the wireframe preview', () => {
         expect(within(screen.getByTestId('start-blockers')).getByText('Billing year "2025" already exists.')).toBeInTheDocument();
         expect(within(screen.getByTestId('start-card')).getByRole('button', { name: 'Start 2025' })).toBeDisabled();
         expect(screen.queryByText('pending')).toBeNull();
+        // A year the review could never review later (#608 refuses non-calendar labels) is not created.
+        await user.clear(label);
+        await user.type(label, '2027-28');
+        expect(label).toHaveAccessibleDescription('Use a four-digit year, such as 2027. Years with other labels cannot be reviewed later.');
         await user.clear(label);
         await user.type(label, '2027');
         expect(startButton()).toBeEnabled();
@@ -830,7 +885,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
 
     it('NEXT_YEAR_EXISTS from another reconciliation: created elsewhere, draft kept, Open 2027 or Discard draft', async () => {
         const user = userEvent.setup();
-        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere',
             existing: { reconciliationId: 'rec_other', payloadFingerprint: 'yrp1_other', createdAt: '2026-12-08T15:12:00' } })) });
         seedWireframe();
         routedPage();
@@ -849,7 +904,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
 
     it('created elsewhere, then Discard draft clears the draft and leaves without committing', async () => {
         const user = userEvent.setup();
-        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS)) });
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere', existing: null })) });
         seedWireframe();
         routedPage();
         await openStep4(user);
@@ -864,8 +919,8 @@ describe('Step 4 — Start and the commit outcomes', () => {
 
     it('NEXT_YEAR_EXISTS with this draft’s id and a different payload: started on another tab with different entries; draft kept', async () => {
         const user = userEvent.setup();
-        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
-            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_different',
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'diverged',
+            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_different', createdAt: '2026-12-08T15:12:00.000Z',
                 summary: { trueUpCount: 2, serviceCreditCount: 1, coveredCount: 0, usageChargeCount: 0, priceChangeCount: 2, endedCount: 1, newBillCount: 0 } } })) });
         seedWireframe();
         routedPage();
@@ -878,45 +933,72 @@ describe('Step 4 — Start and the commit outcomes', () => {
         expect(stored().reconciliationId).toBe('rec_fixed');
     });
 
-    it('NEXT_YEAR_EXISTS with this draft’s id and payload: the operation already completed; clear the draft and switch', async () => {
+    it('the destination is this draft’s own rollover (resolves already_completed): clear the draft and leave, no second commit', async () => {
         const user = userEvent.setup();
-        mocks.state = wireframeReviewState();
-        const draft = seedDraft(wireframeEntries());
-        const fingerprint = computePayloadFingerprint(buildReconciliationPayload(draft, sourceOf(mocks.state)), '2027');
-        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
-            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: fingerprint } })) });
+        // #607's service has already switched years when it resolves a completed outcome.
+        const service = fakeService({ createYear: vi.fn(async () => {
+            mocks.state = { ...mocks.state, activeYear: { id: '2027', label: '2027', status: 'open' } };
+            return { outcome: 'already_completed', yearId: '2027' };
+        }) });
+        seedWireframe();
         routedPage();
         await openStep4(user);
         await user.click(startButton());
         await screen.findByText('Dashboard page');
         expect(window.localStorage.getItem(KEY)).toBeNull();
-        expect(service.switchYear).toHaveBeenCalledWith('2027');
+        expect(service.switchYear).not.toHaveBeenCalled();
         expect(service.createYear).toHaveBeenCalledTimes(1);
     });
 
-    it('STALE_SOURCE: nothing saved, the preview refreshed and marked pending, Step 4 confirmed again before Start', async () => {
+    it('NEXT_YEAR_EXISTS whose destination could not be read back is checked again, never called created elsewhere', async () => {
         const user = userEvent.setup();
-        const service = fakeService({
-            createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.STALE_SOURCE)).mockResolvedValueOnce(undefined),
-            switchYear: vi.fn(async () => {
-                // The reload finds a payment recorded on another device after the preview.
-                mocks.state = { ...mocks.state, payments: [...mocks.state.payments, { id: 'pay_late', memberId: MEMBER.erik, amount: 25, type: 'payment', reversed: false, receivedAt: '2026-12-08' }] };
-            })
-        });
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { existing: null })) });
         seedWireframe();
         routedPage();
         await openStep4(user);
         await user.click(startButton());
-        expect(await screen.findByText('2026 changed after this preview, so nothing was saved.')).toBeInTheDocument();
-        expect(service.switchYear).toHaveBeenCalledWith('2026');
+        expect(await screen.findByText('We can’t tell yet whether 2027 was created.')).toBeInTheDocument();
+        expect(screen.queryByText('2027 already exists.')).toBeNull();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('STALE_SOURCE: nothing saved, nothing reloaded in place; Reload is offered, and after it Step 4 is checked again before Start', async () => {
+        const user = userEvent.setup();
+        const onReload = vi.fn();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.STALE_SOURCE)).mockResolvedValueOnce(undefined) });
+        seedWireframe();
+        const page = (reload = onReload) => render(
+            <MemoryRouter initialEntries={['/year-end-review']}>
+                <ToastProvider>
+                    <Routes>
+                        <Route path="/year-end-review" element={<YearEndReviewView onReload={reload} />} />
+                        <Route path="/dashboard" element={<p>Dashboard page</p>} />
+                    </Routes>
+                </ToastProvider>
+            </MemoryRouter>
+        );
+        const first = page();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText('2026 changed after this preview, so nothing was saved.')).closest('[role="alert"]');
+        // The service does not reload the tab (unsaved edits elsewhere); neither does the page.
+        expect(service.switchYear).not.toHaveBeenCalled();
         expect(startButton()).toBeDisabled();
         expect(screen.getAllByText('pending').length).toBeGreaterThan(0);
-        // The refreshed preview: Lindqvist's extra $25.00 now lowers what it carries.
-        expect(household(MEMBER.erik).getByText('Carried +$30.00')).toBeInTheDocument();
         expect(stored().reconciliationId).toBe('rec_fixed');
+        await user.click(within(alert).getByRole('button', { name: 'Reload' }));
+        expect(onReload).toHaveBeenCalledTimes(1);
+        // The reload: today's source has a payment recorded on another device after the preview.
+        first.unmount();
+        mocks.state = { ...mocks.state, payments: [...mocks.state.payments, { id: 'pay_late', memberId: MEMBER.erik, amount: 25, type: 'payment', reversed: false, receivedAt: '2026-12-08' }] };
+        page();
+        expect(screen.getByText(/Draft from .* restored\./)).toBeInTheDocument();
+        await openStep4(user);
+        // Lindqvist's extra $25.00 now lowers what it carries; the figures are pending until checked.
+        expect(household(MEMBER.erik).getByText('Carried +$30.00')).toBeInTheDocument();
+        expect(startButton()).toBeDisabled();
         await user.click(screen.getByRole('button', { name: 'I’ve checked the updated figures' }));
         expect(screen.queryByText('pending')).toBeNull();
-        expect(startButton()).toBeEnabled();
         await user.click(startButton());
         await screen.findByText('Dashboard page');
         // The second attempt carries the newly reviewed fingerprint, never a silently accepted one.
@@ -935,9 +1017,9 @@ describe('Step 4 — Start and the commit outcomes', () => {
         expect(stored().reconciliationId).toBe('rec_fixed');
     });
 
-    it('COMMIT_UNCERTAIN, read back as completed: success', async () => {
+    it('a lost response read back as committed resolves completed: success', async () => {
         const user = userEvent.setup();
-        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'completed' })) });
+        fakeService({ createYear: vi.fn().mockResolvedValue({ outcome: 'completed', yearId: '2027' }) });
         seedWireframe();
         routedPage();
         await openStep4(user);
@@ -951,7 +1033,7 @@ describe('Step 4 — Start and the commit outcomes', () => {
         const service = fakeService({
             createYear: vi.fn()
                 .mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN))
-                .mockRejectedValueOnce(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'completed' })),
+                .mockResolvedValueOnce({ outcome: 'already_completed', yearId: '2027' }),
             _loadYearsList: vi.fn(async () => {})
         });
         seedWireframe();
@@ -961,7 +1043,8 @@ describe('Step 4 — Start and the commit outcomes', () => {
         const banner = (await screen.findByText('We can’t tell yet whether 2027 was created.')).closest('[role="alert"]');
         expect(within(banner).queryByRole('button', { name: 'Retry' })).toBeNull();
         expect(stored().reconciliationId).toBe('rec_fixed');
-        // The read-back may find this draft's own 2027: the guard must not call that "created elsewhere".
+        // The years list now shows 2027, which may be this draft's own: the page does not call it
+        // "created elsewhere" from the list; the service reads the destination and classifies it.
         service._loadYearsList.mockImplementation(async () => {
             mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2027', label: '2027', status: 'open' }] };
         });
@@ -973,12 +1056,31 @@ describe('Step 4 — Start and the commit outcomes', () => {
 });
 
 describe('Step 4 — the guard and Start’s gate', () => {
-    it('a next year created during the flow is detected at Start, before any commit', async () => {
+    it('a later year created during the flow is detected at Start, before any commit', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({
+            _loadYearsList: vi.fn(async () => {
+                mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2028', label: '2028', status: 'open' }] };
+            })
+        });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText('2028 already exists.')).toBeInTheDocument();
+        expect(service._loadYearsList).toHaveBeenCalledTimes(1);
+        expect(service.createYear).not.toHaveBeenCalled();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('the destination created during the flow is classified by the service (never short-circuited from the years list)', async () => {
         const user = userEvent.setup();
         const service = fakeService({
             _loadYearsList: vi.fn(async () => {
                 mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2027', label: '2027', status: 'open' }] };
-            })
+            }),
+            createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'elsewhere',
+                existing: { reconciliationId: 'rec_other', payloadFingerprint: 'yrp1_other', createdAt: '2026-12-08T15:12:00' } }))
         });
         seedWireframe();
         routedPage();
@@ -986,7 +1088,7 @@ describe('Step 4 — the guard and Start’s gate', () => {
         await user.click(startButton());
         expect(await screen.findByText('2027 already exists.')).toBeInTheDocument();
         expect(service._loadYearsList).toHaveBeenCalledTimes(1);
-        expect(service.createYear).not.toHaveBeenCalled();
+        expect(service.createYear).toHaveBeenCalledTimes(1);
         expect(stored().reconciliationId).toBe('rec_fixed');
     });
 
