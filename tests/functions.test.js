@@ -1231,7 +1231,8 @@ function closeParen(code, open) {
 // declaration of the same name is skipped, but its uses are still checked, so
 // shadowing cannot hide a write); returns the first offending index, or -1.
 function findUnsafeSnapshotUse(code, name, from, uses) {
-    const word = new RegExp(`(^|[^\\w$.])(${name.replace(/\$/g, '\\$')})(?![\\w$])`, 'g');
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const word = new RegExp(`(^|[^\\w$.])(${escaped})(?![\\w$])`, 'g');
     word.lastIndex = from;
     for (let m = word.exec(code); m; m = word.exec(code)) {
         const at = m.index + m[1].length;
