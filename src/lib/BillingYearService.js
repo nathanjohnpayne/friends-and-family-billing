@@ -16,7 +16,7 @@ import { normalizeYearData, buildSavePayload, buildInitialYearData, fingerprintS
 import { classifyYearWrite, newWriteId, isUncertainWriteError, isBlockingWriteError, isOfflineWriteError, YearWriteError, YEAR_WRITE_OUTCOMES } from './year-write.js';
 import { summarizeUnsavedChanges, persistUnsavedRecord, clearUnsavedRecord } from './unsaved-changes.js';
 import { plainTextToDoc } from './template-doc.js';
-import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear } from './billing-year.js';
+import { buildNewYearData, isYearLabelDuplicate, buildCarryForwardSummary, applyCarryForwardToPriorYear, isReviewedRollover, buildReviewedRollover } from './billing-year.js';
 import { generateEventId, generateUniqueId, generateUniqueBillId, generateUniquePaymentId, generateUniqueAdjustmentId, generateCreditAdjustmentId, generateChargeNoticeId, localDateString, isYearReadOnly, isValidE164 } from './validation.js';
 import { isLinkedToAnyone, calculateAnnualSummary, getHouseholdFinancials } from './calculations.js';
 import { selectBillableCharges, summarizeChargePreview } from './chargeNotice.js';
@@ -954,8 +954,15 @@ export class BillingYearService {
      * `options.reopenedAdjustmentIds`; it threads into the carry computation so a
      * resurfaced credit is held back. Defaults to empty.
      *
+     * Year-End Review (ADR 0009 § 3): `'reconciliation' in options` (a defined value,
+     * even `{}`) selects the review path, which appends the review's True-ups, Service
+     * Credits and member charges to this year, carries over that updated state with
+     * an itemized carry, seeds the new year with the derived bills and writes events on
+     * both documents (see buildReviewedRollover). An omitted reconciliation is the
+     * legacy call, whose business outcome is unchanged.
+     *
      * @param {string} yearId
-     * @param {{ reopenedAdjustmentIds?: Set }} [options]
+     * @param {{ reopenedAdjustmentIds?: Set, reconciliation?: Object }} [options]
      */
     async createYear(yearId, options = {}) {
         if (!this._user) return;
@@ -989,6 +996,7 @@ export class BillingYearService {
         if (isYearLabelDuplicate(billingYears, yearId)) {
             throw new Error('Billing year "' + yearId + '" already exists.');
         }
+        if (isReviewedRollover(options)) return this._createReviewedYearNow(yearId, options);
 
         // Compute what carries from the prior (current) year. A credit re-opened by
         // an active not_received (#319, ADR 0003) is held back from the carry.
@@ -1039,25 +1047,67 @@ export class BillingYearService {
             priorWrite = { ref: priorRef, yearId: activeYear.id, payload: priorPayload, loadGen: this._loadGen(activeYear.id) };
         }
 
-        // 3. Commit BOTH writes atomically INSIDE the SaveQueue through the one
-        //    version-checked transaction (#330 P1, #614). The queue SERIALIZES the
-        //    rollover behind any pending full-document save of the prior/active year (so
-        //    a queued pre-carry save lands first and the carry-marked write then
-        //    supersedes it — no lost carry_forward records), and the transaction makes
-        //    the new-year seed + prior-year marking ATOMIC (if the prior write fails, the
-        //    new year is never created). The destination is created at `rev: 1` only
-        //    when absent (never overwritten); the source must still be at the rev this
-        //    tab last loaded or saved. A failure is re-thrown after the queue settles to
-        //    fail createYear loudly and skip the switch into a non-existent year.
-        await this._enqueueConfirmed([yearId, activeYear ? activeYear.id : yearId], () => this._commitYearWrite(this._legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite)));
+        await this._commitRollover(yearId, activeYear, this._rolloverSpecs(newYearRef, yearId, newData, priorWrite));
+    }
+
+    /**
+     * @private The Year-End Review path of createYear (ADR 0009 § 3, specs/year-end-review.md
+     * § Rollover). HIGH-RISK. buildReviewedRollover prepares both documents from the current
+     * source state (records rebuilt from the payload, carry over the updated state, derived
+     * next-year bills, events on both documents); this method only stamps timestamps, builds
+     * the save payload through the ADR 0008 allowlist and hands both writes to the shared
+     * commit. The review path always writes the source year, even when nothing carries.
+     */
+    async _createReviewedYearNow(yearId, options) {
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings } = this._state;
+        const prepared = buildReviewedRollover(
+            { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, billingEvents, settings },
+            yearId, options.reconciliation,
+            { now: new Date().toISOString(), userId: this._user.uid, eventId: generateEventId,
+                reopenedAdjustmentIds: options.reopenedAdjustmentIds || new Set() }
+        );
+        const newYearRef = doc(db, 'users', this._user.uid, 'billingYears', yearId);
+        const newData = prepared.newYearData;
+        newData.createdAt = serverTimestamp();
+        newData.updatedAt = serverTimestamp();
+        delete newData.rev; // the write primitive sets rev and lastWriteId
+        const { priorYear } = prepared;
+        const priorPayload = buildSavePayload(
+            activeYear, familyMembers, bills, payments || [], priorYear.billingEvents, settings,
+            priorYear.creditAdjustments, priorYear.owedAdjustments
+        );
+        if (!priorPayload.createdAt) priorPayload.createdAt = serverTimestamp();
+        priorPayload.updatedAt = serverTimestamp();
+        const priorRef = doc(db, 'users', this._user.uid, 'billingYears', activeYear.id);
+        const priorWrite = { ref: priorRef, yearId: activeYear.id, payload: priorPayload, loadGen: this._loadGen(activeYear.id) };
+        await this._commitRollover(yearId, activeYear, this._rolloverSpecs(newYearRef, yearId, newData, priorWrite));
+    }
+
+    /**
+     * @private Commit a rollover's prepared documents, then switch into the new year.
+     *
+     * 3. Commit BOTH writes atomically INSIDE the SaveQueue through the one
+     *    version-checked transaction (#330 P1, #614). The queue SERIALIZES the
+     *    rollover behind any pending full-document save of the prior/active year (so
+     *    a queued pre-carry save lands first and the carry-marked write then
+     *    supersedes it — no lost carry_forward records), and the transaction makes
+     *    the new-year seed + prior-year marking ATOMIC (if the prior write fails, the
+     *    new year is never created). The destination is created at `rev: 1` only
+     *    when absent (never overwritten); the source must still be at the rev this
+     *    tab last loaded or saved. A failure is re-thrown after the queue settles to
+     *    fail createYear loudly and skip the switch into a non-existent year.
+     */
+    async _commitRollover(yearId, activeYear, specs) {
+        await this._enqueueConfirmed([yearId, activeYear ? activeYear.id : yearId], () => this._commitYearWrite(specs));
 
         await this._loadYearsList();
         await this.switchYear(yearId);
     }
 
     /**
-     * @private The legacy createYear's write specs: create the destination (absent
-     * only), and update the source when something carried.
+     * @private A rollover's write specs (both createYear paths): create the destination
+     * (absent only), and update the source when something carried (the review path
+     * always writes it).
      *
      * Seam for the reviewed rollover (#606/#607): it builds its own specs beside
      * these (the destination with `ifExists: 'exists'`; the source with a
@@ -1065,7 +1115,7 @@ export class BillingYearService {
      * read after checking the reviewed fingerprint) and commits them through the
      * same `_commitYearWrite`, so both paths carry `rev` on both documents.
      */
-    _legacyRolloverSpecs(newYearRef, yearId, newData, priorWrite) {
+    _rolloverSpecs(newYearRef, yearId, newData, priorWrite) {
         const specs = [{ ref: newYearRef, yearId, expectedRev: 0, fingerprintIfUnversioned: null, ifExists: 'exists', buildPayload: () => ({ ...newData }) }];
         if (priorWrite) specs.push({ ref: priorWrite.ref, yearId: priorWrite.yearId, loadGen: priorWrite.loadGen, buildPayload: () => ({ ...priorWrite.payload }) });
         return specs;
