@@ -714,7 +714,11 @@ function carriedInlineParts(line) {
 function renderCarriedHtml(ctx) {
     const carried = ctx.carriedItems;
     const model = carriedLineModel(carried);
-    const strong = value => '<strong style="' + INVOICE_TEMPLATE_STYLES.strong + '">' + escapeHtml(value) + '</strong>';
+    // Amounts never wrap between the sign and the figure.
+    const strong = value => '<strong style="' + INVOICE_TEMPLATE_STYLES.strong + 'white-space:nowrap;">' + escapeHtml(value) + '</strong>';
+    const nowrap = value => '<span style="white-space:nowrap;">' + escapeHtml(value) + '</span>';
+    const detailHtml = detail => detail.map(d => escapeHtml(d.text + ': ') + nowrap(itemAmount(d.amount))
+        + escapeHtml(d.who ? ' (' + d.who + ')' : '')).join(escapeHtml('; '));
     const paragraph = html => '<p style="' + INVOICE_TEMPLATE_STYLES.paragraph + '">' + html + '</p>';
     if (model.legacyOnly) {
         return paragraph(escapeHtml('Carried from ' + carriedYear(carried) + ': ') + strong(signedAmount(ctx.carriedTotal)) + '.');
@@ -722,7 +726,7 @@ function renderCarriedHtml(ctx) {
     const items = model.lines.map(line => {
         const part = carriedInlineParts(line);
         return '<li style="' + INVOICE_TEMPLATE_STYLES.listItem + '">' + escapeHtml(part.text) + strong(part.amount)
-            + (part.detail ? '<br>' + escapeHtml(part.detail) : '') + '</li>';
+            + (line.detail.length ? '<br>' + detailHtml(line.detail) : '') + '</li>';
     }).join('');
     const remains = carriedRemainsSentence(ctx);
     return '<p style="' + INVOICE_TEMPLATE_STYLES.sectionLabel + '">' + escapeHtml('Carried from ' + carriedYear(carried)) + '</p>'
