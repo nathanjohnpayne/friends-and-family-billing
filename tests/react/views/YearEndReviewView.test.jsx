@@ -1,21 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, within, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // Year-End Review page, Steps 1–3 (#608): rows, validation, the existing-credit
 // answers, the local draft (save, restore, refuse, stale, unavailable) and the
 // Step 3 composer. The math itself is tested in tests/react/lib/year-end-review.test.js.
 
-const mocks = vi.hoisted(() => ({ state: null, user: { uid: 'owner-uid', email: 'owner@example.com' } }));
+const mocks = vi.hoisted(() => ({ state: null, service: {}, notices: null, user: { uid: 'owner-uid', email: 'owner@example.com' } }));
 
-vi.mock('@/app/hooks/useBillingData.js', () => ({ useBillingData: () => ({ ...mocks.state, service: {} }) }));
+vi.mock('@/app/hooks/useBillingData.js', () => ({ useBillingData: () => ({ ...mocks.state, service: mocks.service }) }));
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({ useAuth: () => ({ user: mocks.user, loading: false }) }));
+// Step 4 reads the re-opened refund set (#319) so a re-opened refund never carries.
+vi.mock('@/app/hooks/useRefundNotices.js', () => ({ useRefundNotices: () => mocks.notices }));
 
+import { ToastProvider } from '@/app/contexts/ToastContext.jsx';
 import YearEndReviewView from '@/app/views/YearEndReview/YearEndReviewView.jsx';
 import { createDraft, draftStorageKey, fingerprintOf, snapshotExistingCredit, snapshotStorageKey, sourceCounts } from '@/app/views/YearEndReview/yearEndReviewModel.js';
-import { computeEnded } from '@/lib/year-end-review.js';
-import { BILL, MEMBER, pineconeCredits, yearEndState } from '../helpers/yearEndReviewFixture.js';
+import { computeEnded, computePayloadFingerprint } from '@/lib/year-end-review.js';
+import { buildReconciliationPayload } from '@/app/views/YearEndReview/reconciliationPayload.js';
+import { COMMIT_CODES } from '@/app/views/YearEndReview/commitOutcome.js';
+import { BILL, MEMBER, NEW_BILL, pineconeCredits, wireframeEntries, wireframeReviewState, yearEndState } from '../helpers/yearEndReviewFixture.js';
 
 const KEY = draftStorageKey('owner-uid', '2026');
 
@@ -39,7 +44,7 @@ function seedDraft(patch = {}, { fingerprint } = {}) {
 }
 
 const stored = () => JSON.parse(window.localStorage.getItem(KEY));
-const renderPage = () => render(<MemoryRouter><YearEndReviewView /></MemoryRouter>);
+const renderPage = () => render(<MemoryRouter><ToastProvider><YearEndReviewView /></ToastProvider></MemoryRouter>);
 const billRow = id => within(screen.getByTestId('bill-' + id));
 const nextButton = () => screen.getByRole('button', { name: /^Next:/ });
 
@@ -54,6 +59,8 @@ const PINECONE = { change: 'ended', lastMonth: '2026-08' };
 beforeEach(() => {
     window.localStorage.clear();
     mocks.state = yearEndState();
+    mocks.service = {};
+    mocks.notices = { refundNotices: [], loading: false, error: null };
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -439,11 +446,13 @@ describe('Step 3 — member charges', () => {
         expect(rowId).toBeDefined();
     });
 
-    it('ends with a disabled Review & start footer until Step 4 lands', async () => {
+    // #609 withdraws the placeholder: the Step 3 footer now reaches Step 4.
+    it('ends with a Review & start footer that opens Step 4', async () => {
         const user = userEvent.setup();
         renderPage();
         await openCharges(user);
-        expect(screen.getByRole('button', { name: /Review & start 2027/ })).toBeDisabled();
+        await user.click(screen.getByRole('button', { name: /Review & start 2027/ }));
+        expect(screen.getByTestId('year-end-review-step-4')).toBeInTheDocument();
     });
 });
 
@@ -551,5 +560,563 @@ describe('guards', () => {
         mocks.state.activeYear = { id: '2026', label: '2026', status: 'archived' };
         renderPage();
         expect(screen.getByText('2026 is archived')).toBeInTheDocument();
+    });
+});
+
+// ── Step 4, Start, the commit outcomes and the guard (#609) ────────────────────
+// The commit outcomes of #607 (NEXT_YEAR_EXISTS with its three-way read, STALE_SOURCE,
+// COMMIT_FAILED, COMMIT_UNCERTAIN) are mocked at the service boundary here: today's
+// createYear (pre-#607) cannot produce them.
+
+function routedPage() {
+    return render(
+        <MemoryRouter initialEntries={['/year-end-review']}>
+            <ToastProvider>
+                <Routes>
+                    <Route path="/year-end-review" element={<YearEndReviewView />} />
+                    <Route path="/dashboard" element={<p>Dashboard page</p>} />
+                </Routes>
+            </ToastProvider>
+        </MemoryRouter>
+    );
+}
+
+function fakeService(overrides = {}) {
+    const service = {
+        getState: () => mocks.state,
+        _loadYearsList: vi.fn(async () => {}),
+        switchYear: vi.fn(async yearId => {
+            if (yearId !== mocks.state.activeYear.id) mocks.state = { ...mocks.state, activeYear: { id: yearId, label: yearId, status: 'open' } };
+        }),
+        createYear: vi.fn(async () => {}),
+        ...overrides
+    };
+    mocks.service = service;
+    return service;
+}
+
+function deferred() {
+    let resolve; let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+}
+
+const codeError = (code, extra = {}) => Object.assign(new Error(code), { code, ...extra });
+const startButton = () => within(screen.getByTestId('start-card')).queryByRole('button', { name: /^Start 2027$|^Starting 2027/ });
+const household = id => within(screen.getByTestId('review-household-' + id));
+
+async function openStep4(user) {
+    await user.click(screen.getByRole('button', { name: /^Next: new subscriptions/ }));
+    await user.click(screen.getByRole('button', { name: /^Next: member charges/ }));
+    await user.click(screen.getByRole('button', { name: /Review & start 2027/ }));
+}
+
+function seedWireframe() {
+    mocks.state = wireframeReviewState();
+    return seedDraft(wireframeEntries());
+}
+
+describe('Step 4 — the wireframe preview', () => {
+    it('shows the four figures, the baseline sentence and every household’s 2026 / 2027 / carried / first-invoice figures', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        const figures = within(screen.getByTestId('review-figures'));
+        expect(figures.getByText('$2,844.00')).toBeInTheDocument();
+        expect(figures.getByText('$3,167.88')).toBeInTheDocument();
+        expect(figures.getByText('+$323.88 subscriptions vs 2026')).toBeInTheDocument();
+        expect(figures.getByText('+$170.46')).toBeInTheDocument();
+        expect(figures.getByText('$3,338.34')).toBeInTheDocument();
+        expect(screen.getByText(/never folded into them/)).toBeInTheDocument();
+        const expected = [
+            [MEMBER.ada, '$978.00', '$1,056.00', 'Carried +$15.00', '$1,071.00'],
+            [MEMBER.erik, '$618.00', '$668.00', 'Carried +$55.00', '$723.00'],
+            [MEMBER.kenji, '$606.00', '$715.92', 'Carried +$98.14', '$814.06'],
+            [MEMBER.rosa, '$372.00', '$388.00', 'Carried −$28.00', '$360.00'],
+            [MEMBER.sam, '$270.00', '$339.96', 'Carried +$30.32', '$370.28']
+        ];
+        for (const [id, source, next, carried, first] of expected) {
+            const card = household(id);
+            expect(card.getByText(source)).toBeInTheDocument();
+            expect(card.getByText(next)).toBeInTheDocument();
+            expect(card.getByText(carried)).toBeInTheDocument();
+            expect(card.getByText(first)).toBeInTheDocument();
+        }
+        // Nothing is pending once every step validates and the preview is current.
+        expect(screen.queryByText('pending')).toBeNull();
+        expect(startButton()).toBeEnabled();
+    });
+
+    it('expands a household: the credit and its detail at the household level, member blocks, the four-line total, Edit links', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        await user.click(household(MEMBER.erik).getByRole('button', { name: /Show details for Lindqvist household/ }));
+        const card = household(MEMBER.erik);
+        const credit = within(card.getByTestId('household-credit'));
+        // The library's member-facing description (src/lib carry items), shown as written.
+        expect(credit.getByText(/^Your household.s 2026 credit$/)).toBeInTheDocument();
+        expect(credit.getByText(/household, not one member/)).toBeInTheDocument();
+        expect(credit.getByText('2026 credit carried into 2027')).toBeInTheDocument();
+        expect(credit.getByText(/Pinecone Vault ended in August.*\(Erik\)/)).toBeInTheDocument();
+        expect(credit.getByText('Detail explains the credit; it is not added again.')).toBeInTheDocument();
+        const maja = within(card.getByTestId('review-member-' + MEMBER.maja));
+        expect(maja.getByText(/2027 bills \$316\.00 · carried \+\$42\.00/)).toBeInTheDocument();
+        expect(maja.getByText('Activation fee (Nov 3)')).toBeInTheDocument();
+        expect(maja.getByText('+$30.00')).toBeInTheDocument();
+        expect(card.getByText('2027 bills at their new prices')).toBeInTheDocument();
+        // The heading figure and the four-line total both name the first invoice.
+        expect(card.getAllByText('First 2027 invoice')).toHaveLength(2);
+        expect(card.getAllByText('$723.00')).toHaveLength(2);
+        await user.click(card.getByRole('button', { name: 'Edit charges' }));
+        expect(screen.getByRole('heading', { name: 'Member charges' })).toBeInTheDocument();
+    });
+
+    it('a household whose carry nets to a credit (Rosa): −$40.00 credit with its detail, +$12.00 Northline, first invoice $360.00', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        await user.click(household(MEMBER.rosa).getByRole('button', { name: /Show details for Rosa Delgado/ }));
+        const card = household(MEMBER.rosa);
+        const credit = within(card.getByTestId('household-credit'));
+        expect(credit.getByText('−$40.00')).toBeInTheDocument();
+        expect(credit.getByText(/Pinecone Vault ended in August.*\(Rosa\)/)).toBeInTheDocument();
+        expect(credit.getByText('↳ Other 2026 overpayment')).toBeInTheDocument();
+        expect(credit.getByText('−$36.00')).toBeInTheDocument();
+        expect(within(card.getByTestId('review-member-' + MEMBER.rosa)).getByText('+$12.00')).toBeInTheDocument();
+        expect(card.getAllByText('−$28.00').length).toBeGreaterThan(0);
+        expect(card.getAllByText('$360.00').length).toBeGreaterThan(0);
+    });
+
+    it('states in plain counts exactly what Start writes', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        const statement = within(screen.getByTestId('start-statement'));
+        // 9 Northline + 4 Harbor Cloud + 3 Lumen = 16 per-member records ($108.00 + $20.00 + $39.96).
+        // The wireframe's "13 True-up shares" miscounts them; its $167.96 total agrees.
+        expect(statement.getByText('Record 16 True-up shares ($167.96) and 5 service-credit shares ($20.00) in 2026 and carry them into 2027.')).toBeInTheDocument();
+        expect(statement.getByText('Carry 3 member charges already recorded, once.')).toBeInTheDocument();
+        expect(statement.getByText('Create Lumen Fiber Backup in 2027.')).toBeInTheDocument();
+        expect(statement.getByText('Set Northline Mobile, Cloudstream Family and Harbor Cloud Storage at their new prices.')).toBeInTheDocument();
+        expect(statement.getByText('Keep 1 bill at its 2026 price.')).toBeInTheDocument();
+        expect(statement.getByText('Leave Pinecone Vault out of 2027.')).toBeInTheDocument();
+        expect(statement.getByText('Carry a balance for 5 households.')).toBeInTheDocument();
+        expect(statement.getByText(/It writes two documents together/)).toBeInTheDocument();
+    });
+
+    it('validates the year label (suggested, editable, duplicate-checked) and blocks Start on it without marking figures pending', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        seedWireframe();
+        mocks.state.billingYears = [{ id: '2026', label: '2026', status: 'settling' }, { id: '2025', label: '2025', status: 'archived' }];
+        renderPage();
+        await openStep4(user);
+        const label = screen.getByLabelText('New billing year label');
+        expect(label).toHaveValue('2027');
+        await user.clear(label);
+        await user.type(label, '2025');
+        expect(label).toHaveAccessibleDescription('Billing year "2025" already exists.');
+        expect(within(screen.getByTestId('start-blockers')).getByText('Billing year "2025" already exists.')).toBeInTheDocument();
+        expect(within(screen.getByTestId('start-card')).getByRole('button', { name: 'Start 2025' })).toBeDisabled();
+        expect(screen.queryByText('pending')).toBeNull();
+        await user.clear(label);
+        await user.type(label, '2027');
+        expect(startButton()).toBeEnabled();
+    });
+});
+
+describe('Step 4 — Start and the commit outcomes', () => {
+    it('Start runs the guard, then createYear with the draft’s payload; success clears the draft, switches and leaves', async () => {
+        const user = userEvent.setup();
+        const order = [];
+        const service = fakeService({
+            _loadYearsList: vi.fn(async () => { order.push('guard'); }),
+            createYear: vi.fn(async () => { order.push('commit'); })
+        });
+        mocks.notices = { refundNotices: [{ kind: 'refund_notice', creditAdjustmentId: 'cadj_x', status: 'not_received', resolution: null }], loading: false, error: null };
+        const draft = seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        await screen.findByText('Dashboard page');
+        expect(order).toEqual(['guard', 'commit']);
+        const [yearId, options] = service.createYear.mock.calls[0];
+        expect(yearId).toBe('2027');
+        expect(options.reopenedAdjustmentIds).toBeInstanceOf(Set);
+        expect(options.reconciliation).toEqual(buildReconciliationPayload(stored() || draft, sourceOf(mocks.state)));
+        expect(options.reconciliation).toMatchObject({
+            reconciliationId: 'rec_fixed', sourceYearId: '2026', sourceFingerprint: draft.sourceFingerprint,
+            trueUps: [{ billId: BILL.nl, newAmount: 198, firstMonth: '2026-07' }, { billId: BILL.hc, newAmount: 144, firstMonth: '2026-03' }],
+            serviceCredits: [{ billId: BILL.pv, basis: 'ended', lastMonth: '2026-08' }],
+            endedBillIds: [BILL.pv], billOverrides: { [BILL.cs]: 26 },
+            usageCharges: [{ existingAdjustmentId: 'oadj_maja_fee' }, { existingAdjustmentId: 'oadj_dede_roam' }, { existingAdjustmentId: 'oadj_kenji_calls' }],
+            newBills: [expect.objectContaining({ rowId: 'row_lumen', billId: NEW_BILL, name: 'Lumen Fiber Backup' })]
+        });
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+        expect(service.switchYear).toHaveBeenCalledWith('2027');
+    });
+
+    it('starting: locks the page, says not to close the tab, and offers no Back, Discard or Edit', async () => {
+        const user = userEvent.setup();
+        const pending = deferred();
+        fakeService({ createYear: vi.fn(() => pending.promise) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText(/Writing 2026 and 2027 together\. Don’t close this tab\./)).toBeInTheDocument();
+        expect(screen.getByText('Locked while 2027 starts')).toBeInTheDocument();
+        expect(within(screen.getByTestId('start-card')).getByRole('button', { name: 'Starting 2027…' })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+        expect(screen.queryByRole('button', { name: /Back to member charges/ })).toBeNull();
+        expect(screen.getByLabelText('New billing year label')).toBeDisabled();
+        // The draft is still on this device while the commit is in flight.
+        expect(stored().reconciliationId).toBe('rec_fixed');
+        await act(async () => { pending.resolve(); });
+        await screen.findByText('Dashboard page');
+    });
+
+    it('COMMIT_FAILED: nothing saved, the draft kept, Retry sends the same payload', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_FAILED)).mockResolvedValueOnce(undefined) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = await screen.findByText('2027 was not created.');
+        expect(alert.closest('[role="alert"]')).toHaveTextContent('Nothing was saved and your draft is kept.');
+        expect(stored().reconciliationId).toBe('rec_fixed');
+        expect(within(alert.closest('[role="alert"]')).getByRole('button', { name: 'Discard draft' })).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Retry' }));
+        await screen.findByText('Dashboard page');
+        expect(service.createYear).toHaveBeenCalledTimes(2);
+        expect(service.createYear.mock.calls[1][1].reconciliation).toEqual(service.createYear.mock.calls[0][1].reconciliation);
+    });
+
+    it('COMMIT_FAILED offline says so', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_FAILED, { offline: true })) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText(/You’re offline\. Nothing was saved; your draft is kept\./)).toBeInTheDocument();
+    });
+
+    it('NEXT_YEAR_EXISTS from another reconciliation: created elsewhere, draft kept, Open 2027 or Discard draft', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
+            existing: { reconciliationId: 'rec_other', payloadFingerprint: 'yrp1_other', createdAt: '2026-12-08T15:12:00' } })) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText('2027 already exists.')).closest('[role="alert"]');
+        expect(alert).toHaveTextContent('started elsewhere at 3:12 PM, so nothing was changed here and your draft is kept');
+        expect(stored().reconciliationId).toBe('rec_fixed');
+        expect(startButton()).toBeNull();
+        await user.click(within(alert).getByRole('button', { name: 'Open 2027' }));
+        await screen.findByText('Dashboard page');
+        expect(service.switchYear).toHaveBeenCalledWith('2027');
+        // Opening the other year never clears this draft.
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('created elsewhere, then Discard draft clears the draft and leaves without committing', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS)) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText('2027 already exists.')).closest('[role="alert"]');
+        await user.click(within(alert).getByRole('button', { name: 'Discard draft' }));
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard draft' }));
+        await screen.findByText('Dashboard page');
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+        expect(service.createYear).toHaveBeenCalledTimes(1);
+    });
+
+    it('NEXT_YEAR_EXISTS with this draft’s id and a different payload: started on another tab with different entries; draft kept', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
+            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: 'yrp1_different',
+                summary: { trueUpCount: 2, serviceCreditCount: 1, coveredCount: 0, usageChargeCount: 0, priceChangeCount: 2, endedCount: 1, newBillCount: 0 } } })) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText(/started from this draft on another tab with different entries/)).closest('[role="alert"]');
+        expect(alert).toHaveTextContent('True-ups: 2 there, 3 in this draft');
+        expect(alert).toHaveTextContent('new subscriptions: 0 there, 1 in this draft');
+        expect(within(alert).getByRole('button', { name: 'Open 2027' })).toBeInTheDocument();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('NEXT_YEAR_EXISTS with this draft’s id and payload: the operation already completed; clear the draft and switch', async () => {
+        const user = userEvent.setup();
+        mocks.state = wireframeReviewState();
+        const draft = seedDraft(wireframeEntries());
+        const fingerprint = computePayloadFingerprint(buildReconciliationPayload(draft, sourceOf(mocks.state)), '2027');
+        const service = fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, {
+            existing: { reconciliationId: 'rec_fixed', payloadFingerprint: fingerprint } })) });
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        await screen.findByText('Dashboard page');
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+        expect(service.switchYear).toHaveBeenCalledWith('2027');
+        expect(service.createYear).toHaveBeenCalledTimes(1);
+    });
+
+    it('STALE_SOURCE: nothing saved, the preview refreshed and marked pending, Step 4 confirmed again before Start', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({
+            createYear: vi.fn().mockRejectedValueOnce(codeError(COMMIT_CODES.STALE_SOURCE)).mockResolvedValueOnce(undefined),
+            switchYear: vi.fn(async () => {
+                // The reload finds a payment recorded on another device after the preview.
+                mocks.state = { ...mocks.state, payments: [...mocks.state.payments, { id: 'pay_late', memberId: MEMBER.erik, amount: 25, type: 'payment', reversed: false, receivedAt: '2026-12-08' }] };
+            })
+        });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText('2026 changed after this preview, so nothing was saved.')).toBeInTheDocument();
+        expect(service.switchYear).toHaveBeenCalledWith('2026');
+        expect(startButton()).toBeDisabled();
+        expect(screen.getAllByText('pending').length).toBeGreaterThan(0);
+        // The refreshed preview: Lindqvist's extra $25.00 now lowers what it carries.
+        expect(household(MEMBER.erik).getByText('Carried +$30.00')).toBeInTheDocument();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+        await user.click(screen.getByRole('button', { name: 'I’ve checked the updated figures' }));
+        expect(screen.queryByText('pending')).toBeNull();
+        expect(startButton()).toBeEnabled();
+        await user.click(startButton());
+        await screen.findByText('Dashboard page');
+        // The second attempt carries the newly reviewed fingerprint, never a silently accepted one.
+        expect(service.createYear.mock.calls[1][1].reconciliation.sourceFingerprint).not.toBe(service.createYear.mock.calls[0][1].reconciliation.sourceFingerprint);
+    });
+
+    it('COMMIT_UNCERTAIN, read back as not committed: Retry allowed; the draft kept', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'not_committed' })) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const alert = (await screen.findByText(/a check found nothing was saved/)).closest('[role="alert"]');
+        expect(within(alert).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('COMMIT_UNCERTAIN, read back as completed: success', async () => {
+        const user = userEvent.setup();
+        fakeService({ createYear: vi.fn().mockRejectedValue(codeError(COMMIT_CODES.COMMIT_UNCERTAIN, { resolution: 'completed' })) });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        await screen.findByText('Dashboard page');
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+
+    it('COMMIT_UNCERTAIN unresolved: no Retry, only Check again, which reads back through the service before anything else', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({
+            createYear: vi.fn()
+                .mockRejectedValueOnce(codeError(COMMIT_CODES.COMMIT_UNCERTAIN))
+                .mockRejectedValueOnce(codeError(COMMIT_CODES.NEXT_YEAR_EXISTS, { resolution: 'completed' })),
+            _loadYearsList: vi.fn(async () => {})
+        });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        const banner = (await screen.findByText('We can’t tell yet whether 2027 was created.')).closest('[role="alert"]');
+        expect(within(banner).queryByRole('button', { name: 'Retry' })).toBeNull();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+        // The read-back may find this draft's own 2027: the guard must not call that "created elsewhere".
+        service._loadYearsList.mockImplementation(async () => {
+            mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2027', label: '2027', status: 'open' }] };
+        });
+        await user.click(within(banner).getByRole('button', { name: 'Check again' }));
+        await screen.findByText('Dashboard page');
+        expect(service.createYear).toHaveBeenCalledTimes(2);
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+    });
+});
+
+describe('Step 4 — the guard and Start’s gate', () => {
+    it('a next year created during the flow is detected at Start, before any commit', async () => {
+        const user = userEvent.setup();
+        const service = fakeService({
+            _loadYearsList: vi.fn(async () => {
+                mocks.state = { ...mocks.state, billingYears: [...mocks.state.billingYears, { id: '2027', label: '2027', status: 'open' }] };
+            })
+        });
+        seedWireframe();
+        routedPage();
+        await openStep4(user);
+        await user.click(startButton());
+        expect(await screen.findByText('2027 already exists.')).toBeInTheDocument();
+        expect(service._loadYearsList).toHaveBeenCalledTimes(1);
+        expect(service.createYear).not.toHaveBeenCalled();
+        expect(stored().reconciliationId).toBe('rec_fixed');
+    });
+
+    it('at entry, a successor with a draft on this device: says so, keeps the draft, offers Open and Discard', async () => {
+        const user = userEvent.setup();
+        const service = fakeService();
+        seedWireframe();
+        mocks.state.billingYears = [{ id: '2026', label: '2026', status: 'settling' }, { id: '2027', label: '2027', status: 'open' }];
+        routedPage();
+        const alert = screen.getByText('2027 already exists.').closest('[role="alert"]');
+        expect(alert).toHaveTextContent('your draft is kept');
+        expect(screen.queryByRole('heading', { name: 'Bills' })).toBeNull();
+        await user.click(within(alert).getByRole('button', { name: 'Discard draft' }));
+        await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Discard draft' }));
+        expect(window.localStorage.getItem(KEY)).toBeNull();
+        expect(screen.getByText(/Record new charges, credits and refunds in the open 2027 year/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Open 2027' }));
+        await screen.findByText('Dashboard page');
+        expect(service.switchYear).toHaveBeenCalledWith('2027');
+        expect(service.createYear).not.toHaveBeenCalled();
+    });
+
+    it('a restored stale draft: the cleared answer stops Next, answered it reaches Step 4 with figures pending and Start off until confirmed', async () => {
+        const user = userEvent.setup();
+        mocks.state = yearEndState({ credits: true });
+        const records = pineconeCredits();
+        const base = computeEnded(mocks.state.bills.find(bill => bill.id === BILL.pv), PINECONE, { sourceYear: '2026', skipExistingCredits: true });
+        const answer = (record, choice, extra = {}) => ({ choice, ...extra, seen: snapshotExistingCredit(record),
+            coverage: { basis: 'ended', frequency: 'annual', fromAmount: 60, toAmount: null, firstMonth: null, lastMonth: '2026-08', override: null,
+                shareCents: base.shares.find(share => share.memberId === record.memberId).shareCents } });
+        const existingCredits = Object.fromEntries(records.map(record => [record.id, answer(record, 'unrelated')]));
+        // Rosa's October record was changed after the draft was saved: its answer no longer matches.
+        existingCredits.oadj_sc_rosa_oct.seen = { ...existingCredits.oadj_sc_rosa_oct.seen, amountCents: 500 };
+        fakeService();
+        seedDraft({ bills: { [BILL.pv]: { ...PINECONE, existingCredits } } }, { fingerprint: 'yer1_saved_before' });
+        renderPage();
+        expect(nextButton()).toBeDisabled();
+        const row = billRow(BILL.pv);
+        const groups = row.getAllByRole('group').filter(group => /Rosa/.test(group.getAttribute('aria-label') || '') && /Oct/.test(group.getAttribute('aria-label') || ''));
+        await user.click(within(groups[0]).getByRole('button', { name: 'Unrelated' }));
+        expect(nextButton()).toBeEnabled();
+        await openStep4(user);
+        expect(screen.getAllByText('pending').length).toBeGreaterThan(0);
+        const blockers = within(screen.getByTestId('start-blockers'));
+        expect(blockers.getByText(/The figures above were recomputed from today’s data/)).toBeInTheDocument();
+        expect(startButton()).toBeDisabled();
+        await user.click(blockers.getByRole('button', { name: 'I’ve checked the updated figures' }));
+        expect(screen.queryByText('pending')).toBeNull();
+        expect(startButton()).toBeEnabled();
+    });
+
+    it('an existing-credit answer cleared while on Step 4: Start off with the record listed and a link to Step 1; answered again, Start on', async () => {
+        const user = userEvent.setup();
+        mocks.state = yearEndState({ credits: true });
+        fakeService();
+        const records = pineconeCredits();
+        const base = computeEnded(mocks.state.bills.find(bill => bill.id === BILL.pv), PINECONE, { sourceYear: '2026', skipExistingCredits: true });
+        const coverage = record => ({ basis: 'ended', frequency: 'annual', fromAmount: 60, toAmount: null, firstMonth: null, lastMonth: '2026-08', override: null,
+            shareCents: base.shares.find(share => share.memberId === record.memberId).shareCents });
+        const existingCredits = Object.fromEntries(records.map(record => [record.id, { choice: 'unrelated', seen: snapshotExistingCredit(record), coverage: coverage(record) }]));
+        seedDraft({ bills: { [BILL.pv]: { ...PINECONE, existingCredits } } });
+        const view = renderPage();
+        await openStep4(user);
+        expect(startButton()).toBeEnabled();
+        // Dede's March record is voided and re-recorded at a new amount by another surface.
+        mocks.state = { ...mocks.state, owedAdjustments: mocks.state.owedAdjustments.map(record => (record.id === 'oadj_sc_dede_mar' ? { ...record, amount: 8 } : record)) };
+        view.rerender(<MemoryRouter><ToastProvider><YearEndReviewView /></ToastProvider></MemoryRouter>);
+        expect(startButton()).toBeDisabled();
+        const blockers = within(screen.getByTestId('start-blockers'));
+        expect(blockers.getByText(/Say whether Dede Osei’s \$8\.00 credit from Mar 14, 2026 covers this change\./)).toBeInTheDocument();
+        await user.click(blockers.getAllByRole('button', { name: 'Go to Step 1: Bills' })[0]);
+        const groups = billRow(BILL.pv).getAllByRole('group').filter(group => /Dede/.test(group.getAttribute('aria-label') || '') && /Mar/.test(group.getAttribute('aria-label') || ''));
+        await user.click(within(groups[0]).getByRole('button', { name: 'Unrelated' }));
+        await openStep4(user);
+        await user.click(screen.getByRole('button', { name: 'I’ve checked the updated figures' }));
+        expect(startButton()).toBeEnabled();
+    });
+
+    it('Start waits for the refund notices so a re-opened refund never carries', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        mocks.notices = { refundNotices: [], loading: true, error: null };
+        seedWireframe();
+        renderPage();
+        await openStep4(user);
+        expect(within(screen.getByTestId('start-blockers')).getByText('Loading refund notices…')).toBeInTheDocument();
+        expect(startButton()).toBeDisabled();
+    });
+});
+
+describe('Step 4 — Nothing changed', () => {
+    it('requires all three confirmations, still lists what carries, and Start writes no new charges or credits', async () => {
+        const user = userEvent.setup();
+        mocks.state = wireframeReviewState();
+        const service = fakeService();
+        routedPage();
+        await user.click(screen.getByRole('button', { name: 'Nothing changed…' }));
+        const dialog = within(screen.getByRole('dialog'));
+        const go = dialog.getByRole('button', { name: 'Review & start 2027' });
+        expect(go).toBeDisabled();
+        await user.click(dialog.getByLabelText('No 2026 bill changed price or ended'));
+        await user.click(dialog.getByLabelText('No new subscriptions started in 2026'));
+        expect(go).toBeDisabled();
+        await user.click(dialog.getByLabelText('No additional member charges'));
+        await user.click(go);
+        expect(stored().confirmations).toEqual({ noBillChanges: true, noNewSubscriptions: true, noExtraCharges: true });
+        expect(screen.getByText('Nothing changed in 2026.')).toBeInTheDocument();
+        const figures = within(screen.getByTestId('review-figures'));
+        expect(figures.getAllByText('$2,844.00')).toHaveLength(2);
+        expect(figures.getByText('+$22.50')).toBeInTheDocument();
+        expect(household(MEMBER.ada).getByText('Carried −$22.00')).toBeInTheDocument();
+        expect(household(MEMBER.erik).getByText('Carried +$30.00')).toBeInTheDocument();
+        expect(household(MEMBER.kenji).getByText('Carried +$50.50')).toBeInTheDocument();
+        expect(household(MEMBER.rosa).getByText('Carried −$36.00')).toBeInTheDocument();
+        expect(household(MEMBER.sam).getByText('Carried none')).toBeInTheDocument();
+        await user.click(household(MEMBER.kenji).getByRole('button', { name: /Show details/ }));
+        expect(household(MEMBER.kenji).getByText('International calls (Aug 2)')).toBeInTheDocument();
+        expect(household(MEMBER.kenji).getByText('Roaming overage—Lisbon trip (Jul 14)')).toBeInTheDocument();
+        const statement = within(screen.getByTestId('start-statement'));
+        expect(statement.getByText('No new charges or credits are written to 2026.')).toBeInTheDocument();
+        expect(statement.getByText('Carry 3 member charges already recorded, once.')).toBeInTheDocument();
+        expect(statement.getByText('Keep 5 bills at their 2026 prices.')).toBeInTheDocument();
+        expect(statement.getByText('Carry a balance for 4 households.')).toBeInTheDocument();
+        await user.click(startButton());
+        await screen.findByText('Dashboard page');
+        const { reconciliation } = service.createYear.mock.calls[0][1];
+        expect(reconciliation).toMatchObject({ trueUps: [], serviceCredits: [], newBills: [], endedBillIds: [], billOverrides: {},
+            confirmations: { noBillChanges: true, noNewSubscriptions: true, noExtraCharges: true } });
+        // Prefilled deferred charges are reused once by id, never re-recorded.
+        expect(reconciliation.usageCharges).toEqual([{ existingAdjustmentId: 'oadj_maja_fee' }, { existingAdjustmentId: 'oadj_dede_roam' }, { existingAdjustmentId: 'oadj_kenji_calls' }]);
+    });
+
+    it('Next on Steps 1–3 is not gated on the confirmations; the fast path is offered only while nothing is entered', async () => {
+        const user = userEvent.setup();
+        fakeService();
+        mocks.state = wireframeReviewState();
+        const first = renderPage();
+        expect(screen.getByRole('button', { name: 'Nothing changed…' })).toBeInTheDocument();
+        // None of the three confirmations is given, and Next still steps through.
+        await user.click(nextButton());
+        expect(screen.getByRole('heading', { name: 'New subscriptions' })).toBeInTheDocument();
+        expect(nextButton()).toBeEnabled();
+        first.unmount();
+        window.localStorage.clear();
+        seedDraft({ bills: { [BILL.nl]: NORTHLINE } });
+        renderPage();
+        expect(screen.queryByRole('button', { name: 'Nothing changed…' })).toBeNull();
     });
 });

@@ -29,7 +29,9 @@ vi.mock('firebase/firestore', () => ({
 vi.mock('@/app/contexts/AuthContext.jsx', () => ({
     useAuth: vi.fn(() => ({ user: { uid: 'owner-uid', email: 'owner@example.com' } }))
 }));
-vi.mock('@/app/components/BillingYearSelector.jsx', () => ({ default: () => null }));
+// The Billing year card (and its Review & start entry point, #609) is tested in
+// tests/react/components/BillingYearSelector.test.jsx; here it is a marker.
+vi.mock('@/app/components/BillingYearSelector.jsx', () => ({ default: () => <section aria-label="Billing year controls" /> }));
 
 const QR = 'data:image/png;base64,AAAA';
 const mockService = {
@@ -150,5 +152,12 @@ describe('SettingsView headings', () => {
         expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
         expect(screen.getByText('Billing years and the payment methods shown on invoices and share pages.')).toBeInTheDocument();
         expect(screen.getByRole('heading', { level: 3, name: 'Payment Methods' })).toBeInTheDocument();
+    });
+
+    it('renders the Billing year controls above the payment methods (the Year-End Review entry point, #609)', () => {
+        render(<ToastProvider><SettingsView /></ToastProvider>);
+        const controls = screen.getByRole('region', { name: 'Billing year controls' });
+        const methods = screen.getByRole('heading', { level: 3, name: 'Payment Methods' });
+        expect(controls.compareDocumentPosition(methods) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 });
