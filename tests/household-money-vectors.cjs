@@ -31,6 +31,143 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
         return value;
     };
 
+    // #688 (owner decision on #617, 2026-11-11): a carried-in credit is money in the
+    // year it arrives. These run verbatim against the client and the Functions build.
+    describe('carried-in credit counts as money (#688)', () => {
+        const lcg = seed => { let x = seed; return limit => { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x % limit; }; };
+        // One household, integer-cent inputs, so the expected cents are computed
+        // independently of the authority. Every component may be zero.
+        const generate = next => {
+            const pick = limit => (next(3) === 0 ? 0 : next(limit));
+            const c = { G: pick(30001), S: pick(40001), O: next(3) === 0 ? 0 : next(60001) - 40000,
+                P: pick(50001), R: pick(20001), B: pick(15001) };
+            const source = state({ bills: c.G ? [bill(c.G / 100, [1])] : [],
+                payments: c.P ? [payment('p', c.P / 100)] : [],
+                creditAdjustments: c.R ? [refund('r', c.R / 100)] : [],
+                owedAdjustments: [...(c.S ? [sc('s', c.S / 100)] : []), ...(c.O ? [owed('o', c.O / 100)] : []),
+                    ...(c.B ? [owed('b', c.B / 100, 'usage_charge', 'billed')] : [])] });
+            const I = Math.max(0, -c.O), Q = Math.max(0, c.O), A = Math.max(0, c.G - c.S + Q), N = c.P - c.R;
+            const oldOwed = Math.max(0, c.G - c.S + c.O) + c.B;
+            return { ...c, source, I, Q, A, N, U: Math.max(0, I - A), oldOwed,
+                oldCredit: Math.max(0, N - oldOwed), oldShortfall: Math.max(0, oldOwed - N) };
+        };
+
+        it('property: balance is A + B − N − I, and the Credit is the old Credit plus U less any old shortfall', () => {
+            const next = lcg(688);
+            const seen = { agrees: 0, grows: 0, paysCharge: 0 };
+            for (let run = 0; run < 3000; run++) {
+                const g = generate(next);
+                const r = assess(g.source);
+                assert.deepEqual([r.G, r.S, r.O, r.P, r.R, r.B, r.N], [g.G, g.S, g.O, g.P, g.R, g.B, g.N], 'run ' + run);
+                assert.deepEqual([r.I, r.A, r.U, r.charges, r.contributed], [g.I, g.A, g.U, g.A + g.B, g.N + g.I], 'run ' + run);
+                assert.equal(r.balance, g.A + g.B - g.N - g.I, 'run ' + run);
+                assert.equal(r.credit, Math.max(0, g.N + g.I - g.A - g.B), 'run ' + run);
+                // The displayed owed keeps the applied part of the carried credit on the bills side.
+                assert.equal(r.owed, g.oldOwed, 'run ' + run);
+                assert.equal(r.balance, g.oldOwed - g.N - g.U, 'run ' + run);
+                // Agreed treatment of B: the leftover pays an old shortfall (an unpaid billed
+                // charge, or a refund past Net Contribution) before any of it reads as Credit.
+                assert.equal(r.credit, Math.max(0, g.oldCredit + g.U - g.oldShortfall), 'run ' + run);
+                if (g.oldShortfall === 0) assert.equal(r.credit, g.oldCredit + g.U, 'run ' + run);
+                if (g.I <= g.A) {
+                    // The two formulas agree whenever the credit is fully used.
+                    assert.deepEqual([r.credit, r.balance], [g.oldCredit, g.oldOwed - g.N], 'run ' + run);
+                    seen.agrees++;
+                } else if (g.oldShortfall > 0) seen.paysCharge++;
+                else seen.grows++;
+            }
+            assert.ok(seen.agrees > 100 && seen.grows > 100 && seen.paysCharge > 100, JSON.stringify(seen));
+        });
+
+        it('property: a Service Credit excess is still forfeited; it never becomes Credit and never frees a carried charge', () => {
+            const next = lcg(321);
+            for (let run = 0; run < 1000; run++) {
+                const G = next(20001), S = G + 1 + next(20001), paid = next(3) ? next(10001) : 0;
+                const opening = next(3) === 0 ? 0 : next(20001) - 10000;
+                const r = assess(state({ bills: G ? [bill(G / 100, [1])] : [], payments: paid ? [payment('p', paid / 100)] : [],
+                    owedAdjustments: [sc('s', S / 100), ...(opening ? [owed('o', opening / 100)] : [])] }));
+                const charge = Math.max(0, opening), credit = Math.max(0, -opening);
+                const A = Math.max(0, G - S + charge);
+                // Whatever the excess S − G, the money side is only payments plus carried-in credit.
+                assert.equal(r.credit, Math.max(0, paid + credit - A), 'run ' + run);
+                assert.ok(r.credit <= paid + credit, 'run ' + run);
+            }
+            const tenL = assess(state({ bills: [bill(100, [1])], owedAdjustments: [sc('s', 200), owed('o', -20)] }));
+            assert.deepEqual([tenL.A, tenL.U, tenL.credit, tenL.balance], [0, 2000, 2000, -2000]);
+            const tenE = assess(state({ bills: [bill(100, [1])], owedAdjustments: [sc('s', 200)] }));
+            assert.deepEqual([tenE.credit, tenE.balance], [0, 0]);
+        });
+
+        it('property: refunding the full Credit leaves the household Settled; one cent more leaves it Outstanding by a cent', () => {
+            const next = lcg(318);
+            let checked = 0;
+            for (let run = 0; run < 3000 && checked < 600; run++) {
+                const g = generate(next);
+                const before = assess(g.source);
+                if (before.credit <= 0) continue;
+                checked++;
+                const withRefund = cents => assess({ ...g.source,
+                    creditAdjustments: [...g.source.creditAdjustments, refund('full', cents / 100)] });
+                const settled = withRefund(before.credit);
+                assert.deepEqual([settled.balance, settled.credit], [0, 0], 'run ' + run);
+                assert.equal(withRefund(before.credit + 1).balance, 1, 'run ' + run);
+            }
+            assert.ok(checked >= 300, String(checked));
+        });
+
+        it('property: a rollover chain conserves every cent with one ordinary carry_forward record a year', () => {
+            const next = lcg(617);
+            for (let run = 0; run < 150; run++) {
+                const start = 1 + next(50000);
+                let source = state({ owedAdjustments: [owed('incoming', -start / 100)] });
+                let carried = start, used = 0;
+                for (let year = 2027; year < 2033; year++) {
+                    const G = next(3) === 0 ? 0 : next(15001);
+                    const B = next(4) === 0 ? next(5001) : 0;
+                    source = { ...source, bills: G ? [bill(G / 100, [1], 'bill-' + year)] : [],
+                        owedAdjustments: [...source.owedAdjustments, ...(B ? [owed('billed-' + year, B / 100, 'usage_charge', 'billed')] : [])] };
+                    const before = assess(source);
+                    const applied = Math.min(carried, G + B);
+                    assert.deepEqual([before.credit, before.balance], [carried - applied, G + B - carried], 'run ' + run + ' ' + year);
+                    const result = carry(freeze(source), { fromYearLabel: String(year), nextYearLabel: String(year + 1), itemized: true });
+                    assert.equal(result.ok, true, JSON.stringify(result.holds || result.households));
+                    const h = result.households[0];
+                    // No stamp, no carry-only leg: the record is the whole disposition.
+                    assert.deepEqual(result.priorYear.owedAdjustments, source.owedAdjustments);
+                    assert.deepEqual(result.carriedCreditRecords.map(row => [row.type, cents(row.amount)]),
+                        before.credit > 0 ? [['carry_forward', before.credit]] : []);
+                    for (const field of ['openingSeedIds', 'unusedOpeningCreditCents']) assert.equal(field in h, false);
+                    const after = assess({ ...source, ...result.priorYear });
+                    assert.deepEqual([after.credit, after.balance], [0, Math.max(0, before.balance)], 'run ' + run + ' ' + year);
+                    used += applied; carried -= applied;
+                    assert.equal(h.seed ? -cents(h.seed.amount) : 0, carried, 'run ' + run + ' ' + year);
+                    assert.equal(used + carried, start, 'run ' + run + ' ' + year);
+                    if (!h.seed) break;
+                    assert.equal(h.seed.items.reduce((total, row) => total + cents(row.amount), 0), -carried);
+                    h.seed.items.filter(row => row.kind === 'credit').forEach(row =>
+                        assert.equal(row.detail.reduce((total, d) => total + cents(d.amount), 0), cents(row.amount)));
+                    source = state({ owedAdjustments: [h.seed] });
+                }
+            }
+        });
+
+        it('reads a seed stamped by a pre-#688 reviewed rollover exactly as before: its remainder is never counted twice', () => {
+            const next = lcg(609);
+            for (let run = 0; run < 1000; run++) {
+                const g = generate(next);
+                if (!g.O) continue;
+                const stamped = assess({ ...g.source, owedAdjustments: g.source.owedAdjustments.map(row =>
+                    row.kind === 'carry_opening' ? { ...row, carriedForwardTo: '2027' } : row) });
+                assert.deepEqual([stamped.owed, stamped.balance, stamped.credit, stamped.U],
+                    [g.oldOwed, g.oldOwed - g.N, g.oldCredit, 0], 'run ' + run);
+            }
+            // A voided stamped seed is not admitted, so it cannot switch the household to the old reading.
+            const source = state({ bills: [bill(60, [1])], owedAdjustments: [owed('o', -132),
+                { ...owed('gone', -50, 'carry_opening', 'voided'), carriedForwardTo: '2027' }] });
+            assert.deepEqual([assess(source).U, assess(source).credit], [7200, 7200]);
+        });
+    });
+
     describe('unused household source authority', () => {
         it('uses exact annual bill inputs, component aggregation and half-away ties', () => {
             for (const [amount, expected] of [[1.15, 58], [1.13, 57]]) {
@@ -74,18 +211,26 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.notEqual(3333 + 3333, result.G);
         });
 
-        it('keeps net opening, service excess, U, and billed charges separate', () => {
+        it('counts an unused carried-in credit as money, forfeits service excess and lets the leftover pay a billed charge (#688)', () => {
             const source = state({ familyMembers: [{ ...member, linkedMembers: [2] }, { id: 2 }],
                 bills: [bill(100, [1, 2, 3])], owedAdjustments: [owed('o', -100)] });
-            assert.deepEqual([assess(source).G, assess(source).owed, assess(source).U], [6667, 0, 3333]);
+            const unused = assess(source);
+            assert.deepEqual([unused.G, unused.owed, unused.U, unused.balance, unused.credit], [6667, 0, 3333, -3333, 3333]);
             source.owedAdjustments[0].amount = -20;
-            assert.equal(assess(source).owed, 4667);
+            assert.deepEqual([assess(source).owed, assess(source).U, assess(source).balance, assess(source).credit], [4667, 0, 4667, 0]);
             source.owedAdjustments = [sc('s', 200), owed('a', 10), owed('b', -10)];
             const net = assess(source);
-            assert.deepEqual([net.O, net.owed, net.U, net.credit], [0, 0, 0, 0]);
+            assert.deepEqual([net.O, net.owed, net.U, net.balance, net.credit], [0, 0, 0, 0, 0]);
             source.bills = [bill(60, [1])];
             source.owedAdjustments = [owed('o', -132), owed('billed', 50, 'usage_charge', 'billed')];
-            assert.deepEqual([assess(source).owed, assess(source).U, assess(source).credit], [5000, 7200, 0]);
+            // Fixture 10h (owner decision 2026-11-11): A = 6000, B = 5000, I = 13200.
+            const paysCharge = assess(source);
+            assert.deepEqual([paysCharge.A, paysCharge.I, paysCharge.charges, paysCharge.contributed], [6000, 13200, 11000, 13200]);
+            assert.deepEqual([paysCharge.owed, paysCharge.U, paysCharge.balance, paysCharge.credit], [5000, 7200, -2200, 2200]);
+            // A pre-#688 reviewed rollover stamped the seed: its remainder already left.
+            source.owedAdjustments[0].carriedForwardTo = '2027';
+            const stamped = assess(source);
+            assert.deepEqual([stamped.owed, stamped.U, stamped.balance, stamped.credit], [5000, 0, 5000, 0]);
         });
 
         it('allocates service groups by constituent minimum id and preserves membership', () => {
@@ -376,7 +521,7 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
                 assert.equal(result.ok, false);
                 const h = result.households[0];
                 held(h, 'CARRY_INVARIANT');
-                for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds', 'openingSeedIds']) assert.equal(field in h, false);
+                for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds']) assert.equal(field in h, false);
                 assert.equal(source.creditAdjustments.length, 1);
             }
             for (const amount of [-0.0050000000000001, -0.0149999999999999, -0.0150000000000001, -0.01]) {
@@ -402,7 +547,7 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
         });
 
         it('validates proposed source ledger while retaining open debt and closed-year conservation', () => {
-            const options = { fromYearLabel: '2026', nextYearLabel: '2027', carryUnusedOpeningCredit: true };
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027' };
             const deferred = owed('deferred', 1, 'usage_charge', 'deferred');
             for (const source of [state({ status: 'open', bills: [bill(100, [1])], payments: [payment('p', 50)], owedAdjustments: [deferred] }),
                 state({ status: 'closed', bills: [bill(100, [1])], payments: [payment('p', 100)], owedAdjustments: [deferred, sc('s', 20)] }),
@@ -420,18 +565,21 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             }
         });
 
-        it('conserves U through empty-year chains, never disposing it or refunding service excess', () => {
+        it('conserves an unused carried-in credit through empty-year chains with one ordinary disposition a year, never refunding service excess', () => {
             let source = state({ owedAdjustments: [owed('incoming', -132)], bills: [bill(60, [1])] });
             for (let year = 2026; year < 2032; year++) {
-                const result = carry(freeze(source), { fromYearLabel: String(year), nextYearLabel: String(year + 1), carryUnusedOpeningCredit: true });
+                const result = carry(freeze(source), { fromYearLabel: String(year), nextYearLabel: String(year + 1) });
                 const h = result.households[0];
-                assert.equal(h.credit, 0); assert.equal(h.unusedOpeningCreditCents, 7200);
+                assert.deepEqual([h.credit, h.U, h.balance], [7200, 7200, -7200]);
                 assert.equal(h.seed.amount, -72);
-                assert.equal(h.seed.items[0].sourceId, source.owedAdjustments[0].id);
+                assert.equal(h.seed.items[0].sourceId, 'cadj_carry_' + (year + 1) + '_1');
+                assert.deepEqual(result.carriedCreditRecords.map(row => [row.id, row.type, row.amount]), [[h.creditDispositionId, 'carry_forward', 72]]);
+                assert.deepEqual(result.priorYear.owedAdjustments, source.owedAdjustments);
+                assert.equal(assess({ ...source, ...result.priorYear }).balance, 0);
                 source = state({ owedAdjustments: [h.seed] });
             }
             const noMoney = carry(state({ bills: [bill(100, [1])], owedAdjustments: [sc('s', 200)] }),
-                { carryUnusedOpeningCredit: true, fromYearLabel: '2026', nextYearLabel: '2027' });
+                { fromYearLabel: '2026', nextYearLabel: '2027' });
             assert.equal(noMoney.households[0].seed, null);
         });
 
@@ -469,7 +617,7 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
             assert.equal(result.ok, false);
             const h = result.households[0];
             held(h, 'DUPLICATE_ID');
-            for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds', 'openingSeedIds']) {
+            for (const field of ['seed', 'creditAdjustmentIds', 'deferredChargeIds']) {
                 assert.equal(field in h, false);
             }
             assert.equal('totalOpeningBalanceCents' in result, false);
@@ -515,14 +663,14 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
         });
 
         it('retains positive aggregate carry eligibility without dropping signed audit rows', () => {
-            const options = { fromYearLabel: '2026', nextYearLabel: '2027', carryUnusedOpeningCredit: true };
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027' };
             for (const amounts of [[-5], [5, -5], [0], [0.001]]) {
                 const source = state({ creditAdjustments: [refund('past', 0)],
                     owedAdjustments: amounts.map((amount, index) => owed('d' + index, amount, 'usage_charge', 'deferred')) });
                 const h = carry(source, options).households[0];
                 assert.equal(h.seed, null); assert.equal(h.openingBalanceCents, 0);
                 assert.deepEqual(h.deferredChargeIds, []); assert.deepEqual(h.creditAdjustmentIds, []);
-                assert.deepEqual(h.openingSeedIds, []); assert.equal(h.rows.deferred.length, amounts.length);
+                assert.equal(h.rows.deferred.length, amounts.length);
             }
             const positiveFeed = state({ payments: [payment('p', 5)],
                 owedAdjustments: [owed('d', -2, 'usage_charge', 'deferred')] });
@@ -575,10 +723,10 @@ module.exports = function householdMoneyVectors(api, { describe, it, assert }) {
                 const paid = next(20000) / 100;
                 const source = state({ bills: [bill(price, [1])], payments: [payment('p', paid)],
                     owedAdjustments: [owed('o', incoming), owed('d', next(10000) / 100, 'usage_charge', 'deferred'), sc('s', (1 + next(10000)) / 100)] });
-                const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', carryUnusedOpeningCredit: true, reviewServiceCredits: [source.owedAdjustments[2]] });
+                const result = carry(source, { fromYearLabel: '2026', nextYearLabel: '2027', reviewServiceCredits: [source.owedAdjustments[2]] });
                 assert.equal(result.ok, true);
                 const h = result.households[0];
-                assert.equal(h.openingBalanceCents, h.deferredCents - h.credit - h.U);
+                assert.equal(h.openingBalanceCents, h.deferredCents - h.credit);
                 assert.equal(h.seed.items.reduce((total, row) => total + cents(row.amount), 0), h.openingBalanceCents);
                 h.seed.items.filter(row => row.kind === 'credit').forEach(row =>
                     assert.equal(row.detail.reduce((total, d) => total + cents(d.amount), 0), cents(row.amount)));

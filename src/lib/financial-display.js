@@ -15,10 +15,11 @@ export function projectHouseholdDisplay(source, member, options = {}) {
     const projected = projectHouseholdMoney(source, member, options);
     if (!projected.ok) return financialUnavailable(member.id);
     try {
-        const cents = { ...Object.fromEntries(['G', 'S', 'O', 'P', 'R', 'B', 'N', 'invoice', 'owed', 'balance', 'credit', 'deferredCents']
+        const cents = { ...Object.fromEntries(['G', 'S', 'O', 'P', 'R', 'B', 'N', 'invoice', 'owed', 'balance', 'credit', 'U', 'deferredCents']
             .map(field => [field, projected[field]])),
             annual: Math.max(0, sumMoneyCents([projected.G, projected.O])),
-            invoiceBalance: sumMoneyCents([projected.invoice, -projected.N]) };
+            // Ordinary invoice (B excluded): an unused carried-in credit is money (#688).
+            invoiceBalance: sumMoneyCents([projected.invoice, -projected.N, -projected.U]) };
         return { ok: true, householdId: member.id, cents, rows: projected.rows,
             ...Object.fromEntries(Object.entries(cents).map(([field, value]) => [field, snapshotDollars(value, member.id)])) };
     } catch (error) {

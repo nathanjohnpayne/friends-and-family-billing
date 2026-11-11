@@ -639,6 +639,34 @@ describe('BillingYearService — CRUD mutations', () => {
             expect(() => svc.issueRefund({ memberId: 1, amount: 150, reason: 'x' })).toThrow(/exceed|credit/i);
         });
 
+        // #688: Alice owes $600 (half of Internet, $100/mo); a $900 credit carried in from 2025
+        // leaves $300 unused. No payment backs it, and it is refundable like any Credit.
+        function withUnusedCarriedCredit(extra = []) {
+            const svc = createService();
+            svc._setState({ payments: [], owedAdjustments: [
+                { id: 'coadj_2025_1', memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2025', amount: -900 }, ...extra] });
+            return svc;
+        }
+
+        it('offers and caps the refund on a Credit that includes an unused carried-in credit, and leaves the household Settled (#688)', () => {
+            const svc = withUnusedCarriedCredit();
+            expect(householdCredit(svc, 1).cents).toMatchObject({ U: 30000, credit: 30000, balance: -30000 });
+            expect(() => svc.issueRefund({ memberId: 1, amount: 300.01, reason: 'x' })).toThrow(/Refund cannot exceed the household credit of 300\.00/);
+            expect(svc.getState().creditAdjustments || []).toHaveLength(0);
+            svc.issueRefund({ memberId: 1, amount: 300, method: 'venmo', reason: 'Unused 2025 credit' });
+            // Settled, not Outstanding by the refunded amount.
+            expect(householdCredit(svc, 1).cents).toMatchObject({ credit: 0, balance: 0, N: -30000 });
+            expect(() => svc.issueRefund({ memberId: 1, amount: 0.01, reason: 'x' })).toThrow(/no credit/i);
+        });
+
+        it('lets the leftover carried credit pay a billed Usage Charge before any of it is refundable (#688, fixture 10h)', () => {
+            const svc = withUnusedCarriedCredit([{ id: 'oadj_billed', memberId: 1, kind: 'usage_charge', status: 'billed', amount: 50, description: 'Roaming' }]);
+            expect(householdCredit(svc, 1).cents).toMatchObject({ B: 5000, U: 30000, credit: 25000 });
+            expect(() => svc.issueRefund({ memberId: 1, amount: 250.01, reason: 'x' })).toThrow(/exceed/);
+            svc.issueRefund({ memberId: 1, amount: 250, reason: 'Unused 2025 credit' });
+            expect(householdCredit(svc, 1).cents).toMatchObject({ credit: 0, balance: 0 });
+        });
+
         it('rejects a household with no credit', () => {
             const svc = createService(); // Alice paid 50 → underpaid, no credit
             expect(() => svc.issueRefund({ memberId: 1, amount: 10, reason: 'x' })).toThrow(/no credit/i);

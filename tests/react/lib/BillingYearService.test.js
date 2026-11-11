@@ -816,7 +816,7 @@ describe('BillingYearService', () => {
             expect(events(next, 'BILL_PRICE_ROLLED_OVER').map(event => [event.payload.billId, event.payload.newValue])).toEqual([[101, 198], [102, 14]]);
         });
 
-        it('fixture 10f: an unused incoming credit carries with no carry_forward record; the source stays Settled', async () => {
+        it('fixture 10f: an unused incoming credit is a Credit, carries with the ordinary carry_forward record, and the source ends Settled (#688)', async () => {
             svc._user = TEST_USER;
             const incoming = { id: 'coadj_2025_1', memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2025', amount: -132 };
             svc._setState({ billingYears: [{ id: '2026', label: '2026', status: 'open' }],
@@ -827,13 +827,14 @@ describe('BillingYearService', () => {
             const before = structuredClone(svc.getState());
             await svc.createYear('2027', { reconciliation: review() });
             const prior = mockStore[PRIOR];
-            expect(prior.creditAdjustments).toEqual([]);
-            expect(prior.owedAdjustments).toEqual([{ ...incoming, carriedForwardTo: '2027' }]);
+            expect(prior.creditAdjustments).toMatchObject([{ id: 'cadj_carry_2027_1', memberId: 1, type: 'carry_forward', amount: 132, status: 'recorded', toYear: '2027' }]);
+            // The source seed is not stamped: the disposition record is the whole story.
+            expect(prior.owedAdjustments).toEqual([incoming]);
             const member = before.familyMembers[0];
-            expect(getHouseholdFinancials(member, sourceOf(before, prior)).cents).toEqual(getHouseholdFinancials(member, sourceOf(before)).cents);
-            expect(getHouseholdFinancials(member, sourceOf(before, prior)).cents).toMatchObject({ owed: 0, N: 0, balance: 0, credit: 0 });
+            expect(getHouseholdFinancials(member, sourceOf(before)).cents).toMatchObject({ owed: 0, N: 0, U: 13200, balance: -13200, credit: 13200 });
+            expect(getHouseholdFinancials(member, sourceOf(before, prior)).cents).toMatchObject({ owed: 0, N: -13200, contributed: 0, balance: 0, credit: 0 });
             const seed = mockStore[NEXT].owedAdjustments[0];
-            expect(seed).toMatchObject({ amount: -132, items: [{ kind: 'credit', sourceId: 'coadj_2025_1', amount: -132,
+            expect(seed).toMatchObject({ amount: -132, items: [{ kind: 'credit', sourceId: 'cadj_carry_2027_1', amount: -132,
                 detail: [{ kind: 'unused', description: 'Unused 2026 credit', amount: -132 }] }] });
         });
 

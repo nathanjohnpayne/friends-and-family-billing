@@ -262,7 +262,8 @@ export function getParentMember(familyMembers, memberId) {
 
 /**
  * Exact settlement authority over the complete raw five-array year source.
- * Reopening only affects admitted R records; U is never a refundable credit.
+ * Reopening only affects admitted R records. A carried-in credit is money in the
+ * year it arrives (#688): its unused part U is inside balance and credit.
  * Success exposes integer cents plus checked dollar aliases for existing UI.
  * Failure exposes private diagnostics and identity, with no money or source rows.
  */
@@ -284,7 +285,7 @@ export function getHouseholdFinancials(member, source, { reopenedAdjustmentIds =
             creditAdjustmentTotal: result.R, billedChargeTotal: result.B, netContribution: result.N,
             owed: result.owed, balance: result.balance, credit: result.credit };
         return { ok: true, householdId: member.id,
-            cents: Object.fromEntries(['G', 'S', 'O', 'P', 'R', 'B', 'N', 'invoice', 'owed', 'balance', 'credit', 'U', 'deferredCents'].map(field => [field, result[field]])),
+            cents: Object.fromEntries(['G', 'S', 'O', 'P', 'R', 'B', 'N', 'I', 'A', 'invoice', 'owed', 'charges', 'contributed', 'balance', 'credit', 'U', 'deferredCents'].map(field => [field, result[field]])),
             ...Object.fromEntries(Object.entries(fields).map(([field, cents]) => [field, snapshotDollars(cents, member.id)])) };
     } catch (error) {
         if (!(error instanceof MoneyIntegrityError)) throw error;
@@ -333,7 +334,6 @@ export function buildCarryForward(familyMembers, bills, payments, creditAdjustme
         return { ...plan, households: plan.households.filter(h => h.seed).map(h => ({ ...h,
             primaryMemberId: h.householdId, credit: snapshotDollars(h.credit, h.householdId),
             deferredChargeTotal: snapshotDollars(h.deferredCents, h.householdId),
-            unusedOpeningCredit: snapshotDollars(h.unusedOpeningCreditCents, h.householdId),
             openingBalance: snapshotDollars(h.openingBalanceCents, h.householdId),
             ...(options.itemized ? { items: structuredClone(h.seed.items) } : {}) })),
             totalOpeningBalance: snapshotDollars(plan.totalOpeningBalanceCents, 'year'),

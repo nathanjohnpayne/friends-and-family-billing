@@ -25,7 +25,7 @@ export function calculateOutstandingBalance(familyMembers, bills, payments, cred
 /**
  * Finalize carry once, including actual ids, candidate ledgers and stored seeds.
  * Options bind destination/source labels, actual creditDispositionIds, itemized
- * review detail, carry-only U and the caller's marking reopening context.
+ * review detail and the caller's marking reopening context.
  */
 export function buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments = [], owedAdjustments = [], options = {}) {
     return buildCarryForward(familyMembers, bills, payments, creditAdjustments, owedAdjustments, options);
@@ -349,11 +349,12 @@ export function buildReviewedRollover(source, yearId, reconciliation, ctx) {
     }
 
     // (2)–(3) Carry over the updated state with the deterministic disposition ids, the
-    // review's Service Credits as detail provenance and the unused incoming credit.
+    // review's Service Credits as detail provenance. The whole Credit, including an
+    // unused carried-in credit (#688), is disposed by the ordinary carry_forward record.
     const creditDispositionIds = new Map(primaries.map(member => [member.id, 'cadj_carry_' + yearId + '_' + member.id]));
     const carry = buildCarryForwardSummary(familyMembers, bills, payments, creditAdjustments, appendedOwed, {
         reopenedAdjustmentIds: ctx.reopenedAdjustmentIds || new Set(), fromYearLabel: sourceLabel, nextYearLabel: yearId,
-        creditDispositionIds, carryUnusedOpeningCredit: true, itemized: true, reviewServiceCredits: serviceCreditRecords, now
+        creditDispositionIds, itemized: true, reviewServiceCredits: serviceCreditRecords, now
     });
     requireFinancialAvailability(carry);
     const marked = applyCarryForwardToPriorYear(creditAdjustments, appendedOwed, carry, { now });

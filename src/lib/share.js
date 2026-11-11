@@ -391,8 +391,9 @@ export function buildPaymentHistoryForShare(payments, householdIds) {
  * fields and household attribution cross this boundary, including in detail.
  * Detail explains a credit and never contributes to the signed opening total.
  *
- * notApplied includes forfeited Service Credit excess; remainingCredit is only
- * unused incoming money from the NET seed, exactly as the rollover computes U.
+ * notApplied is the forfeited Service Credit excess. remainingCredit is the
+ * unused carried-in credit U from the NET seed, which counts as money this year
+ * (#688); it is zero for seeds a pre-#688 rollover stamped carriedForwardTo.
  * The item split is display only (year-end-review fixtures 10l/10n).
  * Bills are summed before cent rounding, matching calculateAnnualSummary's split.
  * @param {Array} familyMembers
@@ -400,7 +401,7 @@ export function buildPaymentHistoryForShare(payments, householdIds) {
  * @param {Array} owedAdjustments
  * @param {*} memberId
  * @param {Array} linkedIds
- * @returns {{ fromYear: string|null, notApplied: number, remainingCredit: number, total: number, items: Array }}
+ * @returns {{ fromYear: string|null, notApplied: number, remainingCredit: number, unusedCredit: number, total: number, items: Array }}
  */
 export function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds) {
   const householdIds = [memberId, ...(linkedIds || [])];
@@ -454,10 +455,18 @@ export function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments,
   const incomingCreditCents = Math.max(0, -openingCents);
   const incomingChargeCents = Math.max(0, openingCents);
   const billsAfterCredits = toCents(billsSubtotal) - toCents(serviceCreditTotal);
+  // unusedCredit reconciles the household total; remainingCredit is what the page
+  // says remains as a credit. They are equal here (this writer does not read
+  // refunds); a cache written before #688 has no unusedCredit.
+  // notApplied is whatever else the owed floor hides: the forfeited Service Credit
+  // excess, plus a remainder that a pre-#688 rollover already carried away.
+  const unusedCents = seeds.some((seed) => seed.carriedForwardTo != null) ? 0
+    : Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents));
   return {
     fromYear: seeds[0]?.fromYear || null,
-    notApplied: Math.max(0, -(billsAfterCredits + openingCents)) / 100,
-    remainingCredit: Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents)) / 100,
+    notApplied: (Math.max(0, -(billsAfterCredits + openingCents)) - unusedCents) / 100,
+    remainingCredit: unusedCents / 100,
+    unusedCredit: unusedCents / 100,
     total,
     items,
   };

@@ -277,7 +277,7 @@ describe('record factories and next-year preview', () => {
         expect(preview[0].carriedCharges + preview[0].carriedCredit).toBe(preview[0].carriedTotal);
         const unusedCarry = buildCarryForwardSummary(familyMembers, [], [], [], [{ id: 'incoming', memberId: 1,
             kind: 'carry_opening', status: 'carried_in', amount: -132 }],
-            { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true, carryUnusedOpeningCredit: true });
+            { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true });
         const unused = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [], carry: unusedCarry });
         expect(unused[0]).toMatchObject({ firstInvoiceTotal: 0, remainingCredit: 132 });
         const held = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [],

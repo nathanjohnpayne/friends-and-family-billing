@@ -35,13 +35,15 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
     // Same gate as the share payload: absent when no seed carries anything.
     const carried = buildCarriedItemsForShare(familyMembers, bills,
         withAllocatedOpening(owedAdjustments || [], projection.rows?.opening || []), member.id, member.linkedMembers || []);
-    // notApplied and remainingCredit restate the share formulas over canonical
-    // cents (I = max(0, −O), A = max(0, G − S + max(0, O)), U = max(0, I − A)),
-    // so they agree with every other figure the invoice prints.
-    const { G, S, O } = projection.cents;
+    // notApplied is what else the owed floor hides: the forfeited Service Credit
+    // excess (plus a remainder a pre-#688 rollover already carried away), never
+    // the unused credit U. remainingCredit is the part of the invoice credit that is
+    // unused carried-in money, min(U, max(0, −invoiceBalance)) (#688), so both
+    // agree with every other figure the invoice prints.
+    const { G, S, O, U, invoiceBalance } = projection.cents;
     const carriedItems = carried.total !== 0 || carried.items.length > 0 ? { ...carried, total: projection.O,
-        notApplied: Math.max(0, -(G - S + O)) / 100,
-        remainingCredit: Math.max(0, Math.max(0, -O) - Math.max(0, G - S + Math.max(0, O))) / 100 } : null;
+        notApplied: (Math.max(0, -(G - S + O)) - U) / 100,
+        remainingCredit: Math.min(U, Math.max(0, -invoiceBalance)) / 100, unusedCredit: U / 100 } : null;
     return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
         balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {},
         carriedItems, carriedTotal: projection.O };
@@ -100,10 +102,10 @@ function validInvoiceContext(ctx) {
         && ctx.numMembers === 1 + (ctx.member.linkedMembers || []).length
         && validMemberSummary(ctx.memberData) && ctx.linkedMembersData.every(validMemberSummary)
         && ['combinedTotal', 'payment', 'refunded', 'balance'].every(field => typeof ctx[field] === 'number' && Number.isFinite(ctx[field]))
-        && ['invoice', 'P', 'R', 'N', 'invoiceBalance'].every(field => Number.isSafeInteger(ctx.cents?.[field])))) return false;
+        && ['invoice', 'P', 'R', 'N', 'U', 'invoiceBalance'].every(field => Number.isSafeInteger(ctx.cents?.[field])))) return false;
     const cents = ctx.cents;
     if (BigInt(cents.N) !== BigInt(cents.P) - BigInt(cents.R)
-        || BigInt(cents.invoiceBalance) !== BigInt(cents.invoice) - BigInt(cents.N)) return false;
+        || BigInt(cents.invoiceBalance) !== BigInt(cents.invoice) - BigInt(cents.N) - BigInt(cents.U)) return false;
     try {
         if (ctx.amountStr !== '$' + (ctx.balance > 0 ? ctx.balance : ctx.combinedTotal).toFixed(2)
             || ctx.amountLabel !== (ctx.balance > 0 && ctx.payment > 0 ? 'remaining balance' : 'total')) return false;
@@ -677,11 +679,10 @@ function carriedLineModel(carried) {
 
 /** Canonical figures for the summary sentence; I = max(0, G − S + O). */
 function carriedFigures(ctx) {
-    const { G, S, O } = ctx.cents;
-    const net = G - S + O;
+    const { G, S, O, U } = ctx.cents;
     const remaining = ctx.carriedItems.remainingCredit;
-    return { bills: G / 100, serviceCredits: S / 100, carried: O / 100, notApplied: Math.max(0, -net) / 100,
-        remaining, incomingCredit: Math.max(0, -O) / 100 };
+    return { bills: G / 100, serviceCredits: S / 100, carried: O / 100, notApplied: (Math.max(0, -(G - S + O)) - U) / 100,
+        remaining, unused: U / 100, incomingCredit: Math.max(0, -O) / 100 };
 }
 
 /** "2027 total: $723.00 (2027 bills $668.00 + carried $55.00)" — exact for S, floor. */
@@ -691,15 +692,16 @@ function carriedTotalSentence(ctx) {
     if (f.serviceCredits > 0) expr += ' ' + MINUS + ' service credits ' + dollars(f.serviceCredits);
     expr += (f.carried < 0 ? ' ' + MINUS : ' +') + ' carried ' + dollars(f.carried);
     if (f.notApplied > 0) expr += '; ' + dollars(f.notApplied) + ' not applied this year';
+    if (f.unused > 0) expr += '; ' + dollars(f.unused) + ' of the credit unused';
     return ctx.currentYear + ' total: ' + dollars(ctx.combinedTotal) + ' (' + expr + ')';
 }
 
-/** Unused incoming credit only (remainingCredit), never the floor remainder. */
+/** Unused carried-in credit still held as Credit (remainingCredit), never the forfeited Service Credit excess. */
 function carriedRemainsSentence(ctx) {
     const f = carriedFigures(ctx);
     if (!(f.remaining > 0)) return '';
     return 'Your ' + carriedYear(ctx.carriedItems) + ' credit of ' + dollars(f.incomingCredit) + ' covers this year; '
-        + dollars(f.remaining) + ' remains. It will carry into next year.';
+        + dollars(f.remaining) + ' remains as a credit that can be refunded or carried into next year.';
 }
 
 /** "Pinecone Vault ended in August: −$4.00 (Ada); Other 2026 overpayment: −$22.00" */
@@ -863,6 +865,7 @@ function buildFullInvoiceText(ctx, shareUrl) {
         if (f.serviceCredits > 0) text += row('Service credits', MINUS + dollars(f.serviceCredits));
         text += row('Carried from ' + carriedYear(carried), signedAmount(f.carried));
         if (f.notApplied > 0) text += row('Not applied this year', signedAmount(f.notApplied));
+        if (f.unused > 0) text += row('Unused ' + carriedYear(carried) + ' credit', signedAmount(f.unused));
     }
     text += '  Combined Annual Total:         $' + combinedTotal.toFixed(2) + '\n';
     if (payment > 0) {

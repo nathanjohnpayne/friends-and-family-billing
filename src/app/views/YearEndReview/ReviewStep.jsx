@@ -144,7 +144,7 @@ function HouseholdCard({ household, preview, ctx }) {
                         <dt>Carried from {sourceLabel}</dt><dd className={'yer-num' + (carried < 0 ? ' yer-credit-text' : '')}>{signedMoney(carried)}</dd>
                         <dt>First {nextYearLabel} invoice</dt><dd className="yer-num yer-hh-first">{money(preview.firstInvoiceTotal)}</dd>
                     </dl>
-                    {preview.remainingCredit > 0 && <p className="yer-hint">{money(preview.remainingCredit)} of the carried credit remains after the first {nextYearLabel} invoice and carries again at the next rollover.</p>}
+                    {preview.remainingCredit > 0 && <p className="yer-hint">{money(preview.remainingCredit)} of the carried credit remains after the first {nextYearLabel} invoice. It stays the household&apos;s credit in {nextYearLabel}: it can be refunded or carried again.</p>}
                     {refunds > 0 && <p className="yer-hint">{money(refunds)} refund still to be re-sent in {sourceLabel}; not carried.</p>}
                     <div className="yer-hh-acts">
                         <button type="button" className="btn btn-sm btn-header-secondary" disabled={locked} onClick={() => onEdit(1)}>Edit bills</button>

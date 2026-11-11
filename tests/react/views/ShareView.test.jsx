@@ -1831,11 +1831,15 @@ describe('Carried share details (#603)', () => {
         expect(within(reconRow('Carried from 2026')).getByText(carriedText)).toBeVisible();
         expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
         if (amount === -100) {
-            expect(within(reconRow('Not applied this year')).getByText('+$33.33')).toBeVisible();
-            expect(cents.U).toBe(3333);
-            expect(screen.getByText(/credit of \$100.00 covers this year; \$33.33 remains/)).toBeVisible();
+            // The unused carried credit is money (#688): its own row, never "Not applied".
+            expect(within(reconRow('Unused 2026 credit')).getByText('+$33.33')).toBeVisible();
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+            expect(cents).toMatchObject({ U: 3333, credit: 3333 });
+            expect(screen.getByText(/credit of \$100.00 covers this year; \$33.33 remains as a credit that can be refunded or carried into next year\./)).toBeVisible();
+            expect(screen.queryByText(/It will carry into next year/)).toBeNull();
         } else {
             expect(screen.queryByText('Not applied this year')).toBeNull();
+            expect(screen.queryByText('Unused 2026 credit')).toBeNull();
             expect(screen.queryByText(/remains\./)).toBeNull();
         }
         expect(screen.queryByText(/Other adjustments/)).toBeNull();
@@ -1861,15 +1865,20 @@ describe('Carried share details (#603)', () => {
         expect(within(reconRow('Household Total')).getByText(publishedTotal)).toBeVisible();
     });
 
-    it.each([[-20, 120, 20], [0, 100, 0]])('separates the floor remainder from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
+    it.each([[-20, 100, 20], [0, 100, 0]])('separates the forfeited Service Credit excess from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
         const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
         const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, items: [{ kind: 'usage_charge', memberId: 1, description: 'Activation fee', amount: amount === 0 ? 10 : 0 }, { kind: 'credit', memberId: null, description: 'Your household credit', amount: amount === 0 ? -10 : -20 }] }, { kind: 'service_credit', memberId: 1, amount: 200, status: 'active' }];
         mockPublicSharesHit(build(carriedMembers, bills, records));
         render(<ShareView />);
         await screen.findByText('Not applied this year');
         expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$' + notApplied.toFixed(2))).toBeVisible();
-        if (remaining) expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
-        else expect(screen.queryByText(/remains\./)).toBeNull();
+        if (remaining) {
+            expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains as a credit/)).toBeVisible();
+            expect(within(screen.getByText('Unused 2026 credit').closest('tr')).getByText('+$20.00')).toBeVisible();
+        } else {
+            expect(screen.queryByText(/remains as a credit/)).toBeNull();
+            expect(screen.queryByText('Unused 2026 credit')).toBeNull();
+        }
         expect(screen.getByRole('region', { name: 'Carried from 2026' })).toBeVisible();
     });
 
@@ -1890,7 +1899,7 @@ describe('Carried share details (#603)', () => {
         expect(within(reconRow('Household Total')).getByText(money(cents.owed))).toBeVisible();
     });
 
-    it('states the not-applied floor remainder in the lead callout when credits exceed the bills (10l)', async () => {
+    it('states the forfeited excess and the unused credit as separate terms in the lead callout (10l)', async () => {
         const bills = [{ id: 'b', name: 'Annual bill', amount: 100, billingFrequency: 'annual', members: [1] }];
         const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -20 },
             { id: 'sc', kind: 'service_credit', memberId: 1, status: 'active', amount: 200, reason: 'Outage' }];
@@ -1900,10 +1909,11 @@ describe('Carried share details (#603)', () => {
         mockPublicSharesHit(buildPublicShareData(carriedMembers, bills, payments, 1, ['summary:read'], 'synthetic-owner', { id: '2027' }, {}, records));
         const { container } = render(<ShareView />);
         await screen.findByText(/all settled for 2027/);
-        // $100.00 − $200.00 − $20.00 + $120.00 = $0.00, the same terms as the rows.
+        // $100.00 − $200.00 − $20.00 + $100.00 + $20.00 = $0.00, the same terms as the rows.
         expect(container.querySelector('.share-lead-sub').textContent)
-            .toBe('$100.00 of bills less $200.00 of service credits less $20.00 carried from 2026 plus $120.00 not applied this year · $5.00 paid');
-        expect(within(reconRow('Not applied this year')).getByText('+$120.00')).toBeVisible();
+            .toBe('$100.00 of bills less $200.00 of service credits less $20.00 carried from 2026 plus $100.00 not applied this year plus $20.00 of unused credit · $5.00 paid');
+        expect(within(reconRow('Not applied this year')).getByText('+$100.00')).toBeVisible();
+        expect(within(reconRow('Unused 2026 credit')).getByText('+$20.00')).toBeVisible();
         expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
     });
 
@@ -1934,8 +1944,9 @@ describe('Pre-itemization cached summary compatibility (#603)', () => {
         await screen.findByText('Carried from 2026');
         expect(within(screen.getByText('Household Total').closest('tr')).getByText(payload.paymentSummary.combinedAnnualTotal === 0 ? '$0.00' : '$220.00')).toBeVisible();
         if (payload.paymentSummary.combinedAnnualTotal === 0) {
-            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$120.00')).toBeVisible();
-            expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains/)).toBeVisible();
+            expect(within(screen.getByText('Not applied this year').closest('tr')).getByText('+$100.00')).toBeVisible();
+            expect(within(screen.getByText('Unused 2026 credit').closest('tr')).getByText('+$20.00')).toBeVisible();
+            expect(screen.getByText(/credit of \$20.00 covers this year; \$20.00 remains as a credit/)).toBeVisible();
         } else expect(screen.getByText('−$30.00')).toBeVisible();
     });
 

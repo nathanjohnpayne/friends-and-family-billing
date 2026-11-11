@@ -354,13 +354,22 @@ export function projectHouseholdMoney(source, member, { reopenedAdjustmentIds = 
         const deferred = projectRecords(admitted.deferred, 'deferred');
         const S = service.cents, O = opening.cents, P = payment.cents, R = disposition.cents, B = billed.cents;
         const N = integerSum(P, -R);
-        const invoice = nonnegativeSum(G, -S, O);
-        const owed = integerSum(invoice, B);
-        const balance = integerSum(owed, -N);
-        const credit = Math.max(0, -balance);
+        // #688: a carried-in credit I is money in the year it arrives. Charges are
+        // A + B and contributed money is N + I, so balance = A + B − N − I. The
+        // displayed owed keeps the applied part min(I, A) on the bills side
+        // (invoice = A − min(I, A)); the unused part U sits with the money.
         const I = Math.max(0, -O), Q = Math.max(0, O);
         const A = nonnegativeSum(G, -S, Q);
-        const U = nonnegativeSum(I, -A);
+        // A seed stamped by a pre-#688 reviewed rollover already sent its unused
+        // remainder to the next year without a disposition record: never count it again.
+        const legacyCarried = admitted.O.some(row => row.carriedForwardTo != null);
+        const U = legacyCarried ? 0 : nonnegativeSum(I, -A);
+        const invoice = nonnegativeSum(G, -S, O);
+        const owed = integerSum(invoice, B);
+        const charges = integerSum(A, B);
+        const contributed = integerSum(N, I, legacyCarried ? -nonnegativeSum(I, -A) : 0);
+        const balance = integerSum(charges, -contributed);
+        const credit = Math.max(0, -balance);
         // Rationals and record references are private and never escape this edge.
         /** Strip exact rationals/raw references while retaining private keys/cents. */
         const clean = row => ({ id: row.id, cents: row.cents,
@@ -369,7 +378,7 @@ export function projectHouseholdMoney(source, member, { reopenedAdjustmentIds = 
             ...(row.opaque ? { opaque: true } : {}),
             ...Object.fromEntries(['items', 'detail', 'children'].filter(field => row[field])
                 .map(field => [field, row[field].map(clean)])) });
-        return { ok: true, householdId, G, S, O, P, R, B, N, invoice, owed, balance, credit, I, Q, A, U,
+        return { ok: true, householdId, G, S, O, P, R, B, N, invoice, owed, charges, contributed, balance, credit, I, Q, A, U,
             deferredCents: deferred.cents, rows: { bills: allocate(bills, G, 'G').map(clean),
                 service: service.rows.map(clean), opening: opening.rows.map(clean),
                 payments: payment.rows.map(clean), dispositions: disposition.rows.map(clean),
@@ -456,7 +465,7 @@ export function projectHouseholdsMoney(source, options = {}) {
  * max(0, prior balance). Existing open debt and active reopened refunds stay live.
  * No source mutation, clock, alternative amount or additional disposition exists.
  */
-function validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds, carryId) {
+function validateCarrySource(source, member, projection, admitted, nextYearLabel, reopenedAdjustmentIds, carryId) {
     const creditAdjustments = [...(source.creditAdjustments || [])];
     if (projection.credit > 0) {
         if (creditAdjustments.some(row => row && row.id === carryId)) {
@@ -467,11 +476,9 @@ function validateCarrySource(source, member, projection, admitted, unused, nextY
             reason: 'Carried forward to ' + (nextYearLabel || 'next year') });
     }
     const deferred = new Set(admitted.deferred);
-    const openings = new Set(unused > 0 ? admitted.O : []);
     const proposed = { ...source, creditAdjustments,
         owedAdjustments: (source.owedAdjustments || []).map(row => deferred.has(row)
-            ? { ...row, status: 'carried_forward', carriedForwardTo: nextYearLabel }
-            : openings.has(row) ? { ...row, carriedForwardTo: nextYearLabel } : row) };
+            ? { ...row, status: 'carried_forward', carriedForwardTo: nextYearLabel } : row) };
     const after = projectHouseholdMoney(proposed, member);
     if (!after.ok) return after;
     if (after.balance !== Math.max(0, projection.balance) || after.credit !== 0) {
@@ -492,12 +499,13 @@ function validateCarrySource(source, member, projection, admitted, unused, nextY
 }
 
 /**
- * Detached carry snapshots and marking ids only. U is optional carry-only money,
- * never a disposition. Null reopening controls amount; supplied reopening controls
- * marking eligibility. No clock, ids, source status, ledger or year is mutated.
+ * Detached carry snapshots and marking ids only. The whole household Credit,
+ * including an unused carried-in credit (#688), is disposed by one carry_forward
+ * record. Null reopening controls amount; supplied reopening controls marking
+ * eligibility. No clock, ids, source status, ledger or year is mutated.
  */
 export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
-    reopenedAdjustmentIds = null, carryUnusedOpeningCredit = false, reviewServiceCredits = [],
+    reopenedAdjustmentIds = null, reviewServiceCredits = [],
     creditDispositionIds = null, itemized = false, now = null } = {}) {
     const households = projectHouseholdsMoney(source).map(projection => {
         if (!projection.ok) return projection;
@@ -512,14 +520,14 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
             // unrelated households/kinds must never supply snapshot metadata.
             const deferredById = new Map(admitted.deferred.map(record => [String(record.id), record]));
             const serviceById = new Map(admitted.S.map(record => [String(record.id), record]));
-            const unused = carryUnusedOpeningCredit ? projection.U : 0;
+            // The part of the Credit that is carried-in money this year did not use.
+            const unused = Math.min(projection.U, projection.credit);
             // ADR 0010 preserves the carry seam's positive aggregate feed gate.
             // A zero monetary contribution is not a malformed-source exclusion.
-            if (!(projection.credit > 0 || projection.deferredCents > 0 || unused > 0)) {
-                return { ...projection, creditAdjustmentIds: [], openingSeedIds: [],
-                    unusedOpeningCreditCents: 0, deferredChargeIds: [], openingBalanceCents: 0, seed: null };
+            if (!(projection.credit > 0 || projection.deferredCents > 0)) {
+                return { ...projection, creditAdjustmentIds: [], deferredChargeIds: [], openingBalanceCents: 0, seed: null };
             }
-            const openingBalanceCents = integerSum(projection.deferredCents, -projection.credit, -unused);
+            const openingBalanceCents = integerSum(projection.deferredCents, -projection.credit);
             const billName = row => row.billName ?? source.bills?.find(bill => bill.id === row.billId)?.name ?? null;
             const items = projection.rows.deferred.map(row => {
                 const record = deferredById.get(row.id);
@@ -528,8 +536,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                     amount: snapshotDollars(row.cents, record.id), incurredDate: record.incurredDate || null,
                     ...(record.calc ? { calc: clone(record.calc) } : {}) };
             });
-            const openingSeedIds = admitted.O.map(row => row.id);
-            const totalCredit = integerSum(projection.credit, unused);
+            const totalCredit = projection.credit;
             if (totalCredit > 0) {
                 const reviewIds = new Set(reviewServiceCredits.filter(row => row && row.kind === 'service_credit'
                     && row.status === 'active' && ids.includes(row.memberId)).map(row => String(row.id)));
@@ -545,11 +552,11 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
                         billName: billName(record), description: record.reason || '', amount: snapshotDollars(-row.cents, record.id) };
                 });
                 if (unused > 0) detail.push({ kind: 'unused', description: 'Unused ' + fromYearLabel + ' credit', amount: snapshotDollars(-unused, member.id) });
-                const remainder = integerSum(-projection.credit, -unused, ...detail.map(row => -toExactCents(row.amount)));
+                const remainder = integerSum(-projection.credit, ...detail.map(row => -toExactCents(row.amount)));
                 if (remainder !== 0) detail.push({ kind: remainder < 0 ? 'remainder' : 'applied',
                     description: remainder < 0 ? 'Other ' + fromYearLabel + ' overpayment'
                         : 'Part applied to your ' + fromYearLabel + ' balance', amount: snapshotDollars(remainder, member.id) });
-                items.push({ sourceId: projection.credit > 0 ? carryId : openingSeedIds[0],
+                items.push({ sourceId: carryId,
                     kind: 'credit', basis: 'credit', memberId: member.id, billName: null,
                     description: "Your household's " + fromYearLabel + ' credit',
                     amount: snapshotDollars(-totalCredit, member.id), detail });
@@ -561,10 +568,10 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
             // seed. Deterministic credit ids may collide with legacy source ids;
             // hold instead of renaming them or publishing an invalid snapshot.
             if (seed) projectOpening([seed], ids, []);
-            const sourceHold = validateCarrySource(source, member, projection, admitted, unused, nextYearLabel, reopenedAdjustmentIds, carryId);
+            const sourceHold = validateCarrySource(source, member, projection, admitted, nextYearLabel, reopenedAdjustmentIds, carryId);
             if (sourceHold) return sourceHold;
             const creditAdjustmentIds = admitted.R.filter(row => !reopenedAdjustmentIds?.has(row.id)).map(row => row.id);
-            return { ...projection, creditAdjustmentIds, openingSeedIds, unusedOpeningCreditCents: unused,
+            return { ...projection, creditAdjustmentIds,
                 deferredChargeIds: projection.rows.deferred.map(row => deferredById.get(row.id).id),
                 openingBalanceCents, seed, creditDispositionId: projection.credit > 0 ? carryId : null };
         } catch (error) {
@@ -603,8 +610,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
         }
         const owed = registry(source.owedAdjustments || []);
         const chargeIds = new Set(carried.flatMap(row => row.deferredChargeIds).map(String));
-        const openingIds = new Set(carried.filter(row => row.unusedOpeningCreditCents > 0).flatMap(row => row.openingSeedIds).map(String));
-        for (const id of [...chargeIds, ...openingIds]) {
+        for (const id of chargeIds) {
             if (owed.get(id)?.length !== 1) fail('DUPLICATE_ID', id, 'carry', 'id', id, 'Carry marking id is ambiguous in the year ledger');
         }
         const seeds = carried.map(row => row.seed);
@@ -612,8 +618,7 @@ export function buildCarryMoneySnapshot(source, { fromYearLabel, nextYearLabel,
         const priorYear = {
             creditAdjustments: [...clone(source.creditAdjustments || []), ...newCredits],
             owedAdjustments: (source.owedAdjustments || []).map(row => row && chargeIds.has(String(row.id))
-                ? { ...clone(row), status: 'carried_forward', carriedForwardTo: nextYearLabel }
-                : row && openingIds.has(String(row.id)) ? { ...clone(row), carriedForwardTo: nextYearLabel } : clone(row))
+                ? { ...clone(row), status: 'carried_forward', carriedForwardTo: nextYearLabel } : clone(row))
         };
         // Reproject the combined candidate, never per-household stand-in ids.
         for (const before of households) {
@@ -659,7 +664,7 @@ export function projectHouseholdPreviewMoney(source, member, nextBills, openingS
         return { ok: true, householdId: member.id, sourceBillTotalCents: before.G, nextBillTotalCents: after.G,
             subscriptionDeltaCents: integerSum(after.G, -before.G), carriedTotalCents: after.O,
             carriedChargesCents: carriedCharges, carriedCreditCents: integerSum(after.O, -carriedCharges),
-            firstInvoiceTotalCents: after.invoice, remainingCreditCents: after.U };
+            firstInvoiceTotalCents: after.invoice, remainingCreditCents: Math.min(after.U, after.credit) };
     } catch (error) {
         if (!(error instanceof MoneyIntegrityError)) throw error;
         return { ok: false, householdId: member.id, holds: [{ householdId: member.id, code: error.code,

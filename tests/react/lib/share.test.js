@@ -641,30 +641,42 @@ describe('carried share projection (#603)', () => {
         expect(G).toBe(6667);
         expect(owed).toBe(owedCents);
         expect(cents(carried.total)).toBe(O);
-        // Not applied this year is the floor remainder of G − S + O; the "$Y remains" amount is the rollover's U.
-        expect(cents(carried.notApplied)).toBe(Math.max(0, -(G - S + O)));
+        // Not applied this year is the forfeited Service Credit excess only (#688);
+        // the "$Y remains" amount is the unused carried-in credit U, which is money.
+        expect(cents(carried.notApplied)).toBe(Math.max(0, S - G - Math.max(0, O)));
         expect(cents(carried.remainingCredit)).toBe(U);
         expect(cents(publicData(records).paymentSummary.combinedAnnualTotal)).toBe(owed);
         // Rounded per-member display lines are unchanged.
         expect(publicData(records).summary.annualTotal).toBe(33.33);
         expect(publicData(records).linkedMembers[0].annualTotal).toBe(33.33);
-        if (amount === -100) expect(carried).toMatchObject({ notApplied: 33.33, remainingCredit: 33.33 });
+        if (amount === -100) expect(carried).toMatchObject({ notApplied: 0, remainingCredit: 33.33 });
     });
 
-    it('distinguishes forfeited floor remainder from unused NET incoming money (10l/10n)', () => {
+    it('distinguishes the forfeited Service Credit excess from unused NET incoming money (10l/10n)', () => {
         const sourceBills = [{ ...bills[0], members: [1] }];
         const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
         const split = [{ sourceId: 'charge', memberId: 1, kind: 'usage_charge', amount: 10 },
             { sourceId: 'credit', memberId: null, kind: 'credit', amount: -10, detail: [{ sourceId: 'credit-detail', memberId: 1, kind: 'service_credit', amount: -10 }] }];
-        for (const [opening, items, notApplied, remaining] of [[-20, undefined, 120, 20], [0, split, 100, 0]]) {
+        for (const [opening, items, notApplied, remaining] of [[-20, undefined, 100, 20], [0, split, 100, 0]]) {
             const records = [seed(opening, items), credit];
             const result = project(records, sourceBills);
             expect(result).toMatchObject({ notApplied, remainingCredit: remaining });
             expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2]));
             const { G, S, O, U } = canonical(records, sourceBills);
-            expect(cents(result.notApplied)).toBe(Math.max(0, -(G - S + O)));
+            expect(cents(result.notApplied)).toBe(Math.max(0, S - G - Math.max(0, O)));
             expect(cents(result.remainingCredit)).toBe(U);
         }
+    });
+
+    it('states nothing remaining for a seed a pre-#688 rollover stamped carriedForwardTo, in both writers', () => {
+        const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
+        const records = [{ ...seed(-132), carriedForwardTo: '2028' }];
+        const result = project(records, sourceBills);
+        // Its $72 remainder already left with the stamp: not applied here, never a credit.
+        expect(result).toMatchObject({ notApplied: 72, remainingCredit: 0, unusedCredit: 0, total: -132 });
+        expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2]));
+        expect(canonical(records, sourceBills)).toMatchObject({ U: 0, credit: 0, balance: 0 });
+        expect(project([seed(-132)], sourceBills)).toMatchObject({ remainingCredit: 72 });
     });
 
     // Known remaining case owned by the public-writer alignment (#636, #672–#676), not #603:
