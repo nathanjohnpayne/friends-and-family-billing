@@ -714,6 +714,27 @@ describe('carried share projection (#603)', () => {
         expect(buildPublicShareData(members, sourceBills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {}, [seed(-132)]).carriedItems.remainingCredit).toBe(72);
     });
 
+    it('rounds half-cent refunds, payments and billed charges as the cent authority does (#688)', () => {
+        const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
+        const refund = (id, amount) => ({ id, type: 'refund', memberId: 1, amount, status: 'recorded' });
+        const billed = (amount) => ({ id: 'billed', memberId: 2, kind: 'usage_charge', status: 'billed', amount });
+        const payment = (amount) => ({ id: 'p1', memberId: 1, amount, receivedAt: '2027-01-05' });
+        for (const [records, payments, creditAdjustments, remainingCents] of [
+            // 4.015 is half a cent: a float sum reads 401, the authority reads 402.
+            [[seed(-132)], [], [refund('a', 4.015)], 6798],
+            [[seed(-132)], [], [refund('a', 2.005), refund('b', 2.005)], 6799],
+            [[seed(-132)], [], [refund('a', 0.1), refund('b', 0.2)], 7170],
+            [[seed(-132), billed(4.015)], [], [], 6798],
+            [[seed(-132), billed(10)], [payment(5.985)], [], 6799],
+        ]) {
+            const result = buildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments, creditAdjustments);
+            expect(Math.round(result.remainingCredit * 100)).toBe(remainingCents);
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments, creditAdjustments));
+            const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments, creditAdjustments, owedAdjustments: records });
+            expect(Math.min(financials.cents.U, financials.cents.credit)).toBe(remainingCents);
+        }
+    });
+
     it('keeps the payload additive for a share page loaded before #688: bills, credits, carried and notApplied reach the household total', () => {
         // A page loaded before #688 has no "Unused credit" row. It adds exactly these four terms.
         const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
