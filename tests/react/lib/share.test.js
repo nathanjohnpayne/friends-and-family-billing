@@ -714,6 +714,31 @@ describe('carried share projection (#603)', () => {
         expect(buildPublicShareData(members, sourceBills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {}, [seed(-132)]).carriedItems.remainingCredit).toBe(72);
     });
 
+    it('never states more unused or remaining credit than the cent authority, for cent-valued inputs (#688)', () => {
+        // A $100.01 bill split two ways is $50.005 a share: the authority reads 5001 cents.
+        const half = [{ id: 'b', name: 'Plan', amount: 100.01, billingFrequency: 'annual', members: [1, 3] }];
+        const fixed = buildCarriedItemsForShare(members, half, [seed(-60)], 1, [2]);
+        expect(fixed).toMatchObject({ unusedCredit: 9.99, remainingCredit: 9.99, notApplied: 9.99 });
+        expect(fixed).toEqual(cfBuildCarriedItemsForShare(members, half, [seed(-60)], 1, [2]));
+        let state = 0x688;
+        const random = (max) => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state % max; };
+        const cents = (value) => Math.round(value * 100);
+        for (let run = 0; run < 600; run++) {
+            const sourceBills = Array.from({ length: 1 + random(3) }, (_, i) => ({ id: 'b' + i, name: 'Bill ' + i, amount: random(30001) / 100,
+                billingFrequency: random(2) ? 'monthly' : 'annual', members: [[1], [1, 3], [1, 2, 3], [2, 3]][random(4)] }));
+            const records = [seed(-(1 + random(60000)) / 100),
+                ...(random(2) ? [{ id: 'sc', memberId: 1, billId: 'b0', kind: 'service_credit', status: 'active', amount: (1 + random(5000)) / 100 }] : []),
+                ...(random(2) ? [{ id: 'uc', memberId: 2, kind: 'usage_charge', status: 'billed', amount: (1 + random(5000)) / 100 }] : [])];
+            const payments = random(2) ? [{ id: 'p', memberId: 1, amount: (1 + random(20000)) / 100, receivedAt: '2027-01-05' }] : [];
+            const creditAdjustments = random(3) ? [] : [{ id: 'r', type: 'refund', memberId: 1, amount: (1 + random(3000)) / 100, status: 'recorded' }];
+            const result = buildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments, creditAdjustments);
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments, creditAdjustments));
+            const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments, creditAdjustments, owedAdjustments: records });
+            expect(cents(result.unusedCredit), 'run ' + run).toBe(financials.cents.U);
+            expect(cents(result.remainingCredit), 'run ' + run).toBe(Math.min(financials.cents.U, financials.cents.credit));
+        }
+    });
+
     it('rounds half-cent refunds, payments and billed charges as the cent authority does (#688)', () => {
         const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
         const refund = (id, amount) => ({ id, type: 'refund', memberId: 1, amount, status: 'recorded' });

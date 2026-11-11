@@ -318,7 +318,6 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   const seeds = (owedAdjustments || []).filter((a) =>
     a && a.kind === "carry_opening" && a.status !== "voided" && householdIds.includes(a.memberId)
   );
-  const toCents = (amount) => Math.sign(amount) * Math.round((Math.abs(amount) + Number.EPSILON) * 100);
   const projectLine = (line, fallbackMemberId, includeDetail) => {
     if (!line || typeof line !== "object") return null;
     const attributedId = line.memberId ?? fallbackMemberId;
@@ -350,20 +349,47 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
       : [];
   });
   const total = getHouseholdOpeningBalance({ id: memberId, linkedMembers: linkedIds || [] }, owedAdjustments);
-  const billTotals = new Map(householdIds.map((id) => [id, 0]));
-  (bills || []).forEach((bill) => {
-    if (!bill.members?.length) return;
-    const share = getBillAnnualAmount(bill) / bill.members.length;
-    bill.members.forEach((id) => {
-      if (billTotals.has(id)) billTotals.set(id, billTotals.get(id) + share);
+  // Every money term below is an exact decimal fraction, summed exactly and rounded
+  // once, half up, as the cent authority (functions/household-money.mjs) rounds
+  // G, S, O, P, R and B. Float sums round a half-cent total down: a $100.01 bill
+  // split two ways is $50.005, which floats read as $50.00 and so overstate the
+  // unused credit by a cent. The public writers do not load the authority module
+  // yet (#638), so this repeats its rule.
+  const fraction = (value, multiplier = 1n, divisor = 1n) => {
+    const amount = Number.parseFloat(value);
+    if (!Number.isFinite(amount)) return [0n, 1n];
+    const [coefficient, exponent = "0"] = amount.toString().toLowerCase().split("e");
+    const [whole, decimals = ""] = coefficient.split(".");
+    const scale = decimals.length - Number(exponent);
+    const digits = BigInt(whole + decimals) * multiplier;
+    return scale >= 0 ? [digits, 10n ** BigInt(scale) * divisor] : [digits * 10n ** BigInt(-scale), divisor];
+  };
+  const gcd = (x, y) => { while (y) [x, y] = [y, x % y]; return x; };
+  const exactCents = (fractions) => {
+    let numerator = 0n;
+    let denominator = 1n;
+    fractions.forEach(([n, d]) => {
+      numerator = numerator * d + n * denominator;
+      denominator *= d;
+      const common = gcd(numerator < 0n ? -numerator : numerator, denominator);
+      if (common > 1n) { numerator /= common; denominator /= common; }
     });
-  });
-  const billsSubtotal = householdIds.reduce((sum, id) => sum + billTotals.get(id), 0);
-  const serviceCreditTotal = householdIds.reduce((sum, id) => sum + getServiceCreditTotalForMember(owedAdjustments, id), 0);
-  const openingCents = toCents(total);
+    const magnitude = (numerator < 0n ? -numerator : numerator) * 100n;
+    const cents = magnitude / denominator + ((magnitude % denominator) * 2n >= denominator ? 1n : 0n);
+    return Number(numerator < 0n ? -cents : cents);
+  };
+  const inHousehold = (row) => row && householdIds.includes(row.memberId);
+  const billsCents = exactCents((bills || []).flatMap((bill) => {
+    if (!bill.members?.length) return [];
+    const count = bill.members.filter((id) => householdIds.includes(id)).length;
+    return count ? [fraction(bill.amount, BigInt(count * (bill.billingFrequency === "annual" ? 1 : 12)), BigInt(bill.members.length))] : [];
+  }));
+  const serviceCreditCents = exactCents((owedAdjustments || []).filter((a) => inHousehold(a) && a.kind === "service_credit"
+    && a.status === "active" && Number.parseFloat(a.amount) > 0).map((a) => fraction(a.amount)));
+  const openingCents = exactCents(seeds.map((seed) => fraction(seed.amount)));
   const incomingCreditCents = Math.max(0, -openingCents);
   const incomingChargeCents = Math.max(0, openingCents);
-  const billsAfterCredits = toCents(billsSubtotal) - toCents(serviceCreditTotal);
+  const billsAfterCredits = billsCents - serviceCreditCents;
   // unusedCredit reconciles the household total; remainingCredit is what the page
   // says remains as a credit: the leftover pays an unpaid billed Usage Charge
   // first, and a refund or carry-forward already recorded takes it away (#688). A cache written
@@ -375,31 +401,13 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   // that a pre-#688 rollover already carried away.
   const unusedCents = seeds.some((seed) => seed.carriedForwardTo != null) ? 0
     : Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents));
-  // These three sums are exact decimal sums rounded once, half up, as the cent
-  // authority (functions/household-money.mjs) rounds P, R and B. A float sum
-  // rounds a legacy half-cent amount such as 64.015 down and promises a cent too much.
-  // The public writers do not load the authority module yet (#638), so this repeats its rule.
-  const exactCents = (rows) => {
-    const parts = rows.map((row) => {
-      const amount = Number.parseFloat(row.amount);
-      if (!Number.isFinite(amount)) return [0n, 0];
-      const [coefficient, exponent = "0"] = amount.toString().toLowerCase().split("e");
-      const [whole, fraction = ""] = coefficient.split(".");
-      return [BigInt(whole + fraction), fraction.length - Number(exponent)];
-    });
-    const scale = Math.max(2, ...parts.map((part) => part[1]));
-    const total = parts.reduce((sum, [digits, digitScale]) => sum + digits * 10n ** BigInt(scale - digitScale), 0n);
-    const unit = 10n ** BigInt(scale - 2);
-    const magnitude = total < 0n ? -total : total;
-    const cents = magnitude / unit + ((magnitude % unit) * 2n >= unit ? 1n : 0n);
-    return Number(total < 0n ? -cents : cents);
-  };
-  const billedCents = exactCents((owedAdjustments || []).filter((a) => a && a.kind === "usage_charge" && a.status === "billed"
-    && householdIds.includes(a.memberId)));
-  const paidCents = exactCents((payments || []).filter((p) => p && householdIds.includes(p.memberId)));
+  const billedCents = exactCents((owedAdjustments || []).filter((a) => inHousehold(a) && a.kind === "usage_charge"
+    && a.status === "billed").map((a) => fraction(a.amount)));
+  const paidCents = exactCents((payments || []).filter(inHousehold).map((p) => fraction(p.amount)));
   // Money already sent back or carried on (active refunds and carry-forwards) is no
   // longer a credit that remains, so it comes off the net paid before the promise.
-  const disposedCents = exactCents((creditAdjustments || []).filter((a) => a && a.status !== "cancelled" && householdIds.includes(a.memberId)));
+  const disposedCents = exactCents((creditAdjustments || []).filter((a) => inHousehold(a) && a.status !== "cancelled")
+    .map((a) => fraction(a.amount)));
   return {
     fromYear: seeds[0]?.fromYear || null,
     notApplied: Math.max(0, -(billsAfterCredits + openingCents)) / 100,
