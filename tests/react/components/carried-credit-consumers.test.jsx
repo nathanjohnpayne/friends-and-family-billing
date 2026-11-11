@@ -184,3 +184,22 @@ describe('Year-End Review preview and commit inputs (#688)', () => {
         expect(computePayloadFingerprint(reconciliation, '2028')).toBe(computePayloadFingerprint({ ...reconciliation, sourceFingerprint: 'other' }, '2028'));
     });
 });
+
+describe('Share writers receive the year\'s refunds and carry-forwards (#688)', () => {
+    it('every caller of a dialog that publishes share data passes creditAdjustments', async () => {
+        const { readFileSync, readdirSync, statSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        const walk = dir => readdirSync(dir).flatMap(name => {
+            const path = join(dir, name);
+            return statSync(path).isDirectory() ? walk(path) : path.endsWith('.jsx') ? [path] : [];
+        });
+        const uses = walk(join(process.cwd(), 'src/app')).flatMap(path => {
+            const text = readFileSync(path, 'utf8');
+            return [...text.matchAll(/<(ShareLinkDialog|TextInvoiceDialog|EmailInvoiceDialog)\b[\s\S]*?\/>/g)]
+                .map(match => ({ path, dialog: match[1], passes: /creditAdjustments=\{/.test(match[0]) }));
+        });
+        // Without the prop the dialog defaults to [] and a refunded credit is published as still remaining.
+        expect(uses.length).toBeGreaterThanOrEqual(4);
+        expect(uses.filter(use => !use.passes)).toEqual([]);
+    });
+});

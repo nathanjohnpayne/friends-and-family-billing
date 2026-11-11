@@ -528,6 +528,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
                     familyMembers={familyMembers}
                     bills={bills}
                     payments={payments}
+                    creditAdjustments={creditAdjustments}
                     owedAdjustments={owedAdjustments}
                     activeYear={activeYear}
                     settings={settings}

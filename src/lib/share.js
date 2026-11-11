@@ -475,9 +475,13 @@ export function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments,
     return Number(numerator < 0n ? -cents : cents);
   };
   const inHousehold = (row) => row && householdIds.includes(row.memberId);
+  const present = new Set((familyMembers || []).map((member) => String(member.id)));
   const billsCents = exactCents((bills || []).flatMap((bill) => {
     if (!bill.members?.length) return [];
-    const count = bill.members.filter((id) => householdIds.includes(id)).length;
+    // The authority's count: an assigned id absent from familyMembers gets no share
+    // in the household, and ids compare as strings.
+    const count = bill.members.reduce((n, id) => n + (present.has(String(id))
+      ? householdIds.filter((householdId) => String(householdId) === String(id)).length : 0), 0);
     return count ? [fraction(bill.amount, BigInt(count * (bill.billingFrequency === "annual" ? 1 : 12)), BigInt(bill.members.length))] : [];
   }));
   const serviceCreditCents = exactCents((owedAdjustments || []).filter((a) => inHousehold(a) && a.kind === "service_credit"

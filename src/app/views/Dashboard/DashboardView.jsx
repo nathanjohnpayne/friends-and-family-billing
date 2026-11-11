@@ -417,6 +417,7 @@ export default function DashboardView() {
                         familyMembers={familyMembers}
                         bills={bills}
                         payments={payments}
+                        creditAdjustments={creditAdjustments}
                         owedAdjustments={owedAdjustments}
                         activeYear={activeYear}
                         settings={service.getState().settings || {}}

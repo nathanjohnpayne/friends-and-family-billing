@@ -739,6 +739,26 @@ describe('carried share projection (#603)', () => {
         }
     });
 
+    it('counts bill members as the cent authority does: absent, repeated and string ids (#688)', () => {
+        const base = { id: 'b', name: 'Plan', billingFrequency: 'annual' };
+        for (const [bill, linked] of [
+            [{ ...base, amount: 90, members: [1, 2, 99] }, [2]],      // 99 is not a member: it still divides the bill
+            [{ ...base, amount: 90, members: [1, 1, 3] }, [2]],       // a repeated assignment counts twice
+            [{ ...base, amount: 90, members: ['1', 2, 3] }, [2]],     // ids compare as strings
+            [{ ...base, amount: 90, members: [1, 2, 3] }, [2, 77]],   // a linked id that is not a member has no share
+            [{ ...base, amount: 100.01, members: [1, 77] }, [77]],
+        ]) {
+            const primary = { ...members[0], linkedMembers: linked };
+            const family = [primary, ...members.slice(1)];
+            const result = buildCarriedItemsForShare(family, [bill], [seed(-132)], 1, linked);
+            expect(result).toEqual(cfBuildCarriedItemsForShare(family, [bill], [seed(-132)], 1, linked));
+            const financials = getHouseholdFinancials(primary, { familyMembers: family, bills: [bill], payments: [], creditAdjustments: [], owedAdjustments: [seed(-132)] });
+            expect(financials.cents).toBeTruthy();
+            expect(Math.round(result.unusedCredit * 100)).toBe(financials.cents.U);
+            expect(Math.round(result.remainingCredit * 100)).toBe(Math.min(financials.cents.U, financials.cents.credit));
+        }
+    });
+
     it('rounds half-cent refunds, payments and billed charges as the cent authority does (#688)', () => {
         const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
         const refund = (id, amount) => ({ id, type: 'refund', memberId: 1, amount, status: 'recorded' });
