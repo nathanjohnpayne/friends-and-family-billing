@@ -1004,6 +1004,17 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         expect(partial.balance).toBe(-26);
     });
 
+    it('promises only the Credit the board shows when a billed charge takes part of the unused credit (#688, fixture 10h)', () => {
+        const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -300,
+            items: [{ sourceId: 'cadj_carry_2027_9', kind: 'credit', basis: 'credit', memberId: 9, description: 'Your 2026 credit', amount: -300, detail: [{ kind: 'remainder', description: 'Other 2026 overpayment', amount: -300 }] }] },
+            { id: 'billed', kind: 'usage_charge', status: 'billed', memberId: 9, amount: 30, description: 'Roaming' }];
+        const ctx = ctxFor(9, configured, seeds);
+        // B stays outside the ordinary invoice balance, but the sentence states the refundable Credit.
+        expect(ctx.cents).toMatchObject({ U: 3600, B: 3000, credit: 600, invoiceBalance: -3600 });
+        expect(ctx.carriedItems).toMatchObject({ unusedCredit: 36, remainingCredit: 6 });
+        expect(buildInvoiceBody(ctx, 'text-only', shareUrl, 'email')).toContain('$6.00 remains as a credit that can be refunded or carried into next year.');
+    });
+
     it('a Service Credit excess is still "not applied" and never becomes a credit (#688, fixture 10l)', () => {
         const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -20 },
             { id: 'sc_big', kind: 'service_credit', status: 'active', memberId: 9, billId: 'x', reason: 'Outage', amount: 364 }];

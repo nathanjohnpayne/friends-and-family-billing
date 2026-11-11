@@ -126,7 +126,7 @@ member's Usage Charge, or the household's net Credit—snapshotted on the
 signed amount, so a member can read "Carried from 2026" line by line. The
 household's Credit is one negative item; its detail beneath it lists the Service
 Credits this review recorded for the household, any unused credit carried in from
-the year before, and one remainder line for everything else (earlier Service
+the year before (which is part of the Credit: money in the year it arrives), and one remainder line for everything else (earlier Service
 Credits and overpayment); the detail sums to the item and is never added again.
 _Avoid_: Opening balance line, carry_opening (in UI copy), adjustment
 

@@ -307,9 +307,10 @@ function getHouseholdOpeningBalance(member, owedAdjustments) {
  * @param {Array} owedAdjustments
  * @param {*} memberId
  * @param {Array} linkedIds
+ * @param {Array} [payments]  the year's payments; lets a billed charge the household has not paid reduce remainingCredit
  * @returns {{ fromYear: string|null, notApplied: number, remainingCredit: number, unusedCredit: number, total: number, items: Array }}
  */
-function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds) {
+function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds, payments = []) {
   const householdIds = [memberId, ...(linkedIds || [])];
   const members = new Map((familyMembers || []).map((member) => [member.id, member]));
   const seeds = (owedAdjustments || []).filter((a) =>
@@ -362,16 +363,21 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   const incomingChargeCents = Math.max(0, openingCents);
   const billsAfterCredits = toCents(billsSubtotal) - toCents(serviceCreditTotal);
   // unusedCredit reconciles the household total; remainingCredit is what the page
-  // says remains as a credit. They are equal here (this writer does not read
-  // refunds); a cache written before #688 has no unusedCredit.
+  // says remains as a credit: the leftover pays an unpaid billed Usage Charge
+  // first (#688). This writer does not read refunds yet (#636). A cache written
+  // before #688 has no unusedCredit.
   // notApplied is whatever else the owed floor hides: the forfeited Service Credit
   // excess, plus a remainder that a pre-#688 rollover already carried away.
   const unusedCents = seeds.some((seed) => seed.carriedForwardTo != null) ? 0
     : Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents));
+  const billedCents = toCents((owedAdjustments || []).filter((a) => a && a.kind === "usage_charge" && a.status === "billed"
+    && householdIds.includes(a.memberId)).reduce((sum, a) => sum + (Number.parseFloat(a.amount) || 0), 0));
+  const paidCents = toCents((payments || []).filter((p) => p && householdIds.includes(p.memberId))
+    .reduce((sum, p) => sum + (Number.parseFloat(p.amount) || 0), 0));
   return {
     fromYear: seeds[0]?.fromYear || null,
     notApplied: (Math.max(0, -(billsAfterCredits + openingCents)) - unusedCents) / 100,
-    remainingCredit: unusedCents / 100,
+    remainingCredit: Math.max(0, unusedCents - Math.max(0, billedCents - paidCents)) / 100,
     unusedCredit: unusedCents / 100,
     total,
     items,

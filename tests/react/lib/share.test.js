@@ -668,6 +668,25 @@ describe('carried share projection (#603)', () => {
         }
     });
 
+    it('lowers what remains by a billed Usage Charge the household has not paid, identically in both writers (#688, fixture 10h)', () => {
+        const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
+        const billed = { id: 'billed', memberId: 2, kind: 'usage_charge', status: 'billed', amount: 50 };
+        const records = [seed(-132), billed];
+        for (const [payments, remaining] of [[[], 22], [[{ id: 'p', memberId: 1, amount: 30 }], 52], [[{ id: 'p', memberId: 2, amount: 80 }], 72]]) {
+            const result = buildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments);
+            // The reconciling row stays the whole unused credit; only the promise shrinks.
+            expect(result).toMatchObject({ unusedCredit: 72, remainingCredit: remaining, notApplied: 0 });
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments));
+            const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments, creditAdjustments: [], owedAdjustments: records });
+            expect(Math.min(financials.cents.U, financials.cents.credit)).toBe(remaining * 100);
+            const published = buildPublicShareData(members, sourceBills, payments, 1, ['summary:read'], 'owner', { id: '2027' }, {}, records);
+            expect(published.carriedItems.remainingCredit).toBe(remaining);
+        }
+        // Another household's charge and a deferred charge never touch it.
+        const others = [seed(-132), { ...billed, memberId: 3 }, { ...billed, id: 'later', status: 'deferred' }];
+        expect(project(others, sourceBills).remainingCredit).toBe(72);
+    });
+
     it('states nothing remaining for a seed a pre-#688 rollover stamped carriedForwardTo, in both writers', () => {
         const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
         const records = [{ ...seed(-132), carriedForwardTo: '2028' }];

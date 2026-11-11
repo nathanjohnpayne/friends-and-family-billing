@@ -37,13 +37,14 @@ export function getInvoiceSummaryContext(familyMembers, bills, payments, memberI
         withAllocatedOpening(owedAdjustments || [], projection.rows?.opening || []), member.id, member.linkedMembers || []);
     // notApplied is what else the owed floor hides: the forfeited Service Credit
     // excess (plus a remainder a pre-#688 rollover already carried away), never
-    // the unused credit U. remainingCredit is the part of the invoice credit that is
-    // unused carried-in money, min(U, max(0, −invoiceBalance)) (#688), so both
-    // agree with every other figure the invoice prints.
-    const { G, S, O, U, invoiceBalance } = projection.cents;
+    // the unused credit U. remainingCredit is the part of the household's Credit
+    // that is unused carried-in money, min(U, credit) (#688): the settlement Credit,
+    // so a refund or an unpaid billed charge lowers it and the sentence never
+    // promises more than Record Refund offers.
+    const { G, S, O, U, credit } = projection.cents;
     const carriedItems = carried.total !== 0 || carried.items.length > 0 ? { ...carried, total: projection.O,
         notApplied: (Math.max(0, -(G - S + O)) - U) / 100,
-        remainingCredit: Math.min(U, Math.max(0, -invoiceBalance)) / 100, unusedCredit: U / 100 } : null;
+        remainingCredit: Math.min(U, credit) / 100, unusedCredit: U / 100 } : null;
     return { ok: true, householdId: member.id, cents: projection.cents, member, firstName, combinedTotal, payment, refunded,
         balance, amountStr, amountLabel, currentYear, linkedMembersData, memberData, numMembers, settings: settings || {},
         carriedItems, carriedTotal: projection.O };
