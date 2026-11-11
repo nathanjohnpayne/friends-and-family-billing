@@ -578,7 +578,7 @@ describe('buildCarriedItemsForShare (#602)', () => {
             { memberId: 2, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 5 }
         ];
         assert.deepEqual(buildCarriedItemsForShare([], [], adjustments, 1, [2]), {
-            fromYear: '2026', notApplied: 0, remainingCredit: 15, unusedCredit: 15, total: -15,
+            fromYear: '2026', notApplied: 15, remainingCredit: 15, unusedCredit: 15, total: -15,
             items: [{ kind: 'legacy', description: 'Carried from 2026', amount: -20 }, { kind: 'legacy', description: 'Carried from 2026', amount: 5 }]
         });
     });
@@ -595,7 +595,10 @@ describe('buildCarriedItemsForShare (#602)', () => {
                 ...(incoming ? [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: incoming }] : [])
             ];
             const result = buildCarriedItemsForShare([{ id: 1 }], [{ amount: bill, billingFrequency: 'annual', members: [1] }], adjustments, 1, []);
-            assert.equal(result.notApplied, notApplied);
+            // The payload's notApplied is the whole floor remainder (additive for a page
+            // loaded before #688); the forfeited excess is what is left after the unused credit.
+            assert.equal(Math.round((result.notApplied - result.unusedCredit) * 100), notApplied * 100);
+            assert.equal(result.notApplied, notApplied + remainingCredit);
             assert.equal(result.remainingCredit, remainingCredit);
             assert.equal(result.total, incoming);
         });
@@ -606,7 +609,8 @@ describe('buildCarriedItemsForShare (#602)', () => {
             [{ amount: 100, billingFrequency: 'annual', members: [1, 2, 3] }],
             [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -100, fromYear: '2026' }], 1, [2]);
         // Two thirds of $100 is $66.67, not two individually rounded $33.33 shares.
-        assert.equal(result.notApplied, 0);
+        assert.equal(result.notApplied, 33.33);
+        assert.equal(result.unusedCredit, 33.33);
         assert.equal(result.remainingCredit, 33.33);
     });
 
@@ -1150,7 +1154,8 @@ describe('resolveShareToken — household rounding and writer/cache parity (#620
                 }
                 if (fixture.incoming === -100) {
                     assert.equal(result.response.carriedItems.remainingCredit, 33.33);
-                    assert.equal(result.response.carriedItems.notApplied, 0);
+                    assert.equal(result.response.carriedItems.notApplied, 33.33);
+                    assert.equal(result.response.carriedItems.unusedCredit, 33.33);
                     assert.equal(cents(financials.grossOwed) + result.response.carriedItems.total + result.response.carriedItems.remainingCredit, 0);
                     assert.equal(financials.cents.credit, 3333);
                 }
@@ -1460,13 +1465,15 @@ describe('client and Functions agree on the carried-credit formula (#688)', () =
             assert.equal(Math.round(live.unusedCredit * 100), cents.U, 'run ' + run);
             // With no payments, refunds or billed charges the Credit is exactly that figure.
             assert.equal(cents.credit, cents.U, 'run ' + run);
-            // Not applied is the forfeited Service Credit excess; only a stamped (pre-#688)
-            // seed adds the remainder that already left with its rollover.
+            // The current page's "Not applied" row (notApplied − unusedCredit) is the forfeited
+            // Service Credit excess; only a stamped (pre-#688) seed adds the remainder that
+            // already left with its rollover.
             const excess = Math.max(0, S - G - Math.max(0, opening));
             const alreadyCarried = stamped ? Math.max(0, -opening - Math.max(0, G - S)) : 0;
-            assert.equal(Math.round(live.notApplied * 100), excess + alreadyCarried, 'run ' + run);
-            // The page's reconciliation adds up: bills − credits + carried + not applied + unused = total.
-            assert.equal(G - S + opening + Math.round(live.notApplied * 100) + cents.U, Math.max(0, G - S + opening), 'run ' + run);
+            assert.equal(Math.round(live.notApplied * 100) - cents.U, excess + alreadyCarried, 'run ' + run);
+            // A page loaded before #688 adds bills − credits + carried + notApplied; the current
+            // page splits notApplied into two rows. Both reach the household total.
+            assert.equal(G - S + opening + Math.round(live.notApplied * 100), Math.max(0, G - S + opening), 'run ' + run);
             if (live.remainingCredit > 0) remaining++;
         }
         assert.ok(remaining > 40, String(remaining));

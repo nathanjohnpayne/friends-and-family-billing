@@ -496,7 +496,10 @@ function CarriedItemsPanel({ carried, carriedToggle }) {
 /** The "Not applied this year" floor remainder, shared by the rows and the lead callout. */
 function householdNotApplied(billsSubtotal, ps, serviceCreditTotal, carriedItems) {
     const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
-    return carriedItems?.notApplied ?? Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
+    // The payload's notApplied is the whole floor remainder (what a page loaded before
+    // #688 adds up); the unused carried-in credit has its own row here.
+    if (carriedItems?.notApplied != null) return Math.max(0, Math.round((carriedItems.notApplied - (carriedItems.unusedCredit || 0)) * 100) / 100);
+    return Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
 }
 
 function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedItems, carriedToggle }) {

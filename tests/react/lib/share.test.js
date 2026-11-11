@@ -641,15 +641,16 @@ describe('carried share projection (#603)', () => {
         expect(G).toBe(6667);
         expect(owed).toBe(owedCents);
         expect(cents(carried.total)).toBe(O);
-        // Not applied this year is the forfeited Service Credit excess only (#688);
-        // the "$Y remains" amount is the unused carried-in credit U, which is money.
-        expect(cents(carried.notApplied)).toBe(Math.max(0, S - G - Math.max(0, O)));
+        // notApplied stays the whole floor remainder, so a page loaded before #688 still
+        // adds up; the "$Y remains" amount is the unused carried-in credit U, which is money.
+        expect(cents(carried.notApplied)).toBe(Math.max(0, -(G - S + O)));
+        expect(cents(carried.notApplied) - cents(carried.unusedCredit)).toBe(Math.max(0, S - G - Math.max(0, O)));
         expect(cents(carried.remainingCredit)).toBe(U);
         expect(cents(publicData(records).paymentSummary.combinedAnnualTotal)).toBe(owed);
         // Rounded per-member display lines are unchanged.
         expect(publicData(records).summary.annualTotal).toBe(33.33);
         expect(publicData(records).linkedMembers[0].annualTotal).toBe(33.33);
-        if (amount === -100) expect(carried).toMatchObject({ notApplied: 0, remainingCredit: 33.33 });
+        if (amount === -100) expect(carried).toMatchObject({ notApplied: 33.33, unusedCredit: 33.33, remainingCredit: 33.33 });
     });
 
     it('distinguishes the forfeited Service Credit excess from unused NET incoming money (10l/10n)', () => {
@@ -657,13 +658,14 @@ describe('carried share projection (#603)', () => {
         const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
         const split = [{ sourceId: 'charge', memberId: 1, kind: 'usage_charge', amount: 10 },
             { sourceId: 'credit', memberId: null, kind: 'credit', amount: -10, detail: [{ sourceId: 'credit-detail', memberId: 1, kind: 'service_credit', amount: -10 }] }];
-        for (const [opening, items, notApplied, remaining] of [[-20, undefined, 100, 20], [0, split, 100, 0]]) {
+        for (const [opening, items, notApplied, remaining] of [[-20, undefined, 120, 20], [0, split, 100, 0]]) {
             const records = [seed(opening, items), credit];
             const result = project(records, sourceBills);
             expect(result).toMatchObject({ notApplied, remainingCredit: remaining });
             expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2]));
             const { G, S, O, U } = canonical(records, sourceBills);
-            expect(cents(result.notApplied)).toBe(Math.max(0, S - G - Math.max(0, O)));
+            expect(cents(result.notApplied)).toBe(Math.max(0, -(G - S + O)));
+            expect(cents(result.notApplied) - cents(result.unusedCredit)).toBe(Math.max(0, S - G - Math.max(0, O)));
             expect(cents(result.remainingCredit)).toBe(U);
         }
     });
@@ -675,7 +677,7 @@ describe('carried share projection (#603)', () => {
         for (const [payments, remaining] of [[[], 22], [[{ id: 'p', memberId: 1, amount: 30 }], 52], [[{ id: 'p', memberId: 2, amount: 80 }], 72]]) {
             const result = buildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments);
             // The reconciling row stays the whole unused credit; only the promise shrinks.
-            expect(result).toMatchObject({ unusedCredit: 72, remainingCredit: remaining, notApplied: 0 });
+            expect(result).toMatchObject({ unusedCredit: 72, remainingCredit: remaining, notApplied: 72 });
             expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2], payments));
             const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments, creditAdjustments: [], owedAdjustments: records });
             expect(Math.min(financials.cents.U, financials.cents.credit)).toBe(remaining * 100);
@@ -685,6 +687,23 @@ describe('carried share projection (#603)', () => {
         // Another household's charge and a deferred charge never touch it.
         const others = [seed(-132), { ...billed, memberId: 3 }, { ...billed, id: 'later', status: 'deferred' }];
         expect(project(others, sourceBills).remainingCredit).toBe(72);
+    });
+
+    it('keeps the payload additive for a share page loaded before #688: bills, credits, carried and notApplied reach the household total', () => {
+        // A page loaded before #688 has no "Unused credit" row. It adds exactly these four terms.
+        const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };
+        for (const [amount, opening, extra] of [[60, -132, []], [60, -40, []], [60, 25, []], [100, -20, [credit]], [60, 0, []]]) {
+            const sourceBills = [{ ...bills[0], members: [1], amount }];
+            const records = [seed(opening), ...extra];
+            for (const carried of [project(records, sourceBills), cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2])]) {
+                const { G, S, owed } = canonical(records, sourceBills);
+                expect(G - S + cents(carried.total) + cents(carried.notApplied)).toBe(owed);
+                // The current page splits the same remainder into two rows and reaches the same total.
+                const forfeited = cents(carried.notApplied) - cents(carried.unusedCredit);
+                expect(forfeited).toBeGreaterThanOrEqual(0);
+                expect(G - S + cents(carried.total) + forfeited + cents(carried.unusedCredit)).toBe(owed);
+            }
+        }
     });
 
     it('states nothing remaining for a seed a pre-#688 rollover stamped carriedForwardTo, in both writers', () => {

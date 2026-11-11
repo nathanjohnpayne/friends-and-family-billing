@@ -297,7 +297,8 @@ function getHouseholdOpeningBalance(member, owedAdjustments) {
  * fields and household attribution cross this boundary, including in detail.
  * Detail explains a credit and never contributes to the signed opening total.
  *
- * notApplied is the forfeited Service Credit excess. remainingCredit is the
+ * notApplied is the whole floor remainder: the forfeited Service Credit excess
+ * plus unusedCredit (kept additive for pages loaded before #688). remainingCredit is the
  * unused carried-in credit U from the NET seed, which counts as money this year
  * (#688); it is zero for seeds a pre-#688 rollover stamped carriedForwardTo.
  * The item split is display only (year-end-review fixtures 10l/10n).
@@ -366,8 +367,11 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   // says remains as a credit: the leftover pays an unpaid billed Usage Charge
   // first (#688). This writer does not read refunds yet (#636). A cache written
   // before #688 has no unusedCredit.
-  // notApplied is whatever else the owed floor hides: the forfeited Service Credit
-  // excess, plus a remainder that a pre-#688 rollover already carried away.
+  // notApplied keeps its pre-#688 meaning, the WHOLE floor remainder (unusedCredit
+  // included), so a share page loaded before #688 still adds its rows up to the
+  // household total. A current reader shows notApplied - unusedCredit as "Not
+  // applied this year": the forfeited Service Credit excess, plus a remainder
+  // that a pre-#688 rollover already carried away.
   const unusedCents = seeds.some((seed) => seed.carriedForwardTo != null) ? 0
     : Math.max(0, incomingCreditCents - Math.max(0, billsAfterCredits + incomingChargeCents));
   const billedCents = toCents((owedAdjustments || []).filter((a) => a && a.kind === "usage_charge" && a.status === "billed"
@@ -376,7 +380,7 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
     .reduce((sum, p) => sum + (Number.parseFloat(p.amount) || 0), 0));
   return {
     fromYear: seeds[0]?.fromYear || null,
-    notApplied: (Math.max(0, -(billsAfterCredits + openingCents)) - unusedCents) / 100,
+    notApplied: Math.max(0, -(billsAfterCredits + openingCents)) / 100,
     remainingCredit: Math.max(0, unusedCents - Math.max(0, billedCents - paidCents)) / 100,
     unusedCredit: unusedCents / 100,
     total,

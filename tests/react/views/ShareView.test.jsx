@@ -1865,6 +1865,31 @@ describe('Carried share details (#603)', () => {
         expect(within(reconRow('Household Total')).getByText(publishedTotal)).toBeVisible();
     });
 
+    it('adds up with either payload shape: a cache written before #688 and the current writer (compatibility)', async () => {
+        const bills = [{ id: 'b', amount: 60, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
+        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -132 }];
+        const current = build(carriedMembers, bills, records);
+        // The current writer keeps notApplied additive, so a page loaded before #688
+        // (bills + carried + notApplied, no "Unused" row) still reaches the $0.00 total.
+        expect(current.carriedItems).toMatchObject({ total: -132, notApplied: 72, unusedCredit: 72 });
+        // A cache written before #688 has no unusedCredit: the whole remainder is one row.
+        const { unusedCredit, ...before } = current.carriedItems;
+        mockPublicSharesHit({ ...current, carriedItems: before });
+        const first = render(<ShareView />);
+        await screen.findByText('Not applied this year');
+        expect(within(reconRow('Not applied this year')).getByText('+$72.00')).toBeVisible();
+        expect(screen.queryByText('Unused 2026 credit')).toBeNull();
+        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+        first.unmount();
+        // The current payload shows the same $72 once, as the unused credit.
+        mockPublicSharesHit(current);
+        render(<ShareView />);
+        await screen.findByText('Unused 2026 credit');
+        expect(within(reconRow('Unused 2026 credit')).getByText('+$72.00')).toBeVisible();
+        expect(screen.queryByText('Not applied this year')).toBeNull();
+        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+    });
+
     it.each([[-20, 100, 20], [0, 100, 0]])('separates the forfeited Service Credit excess from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {
         const bills = [{ id: 'b', amount: 100, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
         const records = [{ kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount, items: [{ kind: 'usage_charge', memberId: 1, description: 'Activation fee', amount: amount === 0 ? 10 : 0 }, { kind: 'credit', memberId: null, description: 'Your household credit', amount: amount === 0 ? -10 : -20 }] }, { kind: 'service_credit', memberId: 1, amount: 200, status: 'active' }];
