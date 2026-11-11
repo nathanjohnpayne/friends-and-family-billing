@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ReloadRequiredDialog from '@/app/components/ReloadRequiredDialog.jsx';
@@ -25,7 +25,15 @@ function stubClipboard(impl) {
     return writeText;
 }
 
+// The dialog writes "3:09 pm" for today and "Nov 10, 3:09 pm" otherwise, so the clock is pinned to the
+// fixture's day; only Date is faked, which leaves userEvent's timers real.
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-10T15:20:00'));
+});
+
 afterEach(() => {
+    vi.useRealTimers();
     delete navigator.clipboard;
 });
 
