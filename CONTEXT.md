@@ -65,13 +65,13 @@ back—the household starts next year owing that much less. One of the two ways
 administrator to simply keep or write off an overpayment. At rollover the
 Year-End Review carries every undisposed Credit and deferred Usage Charge (True-ups
 included) as itemized Carried items on one `carry_opening` seed per household.
-A credit carried in from the year before that this year's bills did not use is part of the household's Credit: it counts as money in the year it arrives, beside the Net Contribution, so it is never forfeited. The whole Credit, that unused part included, is disposed by one ordinary `carry_forward` record (#688).
+A credit carried in from the year before that this year's bills did not use counts as money in the year it arrives, beside the Net Contribution, so it is never forfeited. It first pays any shortfall (an unpaid billed Usage Charge included); only what then remains is part of the household's Credit. The whole Credit, that remainder included, is disposed by one ordinary `carry_forward` record (#688).
 _Avoid_: Roll-over, waiver, write-off
 
 **Net Contribution**:
 What a household has actually paid toward its bills, net of money
 returned—gross payments minus recorded refunds and carried-forward credits. A household's
-settlement status (outstanding / partial / settled / credit) is computed from this, not
+settlement status (outstanding / partial / settled / credit) is computed from this, plus any unused credit carried in from the year before (#688), not
 from gross payments, so a refunded household reads "Settled" even though its
 gross "Paid" still exceeds what it owed.
 _Avoid_: Paid (when precision matters), gross paid
