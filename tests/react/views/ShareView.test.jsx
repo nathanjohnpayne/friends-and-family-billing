@@ -1873,7 +1873,7 @@ describe('Carried share details (#603)', () => {
         // (bills + carried + notApplied, no "Unused" row) still reaches the $0.00 total.
         expect(current.carriedItems).toMatchObject({ total: -132, notApplied: 72, unusedCredit: 72 });
         // A cache written before #688 has no unusedCredit: the whole remainder is one row.
-        const { unusedCredit, ...before } = current.carriedItems;
+        const { unusedCredit: _unusedCredit, ...before } = current.carriedItems;
         mockPublicSharesHit({ ...current, carriedItems: before });
         const first = render(<ShareView />);
         await screen.findByText('Not applied this year');

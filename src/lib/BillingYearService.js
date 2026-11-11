@@ -1963,7 +1963,7 @@ export class BillingYearService {
 
     /** @private Snapshot of the active year's state that a share rebuild reads. */
     _shareRebuildInputs() {
-        const { activeYear, familyMembers, bills, payments, owedAdjustments, settings } = this._state;
+        const { activeYear, familyMembers, bills, payments, creditAdjustments, owedAdjustments, settings } = this._state;
         return {
             userId: this._user ? this._user.uid : null,
             activeYear,
@@ -1971,6 +1971,7 @@ export class BillingYearService {
             bills,
             payments,
             owedAdjustments: owedAdjustments || [],
+            creditAdjustments: creditAdjustments || [],
             settings: settings || {}
         };
     }
@@ -1991,6 +1992,7 @@ export class BillingYearService {
                 bills: inputs.bills,
                 payments: inputs.payments,
                 owedAdjustments: inputs.owedAdjustments,
+                creditAdjustments: inputs.creditAdjustments,
                 activeYear: inputs.activeYear,
                 settings: inputs.settings
             });

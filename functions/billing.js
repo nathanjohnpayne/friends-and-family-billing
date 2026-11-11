@@ -309,9 +309,10 @@ function getHouseholdOpeningBalance(member, owedAdjustments) {
  * @param {*} memberId
  * @param {Array} linkedIds
  * @param {Array} [payments]  the year's payments; lets a billed charge the household has not paid reduce remainingCredit
+ * @param {Array} [creditAdjustments]  the year's refunds and carry-forwards; an active one reduces remainingCredit
  * @returns {{ fromYear: string|null, notApplied: number, remainingCredit: number, unusedCredit: number, total: number, items: Array }}
  */
-function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds, payments = []) {
+function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, memberId, linkedIds, payments = [], creditAdjustments = []) {
   const householdIds = [memberId, ...(linkedIds || [])];
   const members = new Map((familyMembers || []).map((member) => [member.id, member]));
   const seeds = (owedAdjustments || []).filter((a) =>
@@ -365,7 +366,7 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
   const billsAfterCredits = toCents(billsSubtotal) - toCents(serviceCreditTotal);
   // unusedCredit reconciles the household total; remainingCredit is what the page
   // says remains as a credit: the leftover pays an unpaid billed Usage Charge
-  // first (#688). This writer does not read refunds yet (#636). A cache written
+  // first, and a refund or carry-forward already recorded takes it away (#688). A cache written
   // before #688 has no unusedCredit.
   // notApplied keeps its pre-#688 meaning, the WHOLE floor remainder (unusedCredit
   // included), so a share page loaded before #688 still adds its rows up to the
@@ -378,10 +379,14 @@ function buildCarriedItemsForShare(familyMembers, bills, owedAdjustments, member
     && householdIds.includes(a.memberId)).reduce((sum, a) => sum + (Number.parseFloat(a.amount) || 0), 0));
   const paidCents = toCents((payments || []).filter((p) => p && householdIds.includes(p.memberId))
     .reduce((sum, p) => sum + (Number.parseFloat(p.amount) || 0), 0));
+  // Money already sent back or carried on (active refunds and carry-forwards) is no
+  // longer a credit that remains, so it comes off the net paid before the promise.
+  const disposedCents = toCents((creditAdjustments || []).filter((a) => a && a.status !== "cancelled" && householdIds.includes(a.memberId))
+    .reduce((sum, a) => sum + (Number.parseFloat(a.amount) || 0), 0));
   return {
     fromYear: seeds[0]?.fromYear || null,
     notApplied: Math.max(0, -(billsAfterCredits + openingCents)) / 100,
-    remainingCredit: Math.max(0, unusedCents - Math.max(0, billedCents - paidCents)) / 100,
+    remainingCredit: Math.max(0, unusedCents - Math.max(0, billedCents - (paidCents - disposedCents))) / 100,
     unusedCredit: unusedCents / 100,
     total,
     items,

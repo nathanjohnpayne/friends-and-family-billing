@@ -201,7 +201,7 @@ function EmailTemplateSection({ settings, familyMembers, bills, payments, credit
             const tokenDoc = buildShareTokenDoc(userId, member.id, member.name, billingYearId, rawToken, expiresAt, scopes);
             await setDoc(doc(db, 'shareTokens', tokenHash), { ...tokenDoc, createdAt: serverTimestamp() });
             if (!access.canContinue(ticket)) return;
-            const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings, owedAdjustments);
+            const publicData = buildPublicShareData(familyMembers, bills, payments, member.id, scopes, userId, activeYear, settings, owedAdjustments, creditAdjustments);
             if (publicData) {
                 await setDoc(doc(db, 'publicShares', tokenHash), { ...publicData, updatedAt: serverTimestamp() });
             }

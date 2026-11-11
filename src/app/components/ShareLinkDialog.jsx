@@ -125,6 +125,7 @@ export default function ShareLinkDialog({ getAvailability, open, memberId, membe
                 bills,
                 payments,
                 owedAdjustments,
+                creditAdjustments,
                 activeYear,
                 settings,
             });

@@ -75,7 +75,7 @@ export async function issueChargeNotice(opts, deps = {}) {
     const noticeDoc = buildChargeNoticeDoc({ memberId, memberName, chargeNoticeId, charges });
     const frozenYearLabel = yearLabel || activeYear.label || activeYear.id;
     const shareInputs = structuredClone({ userId, memberId, memberName, billingYearId,
-        familyMembers, bills, payments, owedAdjustments, activeYear, settings });
+        familyMembers, bills, payments, owedAdjustments, creditAdjustments, activeYear, settings });
 
     // 1. Best-effort: mint a member share link carrying usageCharges:read so the
     //    member can review the charge on their share page. If it fails, the notice

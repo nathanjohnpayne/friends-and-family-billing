@@ -689,6 +689,31 @@ describe('carried share projection (#603)', () => {
         expect(project(others, sourceBills).remainingCredit).toBe(72);
     });
 
+    it('stops promising credit that was already refunded or carried forward, identically in both writers (#688)', () => {
+        const sourceBills = [{ ...bills[0], members: [1], amount: 60 }];
+        const billed = { id: 'billed', memberId: 2, kind: 'usage_charge', status: 'billed', amount: 50 };
+        const refund = (amount, extra = {}) => ({ id: 'r' + amount, type: 'refund', memberId: 1, amount, status: 'recorded', ...extra });
+        for (const [records, creditAdjustments, remaining] of [
+            [[seed(-132)], [refund(72)], 0],
+            [[seed(-132)], [{ ...refund(72), type: 'carry_forward', status: 'carried_forward' }], 0],
+            [[seed(-132)], [refund(30, { memberId: 2 })], 42],
+            [[seed(-132)], [refund(72, { status: 'cancelled' })], 72],
+            [[seed(-132)], [refund(72, { memberId: 3 })], 72],
+            [[seed(-132), billed], [refund(22)], 0],
+        ]) {
+            const result = buildCarriedItemsForShare(members, sourceBills, records, 1, [2], [], creditAdjustments);
+            // The reconciling rows are untouched; only the promise changes.
+            expect(result).toMatchObject({ unusedCredit: 72, notApplied: 72, remainingCredit: remaining });
+            expect(result).toEqual(cfBuildCarriedItemsForShare(members, sourceBills, records, 1, [2], [], creditAdjustments));
+            const financials = getHouseholdFinancials(members[0], { familyMembers: members, bills: sourceBills, payments: [], creditAdjustments, owedAdjustments: records });
+            expect(Math.min(financials.cents.U, financials.cents.credit)).toBe(remaining * 100);
+            const published = buildPublicShareData(members, sourceBills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {}, records, creditAdjustments);
+            expect(published.carriedItems.remainingCredit).toBe(remaining);
+        }
+        // A caller that passes no credit adjustments behaves as before.
+        expect(buildPublicShareData(members, sourceBills, [], 1, ['summary:read'], 'owner', { id: '2027' }, {}, [seed(-132)]).carriedItems.remainingCredit).toBe(72);
+    });
+
     it('keeps the payload additive for a share page loaded before #688: bills, credits, carried and notApplied reach the household total', () => {
         // A page loaded before #688 has no "Unused credit" row. It adds exactly these four terms.
         const credit = { id: 'service-credit', kind: 'service_credit', memberId: 1, status: 'active', amount: 200 };

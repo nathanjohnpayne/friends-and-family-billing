@@ -80,6 +80,7 @@ export default function TextInvoiceDialog({ getAvailability, open, memberId, fam
                 bills,
                 payments,
                 owedAdjustments,
+                creditAdjustments,
                 activeYear,
                 settings,
             });
