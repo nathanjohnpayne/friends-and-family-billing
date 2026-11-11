@@ -64,11 +64,8 @@ back—the household starts next year owing that much less. One of the two ways
 (with Refund) to clear a credit. There is deliberately no path for the
 administrator to simply keep or write off an overpayment. At rollover the
 Year-End Review carries every undisposed Credit and deferred Usage Charge (True-ups
-included) as itemized Carried items on one `carry_opening` seed per household, and
-carries on an incoming credit the year's bills did not use. That credit is money the
-household paid in an earlier year, so it is never forfeited; it leaves no new
-disposition record in this year because it is not part of this year's Net
-Contribution (it was disposed in the year it was paid).
+included) as itemized Carried items on one `carry_opening` seed per household.
+A credit carried in from the year before that this year's bills did not use is part of the household's Credit: it counts as money in the year it arrives, beside the Net Contribution, so it is never forfeited. The whole Credit, that unused part included, is disposed by one ordinary `carry_forward` record (#688).
 _Avoid_: Roll-over, waiver, write-off
 
 **Net Contribution**:
