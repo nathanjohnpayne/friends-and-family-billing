@@ -1865,29 +1865,67 @@ describe('Carried share details (#603)', () => {
         expect(within(reconRow('Household Total')).getByText(publishedTotal)).toBeVisible();
     });
 
-    it('adds up with either payload shape: a cache written before #688 and the current writer (compatibility)', async () => {
+    describe('payloads written before and after #688 (compatibility)', () => {
         const bills = [{ id: 'b', amount: 60, billingFrequency: 'annual', members: [1], name: 'Annual bill' }];
-        const records = [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -132 }];
-        const current = build(carriedMembers, bills, records);
-        // The current writer keeps notApplied additive, so a page loaded before #688
-        // (bills + carried + notApplied, no "Unused" row) still reaches the $0.00 total.
-        expect(current.carriedItems).toMatchObject({ total: -132, notApplied: 72, unusedCredit: 72 });
-        // A cache written before #688 has no unusedCredit: the whole remainder is one row.
-        const { unusedCredit: _unusedCredit, ...before } = current.carriedItems;
-        mockPublicSharesHit({ ...current, carriedItems: before });
-        const first = render(<ShareView />);
-        await screen.findByText('Not applied this year');
-        expect(within(reconRow('Not applied this year')).getByText('+$72.00')).toBeVisible();
-        expect(screen.queryByText('Unused 2026 credit')).toBeNull();
-        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
-        first.unmount();
-        // The current payload shows the same $72 once, as the unused credit.
-        mockPublicSharesHit(current);
-        render(<ShareView />);
-        await screen.findByText('Unused 2026 credit');
-        expect(within(reconRow('Unused 2026 credit')).getByText('+$72.00')).toBeVisible();
-        expect(screen.queryByText('Not applied this year')).toBeNull();
-        expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+        const seedRecord = { id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -132 };
+        const billed = { id: 'billed', kind: 'usage_charge', status: 'billed', memberId: 1, amount: 50 };
+        // What the writer on main published for the same records: no unusedCredit, and a
+        // remainingCredit that ignores the unpaid billed charge.
+        const asWrittenBefore688 = (data) => {
+            const { unusedCredit, ...carried } = data.carriedItems;
+            return { ...data, carriedItems: { ...carried, remainingCredit: unusedCredit } };
+        };
+
+        it('never renders an old cache that overstates refundable credit: it resolves live and states the current figure', async () => {
+            const current = build(carriedMembers, bills, [seedRecord, billed]);
+            expect(current.carriedItems).toMatchObject({ unusedCredit: 72, remainingCredit: 22, notApplied: 72 });
+            const before = asWrittenBefore688(current);
+            expect(before.carriedItems).toMatchObject({ remainingCredit: 72 });
+            expect(before.carriedItems).not.toHaveProperty('unusedCredit');
+            mockPublicSharesHit(before);
+            let finishResolve;
+            global.fetch = vi.fn(() => new Promise(resolve => { finishResolve = resolve; }));
+            render(<ShareView />);
+            await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.objectContaining({ method: 'POST' })));
+            // Nothing from the old cache is shown while the live answer is pending.
+            expect(screen.queryByText('Household Total')).toBeNull();
+            expect(screen.queryByText(/remains/)).toBeNull();
+            finishResolve({ ok: true, json: async () => current });
+            await screen.findByText('Unused 2026 credit');
+            expect(screen.getByText(/credit of \$132.00 covers this year; \$22.00 remains as a credit that can be refunded or carried into next year\./)).toBeVisible();
+            expect(screen.queryByText(/\$72.00 remains/)).toBeNull();
+        });
+
+        it('promises no refundable credit when the resolver itself still answers in the old shape, and its rows still add up', async () => {
+            const before = asWrittenBefore688(build(carriedMembers, bills, [seedRecord]));
+            mockPublicSharesHit(before);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => before });
+            render(<ShareView />);
+            await screen.findByText('Not applied this year');
+            expect(global.fetch).toHaveBeenCalledWith('/resolveShareToken', expect.anything());
+            // $60.00 − $132.00 + $72.00 = $0.00, as the page loaded before #688 shows it.
+            expect(within(reconRow('Not applied this year')).getByText('+$72.00')).toBeVisible();
+            expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+            expect(screen.queryByText('Unused 2026 credit')).toBeNull();
+            expect(screen.queryByText(/remains/)).toBeNull();
+            expect(screen.queryByText(/can be refunded/)).toBeNull();
+        });
+
+        it('renders a current cache directly, with the $72 shown once as the unused credit', async () => {
+            const current = build(carriedMembers, bills, [seedRecord]);
+            // notApplied stays additive, so a page loaded before #688 (bills + carried +
+            // notApplied, no "Unused" row) still reaches the $0.00 total from this payload.
+            expect(current.carriedItems).toMatchObject({ total: -132, notApplied: 72, unusedCredit: 72, remainingCredit: 72 });
+            mockPublicSharesHit(current);
+            global.fetch = vi.fn();
+            render(<ShareView />);
+            await screen.findByText('Unused 2026 credit');
+            expect(global.fetch).not.toHaveBeenCalled();
+            expect(within(reconRow('Unused 2026 credit')).getByText('+$72.00')).toBeVisible();
+            expect(screen.queryByText('Not applied this year')).toBeNull();
+            expect(within(reconRow('Household Total')).getByText('$0.00')).toBeVisible();
+            expect(screen.getByText(/\$72.00 remains as a credit that can be refunded or carried into next year\./)).toBeVisible();
+        });
     });
 
     it.each([[-20, 100, 20], [0, 100, 0]])('separates the forfeited Service Credit excess from remaining net incoming credit (%s)', async (amount, notApplied, remaining) => {

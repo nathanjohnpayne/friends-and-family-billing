@@ -237,6 +237,14 @@ export default function ShareView() {
                 cacheValid = false;
             }
 
+            // A carried cache written before #688 has no unusedCredit, and its
+            // remainingCredit ignores an unpaid billed Usage Charge, so it can state
+            // more refundable credit than the household has. Resolve it through the
+            // deployed projection instead of rendering it; the resolver rewrites it.
+            if (cacheValid && publicDoc.data().carriedItems && publicDoc.data().carriedItems.unusedCredit === undefined) {
+                cacheValid = false;
+            }
+
             if (cacheValid) {
                 shareData = publicDoc.data();
                 // Bump access count
@@ -545,7 +553,8 @@ function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled, billsSub
                 ))}
 
             {data.carriedItems && carriedToggle.panelId && <CarriedItemsPanel carried={data.carriedItems} carriedToggle={carriedToggle} />}
-            {data.carriedItems?.remainingCredit > 0 && <p className="share-hint">Your {data.carriedItems.fromYear || 'previous year'} credit of {formatCurrency(Math.max(0, -data.carriedItems.total))} covers this year; {formatCurrency(data.carriedItems.remainingCredit)} remains as a credit that can be refunded or carried into next year.</p>}
+            {/* Only a #688 payload (it carries unusedCredit) may promise refundable credit. */}
+            {data.carriedItems?.unusedCredit != null && data.carriedItems.remainingCredit > 0 && <p className="share-hint">Your {data.carriedItems.fromYear || 'previous year'} credit of {formatCurrency(Math.max(0, -data.carriedItems.total))} covers this year; {formatCurrency(data.carriedItems.remainingCredit)} remains as a credit that can be refunded or carried into next year.</p>}
             {allMembers.map(member => (
                 <MemberRow
                     key={member.memberId || member.name}
