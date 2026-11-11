@@ -55,7 +55,7 @@ This is the same model nathanpaynedotcom deploys with, adopted here by owner dec
 
 The accepted source is a bounded `service_account` JSON key whose `project_id` is `friends-and-family-billing`, whose `client_email` is `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` and whose `token_uri` is Google's token endpoint. A key for another project or account, an `authorized_user` or external-account source, an unknown or empty field, a caller-supplied credential path or document name, and any source or service-account override are refused before the helper runs. The adapter creates no IAM bindings and changes nothing about who can deploy; anyone who can read that document can deploy, so access to the `Firebase` vault is the deploy permission.
 
-Only the trusted 1Password reader retains the operator HOME for its desktop CLI configuration; helper/Firebase receive a fresh neutral HOME. The subprocess writes the key into a private temporary file outside every project/upload directory and passes its explicit path only to the unchanged canonical helper, which uses a key that belongs to the deployer account directly. The temporary file holds a long-lived private key: it has owner-only permissions and is removed on every exit path, including cancellation. Source/helper/auth errors stop the attempt.
+Only the trusted 1Password reader retains the operator HOME for its desktop CLI configuration; helper/Firebase receive a fresh neutral HOME. The subprocess writes the key into a private temporary file outside every project/upload directory and passes its explicit path only to the unchanged canonical helper, which uses a key that belongs to the deployer account directly. The temporary file holds a long-lived private key: it has owner-only permissions, and the adapter attempts to remove it on every exit path the process can handle, including cancellation; a failed removal is not retried. A forced kill (`SIGKILL`) or a power loss cannot be handled: after one, stop any remaining deploy processes and delete any `/tmp/ffb-deploy.*` directory before doing anything else. Source/helper/auth errors stop the attempt.
 
 The helper runs from an empty external CWD with isolated Python imports. Firebase receives a neutral HOME, trusted Node24/tool paths and only the explicit temporary key file. Caller PATs, preflight markers, npm/Node/Python startup hooks, cached Firebase login and caller GAC do not cross the boundary. The selected staging hashes and Functions manifest/discovery are checked again before acquisition and at the Firebase launch boundary.
 
@@ -562,7 +562,7 @@ chmod +x ~/.local/bin/gcloud ~/.local/bin/op-firebase-deploy ~/.local/bin/op-fir
 hash -r
 ```
 
-This is a separately authorized, human-owned setup operation: it changes project APIs/IAM. It is not run by the artifact builder or deploy adapter. Then bootstrap project impersonation:
+This is a separately authorized, human-owned setup operation: it changes project APIs/IAM. It is not run by the artifact builder or deploy adapter, and a routine deploy does not depend on it: deploys use the deployer key document, not impersonation by the maintainer. Run it only to create the deployer service account and its roles, or to repair them:
 
 ```bash
 op-firebase-setup friends-and-family-billing
@@ -570,7 +570,7 @@ op-firebase-setup friends-and-family-billing
 
 Only when the deployer key itself needs initial creation or explicit rotation (never as routine deploy login): create a new key for `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com`, store its JSON as the 1Password document `friends-and-family-billing — Firebase Deployer SA Key` in the `Firebase` vault, and delete the old key in IAM. This is a human-owned operation; it needs an interactive `gcloud` login with IAM rights, and the key file must not be left on disk. The shared `Private/GCP ADC` item is no longer read by this repository's deploys.
 
-`op-firebase-setup` is the legacy script name, but it now performs keyless setup. For this project it:
+`op-firebase-setup` is the legacy script name. It creates no key. For this project it:
 1. Enables the IAM Credentials API
 2. Creates `firebase-deployer@friends-and-family-billing.iam.gserviceaccount.com` if needed
 3. Grants deploy roles to that service account:
@@ -585,4 +585,4 @@ Only when the deployer key itself needs initial creation or explicit rotation (n
 
 ## Auth Maintenance
 
-Routine deployment uses the existing 1Password source through the verified consumer, without browser login or caller GAC. The first-time setup section retains the separately authorized initial/rotation process and existing IAM roles. If source authentication or impersonation fails, stop and report the concrete failure; credential rotation or IAM repair requires its own authorization and is not an automatic deployment fallback.
+Routine deployment reads the deployer key document from 1Password through the verified consumer, without browser login, `gcloud` login or caller GAC. The first-time setup section retains the separately authorized, human-owned key creation and rotation process and the existing IAM roles. If the key is refused or a deploy is denied, stop and report the concrete failure; key rotation or IAM repair requires its own authorization and is not an automatic deployment fallback.
