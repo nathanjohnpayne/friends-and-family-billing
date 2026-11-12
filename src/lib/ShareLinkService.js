@@ -32,6 +32,7 @@ const MAX_ACTIVE_LINKS = 5;
  * @param {Array}    opts.payments
  * @param {Array}    [opts.owedAdjustments]  deferred Usage Charges (#317), so the
  *   generated publicShares doc carries the member's pendingCharges
+ * @param {Array}    [opts.creditAdjustments]  refunds and carry-forwards (the carried-credit "remains" promise, #688)
  * @param {Object}   opts.activeYear
  * @param {Object}   opts.settings
  * @returns {Promise<{ url: string, tokenHash: string, rawToken: string }>}
@@ -47,6 +48,7 @@ export async function createAndPruneShareLink({
     bills,
     payments,
     owedAdjustments,
+    creditAdjustments,
     activeYear,
     settings,
 }) {
@@ -60,7 +62,7 @@ export async function createAndPruneShareLink({
     // Build documents
     const expiresAt = computeExpiryDate(resolvedExpiryDays);
     const tokenDocData = buildShareTokenDoc(userId, memberId, memberName, billingYearId, rawToken, expiresAt, resolvedScopes);
-    const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, resolvedScopes, userId, activeYear, settings, owedAdjustments);
+    const publicData = buildPublicShareData(familyMembers, bills, payments, memberId, resolvedScopes, userId, activeYear, settings, owedAdjustments, creditAdjustments);
 
     // Query existing active links for this member+year
     const q = query(
@@ -137,6 +139,7 @@ export async function createAndPruneShareLink({
  * @param {Array}  opts.bills
  * @param {Array}  opts.payments
  * @param {Array}  [opts.owedAdjustments]
+ * @param {Array}  [opts.creditAdjustments]  refunds and carry-forwards (the carried-credit "remains" promise, #688)
  * @param {Object} opts.activeYear
  * @param {Object} opts.settings
  * @returns {Promise<number>} how many cached documents were rewritten
@@ -149,6 +152,7 @@ export async function rebuildMemberShareDocs({
     bills,
     payments,
     owedAdjustments,
+    creditAdjustments,
     activeYear,
     settings,
 }) {
@@ -191,7 +195,7 @@ export async function rebuildMemberShareDocs({
             if (token.revoked || token.ownerId !== userId || token.billingYearId !== billingYearId) continue;
             const scopes = Array.isArray(token.scopes) ? token.scopes : DEFAULT_SCOPES;
             const publicData = buildPublicShareData(
-                familyMembers, bills, payments, token.memberId, scopes, userId, activeYear, settings, owedAdjustments
+                familyMembers, bills, payments, token.memberId, scopes, userId, activeYear, settings, owedAdjustments, creditAdjustments
             );
             if (!publicData) continue;
             const cached = cacheSnap.exists() ? cacheSnap.data() : {};

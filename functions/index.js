@@ -282,7 +282,7 @@ exports.resolveShareToken = onRequest({ region: "us-central1" }, async (req, res
       if (serviceCredits.total > 0) {
         result.serviceCredits = serviceCredits;
       }
-      const carriedItems = buildCarriedItemsForShare(familyMembers, billsData, owedAdjustments, tokenData.memberId, linkedIds);
+      const carriedItems = buildCarriedItemsForShare(familyMembers, billsData, owedAdjustments, tokenData.memberId, linkedIds, payments, yearData.creditAdjustments || []);
       if (carriedItems.total !== 0 || carriedItems.items.length > 0) {
         result.carriedItems = carriedItems;
       }

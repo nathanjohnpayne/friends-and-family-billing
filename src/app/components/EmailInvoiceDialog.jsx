@@ -91,6 +91,7 @@ export default function EmailInvoiceDialog({ getAvailability, open, memberId, fa
                 bills,
                 payments,
                 owedAdjustments,
+                creditAdjustments,
                 activeYear,
                 settings,
             });

@@ -289,7 +289,7 @@ describe('buildNewYearData', () => {
 function reviewCarry(source, fromYearLabel = '2026', nextYearLabel = '2027') {
     const carry = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments,
         source.creditAdjustments, source.owedAdjustments,
-        { carryUnusedOpeningCredit: true, reopenedAdjustmentIds: source.reopenedAdjustmentIds, fromYearLabel, nextYearLabel, itemized: true, reviewServiceCredits: source.reviewServiceCredits || [] });
+        { reopenedAdjustmentIds: source.reopenedAdjustmentIds, fromYearLabel, nextYearLabel, itemized: true, reviewServiceCredits: source.reviewServiceCredits || [] });
     carry.households = carry.households.map(h => ({
         ...h,
         items: buildCarryOpeningItems(h, { ...source, fromYearLabel, nextYearLabel })
@@ -339,10 +339,6 @@ function expectCarryInvariants(source, result) {
         const member = source.familyMembers.find(m => m.id === seed.memberId);
         const memberIds = [member.id, ...(member.linkedMembers || [])];
         const before = financials(source, member);
-        const opening = getHouseholdOpeningBalance(member, source.owedAdjustments);
-        const incoming = toCents(Math.abs(opening));
-        const availableCharges = Math.max(0, toCents(before.grossOwed) - toCents(before.serviceCreditTotal) + (opening > 0 ? incoming : 0));
-        const unused = opening < 0 ? Math.max(0, incoming - availableCharges) / 100 : 0;
         const deferred = source.owedAdjustments.filter(a => a.kind === 'usage_charge' && a.status === 'deferred' && memberIds.includes(a.memberId))
             .reduce((sum, a) => sum + a.amount, 0);
         // (a) Only the top-level items contribute; nested detail reconciles credit.
@@ -350,21 +346,25 @@ function expectCarryInvariants(source, result) {
         for (const item of seed.items.filter(item => item.kind === 'credit')) {
             expect(item.detail.reduce((sum, d) => sum + toCents(d.amount), 0)).toBe(toCents(item.amount));
         }
-        // (b) Nothing other than deferred charges and payment/incoming credit moves.
-        expect(h.unusedOpeningCredit || 0).toBe(unused);
+        // (b) Nothing other than deferred charges and the whole household Credit
+        // moves. The Credit includes an unused carried-in credit (#688), so there
+        // is no separate carry-only leg and no stamped source seed.
+        expect(h).not.toHaveProperty('unusedOpeningCredit');
+        expect(h).not.toHaveProperty('openingSeedIds');
         expect(h.credit).toBe(before.credit);
         expect(h.deferredChargeTotal).toBeCloseTo(deferred, 8);
-        expect(toCents(seed.amount)).toBe(toCents(deferred) - before.cents.credit - toCents(unused));
+        expect(toCents(seed.amount)).toBe(toCents(deferred) - before.cents.credit);
     }
     for (const member of source.familyMembers.filter(m => !source.familyMembers.some(p => p.linkedMembers?.includes(m.id)))) {
         const before = financials(source, member);
         const after = financials({ ...source, ...prior }, member);
-        const h = carry.households.find(h => h.primaryMemberId === member.id);
-        // (c) Carry uses null, including for a refund re-opened on the board.
-        expect(after.credit).toBe(0);
-        expect(after.owed - after.netContribution).toBeCloseTo(
-            h?.credit > 0 ? 0 : before.owed - before.netContribution, 8);
+        // (c) Carry uses null, including for a refund re-opened on the board. The
+        // whole Credit is disposed, so the source keeps exactly its shortfall.
+        expect(after.cents.credit).toBe(0);
+        expect(after.cents.balance).toBe(Math.max(0, before.cents.balance));
     }
+    // No source seed is ever stamped by a new rollover.
+    expect(prior.owedAdjustments.filter(a => a.kind === 'carry_opening' && a.carriedForwardTo !== undefined)).toEqual([]);
 }
 
 describe('itemized review carry (#601, ADR 0009)', () => {
@@ -374,12 +374,13 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         ['10c overpaid', { serviceCredit: 48, paid: 100 }, -48, 0, 48],
         ['10d already refunded', { serviceCredit: 48, paid: 100, refund: 48 }, 0, 0, 0],
         ['10e over-large Service Credit creates no money', { serviceCredit: 200 }, 0, 0, 0],
-        ['10f no bills, unused incoming credit', { bills: 0, incoming: -132 }, -132, 0, 0],
-        ['10g partly used incoming credit', { bills: 60, incoming: -132 }, -72, 0, 0],
-        ['10g partly used incoming credit plus payment', { bills: 60, incoming: -132, paid: 20 }, -92, 0, 20],
-        ['10h unpaid billed charge is not offset', { bills: 60, incoming: -132, billed: 50 }, -72, 50, 0],
-        ['10i incoming credit and review Service Credit', { serviceCredit: 20, incoming: -132 }, -52, 0, 0],
-        ['10l excess Service Credit is not remaining money', { serviceCredit: 200, incoming: -20 }, -20, 0, 0]
+        ['10f no bills, unused incoming credit', { bills: 0, incoming: -132 }, -132, 0, 132],
+        ['10g partly used incoming credit', { bills: 60, incoming: -132 }, -72, 0, 72],
+        ['10g partly used incoming credit plus payment', { bills: 60, incoming: -132, paid: 20 }, -92, 0, 92],
+        ['10h the leftover carried credit pays the billed charge', { bills: 60, incoming: -132, billed: 50 }, -22, 0, 22],
+        ['10h a billed charge above the leftover credit stays outstanding', { bills: 60, incoming: -132, billed: 100 }, 0, 28, 0],
+        ['10i incoming credit and review Service Credit', { serviceCredit: 20, incoming: -132 }, -52, 0, 52],
+        ['10l excess Service Credit is not remaining money', { serviceCredit: 200, incoming: -20 }, -20, 0, 20]
     ])('fixture %s', (_name, input, opening, shortfall, disposition) => {
         const source = freezeRecords(carryFixture(input));
         const result = reviewCarry(source);
@@ -387,11 +388,12 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         expect(result.next.owedAdjustments.map(a => a.amount)).toEqual(opening ? [opening] : []);
         expect(result.prior.carriedCreditRecords.map(a => a.amount)).toEqual(disposition ? [disposition] : []);
         const after = financials({ ...source, ...result.prior }, source.familyMembers[0]);
-        expect(after.owed - after.netContribution).toBe(shortfall);
-        if (input.incoming && opening) {
-            expect(result.prior.owedAdjustments.find(a => a.id === 'incoming')).toMatchObject({
-                status: 'carried_in', carriedForwardTo: '2027', amount: input.incoming
-            });
+        expect(after.balance).toBe(shortfall);
+        expect(after.credit).toBe(0);
+        if (input.incoming) {
+            // The source seed is left exactly as it was: no carriedForwardTo stamp.
+            expect(result.prior.owedAdjustments.find(a => a.id === 'incoming')).toEqual(
+                source.owedAdjustments.find(a => a.id === 'incoming'));
         }
         expectCarryInvariants(source, result);
     });
@@ -399,7 +401,7 @@ describe('itemized review carry (#601, ADR 0009)', () => {
     it('fixture 10i reconciles review credit, unused money and the applied amount', () => {
         const { next } = reviewCarry(carryFixture({ serviceCredit: 20, incoming: -132 }));
         const item = next.owedAdjustments[0].items[0];
-        expect(item).toMatchObject({ sourceId: 'incoming', amount: -52 });
+        expect(item).toMatchObject({ sourceId: 'cadj_carry_2027_1', amount: -52 });
         expect(item.detail).toEqual([
             { sourceId: 'review-credit', basis: 'ended', memberId: 1, billName: 'Northline', description: 'Service ended in August.', amount: -20 },
             { kind: 'unused', description: 'Unused 2026 credit', amount: -52 },
@@ -425,7 +427,8 @@ describe('itemized review carry (#601, ADR 0009)', () => {
                 expect(result.next.owedAdjustments[0].items[0].detail).toEqual([
                     { kind: 'unused', description: `Unused ${year} credit`, amount: expected }
                 ]);
-                expect(result.prior.carriedCreditRecords).toEqual([]);
+                // Each year disposes the carried credit with the ordinary record.
+                expect(result.prior.carriedCreditRecords.map(row => row.amount)).toEqual([-expected]);
                 expectCarryInvariants(state, result);
                 state = { ...state, ...result.next, bills: [], reviewServiceCredits: [] };
             }
@@ -527,7 +530,7 @@ describe('itemized review carry (#601, ADR 0009)', () => {
         expect(detail[0].basis).not.toBe('member');
     });
 
-    it('stamps every active household seed without changing status, voided seeds or other households', () => {
+    it('disposes a linked household\'s unused carried credit with one record and stamps no seed', () => {
         const source = carryFixture({ bills: 0, incoming: -100 });
         source.familyMembers.push({ id: 2, linkedMembers: [] }, { id: 3, linkedMembers: [] });
         source.familyMembers[0].linkedMembers = [2];
@@ -537,14 +540,14 @@ describe('itemized review carry (#601, ADR 0009)', () => {
             { id: 'other', memberId: 3, kind: 'carry_opening', amount: 50, status: 'carried_in' }
         );
         const result = reviewCarry(freezeRecords(source));
-        expect(result.carry.households[0]).toMatchObject({ unusedOpeningCredit: 132, openingSeedIds: ['incoming', 'linked'] });
-        expect(result.prior.owedAdjustments.map(a => a.carriedForwardTo)).toEqual(['2027', '2027', undefined, undefined]);
-        expect(result.prior.owedAdjustments.map(a => a.status)).toEqual(['carried_in', 'carried_in', 'voided', 'carried_in']);
-        expect(result.prior.carriedCreditRecords).toEqual([]);
+        expect(result.carry.households[0]).toMatchObject({ credit: 132, openingBalance: -132 });
+        expect(result.prior.owedAdjustments).toEqual(source.owedAdjustments);
+        expect(result.prior.carriedCreditRecords).toMatchObject([{ id: 'cadj_carry_2027_1', memberId: 1, type: 'carry_forward', amount: 132 }]);
+        expect(financials({ ...source, ...result.prior }, source.familyMembers[0])).toMatchObject({ balance: 0, credit: 0 });
         expectCarryInvariants(source, result);
     });
 
-    it('keeps legacy carry and seed shapes unchanged and record ids deterministic', () => {
+    it('keeps the legacy seed shape, carries the whole Credit on the legacy path too, and keeps record ids deterministic', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-12-31T12:00:00.000Z'));
         try {
@@ -552,7 +555,8 @@ describe('itemized review carry (#601, ADR 0009)', () => {
             const legacy = buildCarryForwardSummary(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments, { fromYearLabel: '2026', nextYearLabel: '2027' });
             expect(legacy).toEqual(buildCarryForward(source.familyMembers, source.bills, source.payments, [], source.owedAdjustments, { fromYearLabel: '2026', nextYearLabel: '2027' }));
             expect(buildNewYearData(source.familyMembers, [], {}, '2027', legacy, '2026').owedAdjustments).toEqual([{
-                id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -115, status: 'carried_in',
+                // $120 paid + $132 carried in − $100 of bills = $152 Credit, less the $5 charge.
+                id: 'coadj_2026_1', memberId: 1, kind: 'carry_opening', amount: -147, status: 'carried_in',
                 fromYear: '2026', createdAt: '2026-12-31T12:00:00.000Z'
             }]);
             const first = reviewCarry(source);

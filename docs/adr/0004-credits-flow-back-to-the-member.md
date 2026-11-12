@@ -24,7 +24,7 @@ created. If no next year is ever created, the pending credit is preserved in the
 record (recoverable), never destroyed.
 
 **Refund is the universal fallback**—always available regardless of whether a
-next year will exist, so a credit is never trapped.
+next year will exist, so a credit is never trapped. This holds without exception since #688: a credit carried in from a prior year counts as money in the year it arrives, so the part that year's charges do not use is a Credit that can be refunded there, not only carried again (ADR 0009 § 4, ADR 0010 § Incoming credit).
 
 ## Considered options
 

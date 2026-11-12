@@ -541,7 +541,7 @@ describe('buildCarriedItemsForShare (#602)', () => {
         ];
         const result = buildCarriedItemsForShare(members, [], [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 2, items }], 1, [2]);
         assert.deepEqual(result, {
-            fromYear: '2026', notApplied: 0, remainingCredit: 0, total: 2,
+            fromYear: '2026', notApplied: 0, remainingCredit: 0, unusedCredit: 0, total: 2,
             items: [
                 { memberId: 1, memberName: 'Ada', kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12, detail: [] },
                 { memberId: 2, memberName: 'Kenji', kind: 'usage_charge', basis: 'price_change', billName: 'Northline', description: 'Price rose in July.', amount: 12, detail: [] },
@@ -578,24 +578,27 @@ describe('buildCarriedItemsForShare (#602)', () => {
             { memberId: 2, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: 5 }
         ];
         assert.deepEqual(buildCarriedItemsForShare([], [], adjustments, 1, [2]), {
-            fromYear: '2026', notApplied: 15, remainingCredit: 15, total: -15,
+            fromYear: '2026', notApplied: 15, remainingCredit: 15, unusedCredit: 15, total: -15,
             items: [{ kind: 'legacy', description: 'Carried from 2026', amount: -20 }, { kind: 'legacy', description: 'Carried from 2026', amount: 5 }]
         });
     });
 
     for (const [name, bill, serviceCredit, incoming, notApplied, remainingCredit] of [
-        ['fixture9 empty year', 0, 0, -132, 132, 132],
-        ['fixture9 partial use', 60, 0, -132, 72, 72],
-        ['fixture10l excess Service Credit', 100, 200, -20, 120, 20],
+        ['fixture9 empty year', 0, 0, -132, 0, 132],
+        ['fixture9 partial use', 60, 0, -132, 0, 72],
+        ['fixture10l excess Service Credit', 100, 200, -20, 100, 20],
         ['no incoming money', 100, 200, 0, 100, 0]
     ]) {
-        it(`separates floor remainder and remaining money: ${name}`, () => {
+        it(`separates the forfeited Service Credit excess and remaining money (#688): ${name}`, () => {
             const adjustments = [
                 { memberId: 1, kind: 'service_credit', status: 'active', amount: serviceCredit },
                 ...(incoming ? [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: incoming }] : [])
             ];
             const result = buildCarriedItemsForShare([{ id: 1 }], [{ amount: bill, billingFrequency: 'annual', members: [1] }], adjustments, 1, []);
-            assert.equal(result.notApplied, notApplied);
+            // The payload's notApplied is the whole floor remainder (additive for a page
+            // loaded before #688); the forfeited excess is what is left after the unused credit.
+            assert.equal(Math.round((result.notApplied - result.unusedCredit) * 100), notApplied * 100);
+            assert.equal(result.notApplied, notApplied + remainingCredit);
             assert.equal(result.remainingCredit, remainingCredit);
             assert.equal(result.total, incoming);
         });
@@ -607,7 +610,15 @@ describe('buildCarriedItemsForShare (#602)', () => {
             [{ memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -100, fromYear: '2026' }], 1, [2]);
         // Two thirds of $100 is $66.67, not two individually rounded $33.33 shares.
         assert.equal(result.notApplied, 33.33);
+        assert.equal(result.unusedCredit, 33.33);
         assert.equal(result.remainingCredit, 33.33);
+    });
+
+    it('states nothing remaining for a seed a pre-#688 rollover stamped carriedForwardTo', () => {
+        const seed = { memberId: 1, kind: 'carry_opening', status: 'carried_in', amount: -132, fromYear: '2026' };
+        const project = (row) => buildCarriedItemsForShare([{ id: 1 }], [{ amount: 60, billingFrequency: 'annual', members: [1] }], [row], 1, []);
+        assert.equal(project(seed).remainingCredit, 72);
+        assert.equal(project({ ...seed, carriedForwardTo: '2027' }).remainingCredit, 0);
     });
 
     for (const [credit, total, notApplied] of [[10, 0, 100], [5, 5, 95]]) {
@@ -625,7 +636,7 @@ describe('buildCarriedItemsForShare (#602)', () => {
         });
     }
 
-    it('property: remaining credit equals actual rollover U across mixed seeds and Service Credit excess', async () => {
+    it('property: remaining credit equals the household Credit the rollover carries across mixed seeds and Service Credit excess (#688)', async () => {
         const { buildCarryForwardSummary } = await import('../src/lib/billing-year.js');
         let randomState = 0x60210;
         const random = (max) => {
@@ -650,14 +661,15 @@ describe('buildCarriedItemsForShare (#602)', () => {
                     { id: `voided-${member.id}`, memberId: member.id, kind: 'carry_opening', status: 'voided', amount: -1000 }
                 ];
             });
-            const carry = buildCarryForwardSummary(members, bills, [], [], adjustments, { carryUnusedOpeningCredit: true });
+            const carry = buildCarryForwardSummary(members, bills, [], [], adjustments, {});
             assert.equal(carry.ok, true, `run ${run}: ${JSON.stringify(carry.holds || carry.households.filter(h => !h.ok))}`);
             for (const memberId of [1, 3]) {
                 const linkedIds = memberId === 1 ? [2] : [];
                 const result = buildCarriedItemsForShare(members, bills, adjustments, memberId, linkedIds);
-                const expectedU = carry.households.find((household) => household.primaryMemberId === memberId)?.unusedOpeningCredit || 0;
-                assert.equal(result.remainingCredit, expectedU, `run ${run}, household ${memberId}`);
-                assert.ok(result.remainingCredit <= result.notApplied);
+                // No payments, refunds or billed charges here, so the whole Credit is the
+                // unused carried-in credit and the rollover disposes exactly that amount.
+                const household = carry.households.find((row) => row.primaryMemberId === memberId);
+                assert.equal(result.remainingCredit, household?.credit || 0, `run ${run}, household ${memberId}`);
                 assert.equal(result.total, getHouseholdOpeningBalance({ id: memberId, linkedMembers: linkedIds }, adjustments));
                 assert.ok(result.items.every((item) => [memberId, ...linkedIds].includes(item.memberId)));
             }
@@ -666,7 +678,7 @@ describe('buildCarriedItemsForShare (#602)', () => {
 
     it('returns a serializable empty projection for missing inputs', () => {
         assert.deepEqual(buildCarriedItemsForShare(undefined, undefined, undefined, 1, undefined), {
-            fromYear: null, notApplied: 0, remainingCredit: 0, total: 0, items: []
+            fromYear: null, notApplied: 0, remainingCredit: 0, unusedCredit: 0, total: 0, items: []
         });
     });
 });
@@ -1041,7 +1053,7 @@ describe('resolveShareToken carried-items reconciliation (#602)', () => {
             const result = await resolveCarriedShare(t, { owedAdjustments: [seed], refreshOnly,
                 cached: refreshOnly ? { accessCount: 7, lastAccessedAt: 'keep', unrelated: 'keep' } : {} });
             assert.deepEqual(result.response.carriedItems, {
-                fromYear: '2026', notApplied: 0, remainingCredit: 0, total: -20,
+                fromYear: '2026', notApplied: 0, remainingCredit: 0, unusedCredit: 0, total: -20,
                 items: [{ kind: 'legacy', description: 'Carried from 2026', amount: -20 }]
             });
             assert.deepEqual(result.cache.carriedItems, result.response.carriedItems);
@@ -1143,7 +1155,9 @@ describe('resolveShareToken — household rounding and writer/cache parity (#620
                 if (fixture.incoming === -100) {
                     assert.equal(result.response.carriedItems.remainingCredit, 33.33);
                     assert.equal(result.response.carriedItems.notApplied, 33.33);
-                    assert.equal(cents(financials.grossOwed) + result.response.carriedItems.total + result.response.carriedItems.notApplied, 0);
+                    assert.equal(result.response.carriedItems.unusedCredit, 33.33);
+                    assert.equal(cents(financials.grossOwed) + result.response.carriedItems.total + result.response.carriedItems.remainingCredit, 0);
+                    assert.equal(financials.cents.credit, 3333);
                 }
                 if (fixture.incoming < 0) assert.deepEqual(result.cache.carriedItems, result.response.carriedItems);
             });
@@ -1373,4 +1387,95 @@ describe('functions/ never writes a billing-year document (#615)', () => {
             assert.equal(sites.length, src.includes('"billingYears"') && !src.startsWith('//') ? 1 : 0);
         });
     }
+});
+
+// #688: the owed/credit formula has one implementation (functions/household-money.mjs),
+// reached by the client through an ESM re-export and by Functions through the CJS seam.
+// This proves the two entry points agree on generated households, and that the two
+// public share writers (src/lib/share.js and functions/billing.js) state the same
+// figures the authority computes.
+describe('client and Functions agree on the carried-credit formula (#688)', () => {
+    const lcg = (seed) => { let x = seed; return (limit) => { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x % limit; }; };
+    const generateYear = (next) => {
+        const source = { familyMembers: [], bills: [], payments: [], creditAdjustments: [], owedAdjustments: [] };
+        const households = 1 + next(4);
+        for (let h = 0; h < households; h++) {
+            const primary = h * 10 + 1;
+            const ids = Array.from({ length: 1 + next(3) }, (_, i) => primary + i);
+            source.familyMembers.push(...ids.map((id) => ({ id, name: 'Member ' + id, linkedMembers: id === primary ? ids.slice(1) : [] })));
+            if (next(4)) source.bills.push({ id: 'bill-' + h, name: 'Bill ' + h, amount: next(30001) / 100, billingFrequency: next(2) ? 'monthly' : 'annual', members: ids });
+            ids.forEach((memberId) => {
+                if (next(2)) source.payments.push({ id: 'pay-' + memberId, memberId, amount: next(40001) / 100 });
+                if (next(4) === 0) source.creditAdjustments.push({ id: 'refund-' + memberId, memberId, type: 'refund', amount: next(5001) / 100, status: next(4) ? 'recorded' : 'cancelled' });
+                if (next(3)) source.owedAdjustments.push({ id: 'seed-' + memberId, memberId, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: (next(60001) - 40000) / 100 });
+                if (next(3) === 0) source.owedAdjustments.push({ id: 'sc-' + memberId, memberId, billId: 'bill-' + h, kind: 'service_credit', status: 'active', amount: (1 + next(30000)) / 100, reason: 'Outage' });
+                if (next(3) === 0) source.owedAdjustments.push({ id: 'billed-' + memberId, memberId, kind: 'usage_charge', status: 'billed', amount: (1 + next(8000)) / 100 });
+                if (next(4) === 0) source.owedAdjustments.push({ id: 'deferred-' + memberId, memberId, kind: 'usage_charge', status: 'deferred', amount: (1 + next(8000)) / 100, description: 'Fee' });
+            });
+        }
+        if (next(2)) source.bills.push({ id: 'shared', name: 'Shared', amount: 23.47, billingFrequency: 'annual', members: source.familyMembers.map((m) => m.id) });
+        return source;
+    };
+
+    it('projects identical household cents and an identical carry plan from both entry points', async () => {
+        const client = await import('../src/lib/household-money.js');
+        const functions = require('../functions/household-money.js');
+        const next = lcg(0x688);
+        let unused = 0;
+        for (let run = 0; run < 300; run++) {
+            const source = generateYear(next);
+            const reopened = next(3) === 0 ? new Set(source.creditAdjustments.slice(0, 1).map((row) => row.id)) : null;
+            const a = client.projectHouseholdsMoney(source, { reopenedAdjustmentIds: reopened });
+            const b = functions.projectHouseholdsMoney(source, { reopenedAdjustmentIds: reopened });
+            assert.deepEqual(a, b, 'run ' + run);
+            for (const household of a) {
+                assert.equal(household.ok, true, 'run ' + run);
+                // The one formula, restated: charges A + B, contributed N + I.
+                assert.equal(household.balance, household.A + household.B - household.N - household.I, 'run ' + run);
+                assert.equal(household.credit, Math.max(0, -household.balance), 'run ' + run);
+                if (household.U > 0) unused++;
+            }
+            const options = { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true };
+            assert.deepEqual(client.buildCarryMoneySnapshot(source, options), functions.buildCarryMoneySnapshot(source, options), 'run ' + run);
+        }
+        assert.ok(unused > 50, String(unused));
+    });
+
+    it('both share writers state the same carried figures, and they match the authority in whole-cent households', async () => {
+        const { buildCarriedItemsForShare: clientCarried } = await import('../src/lib/share.js');
+        const { getHouseholdFinancials } = await import('../src/lib/calculations.js');
+        const next = lcg(0x603);
+        let remaining = 0;
+        for (let run = 0; run < 400; run++) {
+            // One member per bill, whole cents: the legacy public writers and the
+            // cent authority agree exactly here (their sub-cent difference is #636).
+            const G = next(3) ? next(30001) : 0, S = next(3) === 0 ? 1 + next(40000) : 0;
+            const opening = next(5) ? next(60001) - 40000 : 0;
+            const stamped = next(8) === 0;
+            const members = [{ id: 1, name: 'Ada', linkedMembers: [] }];
+            const bills = G ? [{ id: 'b', name: 'Bill', amount: G / 100, billingFrequency: 'annual', members: [1] }] : [];
+            const owedAdjustments = [
+                ...(opening ? [{ id: 'seed', memberId: 1, kind: 'carry_opening', status: 'carried_in', fromYear: '2026', amount: opening / 100, ...(stamped ? { carriedForwardTo: '2028' } : {}) }] : []),
+                ...(S ? [{ id: 'sc', memberId: 1, billId: 'b', kind: 'service_credit', status: 'active', amount: S / 100 }] : []),
+            ];
+            const live = buildCarriedItemsForShare(members, bills, owedAdjustments, 1, []);
+            assert.deepEqual(clientCarried(members, bills, owedAdjustments, 1, []), live, 'run ' + run);
+            const { cents } = getHouseholdFinancials(members[0], { familyMembers: members, bills, payments: [], creditAdjustments: [], owedAdjustments });
+            assert.equal(Math.round(live.remainingCredit * 100), cents.U, 'run ' + run);
+            assert.equal(Math.round(live.unusedCredit * 100), cents.U, 'run ' + run);
+            // With no payments, refunds or billed charges the Credit is exactly that figure.
+            assert.equal(cents.credit, cents.U, 'run ' + run);
+            // The current page's "Not applied" row (notApplied − unusedCredit) is the forfeited
+            // Service Credit excess; only a stamped (pre-#688) seed adds the remainder that
+            // already left with its rollover.
+            const excess = Math.max(0, S - G - Math.max(0, opening));
+            const alreadyCarried = stamped ? Math.max(0, -opening - Math.max(0, G - S)) : 0;
+            assert.equal(Math.round(live.notApplied * 100) - cents.U, excess + alreadyCarried, 'run ' + run);
+            // A page loaded before #688 adds bills − credits + carried + notApplied; the current
+            // page splits notApplied into two rows. Both reach the household total.
+            assert.equal(G - S + opening + Math.round(live.notApplied * 100), Math.max(0, G - S + opening), 'run ' + run);
+            if (live.remainingCredit > 0) remaining++;
+        }
+        assert.ok(remaining > 40, String(remaining));
+    });
 });

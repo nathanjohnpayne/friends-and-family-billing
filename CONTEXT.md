@@ -64,17 +64,14 @@ back—the household starts next year owing that much less. One of the two ways
 (with Refund) to clear a credit. There is deliberately no path for the
 administrator to simply keep or write off an overpayment. At rollover the
 Year-End Review carries every undisposed Credit and deferred Usage Charge (True-ups
-included) as itemized Carried items on one `carry_opening` seed per household, and
-carries on an incoming credit the year's bills did not use. That credit is money the
-household paid in an earlier year, so it is never forfeited; it leaves no new
-disposition record in this year because it is not part of this year's Net
-Contribution (it was disposed in the year it was paid).
+included) as itemized Carried items on one `carry_opening` seed per household.
+A credit carried in from the year before that this year's bills did not use counts as money in the year it arrives, beside the Net Contribution, so it is never forfeited. It first pays any shortfall (an unpaid billed Usage Charge included); only what then remains is part of the household's Credit. The whole Credit, that remainder included, is disposed by one ordinary `carry_forward` record (#688).
 _Avoid_: Roll-over, waiver, write-off
 
 **Net Contribution**:
 What a household has actually paid toward its bills, net of money
 returned—gross payments minus recorded refunds and carried-forward credits. A household's
-settlement status (outstanding / partial / settled / credit) is computed from this, not
+settlement status (outstanding / partial / settled / credit) is computed from this, plus any unused credit carried in from the year before (#688), not
 from gross payments, so a refunded household reads "Settled" even though its
 gross "Paid" still exceeds what it owed.
 _Avoid_: Paid (when precision matters), gross paid
@@ -126,7 +123,7 @@ member's Usage Charge, or the household's net Credit—snapshotted on the
 signed amount, so a member can read "Carried from 2026" line by line. The
 household's Credit is one negative item; its detail beneath it lists the Service
 Credits this review recorded for the household, any unused credit carried in from
-the year before, and one remainder line for everything else (earlier Service
+the year before (which is part of the Credit: money in the year it arrives), and one remainder line for everything else (earlier Service
 Credits and overpayment); the detail sums to the item and is never added again.
 _Avoid_: Opening balance line, carry_opening (in UI copy), adjustment
 

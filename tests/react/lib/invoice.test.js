@@ -852,8 +852,8 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
     const shareUrl = 'https://example.com/share?token=abc';
     const venmo = { id: 'pm_v', type: 'venmo', label: 'Venmo', enabled: true, handle: '@morgan' };
     const configured = { emailMessage: 'Hi %first_name%,\n\nYour household total is %household_total%.\n\n%payment_methods%\n\nThanks!', paymentMethods: [venmo] };
-    const ctxFor = (id, settings = configured, seeds = invoiceSeeds) =>
-        getInvoiceSummaryContext(invoiceMembers, invoiceBills, [], id, invoiceYear, settings, seeds, []);
+    const ctxFor = (id, settings = configured, seeds = invoiceSeeds, creditAdjustments = []) =>
+        getInvoiceSummaryContext(invoiceMembers, invoiceBills, [], id, invoiceYear, settings, seeds, creditAdjustments);
     const lindqvistBlock = [
         'CARRIED FROM 2026',
         '- Erik: Northline Mobile went from $180 to $198 a month in July.',
@@ -966,19 +966,63 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         }
     });
 
-    it('states unused incoming credit as what remains, apart from the floor remainder', () => {
+    it('states unused incoming credit as a credit that remains, never as "not applied" (#688)', () => {
         const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -300,
             items: [{ sourceId: 'cadj_carry_2027_9', kind: 'credit', basis: 'credit', memberId: 9, description: 'Your 2026 credit', amount: -300,
                 detail: [{ kind: 'unused', description: 'Unused 2025 credit', amount: -300 }] }] }];
         const ctx = ctxFor(9, configured, seeds);
         expect(ctx.combinedTotal).toBe(0);
         expect(ctx.carriedItems.remainingCredit).toBe(36);
+        expect(ctx.carriedItems.notApplied).toBe(0);
+        // The unused $36.00 is money: the invoice balance is a $36.00 credit, not $0.00.
+        expect(ctx.cents).toMatchObject({ invoice: 0, N: 0, U: 3600, invoiceBalance: -3600 });
+        expect(ctx.balance).toBe(-36);
         const body = buildInvoiceBody(ctx, 'text-only', shareUrl, 'email');
-        expect(body).toContain('2027 total: $0.00 (2027 bills $264.00 − carried $300.00; $36.00 not applied this year)');
-        expect(body).toContain('Your 2026 credit of $300.00 covers this year; $36.00 remains. It will carry into next year.');
+        expect(body).toContain('2027 total: $0.00 (2027 bills $264.00 − carried $300.00; $36.00 of the credit unused)');
+        expect(body).toContain('Your 2026 credit of $300.00 covers this year; $36.00 remains as a credit that can be refunded or carried into next year.');
+        expect(body).not.toMatch(/not applied this year|It will carry into next year/);
         const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
-        expect(full).toContain('  Not applied this year:         +$36.00\n  Combined Annual Total:         $0.00\n');
-        expect(full).toContain('$36.00 remains.');
+        expect(full).toContain('  Carried from 2026:             −$300.00\n  Unused 2026 credit:            +$36.00\n  Combined Annual Total:         $0.00\n');
+        expect(full).toContain('  Balance Remaining:             $-36.00\n');
+        expect(full).not.toContain('Not applied this year');
+        expect(full).toContain('$36.00 remains as a credit');
+    });
+
+    it('offers no contradictory figure once the unused credit is refunded: balance $0.00 and nothing "remains" (#688)', () => {
+        const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -300 }];
+        const refund = [{ id: 'refund-36', memberId: 9, type: 'refund', amount: 36, status: 'recorded' }];
+        const ctx = ctxFor(9, configured, seeds, refund);
+        expect(ctx.cents).toMatchObject({ invoice: 0, R: 3600, N: -3600, U: 3600, invoiceBalance: 0 });
+        expect(ctx.carriedItems.remainingCredit).toBe(0);
+        const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
+        expect(full).toContain('  Unused 2026 credit:            +$36.00\n  Combined Annual Total:         $0.00\n');
+        expect(full).toContain('  Refunded:                      $36.00\n  Balance Remaining:             $0.00\n');
+        expect(full).not.toMatch(/remains as a credit/);
+        // A partial refund leaves exactly the rest.
+        const partial = ctxFor(9, configured, seeds, [{ ...refund[0], amount: 10 }]);
+        expect(partial.carriedItems.remainingCredit).toBe(26);
+        expect(partial.balance).toBe(-26);
+    });
+
+    it('promises only the Credit the board shows when a billed charge takes part of the unused credit (#688, fixture 10h)', () => {
+        const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -300,
+            items: [{ sourceId: 'cadj_carry_2027_9', kind: 'credit', basis: 'credit', memberId: 9, description: 'Your 2026 credit', amount: -300, detail: [{ kind: 'remainder', description: 'Other 2026 overpayment', amount: -300 }] }] },
+            { id: 'billed', kind: 'usage_charge', status: 'billed', memberId: 9, amount: 30, description: 'Roaming' }];
+        const ctx = ctxFor(9, configured, seeds);
+        // B stays outside the ordinary invoice balance, but the sentence states the refundable Credit.
+        expect(ctx.cents).toMatchObject({ U: 3600, B: 3000, credit: 600, invoiceBalance: -3600 });
+        expect(ctx.carriedItems).toMatchObject({ unusedCredit: 36, remainingCredit: 6 });
+        expect(buildInvoiceBody(ctx, 'text-only', shareUrl, 'email')).toContain('$6.00 remains as a credit that can be refunded or carried into next year.');
+    });
+
+    it('a Service Credit excess is still "not applied" and never becomes a credit (#688, fixture 10l)', () => {
+        const seeds = [{ id: 'coadj_2026_9', kind: 'carry_opening', status: 'carried_in', memberId: 9, fromYear: '2026', amount: -20 },
+            { id: 'sc_big', kind: 'service_credit', status: 'active', memberId: 9, billId: 'x', reason: 'Outage', amount: 364 }];
+        const ctx = ctxFor(9, configured, seeds);
+        expect(ctx.carriedItems).toMatchObject({ notApplied: 100, remainingCredit: 20 });
+        expect(ctx.cents).toMatchObject({ U: 2000, invoiceBalance: -2000 });
+        const full = buildInvoiceBody(ctx, 'full', shareUrl, 'email');
+        expect(full).toContain('  Not applied this year:         +$100.00\n  Unused 2026 credit:            +$20.00\n  Combined Annual Total:         $0.00\n');
     });
 
     it('lists a Service Credit in the summary so the arithmetic reconciles', () => {
@@ -1028,12 +1072,13 @@ describe('carried from <year> on the invoice (ADR 0009, #604)', () => {
         const unusedCents = Math.max(0, -ctx.cents.O - Math.max(0, ctx.cents.G - ctx.cents.S + Math.max(0, ctx.cents.O)));
         expect(unusedCents).toBe(9786); // the share builder's independent rounding says 9787
         expect(ctx.carriedItems.remainingCredit).toBe(unusedCents / 100);
-        expect(ctx.carriedItems.notApplied).toBe(unusedCents / 100);
+        expect(ctx.cents.U).toBe(unusedCents);
+        expect(ctx.carriedItems.notApplied).toBe(0);
         const remains = '$' + (unusedCents / 100).toFixed(2);
         const body = buildInvoiceBody(ctx, 'text-only', shareUrl, 'email');
-        expect(body).toContain('; ' + remains + ' not applied this year)');
-        expect(body).toContain(remains + ' remains. It will carry into next year.');
-        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Not applied this year:         +' + remains + '\n');
+        expect(body).toContain('; ' + remains + ' of the credit unused)');
+        expect(body).toContain(remains + ' remains as a credit that can be refunded or carried into next year.');
+        expect(buildInvoiceBody(ctx, 'full', shareUrl, 'email')).toContain('  Unused 2026 credit:            +' + remains + '\n');
     });
 
     it('renders the allocated cents of sub-cent items, so the lines conserve the carried total', () => {

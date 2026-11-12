@@ -5,7 +5,7 @@ import {
     toCents, splitCents, monthsFromFirst, monthsAfterLast, computePriceChange, computeLateStart, computeEnded,
     buildTrueUpRecords, buildServiceCreditRecords, buildUsageChargeRecord, deriveNextYearBills, buildHouseholdPreview,
     snapshotExistingCredit, existingCreditCoverage, revalidateExistingCreditAnswers,
-    computeSourceFingerprint, findSuccessorYear, shouldOfferYearEndReview, validateDraft, canStart
+    computePayloadFingerprint, computeSourceFingerprint, findSuccessorYear, shouldOfferYearEndReview, validateDraft, canStart
 } from '../../../src/lib/year-end-review.js';
 
 const members = [1, 2, 3];
@@ -277,7 +277,7 @@ describe('record factories and next-year preview', () => {
         expect(preview[0].carriedCharges + preview[0].carriedCredit).toBe(preview[0].carriedTotal);
         const unusedCarry = buildCarryForwardSummary(familyMembers, [], [], [], [{ id: 'incoming', memberId: 1,
             kind: 'carry_opening', status: 'carried_in', amount: -132 }],
-            { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true, carryUnusedOpeningCredit: true });
+            { fromYearLabel: '2026', nextYearLabel: '2027', itemized: true });
         const unused = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [], carry: unusedCarry });
         expect(unused[0]).toMatchObject({ firstInvoiceTotal: 0, remainingCredit: 132 });
         const held = buildHouseholdPreview({ familyMembers, sourceBills: [], nextBills: [],
@@ -408,5 +408,23 @@ describe('source guard, dashboard entry and restored drafts', () => {
         expect(second.valid).toBe(true);
         expect(second.draft.newBills[0].billId).toBe(21);
         expect(second.draft.reconciliationId).toBe(raw.reconciliationId);
+    });
+});
+
+describe('fingerprints and the carried-credit formula (#688)', () => {
+    it('are the same values main computes for a household with an unused carried-in credit', () => {
+        // Both fingerprints hash raw records and review entries, never a computed balance,
+        // so #688 leaves them unchanged: a draft saved before the change is not made stale
+        // by it. These literals were computed with the code on main (46c20f1).
+        const source = { status: 'settling', familyMembers: [{ id: 1, name: 'A', linkedMembers: [] }],
+            bills: [{ id: 20, name: 'Annual bill', amount: 60, billingFrequency: 'annual', members: [1] }], payments: [], creditAdjustments: [],
+            owedAdjustments: [{ id: 'seed', kind: 'carry_opening', status: 'carried_in', memberId: 1, fromYear: '2026', amount: -132 }], billingEvents: [] };
+        expect(computeSourceFingerprint(source)).toBe('yer1_85bc87c38cf1e88f');
+        expect(computePayloadFingerprint({ reconciliationId: 'rec_1', sourceFingerprint: 'x', bills: {}, newBills: [], charges: [] }, '2028')).toBe('yrp1_0f017072df3b1dde');
+        // What does change is the committed outcome, and the source fingerprint follows it:
+        // the carry now leaves a carry_forward record where the legacy carry stamped the seed.
+        const carried = { ...source, creditAdjustments: [{ id: 'cadj_carry_2028_1', type: 'carry_forward', memberId: 1, amount: 72, status: 'carried_forward' }] };
+        const stamped = { ...source, owedAdjustments: [{ ...source.owedAdjustments[0], carriedForwardTo: '2028' }] };
+        expect(new Set([computeSourceFingerprint(source), computeSourceFingerprint(carried), computeSourceFingerprint(stamped)]).size).toBe(3);
     });
 });

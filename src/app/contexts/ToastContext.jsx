@@ -8,7 +8,7 @@
  * announced assertively; the message text still names the failure, so the
  * colour is never the only cue.
  */
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 
 const ToastContext = createContext(null);
 
@@ -27,6 +27,11 @@ export function ToastProvider({ children }) {
         setToast({ message: msg, kind });
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => setToast(null), 3000);
+    }, []);
+
+    // A toast still showing when the provider unmounts must not set state later.
+    useEffect(() => () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
     }, []);
 
     const dismiss = useCallback(() => {

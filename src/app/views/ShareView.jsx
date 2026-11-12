@@ -81,13 +81,15 @@ function LeadAlertIcon() {
 function ShareLeadCallout({ ps, year, carriedItems, billsSubtotal, serviceCreditTotal, notApplied, carriedToggle }) {
     // States the same terms as the reconciliation rows, in the same order, so the
     // sentence adds up to the Household Total: bills, Service Credits, carried,
-    // and the floor remainder that was not applied this year.
+    // the forfeited Service Credit excess that was not applied this year, and
+    // the carried credit this year's bills did not use (it stays the household's money).
     const carryCopy = carriedItems && (
         <>{formatCurrency(billsSubtotal)} of bills
             {serviceCreditTotal > 0 && <> less {formatCurrency(serviceCreditTotal)} of service credits</>}
             {carriedItems.total < 0 ? ' less ' : ' plus '}
             <CarriedToggle {...carriedToggle}>{formatCurrency(Math.abs(carriedItems.total))} carried from {carriedItems.fromYear || 'previous year'}</CarriedToggle>
             {notApplied > 0 && <> plus {formatCurrency(notApplied)} not applied this year</>}
+            {carriedItems.unusedCredit > 0 && <> plus {formatCurrency(carriedItems.unusedCredit)} of unused credit</>}
             {' · '}{ps.totalPaid > 0 ? formatCurrency(ps.totalPaid) + ' paid' : 'nothing paid yet'}</>
     );
     const { isOwed, isSettled } = derivePaymentState(ps);
@@ -232,6 +234,14 @@ export default function ShareView() {
             // Uncarried summaries intentionally resolve once per visit until a
             // future shared schema version can distinguish those old cache shapes.
             if (cacheValid && (publicDoc.data().scopes || []).includes('summary:read') && !publicDoc.data().carriedItems) {
+                cacheValid = false;
+            }
+
+            // A carried cache written before #688 has no unusedCredit, and its
+            // remainingCredit ignores an unpaid billed Usage Charge, so it can state
+            // more refundable credit than the household has. Resolve it through the
+            // deployed projection instead of rendering it; the resolver rewrites it.
+            if (cacheValid && publicDoc.data().carriedItems && publicDoc.data().carriedItems.unusedCredit === undefined) {
                 cacheValid = false;
             }
 
@@ -494,7 +504,10 @@ function CarriedItemsPanel({ carried, carriedToggle }) {
 /** The "Not applied this year" floor remainder, shared by the rows and the lead callout. */
 function householdNotApplied(billsSubtotal, ps, serviceCreditTotal, carriedItems) {
     const netAnnual = ps ? ps.combinedAnnualTotal : billsSubtotal;
-    return carriedItems?.notApplied ?? Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
+    // The payload's notApplied is the whole floor remainder (what a page loaded before
+    // #688 adds up); the unused carried-in credit has its own row here.
+    if (carriedItems?.notApplied != null) return Math.max(0, Math.round((carriedItems.notApplied - (carriedItems.unusedCredit || 0)) * 100) / 100);
+    return Math.max(0, Math.round((netAnnual - (billsSubtotal - (serviceCreditTotal || 0))) * 100) / 100);
 }
 
 function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedItems, carriedToggle }) {
@@ -513,6 +526,7 @@ function HouseholdTotalWithCredits({ billsSubtotal, ps, serviceCredits, carriedI
                     ))}
                     {carriedItems && <tr><td>Carried from {carriedItems.fromYear || 'previous year'}</td><td className="share-cell-number"><CarriedToggle {...carriedToggle} showState>{signedCurrency(carriedItems.total)}</CarriedToggle></td></tr>}
                     {notApplied > 0 && <tr><td>Not applied this year</td><td className="share-cell-number">{signedCurrency(notApplied)}</td></tr>}
+                    {carriedItems?.unusedCredit > 0 && <tr><td>Unused {carriedItems.fromYear || 'previous year'} credit</td><td className="share-cell-number">{signedCurrency(carriedItems.unusedCredit)}</td></tr>}
                     <tr className="share-total-row"><td>Household Total</td><td className="share-cell-number"><strong>{formatCurrency(netAnnual)}</strong></td></tr>
                 </tbody>
             </table>
@@ -539,7 +553,8 @@ function HouseholdBillsSection({ data, canDispute, shareCtx, isSettled, billsSub
                 ))}
 
             {data.carriedItems && carriedToggle.panelId && <CarriedItemsPanel carried={data.carriedItems} carriedToggle={carriedToggle} />}
-            {data.carriedItems?.remainingCredit > 0 && <p className="share-hint">Your {data.carriedItems.fromYear || 'previous year'} credit of {formatCurrency(Math.max(0, -data.carriedItems.total))} covers this year; {formatCurrency(data.carriedItems.remainingCredit)} remains. It will carry into next year.</p>}
+            {/* Only a #688 payload (it carries unusedCredit) may promise refundable credit. */}
+            {data.carriedItems?.unusedCredit != null && data.carriedItems.remainingCredit > 0 && <p className="share-hint">Your {data.carriedItems.fromYear || 'previous year'} credit of {formatCurrency(Math.max(0, -data.carriedItems.total))} covers this year; {formatCurrency(data.carriedItems.remainingCredit)} remains as a credit that can be refunded or carried into next year.</p>}
             {allMembers.map(member => (
                 <MemberRow
                     key={member.memberId || member.name}
