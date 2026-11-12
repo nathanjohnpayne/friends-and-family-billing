@@ -71,13 +71,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    # Hold firebase-admin major bumps: firebase-admin 14 violates the
-    # firebase-functions@7.2.5 peer range (firebase-admin <= 13), so a major bump
-    # makes `npm ci` fail in functions/ the same way (open PR #344). Resume once
-    # firebase-functions supports firebase-admin 14, then bump the pair together.
-    ignore:
-      - dependency-name: "firebase-admin"
-        update-types: ["version-update:semver-major"]
     groups:
       # Peer-coupled family (scripts/ci/dependabot-coupled-families.json,
       # mergepath#2162). Keep it first so its members move together.

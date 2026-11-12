@@ -11,7 +11,7 @@
     "protobufjs": "^7.6.3"
   },
   "dependencies": {
-    "firebase-admin": "^13.10.0",
+    "firebase-admin": "^14.5.1",
     "firebase-functions": "^7.4.0",
     "resend": "^6.37.0"
   }
